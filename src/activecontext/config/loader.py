@@ -21,9 +21,11 @@ from activecontext.config.merge import merge_configs
 from activecontext.config.paths import get_config_paths
 from activecontext.config.schema import (
     Config,
+    FilePermissionConfig,
     LLMConfig,
     LoggingConfig,
     ProjectionConfig,
+    SandboxConfig,
     SessionConfig,
     SessionModeConfig,
 )
@@ -161,8 +163,27 @@ def dict_to_config(data: dict[str, Any]) -> Config:
         file=log_data.get("file"),
     )
 
+    # Sandbox config
+    sandbox_data = data.get("sandbox", {})
+    perms_data = sandbox_data.get("file_permissions", [])
+    file_permissions = [
+        FilePermissionConfig(
+            pattern=p.get("pattern", ""),
+            mode=p.get("mode", "read"),
+        )
+        for p in perms_data
+        if isinstance(p, dict) and p.get("pattern")
+    ]
+    sandbox = SandboxConfig(
+        file_permissions=file_permissions,
+        allow_cwd=sandbox_data.get("allow_cwd", True),
+        allow_cwd_write=sandbox_data.get("allow_cwd_write", False),
+        deny_by_default=sandbox_data.get("deny_by_default", True),
+        allow_absolute=sandbox_data.get("allow_absolute", False),
+    )
+
     # Extra fields for extensibility
-    known_keys = {"llm", "session", "projection", "logging"}
+    known_keys = {"llm", "session", "projection", "logging", "sandbox"}
     extra = {k: v for k, v in data.items() if k not in known_keys}
 
     return Config(
@@ -170,6 +191,7 @@ def dict_to_config(data: dict[str, Any]) -> Config:
         session=session,
         projection=projection,
         logging=logging_config,
+        sandbox=sandbox,
         extra=extra,
     )
 

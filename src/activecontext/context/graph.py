@@ -6,13 +6,17 @@ supporting multiple parents per node and efficient traversal.
 
 from __future__ import annotations
 
+import time
+import uuid
 from collections import defaultdict
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
+from activecontext.context.checkpoint import Checkpoint, GroupState
+
 if TYPE_CHECKING:
-    from activecontext.context.nodes import ContextNode
+    from activecontext.context.nodes import ContextNode, GroupNode
 
 
 @dataclass
@@ -33,6 +37,7 @@ class ContextGraph:
     _root_ids: set[str] = field(default_factory=set)
     _by_type: dict[str, set[str]] = field(default_factory=lambda: defaultdict(set))
     _running_nodes: set[str] = field(default_factory=set)
+    _checkpoints: dict[str, Checkpoint] = field(default_factory=dict)
 
     def add_node(self, node: ContextNode) -> str:
         """Add a node to the graph.
@@ -262,6 +267,131 @@ class ContextGraph:
         self._root_ids.clear()
         self._by_type.clear()
         self._running_nodes.clear()
+
+    # -------------------------------------------------------------------------
+    # Checkpointing
+    # -------------------------------------------------------------------------
+
+    def checkpoint(self, name: str) -> Checkpoint:
+        """Capture current edge structure as a named checkpoint.
+
+        Checkpoints save the organizational structure (parent/child links)
+        and group-specific state (summaries, prompts), allowing restoration
+        of a particular view of the content nodes.
+
+        Args:
+            name: Human-readable name for the checkpoint
+
+        Returns:
+            The created Checkpoint
+        """
+        from activecontext.context.nodes import GroupNode
+
+        # Capture all edges
+        edges: list[tuple[str, str]] = [
+            (node.node_id, parent_id)
+            for node in self._nodes.values()
+            for parent_id in node.parent_ids
+        ]
+
+        # Capture group-specific state
+        group_states: dict[str, GroupState] = {}
+        for node in self._nodes.values():
+            if isinstance(node, GroupNode):
+                group_states[node.node_id] = GroupState(
+                    node_id=node.node_id,
+                    summary_prompt=node.summary_prompt,
+                    cached_summary=node.cached_summary,
+                    last_child_versions=dict(node.last_child_versions),
+                )
+
+        cp = Checkpoint(
+            checkpoint_id=str(uuid.uuid4())[:8],
+            name=name,
+            created_at=time.time(),
+            edges=edges,
+            group_states=group_states,
+            root_ids=set(self._root_ids),
+        )
+
+        self._checkpoints[name] = cp
+        return cp
+
+    def restore(self, name_or_checkpoint: str | Checkpoint) -> None:
+        """Restore edge structure from a checkpoint.
+
+        This replaces the current parent/child links with those from the
+        checkpoint. Content nodes are preserved; only the organizational
+        structure changes.
+
+        Args:
+            name_or_checkpoint: Checkpoint name or Checkpoint object
+        """
+        from activecontext.context.nodes import GroupNode
+
+        # Get checkpoint
+        if isinstance(name_or_checkpoint, str):
+            cp = self._checkpoints.get(name_or_checkpoint)
+            if not cp:
+                raise KeyError(f"Checkpoint not found: {name_or_checkpoint}")
+        else:
+            cp = name_or_checkpoint
+
+        # Clear all current edges
+        for node in self._nodes.values():
+            node.parent_ids.clear()
+            node.children_ids.clear()
+        self._root_ids.clear()
+
+        # Restore edges from checkpoint
+        for child_id, parent_id in cp.edges:
+            if child_id in self._nodes and parent_id in self._nodes:
+                self.link(child_id, parent_id)
+
+        # Restore root IDs for nodes that exist
+        for root_id in cp.root_ids:
+            if root_id in self._nodes:
+                node = self._nodes[root_id]
+                if not node.parent_ids:
+                    self._root_ids.add(root_id)
+
+        # Restore group states
+        for node_id, state in cp.group_states.items():
+            node = self._nodes.get(node_id)
+            if isinstance(node, GroupNode):
+                node.summary_prompt = state.summary_prompt
+                node.cached_summary = state.cached_summary
+                node.last_child_versions = dict(state.last_child_versions)
+
+    def get_checkpoints(self) -> list[Checkpoint]:
+        """List all checkpoints.
+
+        Returns:
+            List of all checkpoints, ordered by creation time
+        """
+        return sorted(self._checkpoints.values(), key=lambda cp: cp.created_at)
+
+    def get_checkpoint(self, name: str) -> Checkpoint | None:
+        """Get a checkpoint by name.
+
+        Args:
+            name: The checkpoint name
+
+        Returns:
+            The Checkpoint, or None if not found
+        """
+        return self._checkpoints.get(name)
+
+    def delete_checkpoint(self, name: str) -> bool:
+        """Delete a checkpoint by name.
+
+        Args:
+            name: The checkpoint name
+
+        Returns:
+            True if deleted, False if not found
+        """
+        return self._checkpoints.pop(name, None) is not None
 
     def __len__(self) -> int:
         """Return number of nodes in graph."""

@@ -7,14 +7,17 @@ Rider, Zed, and other ACP-supporting editors.
 from __future__ import annotations
 
 import asyncio
+import uuid
 from typing import TYPE_CHECKING, Any
 
 import acp
+from acp import helpers
 from acp.schema import (
     AgentCapabilities,
     ClientCapabilities,
     Implementation,
     ModelInfo,
+    PermissionOption,
     PromptCapabilities,
     SessionCapabilities,
     SessionMode,
@@ -23,6 +26,7 @@ from acp.schema import (
     SetSessionModelResponse,
     SetSessionModeResponse,
     TextContentBlock,
+    ToolCallUpdate,
 )
 
 from activecontext.core.llm import (
@@ -33,6 +37,7 @@ from activecontext.core.llm import (
 from activecontext.logging import get_logger
 from activecontext.session.protocols import UpdateKind
 from activecontext.session.session_manager import SessionManager
+from activecontext.terminal.acp_executor import ACPTerminalExecutor
 
 log = get_logger("acp")
 
@@ -173,6 +178,75 @@ class ActiveContextAgent:
 
     # --- End batching ---
 
+    # --- File permission requests ---
+
+    async def _request_file_permission(
+        self, session_id: str, path: str, mode: str
+    ) -> tuple[bool, bool]:
+        """Request file access permission from user via ACP.
+
+        This is called when the Timeline catches a PermissionDenied exception.
+        The user is prompted to allow or deny access.
+
+        Args:
+            session_id: The session requesting permission.
+            path: Absolute path to the file.
+            mode: "read" or "write".
+
+        Returns:
+            (granted, persist) - granted=True if allowed, persist=True if "allow_always"
+        """
+        if not self._conn:
+            log.warning("No ACP client connected, denying permission request")
+            return (False, False)
+
+        tool_call = ToolCallUpdate(
+            tool_call_id=f"file-access-{uuid.uuid4()}",
+            title=f"File {mode} access",
+            kind="read" if mode == "read" else "edit",
+            status="pending",
+            content=[
+                helpers.tool_content(
+                    helpers.text_block(
+                        f"The agent wants to {mode} the file:\n{path}"
+                    )
+                )
+            ],
+        )
+
+        options = [
+            PermissionOption(option_id="allow_once", name="Allow once", kind="allow_once"),
+            PermissionOption(
+                option_id="allow_always", name="Allow always", kind="allow_always"
+            ),
+            PermissionOption(option_id="deny", name="Deny", kind="reject_once"),
+        ]
+
+        try:
+            response = await self._conn.request_permission(
+                options=options,
+                session_id=session_id,
+                tool_call=tool_call,
+            )
+
+            if response.outcome.outcome == "selected":
+                option_id = response.outcome.option_id
+                if option_id == "allow_once":
+                    log.info("Permission granted (once) for %s: %s", mode, path)
+                    return (True, False)
+                elif option_id == "allow_always":
+                    log.info("Permission granted (always) for %s: %s", mode, path)
+                    return (True, True)
+
+            log.info("Permission denied for %s: %s", mode, path)
+            return (False, False)
+
+        except Exception as e:
+            log.error("Permission request failed: %s", e)
+            return (False, False)
+
+    # --- End file permission requests ---
+
     def on_connect(self, conn: Client) -> None:
         """Called when a client connects."""
         self._conn = conn
@@ -208,7 +282,24 @@ class ActiveContextAgent:
         **kwargs: Any,
     ) -> acp.NewSessionResponse:
         """Create a new session."""
-        session = await self._manager.create_session(cwd=cwd)
+        # Create permission requester callback bound to this agent
+        permission_requester = self._request_file_permission
+
+        session = await self._manager.create_session(
+            cwd=cwd,
+            permission_requester=permission_requester,
+        )
+
+        # Now create ACP terminal executor with the actual session_id
+        if self._conn:
+            terminal_executor = ACPTerminalExecutor(
+                client=self._conn,
+                session_id=session.session_id,
+                default_cwd=cwd,
+            )
+            # Update the timeline with the ACP executor
+            session.timeline._terminal_executor = terminal_executor
+
         self._sessions_cwd[session.session_id] = cwd
         self._sessions_mode[session.session_id] = self._default_mode_id
 

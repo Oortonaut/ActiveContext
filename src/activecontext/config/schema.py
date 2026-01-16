@@ -58,6 +58,44 @@ class LoggingConfig:
 
 
 @dataclass
+class FilePermissionConfig:
+    """A file permission rule for the sandbox.
+
+    Defines a glob pattern and access mode for file operations.
+    """
+
+    pattern: str  # Glob pattern (e.g., "*.py", "./data/**")
+    mode: str = "read"  # "read", "write", or "all"
+
+
+@dataclass
+class ImportConfig:
+    """Import whitelist configuration for the REPL sandbox.
+
+    Controls which modules can be imported by code executing in the Timeline.
+    """
+
+    allowed_modules: list[str] = field(default_factory=list)  # Whitelist of module names
+    allow_submodules: bool = True  # Allow submodules of whitelisted modules (e.g., os.path)
+    allow_all: bool = False  # Bypass whitelist entirely (insecure, for trusted code)
+
+
+@dataclass
+class SandboxConfig:
+    """Sandbox configuration for file access control.
+
+    Controls which files can be read/written by code executing in the Timeline.
+    """
+
+    file_permissions: list[FilePermissionConfig] = field(default_factory=list)
+    allow_cwd: bool = True  # Auto-grant read access to cwd
+    allow_cwd_write: bool = False  # Auto-grant write access to cwd
+    deny_by_default: bool = True  # Deny unlisted paths
+    allow_absolute: bool = False  # Allow paths outside cwd
+    imports: ImportConfig = field(default_factory=ImportConfig)  # Import whitelist
+
+
+@dataclass
 class Config:
     """Root configuration object.
 
@@ -69,6 +107,7 @@ class Config:
     session: SessionConfig = field(default_factory=SessionConfig)
     projection: ProjectionConfig = field(default_factory=ProjectionConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
+    sandbox: SandboxConfig = field(default_factory=SandboxConfig)
 
     # Extension point for future config sections
     extra: dict[str, Any] = field(default_factory=dict)

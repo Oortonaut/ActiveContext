@@ -16,6 +16,7 @@ from activecontext.session import (
     Timeline,
     UpdateKind,
 )
+from activecontext.terminal import ShellResult
 from activecontext.transport import ActiveContext, AsyncSession
 
 __all__ = [
@@ -41,4 +42,6 @@ __all__ = [
     "Statement",
     "Timeline",
     "UpdateKind",
+    # Terminal
+    "ShellResult",
 ]

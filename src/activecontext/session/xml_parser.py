@@ -37,7 +37,7 @@ import xml.etree.ElementTree as ET
 CONSTRUCTOR_TAGS = {"view", "group", "topic", "artifact"}
 
 # Tags that are utility functions (no self, no variable binding)
-UTILITY_TAGS = {"ls", "show", "done", "link", "unlink"}
+UTILITY_TAGS = {"ls", "show", "done", "link", "unlink", "shell"}
 
 # Map XML attribute names to Python argument names for constructors
 CONSTRUCTOR_ARG_MAP: dict[str, dict[str, str]] = {
@@ -184,6 +184,27 @@ def _utility_to_python(tag: str, attrs: dict[str, str]) -> str:
         if not child or not parent:
             raise ValueError(f"<{tag}> requires 'child' and 'parent' attributes")
         return f"{tag}({child}, {parent})"
+
+    # shell - command is positional, args is comma-separated list
+    if tag == "shell":
+        command = attrs.pop("command", None)
+        if not command:
+            raise ValueError("<shell> requires 'command' attribute")
+
+        parts: list[str] = [_format_value(command)]
+
+        # Handle args as comma-separated string -> Python list
+        if "args" in attrs:
+            args_str = attrs.pop("args")
+            args_list = [arg.strip() for arg in args_str.split(",") if arg.strip()]
+            parts.append(f"args={args_list!r}")
+
+        # Remaining attrs become kwargs
+        for k, v in attrs.items():
+            if k not in SPECIAL_ATTRS:
+                parts.append(f"{k}={_format_value(v)}")
+
+        return f"shell({', '.join(parts)})"
 
     # ls, done - all attrs are kwargs
     kwargs = [f"{k}={_format_value(v)}" for k, v in attrs.items() if k not in SPECIAL_ATTRS]

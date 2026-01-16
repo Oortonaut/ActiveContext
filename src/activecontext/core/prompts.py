@@ -33,6 +33,15 @@ You have access to these functions in your Python environment:
 - `ls()` - List all context handles
 - `show(obj)` - Display a handle's content
 
+### Shell Execution
+- `shell(command, args=None, cwd=None, env=None, timeout=30)` - Execute a shell command
+  - `command`: The command to execute (e.g., "pytest", "git", "npm")
+  - `args`: List of arguments (e.g., ["tests/", "-v"])
+  - `cwd`: Working directory (default: session cwd)
+  - `env`: Additional environment variables (dict)
+  - `timeout`: Timeout in seconds (default: 30, None for no limit)
+  - Returns: `ShellResult` with `output`, `exit_code`, `success`, `status`
+
 ### Agent Control
 - `done(message="")` - Signal task completion
   - Call this when you have finished the user's request
@@ -71,6 +80,10 @@ You can also use XML-style tags instead of Python syntax:
 <ls/>
 <show self="v"/>
 <done message="Task complete"/>
+
+<!-- Shell execution -->
+<shell command="pytest" args="tests/,-v" timeout="60"/>
+<shell command="git" args="status,--short"/>
 
 <!-- DAG manipulation -->
 <link child="v" parent="g"/>

@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Any
 from activecontext.context.graph import ContextGraph
 from activecontext.core.projection_engine import ProjectionConfig, ProjectionEngine
 from activecontext.logging import get_logger
+from activecontext.session.permissions import PermissionManager
 from activecontext.session.protocols import (
     Projection,
     SessionUpdate,
@@ -26,8 +27,18 @@ from activecontext.session.timeline import Timeline
 log = get_logger("session")
 
 if TYPE_CHECKING:
+    from collections.abc import Callable, Coroutine
+    from typing import Any
+
     from activecontext.config.schema import Config
     from activecontext.core.llm.provider import LLMProvider, Message
+    from activecontext.terminal.protocol import TerminalExecutor
+
+    # Type for permission requester callback:
+    # async (session_id, path, mode) -> (granted, persist)
+    PermissionRequester = Callable[
+        [str, str, str], Coroutine[Any, Any, tuple[bool, bool]]
+    ]
 
 
 class Session:
@@ -446,6 +457,8 @@ class SessionManager:
         """
         self._sessions: dict[str, Session] = {}
         self._default_llm = default_llm
+        # Track config reload unregister callbacks per session
+        self._reload_unregisters: dict[str, Callable[[], None]] = {}
 
     def set_default_llm(self, llm: LLMProvider | None) -> None:
         """Set the default LLM provider for new sessions."""
@@ -456,6 +469,8 @@ class SessionManager:
         cwd: str,
         session_id: str | None = None,
         llm: LLMProvider | None = None,
+        terminal_executor: TerminalExecutor | None = None,
+        permission_requester: PermissionRequester | None = None,
     ) -> Session:
         """Create a new session with its own timeline.
 
@@ -463,6 +478,10 @@ class SessionManager:
             cwd: Working directory for the session
             session_id: Optional specific ID; generated if not provided
             llm: Optional LLM provider; uses default if not provided
+            terminal_executor: Optional terminal executor for shell commands;
+                defaults to SubprocessTerminalExecutor if not provided
+            permission_requester: Optional callback for ACP permission prompts;
+                async (session_id, path, mode) -> (granted, persist)
         """
         if session_id is None:
             session_id = str(uuid.uuid4())
@@ -473,7 +492,17 @@ class SessionManager:
         # Load project-level config (merges with system/user config)
         project_config = self._load_project_config(cwd)
 
-        timeline = Timeline(session_id, cwd=cwd)
+        # Create permission manager from config
+        sandbox_config = project_config.sandbox if project_config else None
+        permission_manager = PermissionManager.from_config(cwd, sandbox_config)
+
+        timeline = Timeline(
+            session_id,
+            cwd=cwd,
+            permission_manager=permission_manager,
+            terminal_executor=terminal_executor,
+            permission_requester=permission_requester,
+        )
         session = Session(
             session_id=session_id,
             cwd=cwd,
@@ -483,10 +512,51 @@ class SessionManager:
         )
         self._sessions[session_id] = session
 
+        # Register for config reload to update permissions
+        unregister = self._setup_permission_reload(
+            session_id, cwd, permission_manager
+        )
+        self._reload_unregisters[session_id] = unregister
+
         # Initialize with example context view if guide exists
         await session._setup_initial_context()
 
         return session
+
+    def _setup_permission_reload(
+        self,
+        session_id: str,
+        cwd: str,
+        permission_manager: PermissionManager,
+    ) -> Callable[[], None]:
+        """Set up config reload callback for a session's permission manager.
+
+        Args:
+            session_id: Session ID for tracking.
+            cwd: Working directory for config loading.
+            permission_manager: PermissionManager to update on reload.
+
+        Returns:
+            Unregister function to remove the callback.
+        """
+        try:
+            from activecontext.config.loader import on_config_reload
+
+            def on_reload(new_config: Config) -> None:
+                # Only update if session still exists
+                if session_id in self._sessions:
+                    sandbox_config = new_config.sandbox if new_config else None
+                    permission_manager.reload(sandbox_config)
+                    log.debug(
+                        "Permissions reloaded for session %s: %d rules",
+                        session_id,
+                        len(permission_manager.rules),
+                    )
+
+            return on_config_reload(on_reload)
+        except ImportError:
+            log.debug("Config reload not available")
+            return lambda: None
 
     def _load_project_config(self, cwd: str) -> Config | None:
         """Load project-level config for a session.
@@ -532,3 +602,8 @@ class SessionManager:
         if session_id in self._sessions:
             session = self._sessions.pop(session_id)
             await session.cancel()
+
+            # Unregister config reload callback
+            if session_id in self._reload_unregisters:
+                unregister = self._reload_unregisters.pop(session_id)
+                unregister()

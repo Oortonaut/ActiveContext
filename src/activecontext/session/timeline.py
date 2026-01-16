@@ -9,6 +9,7 @@ for a session. It manages:
 
 from __future__ import annotations
 
+import asyncio
 import time
 import traceback
 import uuid
@@ -26,6 +27,14 @@ from activecontext.context.nodes import (
     TopicNode,
     ViewNode,
 )
+from activecontext.session.permissions import (
+    ImportGuard,
+    PermissionDenied,
+    PermissionManager,
+    make_safe_import,
+    make_safe_open,
+    write_permission_to_config,
+)
 from activecontext.session.protocols import (
     ExecutionResult,
     ExecutionStatus,
@@ -35,7 +44,13 @@ from activecontext.session.protocols import (
 from activecontext.session.xml_parser import is_xml_command, parse_xml_to_python
 
 if TYPE_CHECKING:
-    pass
+    from collections.abc import Callable
+
+    from activecontext.terminal.protocol import TerminalExecutor
+
+    # Type for permission requester callback:
+    # async (session_id, path, mode) -> (granted, persist)
+    PermissionRequester = Callable[[str, str, str], "asyncio.Future[tuple[bool, bool]]"]
 
 
 @dataclass
@@ -65,6 +80,10 @@ class Timeline:
         session_id: str,
         cwd: str = ".",
         context_graph: ContextGraph | None = None,
+        permission_manager: PermissionManager | None = None,
+        terminal_executor: TerminalExecutor | None = None,
+        permission_requester: PermissionRequester | None = None,
+        import_guard: ImportGuard | None = None,
     ) -> None:
         self._session_id = session_id
         self._cwd = cwd
@@ -73,6 +92,25 @@ class Timeline:
 
         # Context graph (DAG of context nodes)
         self._context_graph = context_graph or ContextGraph()
+
+        # Permission manager for file access control
+        self._permission_manager = permission_manager
+
+        # Import guard for module whitelist control
+        self._import_guard = import_guard
+
+        # Permission requester callback for ACP permission prompts
+        # Called when PermissionDenied is raised: async (session_id, path, mode) -> (granted, persist)
+        self._permission_requester = permission_requester
+
+        # Terminal executor for shell commands (default to subprocess)
+        if terminal_executor is None:
+            from activecontext.terminal.subprocess_executor import (
+                SubprocessTerminalExecutor,
+            )
+
+            terminal_executor = SubprocessTerminalExecutor(default_cwd=cwd)
+        self._terminal_executor = terminal_executor
 
         # Controlled Python namespace
         self._namespace: dict[str, Any] = {}
@@ -104,6 +142,17 @@ class Timeline:
             if not name.startswith("_")
         }
 
+        # Wrap open() with permission checks if permission_manager is provided
+        if self._permission_manager:
+            safe_builtins["open"] = make_safe_open(self._permission_manager)
+
+        # Wrap __import__ with whitelist checks if import_guard is provided
+        if self._import_guard:
+            safe_builtins["__import__"] = make_safe_import(self._import_guard)
+        else:
+            # Expose default __import__ for imports to work
+            safe_builtins["__import__"] = builtins.__import__
+
         self._namespace = {
             "__builtins__": safe_builtins,
             "__name__": "__activecontext__",
@@ -116,11 +165,48 @@ class Timeline:
             # DAG manipulation
             "link": self._link,
             "unlink": self._unlink,
+            # Checkpointing
+            "checkpoint": self._checkpoint,
+            "restore": self._restore,
+            "checkpoints": self._list_checkpoints,
+            "branch": self._branch,
             # Utility functions
             "ls": self._ls_handles,
             "show": self._show_handle,
+            "ls_permissions": self._ls_permissions,
+            "ls_imports": self._ls_imports,
+            # Shell execution
+            "shell": self._shell,
             # Agent control
             "done": self._done,
+        }
+
+    def _ls_permissions(self) -> list[dict[str, Any]]:
+        """List current file permissions (read-only inspection).
+
+        Returns:
+            List of permission rules with pattern, mode, and source.
+        """
+        if self._permission_manager:
+            return self._permission_manager.list_permissions()
+        return []
+
+    def _ls_imports(self) -> dict[str, Any]:
+        """List import whitelist configuration (read-only inspection).
+
+        Returns:
+            Dict with allowed_modules list, allow_submodules, and allow_all flags.
+        """
+        if self._import_guard:
+            return {
+                "allowed_modules": self._import_guard.list_allowed(),
+                "allow_submodules": self._import_guard.allow_submodules,
+                "allow_all": self._import_guard.allow_all,
+            }
+        return {
+            "allowed_modules": [],
+            "allow_submodules": True,
+            "allow_all": True,  # No guard means unrestricted
         }
 
     def _make_view_node(
@@ -324,6 +410,54 @@ class Timeline:
         parent_id = parent.node_id if isinstance(parent, ContextNode) else parent
         return self._context_graph.unlink(child_id, parent_id)
 
+    def _checkpoint(self, name: str) -> Any:
+        """Create a checkpoint of the current DAG structure.
+
+        Captures the organizational structure (edges) and group state,
+        allowing later restoration via restore().
+
+        Args:
+            name: Human-readable name for the checkpoint
+
+        Returns:
+            The created Checkpoint object
+        """
+        return self._context_graph.checkpoint(name)
+
+    def _restore(self, name_or_checkpoint: str | Any) -> None:
+        """Restore DAG structure from a checkpoint.
+
+        Replaces current parent/child links with those from the checkpoint.
+        Content nodes are preserved; only organizational structure changes.
+
+        Args:
+            name_or_checkpoint: Checkpoint name (str) or Checkpoint object
+        """
+        self._context_graph.restore(name_or_checkpoint)
+
+    def _list_checkpoints(self) -> list[dict[str, Any]]:
+        """List all checkpoints with their metadata.
+
+        Returns:
+            List of checkpoint digests (name, created_at, edge_count, etc.)
+        """
+        return [cp.get_digest() for cp in self._context_graph.get_checkpoints()]
+
+    def _branch(self, name: str) -> Any:
+        """Save current structure as a checkpoint and continue.
+
+        Convenience function that creates a checkpoint of the current state,
+        allowing you to continue modifying the DAG while preserving the
+        checkpoint for later restoration.
+
+        Args:
+            name: Name for the checkpoint
+
+        Returns:
+            The created Checkpoint object
+        """
+        return self._context_graph.checkpoint(name)
+
     def _ls_handles(self) -> list[dict[str, Any]]:
         """List all context object handles with brief digests."""
         return [obj.GetDigest() for obj in self._context_objects.values()]
@@ -332,6 +466,36 @@ class Timeline:
         """Force render a handle (placeholder)."""
         digest = obj.GetDigest() if hasattr(obj, "GetDigest") else str(obj)
         return f"[{digest}]"
+
+    def _shell(
+        self,
+        command: str,
+        args: list[str] | None = None,
+        cwd: str | None = None,
+        env: dict[str, str] | None = None,
+        timeout: float | None = 30.0,
+    ) -> Any:
+        """Execute a shell command.
+
+        Returns a coroutine that must be awaited by execute_statement.
+
+        Args:
+            command: The command to execute (e.g., "pytest", "git").
+            args: Optional list of arguments (e.g., ["tests/", "-v"]).
+            cwd: Working directory. If None, uses session cwd.
+            env: Additional environment variables.
+            timeout: Timeout in seconds (default: 30). None for no timeout.
+
+        Returns:
+            Coroutine that resolves to ShellResult.
+        """
+        return self._terminal_executor.execute(
+            command=command,
+            args=args,
+            cwd=cwd,
+            env=env,
+            timeout=timeout,
+        )
 
     def _done(self, message: str = "") -> None:
         """Signal that the agent has completed its task.
@@ -383,12 +547,27 @@ class Timeline:
     def _snapshot_namespace(self) -> dict[str, Any]:
         """Create a shallow snapshot of user-defined namespace entries."""
         # Exclude injected DSL functions
-        excluded = {"view", "group", "topic", "artifact", "link", "unlink", "ls", "show", "done"}
+        excluded = {
+            "view", "group", "topic", "artifact",
+            "link", "unlink",
+            "checkpoint", "restore", "checkpoints", "branch",
+            "ls", "show", "ls_permissions", "ls_imports", "shell", "done",
+        }
         return {
             k: v
             for k, v in self._namespace.items()
             if not k.startswith("__") and k not in excluded
         }
+
+    async def _await_namespace_coroutines(self) -> None:
+        """Await any coroutines stored in the namespace and replace with results.
+
+        This handles cases like `result = shell("echo", ["hello"])` where
+        exec() stores a coroutine in the namespace that needs to be awaited.
+        """
+        for key, value in list(self._namespace.items()):
+            if asyncio.iscoroutine(value):
+                self._namespace[key] = await value
 
     async def execute_statement(self, source: str) -> ExecutionResult:
         """Execute a Python statement and record it.
@@ -396,6 +575,10 @@ class Timeline:
         Supports both Python syntax and XML-style tags:
             Python: v = view("main.py", tokens=2000)
             XML:    <view name="v" path="main.py" tokens="2000"/>
+
+        If a PermissionDenied exception is raised and a permission_requester
+        callback is configured, the user will be prompted for permission.
+        On grant, the statement is retried.
         """
         statement_id = str(uuid.uuid4())
         execution_id = str(uuid.uuid4())
@@ -432,6 +615,79 @@ class Timeline:
         )
         self._statements.append(stmt)
 
+        # Execute with permission request retry loop
+        max_permission_retries = 3  # Prevent infinite permission loops
+        for attempt in range(max_permission_retries):
+            result = await self._execute_statement_inner(
+                source, statement_id, execution_id
+            )
+
+            # Check if we got a PermissionDenied error and can request permission
+            if (
+                result.status == ExecutionStatus.ERROR
+                and result.exception
+                and result.exception.get("type") == "PermissionDenied"
+                and self._permission_requester
+                and self._permission_manager
+            ):
+                # Extract permission info from exception message
+                # Format: "path|mode|original_path"
+                perm_info = result.exception.get("_permission_info")
+                if perm_info:
+                    perm_path, perm_mode, perm_original = perm_info
+
+                    # Request permission from user via ACP
+                    granted, persist = await self._permission_requester(
+                        self._session_id, perm_path, perm_mode
+                    )
+
+                    if granted:
+                        # User granted permission
+                        if persist:
+                            # "Allow always" - write to config file
+                            write_permission_to_config(
+                                Path(self._cwd), perm_original, perm_mode
+                            )
+                            # Reload config to pick up new rule
+                            from activecontext.config import load_config
+
+                            config = load_config(session_root=self._cwd)
+                            self._permission_manager.reload(config.sandbox)
+                        else:
+                            # "Allow once" - grant temporary access
+                            self._permission_manager.grant_temporary(perm_path, perm_mode)
+
+                        # Retry the statement with new permission
+                        execution_id = str(uuid.uuid4())  # New execution ID for retry
+                        continue
+
+                    # User denied - return the error result
+                    # Replace PermissionDenied with PermissionError for LLM
+                    result = ExecutionResult(
+                        execution_id=result.execution_id,
+                        statement_id=result.statement_id,
+                        status=result.status,
+                        stdout=result.stdout,
+                        stderr=result.stderr,
+                        exception={
+                            "type": "PermissionError",
+                            "message": f"Access denied: {perm_mode} access to '{perm_path}'",
+                            "traceback": result.exception.get("traceback", ""),
+                        },
+                        state_diff=result.state_diff,
+                        duration_ms=result.duration_ms,
+                    )
+
+            # No permission retry needed or granted, return result
+            return result
+
+        # Max retries exceeded - should not normally happen
+        return result
+
+    async def _execute_statement_inner(
+        self, source: str, statement_id: str, execution_id: str
+    ) -> ExecutionResult:
+        """Inner execution logic for a single statement attempt."""
         # Capture namespace before
         ns_before = self._snapshot_namespace()
 
@@ -448,11 +704,25 @@ class Timeline:
                 try:
                     # Try as expression first
                     result = eval(source, self._namespace)
+                    # Handle coroutines (e.g., from shell())
+                    if asyncio.iscoroutine(result):
+                        result = await result
                     if result is not None:
                         print(repr(result))
                 except SyntaxError:
                     # Fall back to exec for statements
                     exec(source, self._namespace)
+                    # After exec, check for coroutines in new namespace entries
+                    await self._await_namespace_coroutines()
+        except PermissionDenied as e:
+            # Special handling for permission denied - include metadata for retry
+            status = ExecutionStatus.ERROR
+            exception_info = {
+                "type": "PermissionDenied",
+                "message": str(e),
+                "traceback": traceback.format_exc(),
+                "_permission_info": (e.path, e.mode, e.original_path),
+            }
         except Exception as e:
             status = ExecutionStatus.ERROR
             exception_info = {
@@ -537,3 +807,37 @@ class Timeline:
     def context_graph(self) -> ContextGraph:
         """The context graph (DAG of context nodes)."""
         return self._context_graph
+
+    @property
+    def permission_manager(self) -> PermissionManager | None:
+        """The permission manager for file access control."""
+        return self._permission_manager
+
+    def set_permission_manager(self, permission_manager: PermissionManager | None) -> None:
+        """Set or update the permission manager.
+
+        Updates the namespace to use the new permission manager's safe_open.
+
+        Args:
+            permission_manager: New permission manager (or None to disable).
+        """
+        self._permission_manager = permission_manager
+        # Rebuild namespace to update the open() wrapper
+        self._setup_namespace()
+
+    @property
+    def import_guard(self) -> ImportGuard | None:
+        """The import guard for module whitelist control."""
+        return self._import_guard
+
+    def set_import_guard(self, import_guard: ImportGuard | None) -> None:
+        """Set or update the import guard.
+
+        Updates the namespace to use the new import guard's safe_import.
+
+        Args:
+            import_guard: New import guard (or None to allow all imports).
+        """
+        self._import_guard = import_guard
+        # Rebuild namespace to update the __import__ wrapper
+        self._setup_namespace()
