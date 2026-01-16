@@ -2,15 +2,19 @@
 
 This guide explains how to use the context system to work with files and code.
 
-## Views
+## Code Execution
 
-A **view** is a window into a file. Create one with:
+Use ` ```python/acrepl ` blocks for code that will be executed:
 
 ```python/acrepl
 v = view("src/main.py", tokens=2000)
 ```
 
-The view appears in your context on the next turn, showing the file content with line numbers.
+Regular ` ```python ` blocks are for showing examples (not executed).
+
+## Views
+
+A **view** is a window into a file. The view appears in your context on the next turn, showing the file content with line numbers.
 
 ### View Parameters
 
