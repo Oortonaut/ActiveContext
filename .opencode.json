@@ -1,0 +1,33 @@
+{
+  "mcpServers": {
+    "cclsp": {
+      "command": "node",
+      "args": ["/path/to/cclsp/dist/index.js"],
+      "env": {}
+    },
+    "neo4j": {
+      "command": "docker",
+      "args": [
+        "run", "--rm", "-i",
+        "--name", "neo4j-mcp",
+        "-e", "NEO4J_URI=bolt://localhost:7687",
+        "-e", "NEO4J_USER=neo4j",
+        "-e", "NEO4J_PASSWORD=password",
+        "mcp/neo4j"
+      ],
+      "env": {}
+    },
+    "neo4j-memory": {
+      "command": "docker",
+      "args": [
+        "run", "--rm", "-i",
+        "--name", "neo4j-memory-mcp",
+        "-e", "NEO4J_URI=bolt://localhost:7687",
+        "-e", "NEO4J_USER=neo4j",
+        "-e", "NEO4J_PASSWORD=password",
+        "mcp/neo4j-memory"
+      ],
+      "env": {}
+    }
+  }
+}
