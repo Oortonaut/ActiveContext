@@ -17,6 +17,7 @@ from collections.abc import AsyncIterator
 from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import dataclass
 from io import StringIO
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from activecontext.context.graph import ContextGraph
@@ -100,7 +101,7 @@ class Timeline:
         self._import_guard = import_guard
 
         # Permission requester callback for ACP permission prompts
-        # Called when PermissionDenied is raised: async (session_id, path, mode) -> (granted, persist)
+        # Called when PermissionDenied is raised: async (sid, path, mode) -> (granted, persist)
         self._permission_requester = permission_requester
 
         # Terminal executor for shell commands (default to subprocess)
@@ -617,52 +618,50 @@ class Timeline:
 
         # Execute with permission request retry loop
         max_permission_retries = 3  # Prevent infinite permission loops
-        for attempt in range(max_permission_retries):
+        for _attempt in range(max_permission_retries):
             result = await self._execute_statement_inner(
                 source, statement_id, execution_id
             )
 
-            # Check if we got a PermissionDenied error and can request permission
+            # Check if we got a PermissionDenied error
             if (
                 result.status == ExecutionStatus.ERROR
                 and result.exception
                 and result.exception.get("type") == "PermissionDenied"
-                and self._permission_requester
-                and self._permission_manager
             ):
-                # Extract permission info from exception message
-                # Format: "path|mode|original_path"
                 perm_info = result.exception.get("_permission_info")
                 if perm_info:
                     perm_path, perm_mode, perm_original = perm_info
 
-                    # Request permission from user via ACP
-                    granted, persist = await self._permission_requester(
-                        self._session_id, perm_path, perm_mode
-                    )
+                    # Try to request permission if requester is available
+                    if self._permission_requester and self._permission_manager:
+                        # Request permission from user via ACP
+                        granted, persist = await self._permission_requester(
+                            self._session_id, perm_path, perm_mode
+                        )
 
-                    if granted:
-                        # User granted permission
-                        if persist:
-                            # "Allow always" - write to config file
-                            write_permission_to_config(
-                                Path(self._cwd), perm_original, perm_mode
-                            )
-                            # Reload config to pick up new rule
-                            from activecontext.config import load_config
+                        if granted:
+                            # User granted permission
+                            if persist:
+                                # "Allow always" - write to config file
+                                write_permission_to_config(
+                                    Path(self._cwd), perm_original, perm_mode
+                                )
+                                # Reload config to pick up new rule
+                                from activecontext.config import load_config
 
-                            config = load_config(session_root=self._cwd)
-                            self._permission_manager.reload(config.sandbox)
-                        else:
-                            # "Allow once" - grant temporary access
-                            self._permission_manager.grant_temporary(perm_path, perm_mode)
+                                config = load_config(session_root=self._cwd)
+                                self._permission_manager.reload(config.sandbox)
+                            else:
+                                # "Allow once" - grant temporary access
+                                self._permission_manager.grant_temporary(perm_path, perm_mode)
 
-                        # Retry the statement with new permission
-                        execution_id = str(uuid.uuid4())  # New execution ID for retry
-                        continue
+                            # Retry the statement with new permission
+                            execution_id = str(uuid.uuid4())  # New execution ID for retry
+                            continue
 
-                    # User denied - return the error result
-                    # Replace PermissionDenied with PermissionError for LLM
+                    # No requester or user denied - convert to PermissionError for LLM
+                    # The LLM shouldn't see the internal PermissionDenied type
                     result = ExecutionResult(
                         execution_id=result.execution_id,
                         statement_id=result.statement_id,

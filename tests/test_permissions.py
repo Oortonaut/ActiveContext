@@ -462,3 +462,620 @@ class TestTimelineIntegration:
         # Should work without restrictions
         assert result.status.value == "ok"
         assert "allowed content" in result.stdout
+
+
+class TestImportGuard:
+    """Test the ImportGuard class."""
+
+    def test_empty_whitelist_denies_all(self) -> None:
+        """Test empty whitelist denies all imports."""
+        guard = ImportGuard()
+
+        assert not guard.is_allowed("os")
+        assert not guard.is_allowed("sys")
+        assert not guard.is_allowed("json")
+
+    def test_allow_all_bypasses_whitelist(self) -> None:
+        """Test allow_all=True permits any import."""
+        guard = ImportGuard(allow_all=True)
+
+        assert guard.is_allowed("os")
+        assert guard.is_allowed("subprocess")
+        assert guard.is_allowed("anything")
+
+    def test_exact_module_match(self) -> None:
+        """Test exact module name matching."""
+        guard = ImportGuard(allowed_modules={"json", "math"})
+
+        assert guard.is_allowed("json")
+        assert guard.is_allowed("math")
+        assert not guard.is_allowed("os")
+        assert not guard.is_allowed("sys")
+
+    def test_submodule_allowed_by_default(self) -> None:
+        """Test submodules are allowed when parent is whitelisted."""
+        guard = ImportGuard(
+            allowed_modules={"os"},
+            allow_submodules=True,
+        )
+
+        assert guard.is_allowed("os")
+        assert guard.is_allowed("os.path")
+        assert guard.is_allowed("os.path.join")
+        assert not guard.is_allowed("sys")
+
+    def test_submodule_denied_when_disabled(self) -> None:
+        """Test submodules are denied when allow_submodules=False."""
+        guard = ImportGuard(
+            allowed_modules={"os"},
+            allow_submodules=False,
+        )
+
+        assert guard.is_allowed("os")
+        assert not guard.is_allowed("os.path")
+
+    def test_explicit_submodule_whitelist(self) -> None:
+        """Test explicitly whitelisted submodules work regardless of allow_submodules."""
+        guard = ImportGuard(
+            allowed_modules={"os.path"},
+            allow_submodules=False,
+        )
+
+        # os itself is not allowed
+        assert not guard.is_allowed("os")
+        # But os.path is explicitly allowed
+        assert guard.is_allowed("os.path")
+
+    def test_add_module(self) -> None:
+        """Test adding modules to whitelist."""
+        guard = ImportGuard()
+        assert not guard.is_allowed("json")
+
+        guard.add_module("json")
+        assert guard.is_allowed("json")
+
+    def test_remove_module(self) -> None:
+        """Test removing modules from whitelist."""
+        guard = ImportGuard(allowed_modules={"json", "math"})
+        assert guard.is_allowed("json")
+
+        guard.remove_module("json")
+        assert not guard.is_allowed("json")
+        assert guard.is_allowed("math")  # math still allowed
+
+    def test_list_allowed(self) -> None:
+        """Test listing allowed modules."""
+        guard = ImportGuard(allowed_modules={"json", "math", "os"})
+
+        allowed = guard.list_allowed()
+        assert allowed == ["json", "math", "os"]  # Should be sorted
+
+    def test_from_config(self) -> None:
+        """Test creating ImportGuard from ImportConfig."""
+        config = ImportConfig(
+            allowed_modules=["json", "math"],
+            allow_submodules=False,
+            allow_all=False,
+        )
+
+        guard = ImportGuard.from_config(config)
+
+        assert guard.is_allowed("json")
+        assert guard.is_allowed("math")
+        assert not guard.is_allowed("os")
+        assert not guard.allow_submodules
+        assert not guard.allow_all
+
+    def test_from_none_config(self) -> None:
+        """Test creating ImportGuard from None config uses defaults."""
+        guard = ImportGuard.from_config(None)
+
+        assert guard.allowed_modules == set()
+        assert guard.allow_submodules is True
+        assert guard.allow_all is False
+
+
+class TestSafeImport:
+    """Test the make_safe_import wrapper."""
+
+    def test_allowed_import_succeeds(self) -> None:
+        """Test importing whitelisted modules succeeds."""
+        guard = ImportGuard(allowed_modules={"json"})
+        safe_import = make_safe_import(guard)
+
+        # Should be able to import json
+        module = safe_import("json")
+        assert module.__name__ == "json"
+
+    def test_denied_import_raises(self) -> None:
+        """Test importing non-whitelisted modules raises ImportDenied."""
+        guard = ImportGuard(allowed_modules={"json"})
+        safe_import = make_safe_import(guard)
+
+        with pytest.raises(ImportDenied) as exc_info:
+            safe_import("os")
+
+        assert exc_info.value.module == "os"
+        assert exc_info.value.top_level == "os"
+
+    def test_submodule_import_with_parent_allowed(self) -> None:
+        """Test importing submodules when parent is whitelisted."""
+        guard = ImportGuard(
+            allowed_modules={"os"},
+            allow_submodules=True,
+        )
+        safe_import = make_safe_import(guard)
+
+        # Should be able to import os.path
+        module = safe_import("os.path")
+        assert "path" in module.__name__
+
+    def test_from_import_allowed(self) -> None:
+        """Test 'from X import Y' style imports."""
+        guard = ImportGuard(allowed_modules={"json"})
+        safe_import = make_safe_import(guard)
+
+        # Simulate: from json import dumps
+        module = safe_import("json", fromlist=("dumps",))
+        assert hasattr(module, "dumps")
+
+    def test_from_import_denied_module(self) -> None:
+        """Test 'from X import Y' with denied module."""
+        guard = ImportGuard(allowed_modules={"json"})
+        safe_import = make_safe_import(guard)
+
+        with pytest.raises(ImportDenied):
+            safe_import("os", fromlist=("path",))
+
+
+class TestImportTimelineIntegration:
+    """Test Timeline integration with ImportGuard."""
+
+    @pytest.fixture
+    def temp_cwd(self, tmp_path: Path) -> Path:
+        """Create a temporary working directory."""
+        return tmp_path
+
+    @pytest.mark.asyncio
+    async def test_timeline_blocks_unauthorized_import(self, temp_cwd: Path) -> None:
+        """Test Timeline blocks unauthorized imports."""
+        from activecontext.session.timeline import Timeline
+
+        guard = ImportGuard(allowed_modules={"json"})
+        timeline = Timeline(
+            "test-session",
+            cwd=str(temp_cwd),
+            import_guard=guard,
+        )
+
+        result = await timeline.execute_statement("import os")
+
+        assert result.status.value == "error"
+        assert result.exception is not None
+        assert "ImportDenied" in result.exception["type"]
+
+    @pytest.mark.asyncio
+    async def test_timeline_allows_authorized_import(self, temp_cwd: Path) -> None:
+        """Test Timeline allows authorized imports."""
+        from activecontext.session.timeline import Timeline
+
+        guard = ImportGuard(allowed_modules={"json"})
+        timeline = Timeline(
+            "test-session",
+            cwd=str(temp_cwd),
+            import_guard=guard,
+        )
+
+        result = await timeline.execute_statement("import json")
+
+        assert result.status.value == "ok"
+        assert "json" in timeline.get_namespace()
+
+    @pytest.mark.asyncio
+    async def test_timeline_allows_from_import(self, temp_cwd: Path) -> None:
+        """Test Timeline allows 'from X import Y' for whitelisted modules."""
+        from activecontext.session.timeline import Timeline
+
+        guard = ImportGuard(allowed_modules={"json"})
+        timeline = Timeline(
+            "test-session",
+            cwd=str(temp_cwd),
+            import_guard=guard,
+        )
+
+        result = await timeline.execute_statement("from json import dumps")
+
+        assert result.status.value == "ok"
+        assert "dumps" in timeline.get_namespace()
+
+    @pytest.mark.asyncio
+    async def test_timeline_ls_imports(self, temp_cwd: Path) -> None:
+        """Test Timeline exposes ls_imports function."""
+        from activecontext.session.timeline import Timeline
+
+        guard = ImportGuard(allowed_modules={"json", "math"})
+        timeline = Timeline(
+            "test-session",
+            cwd=str(temp_cwd),
+            import_guard=guard,
+        )
+
+        result = await timeline.execute_statement("ls_imports()")
+
+        assert result.status.value == "ok"
+        assert "json" in result.stdout
+        assert "math" in result.stdout
+
+    @pytest.mark.asyncio
+    async def test_timeline_without_import_guard(self, temp_cwd: Path) -> None:
+        """Test Timeline works without import guard (no restrictions)."""
+        from activecontext.session.timeline import Timeline
+
+        timeline = Timeline("test-session", cwd=str(temp_cwd))
+
+        result = await timeline.execute_statement("import json")
+
+        # Should work without restrictions
+        assert result.status.value == "ok"
+        assert "json" in timeline.get_namespace()
+
+    @pytest.mark.asyncio
+    async def test_timeline_import_guard_with_allow_all(self, temp_cwd: Path) -> None:
+        """Test Timeline with allow_all=True permits any import."""
+        from activecontext.session.timeline import Timeline
+
+        guard = ImportGuard(allow_all=True)
+        timeline = Timeline(
+            "test-session",
+            cwd=str(temp_cwd),
+            import_guard=guard,
+        )
+
+        # Should allow any import
+        result = await timeline.execute_statement("import os")
+        assert result.status.value == "ok"
+
+    @pytest.mark.asyncio
+    async def test_timeline_set_import_guard(self, temp_cwd: Path) -> None:
+        """Test setting import guard after timeline creation."""
+        from activecontext.session.timeline import Timeline
+
+        timeline = Timeline("test-session", cwd=str(temp_cwd))
+
+        # Initially no guard, imports work
+        result = await timeline.execute_statement("import os")
+        assert result.status.value == "ok"
+
+        # Set guard
+        guard = ImportGuard(allowed_modules={"json"})
+        timeline.set_import_guard(guard)
+
+        # Now os should be blocked
+        result = await timeline.execute_statement("import sys")
+        assert result.status.value == "error"
+        assert "ImportDenied" in result.exception["type"]
+
+
+class TestImportConfigParsing:
+    """Test import config parsing from YAML."""
+
+    @pytest.fixture
+    def temp_config_dir(self, tmp_path: Path) -> Path:
+        """Create a temporary config directory."""
+        config_dir = tmp_path / ".ac"
+        config_dir.mkdir()
+        return config_dir
+
+    def test_import_config_from_yaml(self, temp_config_dir: Path) -> None:
+        """Test loading import config from YAML file."""
+        from activecontext.config import load_config, reset_config
+
+        reset_config()
+
+        config_file = temp_config_dir / "config.yaml"
+        config_file.write_text(
+            """
+sandbox:
+  imports:
+    allowed_modules:
+      - json
+      - math
+      - collections
+    allow_submodules: false
+    allow_all: false
+"""
+        )
+
+        config = load_config(session_root=str(temp_config_dir.parent))
+
+        assert config.sandbox.imports.allowed_modules == ["json", "math", "collections"]
+        assert config.sandbox.imports.allow_submodules is False
+        assert config.sandbox.imports.allow_all is False
+
+    def test_import_config_defaults(self, temp_config_dir: Path) -> None:
+        """Test import config uses sensible defaults."""
+        from activecontext.config import load_config, reset_config
+
+        reset_config()
+
+        config_file = temp_config_dir / "config.yaml"
+        config_file.write_text(
+            """
+# Empty config should use defaults
+"""
+        )
+
+        config = load_config(session_root=str(temp_config_dir.parent))
+
+        assert config.sandbox.imports.allowed_modules == []
+        assert config.sandbox.imports.allow_submodules is True
+        assert config.sandbox.imports.allow_all is False
+
+
+class TestPermissionDenied:
+    """Test the PermissionDenied exception."""
+
+    def test_permission_denied_carries_metadata(self) -> None:
+        """Test PermissionDenied exception carries correct metadata."""
+        exc = PermissionDenied(
+            path="/abs/path/to/file.txt",
+            mode="read",
+            original_path="./file.txt",
+        )
+
+        assert exc.path == "/abs/path/to/file.txt"
+        assert exc.mode == "read"
+        assert exc.original_path == "./file.txt"
+        assert "read" in str(exc)
+        assert "/abs/path/to/file.txt" in str(exc)
+
+    def test_permission_denied_write_mode(self) -> None:
+        """Test PermissionDenied with write mode."""
+        exc = PermissionDenied(
+            path="/abs/path/to/output.txt",
+            mode="write",
+            original_path="output.txt",
+        )
+
+        assert exc.mode == "write"
+        assert "write" in str(exc)
+
+
+class TestTemporaryGrants:
+    """Test the temporary grant functionality."""
+
+    @pytest.fixture
+    def temp_cwd(self, tmp_path: Path) -> Path:
+        """Create a temporary working directory with test files."""
+        (tmp_path / "protected.txt").write_text("protected content")
+        return tmp_path
+
+    def test_grant_temporary_allows_access(self, temp_cwd: Path) -> None:
+        """Test grant_temporary() allows subsequent access."""
+        config = SandboxConfig(allow_cwd=False)
+        manager = PermissionManager.from_config(str(temp_cwd), config)
+
+        # Initially denied
+        file_path = str(temp_cwd / "protected.txt")
+        assert not manager.check_access(file_path, "read")
+
+        # Grant temporary access
+        manager.grant_temporary(file_path, "read")
+
+        # Now should be allowed
+        assert manager.check_access(file_path, "read")
+
+    def test_grant_temporary_is_mode_specific(self, temp_cwd: Path) -> None:
+        """Test temporary grants are specific to the mode."""
+        config = SandboxConfig(allow_cwd=False)
+        manager = PermissionManager.from_config(str(temp_cwd), config)
+
+        file_path = str(temp_cwd / "protected.txt")
+
+        # Grant read access
+        manager.grant_temporary(file_path, "read")
+
+        # Read should be allowed, write should be denied
+        assert manager.check_access(file_path, "read")
+        assert not manager.check_access(file_path, "write")
+
+    def test_clear_temporary_grants(self, temp_cwd: Path) -> None:
+        """Test clear_temporary_grants() removes all temporary grants."""
+        config = SandboxConfig(allow_cwd=False)
+        manager = PermissionManager.from_config(str(temp_cwd), config)
+
+        file_path = str(temp_cwd / "protected.txt")
+
+        # Grant and verify
+        manager.grant_temporary(file_path, "read")
+        assert manager.check_access(file_path, "read")
+
+        # Clear and verify
+        manager.clear_temporary_grants()
+        assert not manager.check_access(file_path, "read")
+
+
+class TestWritePermissionToConfig:
+    """Test write_permission_to_config functionality."""
+
+    def test_creates_config_file_if_not_exists(self, tmp_path: Path) -> None:
+        """Test creating a new config file with permission."""
+        write_permission_to_config(tmp_path, "./secret.txt", "read")
+
+        config_path = tmp_path / ".ac" / "config.yaml"
+        assert config_path.exists()
+
+        with open(config_path) as f:
+            data = yaml.safe_load(f)
+
+        assert "sandbox" in data
+        assert "file_permissions" in data["sandbox"]
+        assert len(data["sandbox"]["file_permissions"]) == 1
+        assert data["sandbox"]["file_permissions"][0]["pattern"] == "./secret.txt"
+        assert data["sandbox"]["file_permissions"][0]["mode"] == "read"
+
+    def test_appends_to_existing_config(self, tmp_path: Path) -> None:
+        """Test appending permission to existing config."""
+        # Create initial config
+        config_dir = tmp_path / ".ac"
+        config_dir.mkdir()
+        config_path = config_dir / "config.yaml"
+        config_path.write_text(
+            """
+llm:
+  model: test-model
+sandbox:
+  file_permissions:
+    - pattern: ./existing.txt
+      mode: read
+"""
+        )
+
+        # Add new permission
+        write_permission_to_config(tmp_path, "./new.txt", "write")
+
+        with open(config_path) as f:
+            data = yaml.safe_load(f)
+
+        # Should have both permissions
+        assert len(data["sandbox"]["file_permissions"]) == 2
+        assert data["sandbox"]["file_permissions"][0]["pattern"] == "./existing.txt"
+        assert data["sandbox"]["file_permissions"][1]["pattern"] == "./new.txt"
+        assert data["sandbox"]["file_permissions"][1]["mode"] == "write"
+
+        # Should preserve other config
+        assert data["llm"]["model"] == "test-model"
+
+    def test_does_not_duplicate_existing_rule(self, tmp_path: Path) -> None:
+        """Test that duplicate rules are not added."""
+        # Add first rule
+        write_permission_to_config(tmp_path, "./file.txt", "read")
+
+        # Try to add the same rule again
+        write_permission_to_config(tmp_path, "./file.txt", "read")
+
+        config_path = tmp_path / ".ac" / "config.yaml"
+        with open(config_path) as f:
+            data = yaml.safe_load(f)
+
+        # Should only have one rule
+        assert len(data["sandbox"]["file_permissions"]) == 1
+
+
+class TestPermissionRequestFlow:
+    """Test the permission request flow in Timeline."""
+
+    @pytest.fixture
+    def temp_cwd(self, tmp_path: Path) -> Path:
+        """Create a temporary working directory with test files."""
+        (tmp_path / "protected.txt").write_text("protected content")
+        return tmp_path
+
+    @pytest.mark.asyncio
+    async def test_permission_request_allow_once(self, temp_cwd: Path) -> None:
+        """Test allow_once grants temporary access."""
+        from activecontext.session.timeline import Timeline
+
+        config = SandboxConfig(allow_cwd=False)
+        manager = PermissionManager.from_config(str(temp_cwd), config)
+
+        # Mock permission requester that always grants once
+        async def mock_requester(
+            session_id: str, path: str, mode: str
+        ) -> tuple[bool, bool]:
+            return (True, False)  # granted=True, persist=False
+
+        timeline = Timeline(
+            "test-session",
+            cwd=str(temp_cwd),
+            permission_manager=manager,
+            permission_requester=mock_requester,
+        )
+
+        file_path = (temp_cwd / "protected.txt").as_posix()
+        result = await timeline.execute_statement(f'open("{file_path}", "r").read()')
+
+        assert result.status.value == "ok"
+        assert "protected content" in result.stdout
+
+    @pytest.mark.asyncio
+    async def test_permission_request_allow_always(self, temp_cwd: Path) -> None:
+        """Test allow_always persists permission to config."""
+        from activecontext.session.timeline import Timeline
+
+        config = SandboxConfig(allow_cwd=False)
+        manager = PermissionManager.from_config(str(temp_cwd), config)
+
+        # Mock permission requester that grants always
+        async def mock_requester(
+            session_id: str, path: str, mode: str
+        ) -> tuple[bool, bool]:
+            return (True, True)  # granted=True, persist=True
+
+        timeline = Timeline(
+            "test-session",
+            cwd=str(temp_cwd),
+            permission_manager=manager,
+            permission_requester=mock_requester,
+        )
+
+        file_path = (temp_cwd / "protected.txt").as_posix()
+        result = await timeline.execute_statement(f'open("{file_path}", "r").read()')
+
+        assert result.status.value == "ok"
+        assert "protected content" in result.stdout
+
+        # Verify config was updated
+        config_path = temp_cwd / ".ac" / "config.yaml"
+        assert config_path.exists()
+
+    @pytest.mark.asyncio
+    async def test_permission_request_denied(self, temp_cwd: Path) -> None:
+        """Test denied permission returns PermissionError."""
+        from activecontext.session.timeline import Timeline
+
+        config = SandboxConfig(allow_cwd=False)
+        manager = PermissionManager.from_config(str(temp_cwd), config)
+
+        # Mock permission requester that denies
+        async def mock_requester(
+            session_id: str, path: str, mode: str
+        ) -> tuple[bool, bool]:
+            return (False, False)  # denied
+
+        timeline = Timeline(
+            "test-session",
+            cwd=str(temp_cwd),
+            permission_manager=manager,
+            permission_requester=mock_requester,
+        )
+
+        file_path = (temp_cwd / "protected.txt").as_posix()
+        result = await timeline.execute_statement(f'open("{file_path}", "r").read()')
+
+        assert result.status.value == "error"
+        assert result.exception is not None
+        assert result.exception["type"] == "PermissionError"
+
+    @pytest.mark.asyncio
+    async def test_no_requester_returns_permission_error(self, temp_cwd: Path) -> None:
+        """Test that without a requester, PermissionError is returned."""
+        from activecontext.session.timeline import Timeline
+
+        config = SandboxConfig(allow_cwd=False)
+        manager = PermissionManager.from_config(str(temp_cwd), config)
+
+        # No permission requester
+        timeline = Timeline(
+            "test-session",
+            cwd=str(temp_cwd),
+            permission_manager=manager,
+        )
+
+        file_path = (temp_cwd / "protected.txt").as_posix()
+        result = await timeline.execute_statement(f'open("{file_path}", "r").read()')
+
+        assert result.status.value == "error"
+        assert result.exception is not None
+        # Should be PermissionError, not PermissionDenied
+        assert result.exception["type"] == "PermissionError"
