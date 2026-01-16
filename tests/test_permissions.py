@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+import yaml
 
 from activecontext.config.schema import (
     FilePermissionConfig,
@@ -14,10 +15,12 @@ from activecontext.config.schema import (
 from activecontext.session.permissions import (
     ImportDenied,
     ImportGuard,
+    PermissionDenied,
     PermissionManager,
     PermissionRule,
     make_safe_import,
     make_safe_open,
+    write_permission_to_config,
 )
 
 
@@ -257,7 +260,7 @@ class TestSafeOpen:
         assert content == "allowed content"
 
     def test_safe_open_read_denied(self, temp_cwd: Path) -> None:
-        """Test safe_open raises PermissionError for denied reads."""
+        """Test safe_open raises PermissionDenied for denied reads."""
         config = SandboxConfig(
             allow_cwd=False,
             file_permissions=[],
@@ -265,19 +268,25 @@ class TestSafeOpen:
         manager = PermissionManager.from_config(str(temp_cwd), config)
         safe_open = make_safe_open(manager)
 
-        # Should raise PermissionError
-        with pytest.raises(PermissionError, match="read access denied"):
+        # Should raise PermissionDenied with proper metadata
+        with pytest.raises(PermissionDenied) as exc_info:
             safe_open(str(temp_cwd / "allowed.txt"), "r")
 
+        assert exc_info.value.mode == "read"
+        assert "allowed.txt" in exc_info.value.path
+
     def test_safe_open_write_denied(self, temp_cwd: Path) -> None:
-        """Test safe_open raises PermissionError for denied writes."""
+        """Test safe_open raises PermissionDenied for denied writes."""
         config = SandboxConfig(allow_cwd=True, allow_cwd_write=False)
         manager = PermissionManager.from_config(str(temp_cwd), config)
         safe_open = make_safe_open(manager)
 
-        # Should raise PermissionError for write
-        with pytest.raises(PermissionError, match="write access denied"):
+        # Should raise PermissionDenied for write
+        with pytest.raises(PermissionDenied) as exc_info:
             safe_open(str(temp_cwd / "new.txt"), "w")
+
+        assert exc_info.value.mode == "write"
+        assert "new.txt" in exc_info.value.path
 
     def test_safe_open_write_allowed(self, temp_cwd: Path) -> None:
         """Test safe_open allows writing to permitted files."""
@@ -300,8 +309,9 @@ class TestSafeOpen:
         # All these should require write permission
         write_modes = ["w", "w+", "a", "a+", "x", "r+"]
         for mode in write_modes:
-            with pytest.raises(PermissionError, match="write access denied"):
+            with pytest.raises(PermissionDenied) as exc_info:
                 safe_open(str(temp_cwd / "test.txt"), mode)
+            assert exc_info.value.mode == "write"
 
 
 class TestConfigParsing:
