@@ -45,13 +45,16 @@ async def test_view_creation() -> None:
     async with ActiveContext() as ctx:
         session = await ctx.create_session(cwd="/tmp")
 
+        # Note: session may have an initial guide view
+        initial_count = len(session.get_context_objects())
+
         # Create a view
         result = await session.execute('v = view("test.py", tokens=1000)')
         assert result.status.value == "ok"
 
-        # Check context objects
+        # Check context objects (should have one more than initial)
         objects = session.get_context_objects()
-        assert len(objects) == 1
+        assert len(objects) == initial_count + 1
 
         # Check view properties
         ns = session.get_namespace()
@@ -89,16 +92,47 @@ async def test_group_creation() -> None:
     async with ActiveContext() as ctx:
         session = await ctx.create_session(cwd="/tmp")
 
+        # Note: session may have an initial guide view
+        initial_count = len(session.get_context_objects())
+
         # Create views and group them
         await session.execute('v1 = view("a.py")')
         await session.execute('v2 = view("b.py")')
         await session.execute("g = group(v1, v2, tokens=500)")
 
         objects = session.get_context_objects()
-        assert len(objects) == 3  # 2 views + 1 group
+        assert len(objects) == initial_count + 3  # 2 views + 1 group
 
         ns = session.get_namespace()
         g = ns["g"]
         digest = g.GetDigest()
         assert digest["type"] == "group"
         assert digest["member_count"] == 2
+
+
+@pytest.mark.asyncio
+async def test_initial_context_and_projection() -> None:
+    """Test that sessions start with initial context and projection renders."""
+    import os
+
+    async with ActiveContext() as ctx:
+        # Create session in project root where CONTEXT_GUIDE.md exists
+        cwd = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        session = await ctx.create_session(cwd=cwd)
+
+        # Should have initial guide view
+        ns = session.get_namespace()
+        assert "guide" in ns, "Initial guide view should be in namespace"
+
+        guide = ns["guide"]
+        digest = guide.GetDigest()
+        assert digest["type"] == "view"
+        assert "CONTEXT_GUIDE.md" in digest["path"]
+
+        # Projection should render the guide content
+        projection = session.get_projection()
+        rendered = projection.render()
+
+        # Should contain file content from the guide
+        assert "view" in rendered.lower() or "View" in rendered
+        assert "===" in rendered  # File header format

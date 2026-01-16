@@ -13,6 +13,7 @@ import uuid
 from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, Any
 
+from activecontext.core.projection_engine import ProjectionEngine
 from activecontext.session.protocols import (
     Projection,
     SessionUpdate,
@@ -44,6 +45,7 @@ class Session:
         self._cancelled = False
         self._current_task: asyncio.Task[Any] | None = None
         self._conversation: list[Message] = []
+        self._projection_engine = ProjectionEngine()
 
     @property
     def session_id(self) -> str:
@@ -108,20 +110,23 @@ class Session:
     async def _prompt_with_llm(self, content: str) -> AsyncIterator[SessionUpdate]:
         """Process prompt using the LLM provider."""
         from activecontext.core.llm.provider import Message, Role
-        from activecontext.core.prompts import (
-            SYSTEM_PROMPT,
-            build_user_message,
-            parse_response,
-        )
+        from activecontext.core.prompts import SYSTEM_PROMPT, parse_response
 
-        # Build the user message with context
+        # Build projection (contains conversation history and view contents)
         projection = self.get_projection()
-        user_content = build_user_message(content, projection)
 
-        # Build messages for LLM
-        messages = [Message(role=Role.SYSTEM, content=SYSTEM_PROMPT)]
-        messages.extend(self._conversation)
-        messages.append(Message(role=Role.USER, content=user_content))
+        # Build messages: system prompt + projection + new user message
+        # The projection is the single source of context (conversation, views, groups)
+        projection_content = projection.render()
+        if projection_content:
+            user_message = f"{projection_content}\n\n## Current Request\n\n{content}"
+        else:
+            user_message = content
+
+        messages = [
+            Message(role=Role.SYSTEM, content=SYSTEM_PROMPT),
+            Message(role=Role.USER, content=user_message),
+        ]
 
         # Stream response from LLM
         full_response = ""
@@ -135,8 +140,8 @@ class Session:
                     timestamp=time.time(),
                 )
 
-        # Update conversation history
-        self._conversation.append(Message(role=Role.USER, content=user_content))
+        # Update conversation history (stored for next projection)
+        self._conversation.append(Message(role=Role.USER, content=content))
         self._conversation.append(Message(role=Role.ASSISTANT, content=full_response))
 
         # Parse response and execute code blocks
@@ -251,23 +256,46 @@ class Session:
 
     def get_projection(self) -> Projection:
         """Build the LLM projection from current session state."""
-        context_objects = self._timeline.get_context_objects()
-
-        handles = {}
-        for obj_id, obj in context_objects.items():
-            if hasattr(obj, "GetDigest"):
-                handles[obj_id] = obj.GetDigest()
-
-        return Projection(
-            handles=handles,
-            summaries=[],
-            deltas=[],
-            token_budget=8000,
+        return self._projection_engine.build(
+            context_objects=self._timeline.get_context_objects(),
+            conversation=self._conversation,
+            cwd=self._cwd,
         )
 
     def clear_conversation(self) -> None:
         """Clear the conversation history."""
         self._conversation.clear()
+
+    async def _setup_initial_context(self) -> None:
+        """Set up initial context views for a new session.
+
+        Creates an example view of CONTEXT_GUIDE.md if it exists,
+        demonstrating the view() DSL.
+        """
+        from pathlib import Path
+
+        # Check for context guide in cwd or package location
+        guide_paths = [
+            Path(self._cwd) / "CONTEXT_GUIDE.md",
+            Path(__file__).parent.parent.parent.parent / "CONTEXT_GUIDE.md",
+        ]
+
+        for guide_path in guide_paths:
+            if guide_path.exists():
+                # Execute the view creation as if the LLM did it
+                # This shows the user the DSL syntax as an example
+                rel_path = guide_path.name
+                try:
+                    # Make path relative to cwd if possible
+                    rel_path = str(guide_path.relative_to(self._cwd))
+                except ValueError:
+                    rel_path = str(guide_path)
+
+                # Use forward slashes for cross-platform compatibility
+                safe_path = rel_path.replace("\\", "/")
+                source = f'guide = view("{safe_path}", tokens=1500)'
+                await self._timeline.execute_statement(source)
+                break
 
 
 class SessionManager:
@@ -308,7 +336,7 @@ class SessionManager:
         if session_id in self._sessions:
             raise ValueError(f"Session {session_id} already exists")
 
-        timeline = Timeline(session_id)
+        timeline = Timeline(session_id, cwd=cwd)
         session = Session(
             session_id=session_id,
             cwd=cwd,
@@ -316,6 +344,9 @@ class SessionManager:
             llm=llm or self._default_llm,
         )
         self._sessions[session_id] = session
+
+        # Initialize with example context view if guide exists
+        await session._setup_initial_context()
 
         return session
 

@@ -48,8 +48,9 @@ class Timeline:
     and maintains the Python namespace.
     """
 
-    def __init__(self, session_id: str) -> None:
+    def __init__(self, session_id: str, cwd: str = ".") -> None:
         self._session_id = session_id
+        self._cwd = cwd
         self._statements: list[Statement] = []
         self._executions: dict[str, list[_ExecutionRecord]] = {}  # statement_id -> executions
 
@@ -63,6 +64,10 @@ class Timeline:
         # Max output capture per statement
         self._max_stdout = 50000
         self._max_stderr = 10000
+
+    @property
+    def cwd(self) -> str:
+        return self._cwd
 
     def _setup_namespace(self) -> None:
         """Initialize the Python namespace with injected functions."""
@@ -99,6 +104,9 @@ class Timeline:
         """Create a ViewHandle (placeholder until context module is implemented)."""
         # TODO: Replace with actual ViewHandle once implemented
         from dataclasses import dataclass as dc
+        from pathlib import Path
+
+        timeline_cwd = self._cwd  # Capture for closure
 
         @dc
         class _PlaceholderView:
@@ -108,9 +116,11 @@ class Timeline:
             lod: int
             mode: str
             _id: str = ""
+            _cwd: str = ""
 
             def __post_init__(self) -> None:
                 self._id = str(uuid.uuid4())[:8]
+                self._cwd = timeline_cwd
 
             def SetPos(self, pos: str) -> _PlaceholderView:
                 self.pos = pos
@@ -142,6 +152,42 @@ class Timeline:
                     "lod": self.lod,
                     "mode": self.mode,
                 }
+
+            def Render(self, tokens: int | None = None) -> str:
+                """Render file content with line numbers, respecting token budget."""
+                effective_tokens = tokens if tokens is not None else self.tokens
+
+                # Resolve path relative to cwd
+                full_path = Path(self._cwd) / self.path if self._cwd else Path(self.path)
+                try:
+                    content = full_path.read_text(encoding="utf-8")
+                except Exception as e:
+                    return f"[Error reading {self.path}: {e}]"
+
+                # Parse position
+                pos_parts = self.pos.split(":")
+                start_line = int(pos_parts[0]) if pos_parts[0] else 0
+
+                lines = content.splitlines()
+
+                # Estimate token budget as ~4 chars per token
+                char_budget = effective_tokens * 4
+
+                numbered: list[str] = []
+                char_count = 0
+                for i, line in enumerate(lines[start_line:], start=start_line + 1):
+                    numbered_line = f"{i:4d} | {line}"
+                    if char_count + len(numbered_line) > char_budget:
+                        remaining = len(lines) - start_line - len(numbered)
+                        if remaining > 0:
+                            numbered.append(f"     | ... [{remaining} more lines]")
+                        break
+                    numbered.append(numbered_line)
+                    char_count += len(numbered_line) + 1
+
+                end_line = start_line + len(numbered)
+                header = f"=== {self.path} (lines {start_line + 1}-{end_line}) ===\n"
+                return header + "\n".join(numbered)
 
         v = _PlaceholderView(path=path, pos=pos, tokens=tokens, lod=lod, mode=mode)
         self._context_objects[v._id] = v

@@ -96,19 +96,36 @@ class ExecutionResult:
 
 
 @dataclass(slots=True)
-class Projection:
-    """LLM prompt projection built from current session state.
+class ProjectionSection:
+    """A rendered section in the projection."""
 
-    Contains the structured context to send to the LLM, including:
-    - Handle table (names -> digests)
-    - Group summaries
-    - Delta feed since last projection
+    section_type: str  # "conversation", "view", "group"
+    source_id: str
+    content: str
+    tokens_used: int
+    lod: int = 0
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
+class Projection:
+    """LLM context - the single source of context after system prompt.
+
+    Contains conversation history, view contents, and group summaries,
+    all rendered and token-managed.
     """
 
+    sections: list[ProjectionSection] = field(default_factory=list)
+    token_budget: int = 8000
+
+    # Legacy fields (kept for compatibility)
     handles: dict[str, dict[str, Any]] = field(default_factory=dict)
     summaries: list[dict[str, Any]] = field(default_factory=list)
     deltas: list[dict[str, Any]] = field(default_factory=list)
-    token_budget: int = 0
+
+    def render(self) -> str:
+        """Render full projection as string for LLM."""
+        return "\n\n".join(s.content for s in self.sections if s.content)
 
 
 # -----------------------------------------------------------------------------
