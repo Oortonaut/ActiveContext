@@ -6,6 +6,7 @@ Rider, Zed, and other ACP-supporting editors.
 
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING, Any
 
 import acp
@@ -74,6 +75,14 @@ class ActiveContextAgent:
         self._sessions_mode: dict[str, str] = {}  # session_id -> mode_id
         self._current_model_id = default_model
 
+        # Nagle-style batching for RESPONSE_CHUNK updates
+        self._chunk_buffers: dict[str, str] = {}  # session_id -> accumulated text
+        self._flush_tasks: dict[str, asyncio.Task[None]] = {}  # session_id -> flush task
+        self._batch_enabled = True  # Can be disabled via config
+        self._flush_interval = 0.05  # 50ms
+        self._flush_threshold = 100  # characters
+        self._load_batch_config()
+
     def _load_modes_from_config(self) -> None:
         """Load session modes from config if available."""
         try:
@@ -98,6 +107,71 @@ class ActiveContextAgent:
             pass  # Config module not available
         except Exception:
             pass  # Config loading failed, use defaults
+
+    def _load_batch_config(self) -> None:
+        """Load batching settings from config if available."""
+        try:
+            from activecontext.config import get_config
+
+            config = get_config()
+            acp_config = config.extra.get("acp", {})
+            batch_config = acp_config.get("batching", {})
+
+            if "enabled" in batch_config:
+                self._batch_enabled = bool(batch_config["enabled"])
+            if "flush_interval" in batch_config:
+                self._flush_interval = float(batch_config["flush_interval"])
+            if "flush_threshold" in batch_config:
+                self._flush_threshold = int(batch_config["flush_threshold"])
+        except ImportError:
+            pass
+        except Exception:
+            pass
+
+    # --- Nagle-style batching for RESPONSE_CHUNK ---
+
+    async def _flush_chunks(self, session_id: str) -> None:
+        """Flush accumulated response chunks for a session."""
+        text = self._chunk_buffers.pop(session_id, "")
+        self._flush_tasks.pop(session_id, None)
+
+        if text and self._conn:
+            await self._conn.session_update(
+                session_id,
+                acp.update_agent_message_text(text),
+            )
+
+    async def _buffer_chunk(self, session_id: str, text: str) -> None:
+        """Buffer a response chunk, flushing if threshold reached."""
+        # Append to buffer
+        self._chunk_buffers[session_id] = self._chunk_buffers.get(session_id, "") + text
+
+        # Check size threshold - flush immediately if exceeded
+        if len(self._chunk_buffers[session_id]) >= self._flush_threshold:
+            if session_id in self._flush_tasks:
+                self._flush_tasks[session_id].cancel()
+            await self._flush_chunks(session_id)
+            return
+
+        # Schedule flush if not already scheduled
+        if session_id not in self._flush_tasks:
+            self._flush_tasks[session_id] = asyncio.create_task(
+                self._delayed_flush(session_id)
+            )
+
+    async def _delayed_flush(self, session_id: str) -> None:
+        """Flush after delay (Nagle timer)."""
+        await asyncio.sleep(self._flush_interval)
+        await self._flush_chunks(session_id)
+
+    def _cleanup_session_buffers(self, session_id: str) -> None:
+        """Clean up batching state for a closed session."""
+        self._chunk_buffers.pop(session_id, None)
+        task = self._flush_tasks.pop(session_id, None)
+        if task:
+            task.cancel()
+
+    # --- End batching ---
 
     def on_connect(self, conn: Client) -> None:
         """Called when a client connects."""
@@ -352,6 +426,12 @@ class ActiveContextAgent:
 
     async def cancel(self, session_id: str, **kwargs: Any) -> None:
         """Cancel the current operation in a session."""
+        # Flush any pending chunks before canceling
+        if session_id in self._chunk_buffers:
+            if session_id in self._flush_tasks:
+                self._flush_tasks[session_id].cancel()
+            await self._flush_chunks(session_id)
+
         session = await self._manager.get_session(session_id)
         if session:
             await session.cancel()
@@ -388,10 +468,14 @@ class ActiveContextAgent:
 
         if command == "/exit":
             log.info("/exit command received, shutting down")
+            # Flush any pending chunks before closing
+            if session_id in self._chunk_buffers:
+                if session_id in self._flush_tasks:
+                    self._flush_tasks[session_id].cancel()
+                await self._flush_chunks(session_id)
             # Clean shutdown
             await self._manager.close_session(session_id)
             # Give time for response to be sent, then exit
-            import asyncio
             asyncio.get_event_loop().call_later(0.5, lambda: os._exit(0))
             return True, "Goodbye!"
 
@@ -434,6 +518,16 @@ class ActiveContextAgent:
         if not self._conn:
             return
 
+        # Priority flush: non-RESPONSE_CHUNK updates flush any pending chunks first
+        if (
+            self._batch_enabled
+            and update.kind != UpdateKind.RESPONSE_CHUNK
+            and session_id in self._chunk_buffers
+        ):
+            if session_id in self._flush_tasks:
+                self._flush_tasks[session_id].cancel()
+            await self._flush_chunks(session_id)
+
         match update.kind:
             case UpdateKind.STATEMENT_EXECUTING:
                 # Emit as tool call start
@@ -469,10 +563,13 @@ class ActiveContextAgent:
             case UpdateKind.RESPONSE_CHUNK:
                 text = update.payload.get("text", "")
                 if text:
-                    await self._conn.session_update(
-                        session_id,
-                        acp.update_agent_message_text(text),
-                    )
+                    if self._batch_enabled:
+                        await self._buffer_chunk(session_id, text)
+                    else:
+                        await self._conn.session_update(
+                            session_id,
+                            acp.update_agent_message_text(text),
+                        )
 
             case UpdateKind.PROJECTION_READY:
                 # Could emit as agent thought
