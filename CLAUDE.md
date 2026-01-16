@@ -96,6 +96,44 @@ Configure in your IDE's `acp.json`:
 }
 ```
 
+## Environment Variables
+
+### LLM Configuration
+
+At least one API key must be set for LLM functionality:
+
+| Variable | Description |
+|----------|-------------|
+| `ANTHROPIC_API_KEY` | Anthropic API key (Claude models) |
+| `OPENAI_API_KEY` | OpenAI API key (GPT models) |
+| `GEMINI_API_KEY` | Google Gemini API key |
+| `DEEPSEEK_API_KEY` | DeepSeek API key |
+
+Models are auto-discovered from available API keys. The first available model becomes the default.
+
+### Debugging
+
+| Variable | Description |
+|----------|-------------|
+| `ACTIVECONTEXT_LOG` | File path for diagnostic logs. Logs all ACP messages with timestamps. |
+| `ACTIVECONTEXT_DEBUG` | Set to any value to print projection contents to stderr. |
+
+Example ACP config with logging:
+```json
+{
+  "agent_servers": {
+    "activecontext": {
+      "command": "python",
+      "args": ["-m", "activecontext"],
+      "env": {
+        "ANTHROPIC_API_KEY": "sk-...",
+        "ACTIVECONTEXT_LOG": "C:\\Users\\You\\activecontext.log"
+      }
+    }
+  }
+}
+```
+
 ## Key Protocols
 
 - `SessionProtocol` - session lifecycle: prompt(), tick(), cancel()
