@@ -48,6 +48,13 @@ python -m activecontext  # Run ACP agent (stdio)
 src/activecontext/
 ├── __init__.py           # Public API exports
 ├── __main__.py           # ACP agent entry point
+├── logging.py            # Logging configuration
+├── config/               # Configuration management
+│   ├── schema.py         # Config dataclasses (Config, LLMConfig, etc.)
+│   ├── paths.py          # Platform-aware config path resolution
+│   ├── loader.py         # YAML loading, env overrides, caching
+│   ├── merge.py          # Deep merge algorithm
+│   └── watcher.py        # Config file change monitoring
 ├── session/              # Session management
 │   ├── protocols.py      # Core protocols (SessionProtocol, TimelineProtocol, etc.)
 │   ├── timeline.py       # Statement timeline with Python execution
@@ -55,7 +62,7 @@ src/activecontext/
 ├── transport/
 │   ├── direct/           # Python library API (ActiveContext, AsyncSession)
 │   └── acp/              # ACP adapter for Rider/Zed
-├── core/                 # (Future) AgentLoop, ProjectionEngine
+├── core/                 # AgentLoop, ProjectionEngine, LLM providers
 ├── context/              # (Future) Real ViewHandle, GroupHandle
 └── events/               # (Future) EventBus, DeltaFormatter
 ```
@@ -132,6 +139,80 @@ Example ACP config with logging:
     }
   }
 }
+```
+
+## Configuration Files
+
+ActiveContext supports hierarchical YAML configuration files that merge together:
+
+| Level | Windows | Unix |
+|-------|---------|------|
+| System | `%PROGRAMDATA%\activecontext\config.yaml` | `/etc/activecontext/config.yaml` |
+| User | `%APPDATA%\activecontext\config.yaml` | `~/.ac/config.yaml` |
+| Project | `$PROJECT_ROOT/.ac/config.yaml` | `$PROJECT_ROOT/.ac/config.yaml` |
+
+Later levels override earlier ones. Environment variables override all config files.
+
+### Example config.yaml
+
+```yaml
+llm:
+  model: claude-sonnet-4-20250514
+  temperature: 0.0
+  max_tokens: 8192
+
+session:
+  default_mode: plan
+  modes:
+    - id: normal
+      name: Normal
+      description: Standard mode
+    - id: plan
+      name: Plan
+      description: Plan before acting
+
+projection:
+  total_budget: 16000
+  conversation_ratio: 0.25
+  views_ratio: 0.55
+  groups_ratio: 0.20
+
+logging:
+  level: INFO
+  file: ~/activecontext.log
+```
+
+### Configuration API
+
+```python
+from activecontext import Config, load_config, get_config
+
+# Load config with project-specific settings
+config = load_config(session_root="/path/to/project")
+
+# Access typed configuration
+print(config.llm.model)
+print(config.projection.total_budget)
+
+# Get cached global config
+config = get_config()
+```
+
+### Config File Watching
+
+Config files are monitored for changes and automatically reloaded:
+
+```python
+from activecontext.config import start_watching, on_config_reload
+
+# Start watching for changes
+start_watching(session_root="/path/to/project")
+
+# Register callback for config changes
+def on_change(new_config):
+    print("Config reloaded:", new_config.llm.model)
+
+unregister = on_config_reload(on_change)
 ```
 
 ## Key Protocols

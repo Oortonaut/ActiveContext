@@ -3,6 +3,7 @@
 __version__ = "0.1.0"
 
 # Public API
+from activecontext.config import Config, get_config, load_config
 from activecontext.core import LiteLLMProvider, LLMProvider, Message, Role
 from activecontext.session import (
     ExecutionResult,
@@ -21,6 +22,10 @@ __all__ = [
     # Main entry points
     "ActiveContext",
     "AsyncSession",
+    # Config
+    "Config",
+    "load_config",
+    "get_config",
     # LLM
     "LLMProvider",
     "LiteLLMProvider",

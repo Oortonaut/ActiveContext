@@ -13,7 +13,7 @@ import uuid
 from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, Any
 
-from activecontext.core.projection_engine import ProjectionEngine
+from activecontext.core.projection_engine import ProjectionConfig, ProjectionEngine
 from activecontext.logging import get_logger
 from activecontext.session.protocols import (
     Projection,
@@ -25,6 +25,7 @@ from activecontext.session.timeline import Timeline
 log = get_logger("session")
 
 if TYPE_CHECKING:
+    from activecontext.config.schema import Config
     from activecontext.core.llm.provider import LLMProvider, Message
 
 
@@ -40,15 +41,17 @@ class Session:
         cwd: str,
         timeline: Timeline,
         llm: LLMProvider | None = None,
+        config: Config | None = None,
     ) -> None:
         self._session_id = session_id
         self._cwd = cwd
         self._timeline = timeline
         self._llm = llm
+        self._config = config
         self._cancelled = False
         self._current_task: asyncio.Task[Any] | None = None
         self._conversation: list[Message] = []
-        self._projection_engine = ProjectionEngine()
+        self._projection_engine = self._build_projection_engine(config)
 
     @property
     def session_id(self) -> str:
@@ -69,6 +72,21 @@ class Session:
     def set_llm(self, llm: LLMProvider | None) -> None:
         """Set or update the LLM provider."""
         self._llm = llm
+
+    def _build_projection_engine(self, config: Config | None) -> ProjectionEngine:
+        """Build ProjectionEngine from config or defaults."""
+        if config and config.projection:
+            proj = config.projection
+            projection_config = ProjectionConfig(
+                total_budget=proj.total_budget if proj.total_budget is not None else 8000,
+                conversation_ratio=(
+                    proj.conversation_ratio if proj.conversation_ratio is not None else 0.3
+                ),
+                views_ratio=proj.views_ratio if proj.views_ratio is not None else 0.5,
+                groups_ratio=proj.groups_ratio if proj.groups_ratio is not None else 0.2,
+            )
+            return ProjectionEngine(projection_config)
+        return ProjectionEngine()
 
     async def prompt(self, content: str) -> AsyncIterator[SessionUpdate]:
         """Process a user prompt.
@@ -148,7 +166,11 @@ class Session:
                 log.debug("=== PROJECTION (%d tokens) ===", tokens_est)
                 log.debug("%s", projection_content or "(empty)")
                 log.debug("=== END PROJECTION ===")
-                log.debug("Request: %s%s", current_request[:200], "..." if len(current_request) > 200 else "")
+                log.debug(
+                    "Request: %s%s",
+                    current_request[:200],
+                    "..." if len(current_request) > 200 else "",
+                )
 
             messages = [
                 Message(role=Role.SYSTEM, content=SYSTEM_PROMPT),
@@ -170,8 +192,12 @@ class Session:
                     )
 
             # Update conversation history
-            self._conversation.append(Message(role=Role.USER, content=current_request, actor="user"))
-            self._conversation.append(Message(role=Role.ASSISTANT, content=full_response, actor="agent"))
+            self._conversation.append(
+                Message(role=Role.USER, content=current_request, actor="user")
+            )
+            self._conversation.append(
+                Message(role=Role.ASSISTANT, content=full_response, actor="agent")
+            )
 
             # Parse response and execute code blocks
             parsed = parse_response(full_response)
@@ -221,10 +247,13 @@ class Session:
     async def _prompt_direct(self, content: str) -> AsyncIterator[SessionUpdate]:
         """Process prompt in direct execution mode (no LLM)."""
         # Check if content looks like Python code
-        is_code = any(
-            content.strip().startswith(prefix)
-            for prefix in ("import ", "from ", "def ", "class ", "=", "view(", "group(")
-        ) or "=" in content
+        is_code = (
+            any(
+                content.strip().startswith(prefix)
+                for prefix in ("import ", "from ", "def ", "class ", "=", "view(", "group(")
+            )
+            or "=" in content
+        )
 
         if is_code:
             async for update in self._execute_code(content):
@@ -401,12 +430,16 @@ class SessionManager:
         if session_id in self._sessions:
             raise ValueError(f"Session {session_id} already exists")
 
+        # Load project-level config (merges with system/user config)
+        project_config = self._load_project_config(cwd)
+
         timeline = Timeline(session_id, cwd=cwd)
         session = Session(
             session_id=session_id,
             cwd=cwd,
             timeline=timeline,
             llm=llm or self._default_llm,
+            config=project_config,
         )
         self._sessions[session_id] = session
 
@@ -414,6 +447,26 @@ class SessionManager:
         await session._setup_initial_context()
 
         return session
+
+    def _load_project_config(self, cwd: str) -> Config | None:
+        """Load project-level config for a session.
+
+        Args:
+            cwd: Working directory (project root) for the session.
+
+        Returns:
+            Merged config including project-level settings, or None if unavailable.
+        """
+        try:
+            from activecontext.config import load_config
+
+            return load_config(session_root=cwd)
+        except ImportError:
+            log.debug("Config module not available")
+            return None
+        except Exception as e:
+            log.warning("Failed to load project config: %s", e)
+            return None
 
     async def get_session(self, session_id: str) -> Session | None:
         """Get an existing session by ID."""

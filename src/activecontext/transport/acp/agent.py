@@ -38,8 +38,8 @@ log = get_logger("acp")
 if TYPE_CHECKING:
     from acp.interfaces import Client
 
-# Hardcoded session modes
-SESSION_MODES = [
+# Default session modes (used if no config or config has no modes)
+DEFAULT_SESSION_MODES = [
     SessionMode(id="normal", name="Normal", description="Standard mode"),
     SessionMode(id="plan", name="Plan", description="Plan before acting"),
     SessionMode(id="brave", name="Brave", description="Autonomous with fewer confirmations"),
@@ -55,6 +55,11 @@ class ActiveContextAgent:
     """
 
     def __init__(self) -> None:
+        # Load config for session modes
+        self._session_modes = DEFAULT_SESSION_MODES
+        self._default_mode_id = DEFAULT_MODE_ID
+        self._load_modes_from_config()
+
         # Set up LLM provider based on available API keys
         default_model = get_default_model()
         default_llm: LiteLLMProvider | None = None
@@ -68,6 +73,31 @@ class ActiveContextAgent:
         self._sessions_model: dict[str, str] = {}  # session_id -> model_id
         self._sessions_mode: dict[str, str] = {}  # session_id -> mode_id
         self._current_model_id = default_model
+
+    def _load_modes_from_config(self) -> None:
+        """Load session modes from config if available."""
+        try:
+            from activecontext.config import get_config
+
+            config = get_config()
+            if config.session.modes:
+                self._session_modes = [
+                    SessionMode(
+                        id=m.id,
+                        name=m.name,
+                        description=m.description,
+                    )
+                    for m in config.session.modes
+                ]
+                # Use config default or first mode
+                if config.session.default_mode:
+                    self._default_mode_id = config.session.default_mode
+                elif self._session_modes:
+                    self._default_mode_id = self._session_modes[0].id
+        except ImportError:
+            pass  # Config module not available
+        except Exception:
+            pass  # Config loading failed, use defaults
 
     def on_connect(self, conn: Client) -> None:
         """Called when a client connects."""
@@ -106,7 +136,7 @@ class ActiveContextAgent:
         """Create a new session."""
         session = await self._manager.create_session(cwd=cwd)
         self._sessions_cwd[session.session_id] = cwd
-        self._sessions_mode[session.session_id] = DEFAULT_MODE_ID
+        self._sessions_mode[session.session_id] = self._default_mode_id
 
         # Build available models from environment
         available = get_available_models()
@@ -128,8 +158,8 @@ class ActiveContextAgent:
 
         # Build session modes
         modes_state = SessionModeState(
-            available_modes=SESSION_MODES,
-            current_mode_id=DEFAULT_MODE_ID,
+            available_modes=self._session_modes,
+            current_mode_id=self._default_mode_id,
         )
 
         return acp.NewSessionResponse(
@@ -182,7 +212,7 @@ class ActiveContextAgent:
     ) -> SetSessionModeResponse | None:
         """Set session mode."""
         # Validate mode exists
-        valid_modes = {m.id for m in SESSION_MODES}
+        valid_modes = {m.id for m in self._session_modes}
         if mode_id not in valid_modes:
             raise acp.RequestError(
                 code=-32602,

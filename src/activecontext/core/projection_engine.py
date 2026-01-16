@@ -36,7 +36,29 @@ class ProjectionEngine:
     """
 
     def __init__(self, config: ProjectionConfig | None = None) -> None:
-        self.config = config or ProjectionConfig()
+        if config:
+            self.config = config
+        else:
+            # Try to load from app config
+            self.config = self._config_from_app_config()
+
+    def _config_from_app_config(self) -> ProjectionConfig:
+        """Build ProjectionConfig from app config or defaults."""
+        try:
+            from activecontext.config import get_config
+
+            app_config = get_config()
+            proj = app_config.projection
+            return ProjectionConfig(
+                total_budget=proj.total_budget if proj.total_budget is not None else 8000,
+                conversation_ratio=(
+                    proj.conversation_ratio if proj.conversation_ratio is not None else 0.3
+                ),
+                views_ratio=proj.views_ratio if proj.views_ratio is not None else 0.5,
+                groups_ratio=proj.groups_ratio if proj.groups_ratio is not None else 0.2,
+            )
+        except ImportError:
+            return ProjectionConfig()
 
     def build(
         self,

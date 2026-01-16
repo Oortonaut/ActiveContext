@@ -109,10 +109,22 @@ def get_available_models() -> list[ModelInfo]:
 
 
 def get_default_model() -> str | None:
-    """Return the default model ID based on available providers.
+    """Return the default model ID based on config, then available providers.
 
-    Priority: Anthropic > OpenAI > others
+    Priority: Config > Anthropic > OpenAI > others
+
+    Checks config.llm.model first, then falls back to provider-based discovery.
     """
+    # Check config first
+    try:
+        from activecontext.config import get_config
+
+        config = get_config()
+        if config.llm.model:
+            return config.llm.model
+    except ImportError:
+        pass  # Config not available, fall through
+
     providers = get_available_providers()
     if not providers:
         return None

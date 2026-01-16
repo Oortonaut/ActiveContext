@@ -147,8 +147,13 @@ def main() -> None:
     """Run the ActiveContext ACP agent."""
     import asyncio
 
-    # Initialize logging first
-    setup_logging()
+    from activecontext.config import load_config
+
+    # Load config before logging so we can use config.logging settings
+    config = load_config()
+
+    # Initialize logging with config
+    setup_logging(config.logging)
 
     log.info("Starting...")
 

@@ -11,6 +11,7 @@ authors = [
 dependencies = [
     "agent-client-protocol>=0.1",
     "litellm>=1.40",
+    "pyyaml>=6.0",
 ]
 
 [project.scripts]
