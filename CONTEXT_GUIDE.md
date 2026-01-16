@@ -7,7 +7,7 @@ This guide explains how to use the context system to work with files and code.
 Use ` ```python/acrepl ` blocks for code that will be executed:
 
 ```python/acrepl
-v = view("src/main.py", tokens=2000)
+v = view("src/__main__.py", tokens=2000)
 ```
 
 Regular ` ```python ` blocks are for showing examples (not executed).
@@ -28,7 +28,7 @@ A **view** is a window into a file. The view appears in your context on the next
 
 ### View Methods
 
-```python
+```python/acrepl
 v.SetPos("50:0")      # Jump to line 50
 v.SetTokens(500)      # Reduce token budget
 v.SetLod(1)           # Switch to structured view
@@ -37,7 +37,7 @@ v.Pause()             # Disable auto-updates
 ```
 
 Methods are chainable:
-```python
+```python/acrepl
 v.SetPos("100:0").SetTokens(1000).Run()
 ```
 
@@ -45,7 +45,7 @@ v.SetPos("100:0").SetTokens(1000).Run()
 
 A **group** summarizes multiple views:
 
-```python
+```python/acrepl
 g = group(v1, v2, v3, tokens=500, lod=2)
 ```
 
@@ -53,14 +53,14 @@ Groups are useful for maintaining awareness of related files without consuming t
 
 ## Utilities
 
-```python
+```python/acrepl
 ls()        # List all context handles
 show(v)     # Force-render a specific view
 ```
 
 ## Example Session
 
-```python
+```python/acrepl
 # First, create a view of the main file
 main = view("src/main.py", tokens=3000)
 

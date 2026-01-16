@@ -14,12 +14,15 @@ from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, Any
 
 from activecontext.core.projection_engine import ProjectionEngine
+from activecontext.logging import get_logger
 from activecontext.session.protocols import (
     Projection,
     SessionUpdate,
     UpdateKind,
 )
 from activecontext.session.timeline import Timeline
+
+log = get_logger("session")
 
 if TYPE_CHECKING:
     from activecontext.core.llm.provider import LLMProvider, Message
@@ -114,7 +117,6 @@ class Session:
         to LLM until it produces no code (indicating completion).
         """
         import os
-        import sys
 
         from activecontext.core.llm.provider import Message, Role
         from activecontext.core.prompts import SYSTEM_PROMPT, parse_response
@@ -139,11 +141,11 @@ class Session:
             # Debug logging
             if os.environ.get("ACTIVECONTEXT_DEBUG"):
                 tokens_est = len(projection_content) // 4 if projection_content else 0
-                print(f"\n[activecontext] === ITERATION {iteration} ===", file=sys.stderr)
-                print(f"[activecontext] === PROJECTION ({tokens_est} tokens) ===", file=sys.stderr)
-                print(projection_content or "(empty)", file=sys.stderr)
-                print(f"[activecontext] === END PROJECTION ===\n", file=sys.stderr)
-                print(f"[activecontext] Request: {current_request[:200]}{'...' if len(current_request) > 200 else ''}", file=sys.stderr)
+                log.debug("=== ITERATION %d ===", iteration)
+                log.debug("=== PROJECTION (%d tokens) ===", tokens_est)
+                log.debug("%s", projection_content or "(empty)")
+                log.debug("=== END PROJECTION ===")
+                log.debug("Request: %s%s", current_request[:200], "..." if len(current_request) > 200 else "")
 
             messages = [
                 Message(role=Role.SYSTEM, content=SYSTEM_PROMPT),

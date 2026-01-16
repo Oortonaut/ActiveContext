@@ -29,8 +29,11 @@ from activecontext.core.llm import (
     get_available_models,
     get_default_model,
 )
+from activecontext.logging import get_logger
 from activecontext.session.protocols import UpdateKind
 from activecontext.session.session_manager import SessionManager
+
+log = get_logger("acp")
 
 if TYPE_CHECKING:
     from acp.interfaces import Client
@@ -232,7 +235,6 @@ class ActiveContextAgent:
         3. Streams updates back via session_update
         4. Returns the final response
         """
-        import sys
         import traceback
 
         session = await self._manager.get_session(session_id)
@@ -278,10 +280,8 @@ class ActiveContextAgent:
                         response_text += f"\n{stdout}"
         except Exception as e:
             # Log the error but don't crash the agent
-            from activecontext.__main__ import _log
-
-            _log(f"ERROR in prompt: {e}")
-            _log(traceback.format_exc())
+            log.error("Error in prompt: %s", e)
+            log.error("%s", traceback.format_exc())
             # Send error message to user
             if self._conn:
                 await self._conn.session_update(
@@ -351,14 +351,13 @@ class ActiveContextAgent:
             (handled, response) - handled=True if command was processed
         """
         import os
-        import sys
 
         parts = content.split(maxsplit=1)
         command = parts[0].lower()
         # args = parts[1] if len(parts) > 1 else ""
 
         if command == "/exit":
-            print("[activecontext] /exit command received, shutting down", file=sys.stderr)
+            log.info("/exit command received, shutting down")
             # Clean shutdown
             await self._manager.close_session(session_id)
             # Give time for response to be sent, then exit
