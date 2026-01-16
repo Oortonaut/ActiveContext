@@ -109,6 +109,9 @@ class Session:
 
     async def _prompt_with_llm(self, content: str) -> AsyncIterator[SessionUpdate]:
         """Process prompt using the LLM provider."""
+        import os
+        import sys
+
         from activecontext.core.llm.provider import Message, Role
         from activecontext.core.prompts import SYSTEM_PROMPT, parse_response
 
@@ -122,6 +125,14 @@ class Session:
             user_message = f"{projection_content}\n\n## Current Request\n\n{content}"
         else:
             user_message = content
+
+        # Debug logging
+        if os.environ.get("ACTIVECONTEXT_DEBUG"):
+            tokens_est = len(projection_content) // 4 if projection_content else 0
+            print(f"\n[activecontext] === PROJECTION ({tokens_est} tokens) ===", file=sys.stderr)
+            print(projection_content or "(empty)", file=sys.stderr)
+            print(f"[activecontext] === END PROJECTION ===\n", file=sys.stderr)
+            print(f"[activecontext] User request: {content[:200]}{'...' if len(content) > 200 else ''}", file=sys.stderr)
 
         messages = [
             Message(role=Role.SYSTEM, content=SYSTEM_PROMPT),
