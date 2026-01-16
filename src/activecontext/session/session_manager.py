@@ -277,6 +277,10 @@ class Session:
         """Clear the conversation history."""
         self._conversation.clear()
 
+    def get_context_objects(self) -> dict[str, Any]:
+        """Get all tracked context objects (views, groups)."""
+        return self._timeline.get_context_objects()
+
     async def _setup_initial_context(self) -> None:
         """Set up initial context views for a new session.
 

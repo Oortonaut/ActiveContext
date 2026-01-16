@@ -245,6 +245,19 @@ class ActiveContextAgent:
             if isinstance(block, TextContentBlock) or hasattr(block, "text"):
                 content += block.text
 
+        # Handle slash commands before LLM sees them
+        if content.strip().startswith("/"):
+            handled, response = await self._handle_slash_command(
+                content.strip(), session_id
+            )
+            if handled:
+                if self._conn and response:
+                    await self._conn.session_update(
+                        session_id,
+                        acp.update_agent_message_text(response),
+                    )
+                return acp.PromptResponse(stop_reason="end_turn")
+
         # Process prompt and stream updates
         response_text = ""
         async for update in session.prompt(content):
@@ -312,6 +325,64 @@ class ActiveContextAgent:
     ) -> None:
         """Handle extension notifications."""
         pass
+
+    async def _handle_slash_command(
+        self, content: str, session_id: str
+    ) -> tuple[bool, str]:
+        """Handle slash commands before they reach the LLM.
+
+        Returns:
+            (handled, response) - handled=True if command was processed
+        """
+        import os
+        import sys
+
+        parts = content.split(maxsplit=1)
+        command = parts[0].lower()
+        # args = parts[1] if len(parts) > 1 else ""
+
+        if command == "/exit":
+            print("[activecontext] /exit command received, shutting down", file=sys.stderr)
+            # Clean shutdown
+            await self._manager.close_session(session_id)
+            # Give time for response to be sent, then exit
+            import asyncio
+            asyncio.get_event_loop().call_later(0.5, lambda: os._exit(0))
+            return True, "Goodbye!"
+
+        elif command == "/help":
+            return True, (
+                "Available commands:\n"
+                "  /exit - Shutdown the agent\n"
+                "  /help - Show this help\n"
+                "  /clear - Clear conversation history\n"
+                "  /context - Show current context objects"
+            )
+
+        elif command == "/clear":
+            session = await self._manager.get_session(session_id)
+            if session:
+                session.clear_conversation()
+            return True, "Conversation history cleared."
+
+        elif command == "/context":
+            session = await self._manager.get_session(session_id)
+            if session:
+                objects = session.get_context_objects()
+                if objects:
+                    lines = ["Current context objects:"]
+                    for obj_id, obj in objects.items():
+                        digest = obj.GetDigest() if hasattr(obj, "GetDigest") else {}
+                        obj_type = digest.get("type", "unknown")
+                        path = digest.get("path", "")
+                        lines.append(f"  {obj_id}: {obj_type} {path}")
+                    return True, "\n".join(lines)
+                else:
+                    return True, "No context objects."
+            return True, "Session not found."
+
+        # Unknown command - let it pass through to LLM
+        return False, ""
 
     async def _emit_update(self, session_id: str, update: Any) -> None:
         """Convert and emit a SessionUpdate as an ACP notification."""
