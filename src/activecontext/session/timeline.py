@@ -65,6 +65,10 @@ class Timeline:
         self._max_stdout = 50000
         self._max_stderr = 10000
 
+        # Done signal from agent
+        self._done_called = False
+        self._done_message: str | None = None
+
     @property
     def cwd(self) -> str:
         return self._cwd
@@ -90,6 +94,8 @@ class Timeline:
             # Utility functions
             "ls": self._ls_handles,
             "show": self._show_handle,
+            # Agent control
+            "done": self._done,
         }
 
     def _make_view(
@@ -252,6 +258,30 @@ class Timeline:
         """Force render a handle (placeholder)."""
         digest = obj.GetDigest() if hasattr(obj, "GetDigest") else str(obj)
         return f"[{digest}]"
+
+    def _done(self, message: str = "") -> None:
+        """Signal that the agent has completed its task.
+
+        Args:
+            message: Final message to send to the user.
+        """
+        self._done_called = True
+        self._done_message = message
+        if message:
+            print(message)
+
+    def is_done(self) -> bool:
+        """Check if done() was called."""
+        return self._done_called
+
+    def get_done_message(self) -> str | None:
+        """Get the message passed to done(), if any."""
+        return self._done_message
+
+    def reset_done(self) -> None:
+        """Reset the done signal (call at start of each prompt)."""
+        self._done_called = False
+        self._done_message = None
 
     @property
     def session_id(self) -> str:

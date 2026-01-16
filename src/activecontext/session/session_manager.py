@@ -114,12 +114,15 @@ class Session:
         """Process prompt using the LLM provider.
 
         Runs an agent loop: LLM responds, code is executed, results feed back
-        to LLM until it produces no code (indicating completion).
+        to LLM until it calls done() or produces no code blocks.
         """
         import os
 
         from activecontext.core.llm.provider import Message, Role
         from activecontext.core.prompts import SYSTEM_PROMPT, parse_response
+
+        # Reset done signal at start of each prompt
+        self._timeline.reset_done()
 
         max_iterations = 10  # Safety limit
         iteration = 0
@@ -199,8 +202,14 @@ class Session:
             for update in tick_updates:
                 yield update
 
-            # If no code was executed, the agent is done
+            # Check if agent called done()
+            if self._timeline.is_done():
+                log.debug("Agent called done(), stopping loop")
+                break
+
+            # If no code was executed, the agent is done (legacy behavior)
             if not code_blocks:
+                log.debug("No code blocks, stopping loop")
                 break
 
             # Otherwise, loop back with execution results as the next request

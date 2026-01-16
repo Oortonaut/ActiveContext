@@ -197,6 +197,45 @@ class TestProjection:
         assert "\n\n\n" not in rendered
 
 
+class TestDoneSignal:
+    """Tests for the done() agent control function."""
+
+    def test_done_sets_flag(self) -> None:
+        """done() should set the done flag."""
+        from activecontext.session.timeline import Timeline
+
+        timeline = Timeline("test-session", cwd=".")
+        assert not timeline.is_done()
+
+        # Call done through namespace
+        timeline._namespace["done"]("Task complete")
+
+        assert timeline.is_done()
+        assert timeline.get_done_message() == "Task complete"
+
+    def test_done_reset(self) -> None:
+        """reset_done() should clear the flag."""
+        from activecontext.session.timeline import Timeline
+
+        timeline = Timeline("test-session", cwd=".")
+        timeline._namespace["done"]("First task")
+        assert timeline.is_done()
+
+        timeline.reset_done()
+        assert not timeline.is_done()
+        assert timeline.get_done_message() is None
+
+    def test_done_without_message(self) -> None:
+        """done() can be called without a message."""
+        from activecontext.session.timeline import Timeline
+
+        timeline = Timeline("test-session", cwd=".")
+        timeline._namespace["done"]()
+
+        assert timeline.is_done()
+        assert timeline.get_done_message() == ""
+
+
 @pytest.mark.asyncio
 async def test_clear_conversation() -> None:
     """Test clearing conversation history."""

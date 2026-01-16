@@ -58,6 +58,16 @@ ls()        # List all context handles
 show(v)     # Force-render a specific view
 ```
 
+## Completing Tasks
+
+When you have finished the user's request, call `done()` with a summary:
+
+```python/acrepl
+done("I've analyzed the code and found the bug on line 42. The issue is...")
+```
+
+This signals that you've completed the task. The message is your final response to the user.
+
 ## Example Session
 
 ```python/acrepl
