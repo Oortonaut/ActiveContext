@@ -11,6 +11,7 @@ from activecontext.config.schema import (
     FilePermissionConfig,
     ImportConfig,
     SandboxConfig,
+    ShellPermissionConfig,
 )
 from activecontext.session.permissions import (
     ImportDenied,
@@ -18,9 +19,13 @@ from activecontext.session.permissions import (
     PermissionDenied,
     PermissionManager,
     PermissionRule,
+    ShellPermissionDenied,
+    ShellPermissionManager,
+    ShellPermissionRule,
     make_safe_import,
     make_safe_open,
     write_permission_to_config,
+    write_shell_permission_to_config,
 )
 
 
@@ -607,8 +612,11 @@ class TestSafeImport:
         safe_import = make_safe_import(guard)
 
         # Should be able to import os.path
+        # Note: __import__("os.path") returns os module, not os.path
+        # The import succeeds if no exception is raised
         module = safe_import("os.path")
-        assert "path" in module.__name__
+        assert module.__name__ == "os"  # Parent module is returned
+        assert hasattr(module, "path")  # But path submodule is loaded
 
     def test_from_import_allowed(self) -> None:
         """Test 'from X import Y' style imports."""
@@ -1079,3 +1087,561 @@ class TestPermissionRequestFlow:
         assert result.exception is not None
         # Should be PermissionError, not PermissionDenied
         assert result.exception["type"] == "PermissionError"
+
+
+# =============================================================================
+# Shell Permission Tests
+# =============================================================================
+
+
+class TestShellPermissionDenied:
+    """Test the ShellPermissionDenied exception."""
+
+    def test_shell_permission_denied_carries_metadata(self) -> None:
+        """Test ShellPermissionDenied exception carries correct metadata."""
+        exc = ShellPermissionDenied(
+            command="rm",
+            full_command="rm -rf /important",
+            command_args=["-rf", "/important"],
+        )
+
+        assert exc.command == "rm"
+        assert exc.command_args == ["-rf", "/important"]
+        assert exc.full_command == "rm -rf /important"
+        assert "rm -rf /important" in str(exc)
+
+    def test_shell_permission_denied_no_args(self) -> None:
+        """Test ShellPermissionDenied with no arguments."""
+        exc = ShellPermissionDenied(
+            command="whoami",
+            full_command="whoami",
+            command_args=None,
+        )
+
+        assert exc.command == "whoami"
+        assert exc.command_args is None
+        assert "whoami" in str(exc)
+
+
+class TestShellPermissionManager:
+    """Test the ShellPermissionManager class."""
+
+    def test_default_config_denies_all(self) -> None:
+        """Test default config denies all shell commands."""
+        manager = ShellPermissionManager.from_config(None)
+
+        assert manager.deny_by_default is True
+        assert len(manager.rules) == 0
+        assert not manager.check_access("git", ["status"])
+        assert not manager.check_access("npm", ["run", "build"])
+
+    def test_explicit_allow_rule(self) -> None:
+        """Test explicit allow rule permits command."""
+        config = SandboxConfig(
+            shell_permissions=[
+                ShellPermissionConfig(pattern="git *", allow=True),
+            ],
+            shell_deny_by_default=True,
+        )
+        manager = ShellPermissionManager.from_config(config)
+
+        assert manager.check_access("git", ["status"])
+        assert manager.check_access("git", ["commit", "-m", "test"])
+        assert not manager.check_access("npm", ["install"])
+
+    def test_explicit_deny_rule(self) -> None:
+        """Test explicit deny rule blocks command."""
+        config = SandboxConfig(
+            shell_permissions=[
+                ShellPermissionConfig(pattern="rm -rf *", allow=False),
+                ShellPermissionConfig(pattern="rm *", allow=True),
+            ],
+            shell_deny_by_default=True,
+        )
+        manager = ShellPermissionManager.from_config(config)
+
+        # rm -rf should be denied (first rule matches)
+        assert not manager.check_access("rm", ["-rf", "/tmp/test"])
+
+        # rm without -rf should be allowed
+        assert manager.check_access("rm", ["file.txt"])
+
+    def test_glob_pattern_matching(self) -> None:
+        """Test glob patterns work correctly."""
+        config = SandboxConfig(
+            shell_permissions=[
+                ShellPermissionConfig(pattern="npm run *", allow=True),
+                ShellPermissionConfig(pattern="pytest *", allow=True),
+            ],
+            shell_deny_by_default=True,
+        )
+        manager = ShellPermissionManager.from_config(config)
+
+        assert manager.check_access("npm", ["run", "build"])
+        assert manager.check_access("npm", ["run", "test"])
+        assert manager.check_access("pytest", ["tests/"])
+        assert not manager.check_access("npm", ["install"])
+        assert not manager.check_access("pip", ["install", "requests"])
+
+    def test_deny_by_default_false(self) -> None:
+        """Test deny_by_default=False allows unlisted commands."""
+        config = SandboxConfig(
+            shell_permissions=[],
+            shell_deny_by_default=False,
+        )
+        manager = ShellPermissionManager.from_config(config)
+
+        # All commands should be allowed
+        assert manager.check_access("anything")
+        assert manager.check_access("rm", ["-rf", "/"])
+
+    def test_first_match_wins(self) -> None:
+        """Test first matching rule wins."""
+        config = SandboxConfig(
+            shell_permissions=[
+                ShellPermissionConfig(pattern="git push *", allow=False),
+                ShellPermissionConfig(pattern="git *", allow=True),
+            ],
+            shell_deny_by_default=True,
+        )
+        manager = ShellPermissionManager.from_config(config)
+
+        # git push should be denied (first rule)
+        assert not manager.check_access("git", ["push", "origin", "main"])
+
+        # other git commands should be allowed (second rule)
+        assert manager.check_access("git", ["status"])
+        assert manager.check_access("git", ["commit", "-m", "test"])
+
+    def test_reload_updates_rules(self) -> None:
+        """Test reload() updates permission rules."""
+        config1 = SandboxConfig(
+            shell_permissions=[],
+            shell_deny_by_default=True,
+        )
+        manager = ShellPermissionManager.from_config(config1)
+
+        # Initially denied
+        assert not manager.check_access("git", ["status"])
+
+        # Reload with allow rule
+        config2 = SandboxConfig(
+            shell_permissions=[
+                ShellPermissionConfig(pattern="git *", allow=True),
+            ],
+            shell_deny_by_default=True,
+        )
+        manager.reload(config2)
+
+        # Now should be allowed
+        assert manager.check_access("git", ["status"])
+
+    def test_list_permissions(self) -> None:
+        """Test list_permissions returns rule details."""
+        config = SandboxConfig(
+            shell_permissions=[
+                ShellPermissionConfig(pattern="git *", allow=True),
+                ShellPermissionConfig(pattern="rm -rf *", allow=False),
+            ],
+        )
+        manager = ShellPermissionManager.from_config(config)
+
+        perms = manager.list_permissions()
+        assert len(perms) == 2
+        assert perms[0]["pattern"] == "git *"
+        assert perms[0]["allow"] is True
+        assert perms[1]["pattern"] == "rm -rf *"
+        assert perms[1]["allow"] is False
+
+
+class TestShellTemporaryGrants:
+    """Test the shell temporary grant functionality."""
+
+    def test_grant_temporary_allows_access(self) -> None:
+        """Test grant_temporary() allows subsequent access."""
+        config = SandboxConfig(shell_deny_by_default=True)
+        manager = ShellPermissionManager.from_config(config)
+
+        # Initially denied
+        assert not manager.check_access("dangerous", ["command"])
+
+        # Grant temporary access
+        manager.grant_temporary("dangerous", ["command"])
+
+        # Now should be allowed
+        assert manager.check_access("dangerous", ["command"])
+
+    def test_grant_temporary_is_exact_match(self) -> None:
+        """Test temporary grants match exactly."""
+        config = SandboxConfig(shell_deny_by_default=True)
+        manager = ShellPermissionManager.from_config(config)
+
+        # Grant for specific command + args
+        manager.grant_temporary("rm", ["file.txt"])
+
+        # Exact match should be allowed
+        assert manager.check_access("rm", ["file.txt"])
+
+        # Different args should be denied
+        assert not manager.check_access("rm", ["other.txt"])
+        assert not manager.check_access("rm", ["-rf", "file.txt"])
+
+    def test_clear_temporary_grants(self) -> None:
+        """Test clear_temporary_grants() removes all temporary grants."""
+        config = SandboxConfig(shell_deny_by_default=True)
+        manager = ShellPermissionManager.from_config(config)
+
+        # Grant and verify
+        manager.grant_temporary("test", ["command"])
+        assert manager.check_access("test", ["command"])
+
+        # Clear and verify
+        manager.clear_temporary_grants()
+        assert not manager.check_access("test", ["command"])
+
+
+class TestWriteShellPermissionToConfig:
+    """Test write_shell_permission_to_config functionality."""
+
+    def test_creates_config_file_if_not_exists(self, tmp_path: Path) -> None:
+        """Test creating a new config file with shell permission."""
+        write_shell_permission_to_config(tmp_path, "git", ["status"])
+
+        config_path = tmp_path / ".ac" / "config.yaml"
+        assert config_path.exists()
+
+        with open(config_path) as f:
+            data = yaml.safe_load(f)
+
+        assert "sandbox" in data
+        assert "shell_permissions" in data["sandbox"]
+        assert len(data["sandbox"]["shell_permissions"]) == 1
+        assert data["sandbox"]["shell_permissions"][0]["pattern"] == "git status"
+        assert data["sandbox"]["shell_permissions"][0]["allow"] is True
+
+    def test_appends_to_existing_config(self, tmp_path: Path) -> None:
+        """Test appending shell permission to existing config."""
+        # Create initial config
+        config_dir = tmp_path / ".ac"
+        config_dir.mkdir()
+        config_path = config_dir / "config.yaml"
+        config_path.write_text(
+            """
+llm:
+  model: test-model
+sandbox:
+  shell_permissions:
+    - pattern: git *
+      allow: true
+"""
+        )
+
+        # Add new permission
+        write_shell_permission_to_config(tmp_path, "npm", ["run", "test"])
+
+        with open(config_path) as f:
+            data = yaml.safe_load(f)
+
+        # Should have both permissions
+        assert len(data["sandbox"]["shell_permissions"]) == 2
+        assert data["sandbox"]["shell_permissions"][0]["pattern"] == "git *"
+        assert data["sandbox"]["shell_permissions"][1]["pattern"] == "npm run test"
+
+        # Should preserve other config
+        assert data["llm"]["model"] == "test-model"
+
+    def test_does_not_duplicate_existing_rule(self, tmp_path: Path) -> None:
+        """Test that duplicate rules are not added."""
+        # Add first rule
+        write_shell_permission_to_config(tmp_path, "pytest", ["tests/"])
+
+        # Try to add the same rule again
+        write_shell_permission_to_config(tmp_path, "pytest", ["tests/"])
+
+        config_path = tmp_path / ".ac" / "config.yaml"
+        with open(config_path) as f:
+            data = yaml.safe_load(f)
+
+        # Should only have one rule
+        assert len(data["sandbox"]["shell_permissions"]) == 1
+
+    def test_command_without_args(self, tmp_path: Path) -> None:
+        """Test writing permission for command without args."""
+        write_shell_permission_to_config(tmp_path, "whoami", None)
+
+        config_path = tmp_path / ".ac" / "config.yaml"
+        with open(config_path) as f:
+            data = yaml.safe_load(f)
+
+        assert data["sandbox"]["shell_permissions"][0]["pattern"] == "whoami"
+
+
+class TestShellPermissionConfigParsing:
+    """Test shell permission config parsing from YAML."""
+
+    @pytest.fixture
+    def temp_config_dir(self, tmp_path: Path) -> Path:
+        """Create a temporary config directory."""
+        config_dir = tmp_path / ".ac"
+        config_dir.mkdir()
+        return config_dir
+
+    def test_shell_config_from_yaml(self, temp_config_dir: Path) -> None:
+        """Test loading shell config from YAML file."""
+        from activecontext.config import load_config, reset_config
+
+        reset_config()
+
+        config_file = temp_config_dir / "config.yaml"
+        config_file.write_text(
+            """
+sandbox:
+  shell_deny_by_default: true
+  shell_permissions:
+    - pattern: "git *"
+      allow: true
+    - pattern: "npm run *"
+      allow: true
+    - pattern: "rm -rf *"
+      allow: false
+"""
+        )
+
+        config = load_config(session_root=str(temp_config_dir.parent))
+
+        assert config.sandbox.shell_deny_by_default is True
+        assert len(config.sandbox.shell_permissions) == 3
+        assert config.sandbox.shell_permissions[0].pattern == "git *"
+        assert config.sandbox.shell_permissions[0].allow is True
+        assert config.sandbox.shell_permissions[2].pattern == "rm -rf *"
+        assert config.sandbox.shell_permissions[2].allow is False
+
+    def test_shell_config_defaults(self, temp_config_dir: Path) -> None:
+        """Test shell config uses sensible defaults."""
+        from activecontext.config import load_config, reset_config
+
+        reset_config()
+
+        config_file = temp_config_dir / "config.yaml"
+        config_file.write_text(
+            """
+# Empty config should use defaults
+"""
+        )
+
+        config = load_config(session_root=str(temp_config_dir.parent))
+
+        assert config.sandbox.shell_deny_by_default is True
+        assert config.sandbox.shell_permissions == []
+
+
+class TestShellTimelineIntegration:
+    """Test Timeline integration with ShellPermissionManager."""
+
+    @pytest.fixture
+    def temp_cwd(self, tmp_path: Path) -> Path:
+        """Create a temporary working directory."""
+        return tmp_path
+
+    @pytest.mark.asyncio
+    async def test_timeline_blocks_unauthorized_shell(self, temp_cwd: Path) -> None:
+        """Test Timeline blocks unauthorized shell commands."""
+        from activecontext.session.timeline import Timeline
+
+        config = SandboxConfig(shell_deny_by_default=True)
+        manager = ShellPermissionManager.from_config(config)
+        timeline = Timeline(
+            "test-session",
+            cwd=str(temp_cwd),
+            shell_permission_manager=manager,
+        )
+
+        result = await timeline.execute_statement('shell("echo", ["hello"])')
+
+        assert result.status.value == "ok"
+        # The shell result should indicate permission denied (exit code 126)
+        assert "error" in result.stdout.lower() or "exit=126" in result.stdout
+
+    @pytest.mark.asyncio
+    async def test_timeline_allows_authorized_shell(self, temp_cwd: Path) -> None:
+        """Test Timeline allows authorized shell commands."""
+        from activecontext.session.timeline import Timeline
+
+        config = SandboxConfig(
+            shell_permissions=[
+                ShellPermissionConfig(pattern="echo *", allow=True),
+            ],
+            shell_deny_by_default=True,
+        )
+        manager = ShellPermissionManager.from_config(config)
+        timeline = Timeline(
+            "test-session",
+            cwd=str(temp_cwd),
+            shell_permission_manager=manager,
+        )
+
+        result = await timeline.execute_statement('shell("echo", ["hello"])')
+
+        assert result.status.value == "ok"
+        # Should have actual output (hello) or successful status, not error
+        assert "hello" in result.stdout or "exit=126" not in result.stdout
+
+    @pytest.mark.asyncio
+    async def test_timeline_ls_shell_permissions(self, temp_cwd: Path) -> None:
+        """Test Timeline exposes ls_shell_permissions function."""
+        from activecontext.session.timeline import Timeline
+
+        config = SandboxConfig(
+            shell_permissions=[
+                ShellPermissionConfig(pattern="git *", allow=True),
+            ],
+            shell_deny_by_default=True,
+        )
+        manager = ShellPermissionManager.from_config(config)
+        timeline = Timeline(
+            "test-session",
+            cwd=str(temp_cwd),
+            shell_permission_manager=manager,
+        )
+
+        result = await timeline.execute_statement("ls_shell_permissions()")
+
+        assert result.status.value == "ok"
+        assert "git *" in result.stdout
+        assert "deny_by_default" in result.stdout
+
+    @pytest.mark.asyncio
+    async def test_timeline_without_shell_permission_manager(
+        self, temp_cwd: Path
+    ) -> None:
+        """Test Timeline works without shell permission manager (no restrictions)."""
+        from activecontext.session.timeline import Timeline
+
+        timeline = Timeline("test-session", cwd=str(temp_cwd))
+
+        result = await timeline.execute_statement('shell("echo", ["hello"])')
+
+        # Should work without restrictions
+        assert result.status.value == "ok"
+
+
+class TestShellPermissionRequestFlow:
+    """Test the shell permission request flow in Timeline."""
+
+    @pytest.fixture
+    def temp_cwd(self, tmp_path: Path) -> Path:
+        """Create a temporary working directory."""
+        return tmp_path
+
+    @pytest.mark.asyncio
+    async def test_shell_permission_request_allow_once(self, temp_cwd: Path) -> None:
+        """Test allow_once grants temporary shell access."""
+        from activecontext.session.timeline import Timeline
+
+        config = SandboxConfig(shell_deny_by_default=True)
+        manager = ShellPermissionManager.from_config(config)
+
+        # Mock permission requester that always grants once
+        async def mock_requester(
+            session_id: str, command: str, args: list[str] | None
+        ) -> tuple[bool, bool]:
+            return (True, False)  # granted=True, persist=False
+
+        timeline = Timeline(
+            "test-session",
+            cwd=str(temp_cwd),
+            shell_permission_manager=manager,
+            shell_permission_requester=mock_requester,
+        )
+
+        result = await timeline.execute_statement('shell("echo", ["hello"])')
+
+        assert result.status.value == "ok"
+        # Should not be error/denied (exit=126)
+        assert "exit=126" not in result.stdout
+
+    @pytest.mark.asyncio
+    async def test_shell_permission_request_allow_always(self, temp_cwd: Path) -> None:
+        """Test allow_always persists shell permission to config."""
+        from activecontext.session.timeline import Timeline
+
+        config = SandboxConfig(shell_deny_by_default=True)
+        manager = ShellPermissionManager.from_config(config)
+
+        # Mock permission requester that grants always
+        async def mock_requester(
+            session_id: str, command: str, args: list[str] | None
+        ) -> tuple[bool, bool]:
+            return (True, True)  # granted=True, persist=True
+
+        timeline = Timeline(
+            "test-session",
+            cwd=str(temp_cwd),
+            shell_permission_manager=manager,
+            shell_permission_requester=mock_requester,
+        )
+
+        result = await timeline.execute_statement('shell("echo", ["hello"])')
+
+        assert result.status.value == "ok"
+
+        # Verify config was updated
+        config_path = temp_cwd / ".ac" / "config.yaml"
+        assert config_path.exists()
+
+        with open(config_path) as f:
+            data = yaml.safe_load(f)
+
+        assert "sandbox" in data
+        assert "shell_permissions" in data["sandbox"]
+        # Should have added echo hello rule
+        patterns = [p["pattern"] for p in data["sandbox"]["shell_permissions"]]
+        assert "echo hello" in patterns
+
+    @pytest.mark.asyncio
+    async def test_shell_permission_request_denied(self, temp_cwd: Path) -> None:
+        """Test denied shell permission returns error result."""
+        from activecontext.session.timeline import Timeline
+
+        config = SandboxConfig(shell_deny_by_default=True)
+        manager = ShellPermissionManager.from_config(config)
+
+        # Mock permission requester that denies
+        async def mock_requester(
+            session_id: str, command: str, args: list[str] | None
+        ) -> tuple[bool, bool]:
+            return (False, False)  # denied
+
+        timeline = Timeline(
+            "test-session",
+            cwd=str(temp_cwd),
+            shell_permission_manager=manager,
+            shell_permission_requester=mock_requester,
+        )
+
+        result = await timeline.execute_statement('shell("echo", ["hello"])')
+
+        assert result.status.value == "ok"
+        # Should indicate error (exit=126 is permission denied)
+        assert "error" in result.stdout.lower() or "exit=126" in result.stdout
+
+    @pytest.mark.asyncio
+    async def test_no_shell_requester_returns_denied(self, temp_cwd: Path) -> None:
+        """Test that without a requester, shell command is denied."""
+        from activecontext.session.timeline import Timeline
+
+        config = SandboxConfig(shell_deny_by_default=True)
+        manager = ShellPermissionManager.from_config(config)
+
+        # No permission requester
+        timeline = Timeline(
+            "test-session",
+            cwd=str(temp_cwd),
+            shell_permission_manager=manager,
+        )
+
+        result = await timeline.execute_statement('shell("echo", ["hello"])')
+
+        assert result.status.value == "ok"
+        # Should indicate error (exit=126 is permission denied)
+        assert "error" in result.stdout.lower() or "exit=126" in result.stdout

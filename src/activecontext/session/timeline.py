@@ -32,9 +32,11 @@ from activecontext.session.permissions import (
     ImportGuard,
     PermissionDenied,
     PermissionManager,
+    ShellPermissionManager,
     make_safe_import,
     make_safe_open,
     write_permission_to_config,
+    write_shell_permission_to_config,
 )
 from activecontext.session.protocols import (
     ExecutionResult,
@@ -49,9 +51,15 @@ if TYPE_CHECKING:
 
     from activecontext.terminal.protocol import TerminalExecutor
 
-    # Type for permission requester callback:
+    # Type for file permission requester callback:
     # async (session_id, path, mode) -> (granted, persist)
     PermissionRequester = Callable[[str, str, str], "asyncio.Future[tuple[bool, bool]]"]
+
+    # Type for shell permission requester callback:
+    # async (session_id, command, args) -> (granted, persist)
+    ShellPermissionRequester = Callable[
+        [str, str, list[str] | None], "asyncio.Future[tuple[bool, bool]]"
+    ]
 
 
 @dataclass
@@ -85,6 +93,8 @@ class Timeline:
         terminal_executor: TerminalExecutor | None = None,
         permission_requester: PermissionRequester | None = None,
         import_guard: ImportGuard | None = None,
+        shell_permission_manager: ShellPermissionManager | None = None,
+        shell_permission_requester: ShellPermissionRequester | None = None,
     ) -> None:
         self._session_id = session_id
         self._cwd = cwd
@@ -103,6 +113,13 @@ class Timeline:
         # Permission requester callback for ACP permission prompts
         # Called when PermissionDenied is raised: async (sid, path, mode) -> (granted, persist)
         self._permission_requester = permission_requester
+
+        # Shell permission manager for command access control
+        self._shell_permission_manager = shell_permission_manager
+
+        # Shell permission requester callback for ACP permission prompts
+        # Called when shell command is denied: async (sid, cmd, args) -> (granted, persist)
+        self._shell_permission_requester = shell_permission_requester
 
         # Terminal executor for shell commands (default to subprocess)
         if terminal_executor is None:
@@ -176,6 +193,7 @@ class Timeline:
             "show": self._show_handle,
             "ls_permissions": self._ls_permissions,
             "ls_imports": self._ls_imports,
+            "ls_shell_permissions": self._ls_shell_permissions,
             # Shell execution
             "shell": self._shell,
             # Agent control
@@ -208,6 +226,22 @@ class Timeline:
             "allowed_modules": [],
             "allow_submodules": True,
             "allow_all": True,  # No guard means unrestricted
+        }
+
+    def _ls_shell_permissions(self) -> dict[str, Any]:
+        """List shell permission configuration (read-only inspection).
+
+        Returns:
+            Dict with shell permission rules and deny_by_default flag.
+        """
+        if self._shell_permission_manager:
+            return {
+                "rules": self._shell_permission_manager.list_permissions(),
+                "deny_by_default": self._shell_permission_manager.deny_by_default,
+            }
+        return {
+            "rules": [],
+            "deny_by_default": True,  # No manager means default deny
         }
 
     def _make_view_node(
@@ -476,9 +510,11 @@ class Timeline:
         env: dict[str, str] | None = None,
         timeout: float | None = 30.0,
     ) -> Any:
-        """Execute a shell command.
+        """Execute a shell command with permission checking.
 
         Returns a coroutine that must be awaited by execute_statement.
+        If a shell_permission_manager is configured, the command will be
+        checked against the permission rules before execution.
 
         Args:
             command: The command to execute (e.g., "pytest", "git").
@@ -490,7 +526,86 @@ class Timeline:
         Returns:
             Coroutine that resolves to ShellResult.
         """
-        return self._terminal_executor.execute(
+        return self._shell_with_permission(
+            command=command,
+            args=args,
+            cwd=cwd,
+            env=env,
+            timeout=timeout,
+        )
+
+    async def _shell_with_permission(
+        self,
+        command: str,
+        args: list[str] | None = None,
+        cwd: str | None = None,
+        env: dict[str, str] | None = None,
+        timeout: float | None = 30.0,
+    ) -> Any:
+        """Execute shell command with permission check and request flow.
+
+        Args:
+            command: The command to execute.
+            args: Optional list of arguments.
+            cwd: Working directory.
+            env: Additional environment variables.
+            timeout: Timeout in seconds.
+
+        Returns:
+            ShellResult from execution, or error result if denied.
+        """
+        from activecontext.terminal.result import ShellResult
+
+        # Check permission if manager is configured
+        if self._shell_permission_manager:
+            if not self._shell_permission_manager.check_access(command, args):
+                # Permission denied - try to request
+                if self._shell_permission_requester:
+                    granted, persist = await self._shell_permission_requester(
+                        self._session_id, command, args
+                    )
+
+                    if granted:
+                        if persist:
+                            # "Allow always" - write to config file
+                            write_shell_permission_to_config(
+                                Path(self._cwd), command, args
+                            )
+                            # Reload config to pick up new rule
+                            from activecontext.config import load_config
+
+                            config = load_config(session_root=self._cwd)
+                            self._shell_permission_manager.reload(config.sandbox)
+                        else:
+                            # "Allow once" - grant temporary access
+                            self._shell_permission_manager.grant_temporary(command, args)
+                    else:
+                        # Denied - return error result
+                        full_cmd = f"{command} {' '.join(args or [])}"
+                        return ShellResult(
+                            command=full_cmd,
+                            exit_code=126,  # Permission denied exit code
+                            output=f"Shell command denied by sandbox policy: {full_cmd}",
+                            truncated=False,
+                            status="error",
+                            signal=None,
+                            duration_ms=0,
+                        )
+                else:
+                    # No requester available - return error result
+                    full_cmd = f"{command} {' '.join(args or [])}"
+                    return ShellResult(
+                        command=full_cmd,
+                        exit_code=126,
+                        output=f"Shell command denied by sandbox policy: {full_cmd}",
+                        truncated=False,
+                        status="error",
+                        signal=None,
+                        duration_ms=0,
+                    )
+
+        # Permission granted (or no manager) - execute
+        return await self._terminal_executor.execute(
             command=command,
             args=args,
             cwd=cwd,
@@ -552,7 +667,8 @@ class Timeline:
             "view", "group", "topic", "artifact",
             "link", "unlink",
             "checkpoint", "restore", "checkpoints", "branch",
-            "ls", "show", "ls_permissions", "ls_imports", "shell", "done",
+            "ls", "show", "ls_permissions", "ls_imports", "ls_shell_permissions",
+            "shell", "done",
         }
         return {
             k: v
@@ -840,3 +956,18 @@ class Timeline:
         self._import_guard = import_guard
         # Rebuild namespace to update the __import__ wrapper
         self._setup_namespace()
+
+    @property
+    def shell_permission_manager(self) -> ShellPermissionManager | None:
+        """The shell permission manager for command access control."""
+        return self._shell_permission_manager
+
+    def set_shell_permission_manager(
+        self, shell_permission_manager: ShellPermissionManager | None
+    ) -> None:
+        """Set or update the shell permission manager.
+
+        Args:
+            shell_permission_manager: New shell permission manager (or None to disable).
+        """
+        self._shell_permission_manager = shell_permission_manager

@@ -69,6 +69,18 @@ class FilePermissionConfig:
 
 
 @dataclass
+class ShellPermissionConfig:
+    """A shell permission rule for the sandbox.
+
+    Defines a glob pattern for shell command access control.
+    Pattern is matched against the full command string (command + args).
+    """
+
+    pattern: str  # Glob pattern (e.g., "git *", "npm run *", "pytest *")
+    allow: bool = True  # True to allow, False to deny
+
+
+@dataclass
 class ImportConfig:
     """Import whitelist configuration for the REPL sandbox.
 
@@ -84,7 +96,8 @@ class ImportConfig:
 class SandboxConfig:
     """Sandbox configuration for file access control.
 
-    Controls which files can be read/written by code executing in the Timeline.
+    Controls which files can be read/written by code executing in the Timeline,
+    and which shell commands can be executed.
     """
 
     file_permissions: list[FilePermissionConfig] = field(default_factory=list)
@@ -93,6 +106,8 @@ class SandboxConfig:
     deny_by_default: bool = True  # Deny unlisted paths
     allow_absolute: bool = False  # Allow paths outside cwd
     imports: ImportConfig = field(default_factory=ImportConfig)  # Import whitelist
+    shell_permissions: list[ShellPermissionConfig] = field(default_factory=list)
+    shell_deny_by_default: bool = True  # Deny unlisted shell commands
 
 
 @dataclass

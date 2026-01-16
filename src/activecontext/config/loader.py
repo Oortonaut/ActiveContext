@@ -22,12 +22,14 @@ from activecontext.config.paths import get_config_paths
 from activecontext.config.schema import (
     Config,
     FilePermissionConfig,
+    ImportConfig,
     LLMConfig,
     LoggingConfig,
     ProjectionConfig,
     SandboxConfig,
     SessionConfig,
     SessionModeConfig,
+    ShellPermissionConfig,
 )
 
 # Module logger (may not be configured yet at import time)
@@ -174,12 +176,35 @@ def dict_to_config(data: dict[str, Any]) -> Config:
         for p in perms_data
         if isinstance(p, dict) and p.get("pattern")
     ]
+
+    # Import whitelist config
+    imports_data = sandbox_data.get("imports", {})
+    imports = ImportConfig(
+        allowed_modules=imports_data.get("allowed_modules", []),
+        allow_submodules=imports_data.get("allow_submodules", True),
+        allow_all=imports_data.get("allow_all", False),
+    )
+
+    # Shell permission config
+    shell_perms_data = sandbox_data.get("shell_permissions", [])
+    shell_permissions = [
+        ShellPermissionConfig(
+            pattern=p.get("pattern", ""),
+            allow=p.get("allow", True),
+        )
+        for p in shell_perms_data
+        if isinstance(p, dict) and p.get("pattern")
+    ]
+
     sandbox = SandboxConfig(
         file_permissions=file_permissions,
         allow_cwd=sandbox_data.get("allow_cwd", True),
         allow_cwd_write=sandbox_data.get("allow_cwd_write", False),
         deny_by_default=sandbox_data.get("deny_by_default", True),
         allow_absolute=sandbox_data.get("allow_absolute", False),
+        imports=imports,
+        shell_permissions=shell_permissions,
+        shell_deny_by_default=sandbox_data.get("shell_deny_by_default", True),
     )
 
     # Extra fields for extensibility

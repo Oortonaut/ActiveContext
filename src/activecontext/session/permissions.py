@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, Any, Literal
 import yaml
 
 if TYPE_CHECKING:
-    from activecontext.config.schema import SandboxConfig
+    from activecontext.config.schema import ImportConfig, SandboxConfig
 
 _log = logging.getLogger("activecontext.session.permissions")
 
@@ -359,6 +359,217 @@ def write_permission_to_config(cwd: Path, pattern: str, mode: str) -> None:
     _log.info("Added permission to %s: %s (%s)", config_path, pattern, mode)
 
 
+# =============================================================================
+# Shell Permission System
+# =============================================================================
+
+
+@dataclass
+class ShellPermissionDenied(Exception):
+    """Raised when shell command is denied, carrying info for permission request.
+
+    This exception is caught by Timeline to trigger ACP permission requests.
+    Unlike PermissionError, it carries metadata needed to ask the user.
+    """
+
+    command: str  # The command (e.g., "rm", "git")
+    full_command: str  # Full command string for display
+    command_args: list[str] | None = None  # Command arguments (renamed to avoid conflict with Exception.args)
+
+    def __str__(self) -> str:
+        return f"Shell command denied: {self.full_command}"
+
+
+@dataclass
+class ShellPermissionRule:
+    """A resolved shell permission rule."""
+
+    pattern: str  # Glob pattern to match against full command
+    allow: bool  # True to allow, False to deny
+
+
+@dataclass
+class ShellPermissionManager:
+    """Manages shell command permissions for the Timeline sandbox.
+
+    Permissions come from config files. Rules are matched against the full
+    command string (command + args). First matching rule wins.
+
+    Temporary grants can be added via grant_temporary() for session-scoped
+    "allow once" permissions from interactive prompts.
+    """
+
+    rules: list[ShellPermissionRule] = field(default_factory=list)
+    deny_by_default: bool = True
+    _temporary_grants: set[str] = field(default_factory=set)  # full command strings
+
+    @classmethod
+    def from_config(cls, config: SandboxConfig | None) -> ShellPermissionManager:
+        """Create a ShellPermissionManager from a SandboxConfig.
+
+        Args:
+            config: Sandbox configuration (or None for defaults).
+
+        Returns:
+            Configured ShellPermissionManager.
+        """
+        if config is None:
+            # Default: deny all shell commands
+            return cls(rules=[], deny_by_default=True)
+
+        rules = [
+            ShellPermissionRule(pattern=p.pattern, allow=p.allow)
+            for p in config.shell_permissions
+        ]
+
+        return cls(
+            rules=rules,
+            deny_by_default=config.shell_deny_by_default,
+        )
+
+    def reload(self, config: SandboxConfig | None) -> None:
+        """Reload permissions from a new config.
+
+        Args:
+            config: New sandbox configuration.
+        """
+        new_manager = ShellPermissionManager.from_config(config)
+        self.rules = new_manager.rules
+        self.deny_by_default = new_manager.deny_by_default
+        _log.debug("Shell permissions reloaded: %d rules", len(self.rules))
+
+    def check_access(self, command: str, args: list[str] | None = None) -> bool:
+        """Check if a shell command is permitted.
+
+        Args:
+            command: The command to execute (e.g., "git", "npm").
+            args: Optional command arguments.
+
+        Returns:
+            True if the command is permitted.
+        """
+        full_command = self._build_command_string(command, args)
+
+        # Check temporary grants first (from "allow once" prompts)
+        if full_command in self._temporary_grants:
+            return True
+
+        # Check against rules (first match wins)
+        for rule in self.rules:
+            if fnmatch.fnmatch(full_command, rule.pattern):
+                return rule.allow
+
+        # No matching rule found
+        if self.deny_by_default:
+            _log.debug("Shell command denied (no matching rule): %s", full_command)
+            return False
+
+        # Allow by default if deny_by_default is False
+        return True
+
+    def grant_temporary(self, command: str, args: list[str] | None = None) -> None:
+        """Grant temporary access for this session (allow_once).
+
+        Temporary grants are not persisted and are cleared when the
+        session ends or the ShellPermissionManager is recreated.
+
+        Args:
+            command: The command to allow.
+            args: Command arguments.
+        """
+        full_command = self._build_command_string(command, args)
+        self._temporary_grants.add(full_command)
+        _log.debug("Temporary shell grant added: %s", full_command)
+
+    def clear_temporary_grants(self) -> None:
+        """Clear all temporary grants."""
+        self._temporary_grants.clear()
+        _log.debug("Temporary shell grants cleared")
+
+    def _build_command_string(self, command: str, args: list[str] | None) -> str:
+        """Build full command string for matching.
+
+        Args:
+            command: The command name.
+            args: Optional command arguments.
+
+        Returns:
+            Full command string (e.g., "git status", "npm run build").
+        """
+        if args:
+            return f"{command} {' '.join(args)}"
+        return command
+
+    def list_permissions(self) -> list[dict[str, Any]]:
+        """List all shell permission rules for inspection.
+
+        Returns:
+            List of rule dictionaries with pattern and allow flag.
+        """
+        return [
+            {
+                "pattern": rule.pattern,
+                "allow": rule.allow,
+            }
+            for rule in self.rules
+        ]
+
+
+def write_shell_permission_to_config(
+    cwd: Path, command: str, args: list[str] | None = None
+) -> None:
+    """Append a shell permission rule to .ac/config.yaml.
+
+    Creates the config file and directory if they don't exist.
+    If the file exists, the new rule is appended to sandbox.shell_permissions.
+
+    Args:
+        cwd: Working directory (project root).
+        command: The command to allow.
+        args: Command arguments (used to build the pattern).
+    """
+    config_path = cwd / ".ac" / "config.yaml"
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Load existing config or create new
+    data: dict[str, Any] = {}
+    if config_path.exists():
+        with open(config_path) as f:
+            data = yaml.safe_load(f) or {}
+
+    # Ensure sandbox.shell_permissions exists
+    data.setdefault("sandbox", {})
+    data["sandbox"].setdefault("shell_permissions", [])
+
+    # Build pattern - use the full command string
+    if args:
+        pattern = f"{command} {' '.join(args)}"
+    else:
+        pattern = command
+
+    # Check if rule already exists
+    existing_patterns = {
+        p.get("pattern")
+        for p in data["sandbox"]["shell_permissions"]
+        if isinstance(p, dict)
+    }
+    if pattern in existing_patterns:
+        _log.debug("Shell permission rule already exists: %s", pattern)
+        return
+
+    # Add new permission
+    data["sandbox"]["shell_permissions"].append({
+        "pattern": pattern,
+        "allow": True,
+    })
+
+    # Write back with proper YAML formatting
+    with open(config_path, "w") as f:
+        yaml.safe_dump(data, f, default_flow_style=False, sort_keys=False)
+
+    _log.info("Added shell permission to %s: %s", config_path, pattern)
+
+
 @dataclass
 class ImportDenied(Exception):
     """Raised when module import is denied.
@@ -386,7 +597,7 @@ class ImportGuard:
     allow_all: bool = False
 
     @classmethod
-    def from_config(cls, config: "ImportConfig | None") -> "ImportGuard":
+    def from_config(cls, config: ImportConfig | None) -> ImportGuard:
         """Create an ImportGuard from an ImportConfig.
 
         Args:

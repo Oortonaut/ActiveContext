@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, Any
 from activecontext.context.graph import ContextGraph
 from activecontext.core.projection_engine import ProjectionConfig, ProjectionEngine
 from activecontext.logging import get_logger
-from activecontext.session.permissions import PermissionManager
+from activecontext.session.permissions import PermissionManager, ShellPermissionManager
 from activecontext.session.protocols import (
     Projection,
     SessionUpdate,
@@ -34,10 +34,16 @@ if TYPE_CHECKING:
     from activecontext.core.llm.provider import LLMProvider, Message
     from activecontext.terminal.protocol import TerminalExecutor
 
-    # Type for permission requester callback:
+    # Type for file permission requester callback:
     # async (session_id, path, mode) -> (granted, persist)
     PermissionRequester = Callable[
         [str, str, str], Coroutine[Any, Any, tuple[bool, bool]]
+    ]
+
+    # Type for shell permission requester callback:
+    # async (session_id, command, args) -> (granted, persist)
+    ShellPermissionRequester = Callable[
+        [str, str, list[str] | None], Coroutine[Any, Any, tuple[bool, bool]]
     ]
 
 
@@ -471,6 +477,7 @@ class SessionManager:
         llm: LLMProvider | None = None,
         terminal_executor: TerminalExecutor | None = None,
         permission_requester: PermissionRequester | None = None,
+        shell_permission_requester: ShellPermissionRequester | None = None,
     ) -> Session:
         """Create a new session with its own timeline.
 
@@ -480,8 +487,10 @@ class SessionManager:
             llm: Optional LLM provider; uses default if not provided
             terminal_executor: Optional terminal executor for shell commands;
                 defaults to SubprocessTerminalExecutor if not provided
-            permission_requester: Optional callback for ACP permission prompts;
+            permission_requester: Optional callback for ACP file permission prompts;
                 async (session_id, path, mode) -> (granted, persist)
+            shell_permission_requester: Optional callback for ACP shell permission prompts;
+                async (session_id, command, args) -> (granted, persist)
         """
         if session_id is None:
             session_id = str(uuid.uuid4())
@@ -496,12 +505,17 @@ class SessionManager:
         sandbox_config = project_config.sandbox if project_config else None
         permission_manager = PermissionManager.from_config(cwd, sandbox_config)
 
+        # Create shell permission manager from config
+        shell_permission_manager = ShellPermissionManager.from_config(sandbox_config)
+
         timeline = Timeline(
             session_id,
             cwd=cwd,
             permission_manager=permission_manager,
             terminal_executor=terminal_executor,
             permission_requester=permission_requester,
+            shell_permission_manager=shell_permission_manager,
+            shell_permission_requester=shell_permission_requester,
         )
         session = Session(
             session_id=session_id,
