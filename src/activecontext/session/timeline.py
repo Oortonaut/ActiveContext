@@ -16,14 +16,25 @@ from collections.abc import AsyncIterator
 from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import dataclass
 from io import StringIO
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
+from activecontext.context.graph import ContextGraph
+from activecontext.context.nodes import (
+    ArtifactNode,
+    ContextNode,
+    GroupNode,
+    TopicNode,
+    ViewNode,
+)
 from activecontext.session.protocols import (
     ExecutionResult,
     ExecutionStatus,
     NamespaceDiff,
     Statement,
 )
+
+if TYPE_CHECKING:
+    pass
 
 
 @dataclass
@@ -48,17 +59,25 @@ class Timeline:
     and maintains the Python namespace.
     """
 
-    def __init__(self, session_id: str, cwd: str = ".") -> None:
+    def __init__(
+        self,
+        session_id: str,
+        cwd: str = ".",
+        context_graph: ContextGraph | None = None,
+    ) -> None:
         self._session_id = session_id
         self._cwd = cwd
         self._statements: list[Statement] = []
         self._executions: dict[str, list[_ExecutionRecord]] = {}  # statement_id -> executions
 
+        # Context graph (DAG of context nodes)
+        self._context_graph = context_graph or ContextGraph()
+
         # Controlled Python namespace
         self._namespace: dict[str, Any] = {}
         self._setup_namespace()
 
-        # Tracked context objects (ViewHandle, GroupHandle, etc.)
+        # Legacy: tracked context objects for backward compatibility
         self._context_objects: dict[str, Any] = {}
 
         # Max output capture per statement
@@ -88,9 +107,14 @@ class Timeline:
             "__builtins__": safe_builtins,
             "__name__": "__activecontext__",
             "__session_id__": self._session_id,
-            # Inject context object constructors
-            "view": self._make_view,
-            "group": self._make_group,
+            # Context node constructors
+            "view": self._make_view_node,
+            "group": self._make_group_node,
+            "topic": self._make_topic_node,
+            "artifact": self._make_artifact_node,
+            # DAG manipulation
+            "link": self._link,
+            "unlink": self._unlink,
             # Utility functions
             "ls": self._ls_handles,
             "show": self._show_handle,
@@ -98,157 +122,206 @@ class Timeline:
             "done": self._done,
         }
 
-    def _make_view(
+    def _make_view_node(
         self,
         path: str,
         *,
-        pos: str = "0:0",
+        pos: str = "1:0",
         tokens: int = 2000,
         lod: int = 0,
         mode: str = "paused",
-    ) -> Any:
-        """Create a ViewHandle (placeholder until context module is implemented)."""
-        # TODO: Replace with actual ViewHandle once implemented
-        from dataclasses import dataclass as dc
-        from pathlib import Path
+        parent: ContextNode | str | None = None,
+    ) -> ViewNode:
+        """Create a ViewNode and add to the context graph.
 
-        timeline_cwd = self._cwd  # Capture for closure
+        Args:
+            path: File path relative to session cwd
+            pos: Start position as "line:col" (1-indexed)
+            tokens: Token budget for rendering
+            lod: Level of detail (0=raw, 1=structured, 2=summary, 3=diff)
+            mode: "paused" or "running"
+            parent: Optional parent node or node ID
 
-        @dc
-        class _PlaceholderView:
-            path: str
-            pos: str
-            tokens: int
-            lod: int
-            mode: str
-            _id: str = ""
-            _cwd: str = ""
+        Returns:
+            The created ViewNode
+        """
+        node = ViewNode(
+            path=path,
+            pos=pos,
+            tokens=tokens,
+            lod=lod,
+            mode=mode,
+        )
 
-            def __post_init__(self) -> None:
-                self._id = str(uuid.uuid4())[:8]
-                self._cwd = timeline_cwd
+        # Add to graph
+        self._context_graph.add_node(node)
 
-            def SetPos(self, pos: str) -> _PlaceholderView:
-                self.pos = pos
-                return self
+        # Link to parent if provided
+        if parent:
+            parent_id = parent.node_id if isinstance(parent, ContextNode) else parent
+            self._context_graph.link(node.node_id, parent_id)
 
-            def SetTokens(self, n: int) -> _PlaceholderView:
-                self.tokens = n
-                return self
+        # Legacy compatibility
+        self._context_objects[node.node_id] = node
+        return node
 
-            def SetLod(self, k: int) -> _PlaceholderView:
-                self.lod = k
-                return self
-
-            def Run(self, freq: str = "Sync") -> _PlaceholderView:
-                self.mode = "running"
-                return self
-
-            def Pause(self) -> _PlaceholderView:
-                self.mode = "paused"
-                return self
-
-            def GetDigest(self) -> dict[str, Any]:
-                return {
-                    "id": self._id,
-                    "type": "view",
-                    "path": self.path,
-                    "pos": self.pos,
-                    "tokens": self.tokens,
-                    "lod": self.lod,
-                    "mode": self.mode,
-                }
-
-            def Render(self, tokens: int | None = None) -> str:
-                """Render file content with line numbers, respecting token budget."""
-                effective_tokens = tokens if tokens is not None else self.tokens
-
-                # Resolve path relative to cwd
-                full_path = Path(self._cwd) / self.path if self._cwd else Path(self.path)
-                try:
-                    content = full_path.read_text(encoding="utf-8")
-                except Exception as e:
-                    return f"[Error reading {self.path}: {e}]"
-
-                # Parse position
-                pos_parts = self.pos.split(":")
-                start_line = int(pos_parts[0]) if pos_parts[0] else 0
-
-                lines = content.splitlines()
-
-                # Estimate token budget as ~4 chars per token
-                char_budget = effective_tokens * 4
-
-                numbered: list[str] = []
-                char_count = 0
-                for i, line in enumerate(lines[start_line:], start=start_line + 1):
-                    numbered_line = f"{i:4d} | {line}"
-                    if char_count + len(numbered_line) > char_budget:
-                        remaining = len(lines) - start_line - len(numbered)
-                        if remaining > 0:
-                            numbered.append(f"     | ... [{remaining} more lines]")
-                        break
-                    numbered.append(numbered_line)
-                    char_count += len(numbered_line) + 1
-
-                end_line = start_line + len(numbered)
-                header = f"=== {self.path} (lines {start_line + 1}-{end_line}) ===\n"
-                return header + "\n".join(numbered)
-
-        v = _PlaceholderView(path=path, pos=pos, tokens=tokens, lod=lod, mode=mode)
-        self._context_objects[v._id] = v
-        return v
-
-    def _make_group(
+    def _make_group_node(
         self,
-        *members: Any,
+        *members: ContextNode,
         tokens: int = 500,
         lod: int = 1,
         mode: str = "paused",
-    ) -> Any:
-        """Create a GroupHandle (placeholder until context module is implemented)."""
-        from dataclasses import dataclass as dc
+        parent: ContextNode | str | None = None,
+    ) -> GroupNode:
+        """Create a GroupNode that summarizes its members.
 
-        @dc
-        class _PlaceholderGroup:
-            members: tuple[Any, ...]
-            tokens: int
-            lod: int
-            mode: str
-            _id: str = ""
+        Args:
+            *members: Child nodes to include in the group
+            tokens: Token budget for summary
+            lod: Level of detail
+            mode: "paused" or "running"
+            parent: Optional parent node or node ID
 
-            def __post_init__(self) -> None:
-                self._id = str(uuid.uuid4())[:8]
+        Returns:
+            The created GroupNode
+        """
+        node = GroupNode(
+            tokens=tokens,
+            lod=lod,
+            mode=mode,
+        )
 
-            def SetTokens(self, n: int) -> _PlaceholderGroup:
-                self.tokens = n
-                return self
+        # Add to graph
+        self._context_graph.add_node(node)
 
-            def SetLod(self, k: int) -> _PlaceholderGroup:
-                self.lod = k
-                return self
+        # Link to parent if provided
+        if parent:
+            parent_id = parent.node_id if isinstance(parent, ContextNode) else parent
+            self._context_graph.link(node.node_id, parent_id)
 
-            def Run(self, freq: str = "Sync") -> _PlaceholderGroup:
-                self.mode = "running"
-                return self
+        # Link members as children of this group
+        for member in members:
+            if isinstance(member, ContextNode):
+                self._context_graph.link(member.node_id, node.node_id)
 
-            def Pause(self) -> _PlaceholderGroup:
-                self.mode = "paused"
-                return self
+        # Legacy compatibility
+        self._context_objects[node.node_id] = node
+        return node
 
-            def GetDigest(self) -> dict[str, Any]:
-                return {
-                    "id": self._id,
-                    "type": "group",
-                    "member_count": len(self.members),
-                    "tokens": self.tokens,
-                    "lod": self.lod,
-                    "mode": self.mode,
-                }
+    def _make_topic_node(
+        self,
+        title: str,
+        *,
+        tokens: int = 1000,
+        status: str = "active",
+        parent: ContextNode | str | None = None,
+    ) -> TopicNode:
+        """Create a TopicNode for conversation segmentation.
 
-        g = _PlaceholderGroup(members=members, tokens=tokens, lod=lod, mode=mode)
-        self._context_objects[g._id] = g
-        return g
+        Args:
+            title: Short title for the topic
+            tokens: Token budget for rendering
+            status: "active", "resolved", or "deferred"
+            parent: Optional parent node or node ID
+
+        Returns:
+            The created TopicNode
+        """
+        node = TopicNode(
+            title=title,
+            tokens=tokens,
+            status=status,
+        )
+
+        # Add to graph
+        self._context_graph.add_node(node)
+
+        # Link to parent if provided
+        if parent:
+            parent_id = parent.node_id if isinstance(parent, ContextNode) else parent
+            self._context_graph.link(node.node_id, parent_id)
+
+        # Legacy compatibility
+        self._context_objects[node.node_id] = node
+        return node
+
+    def _make_artifact_node(
+        self,
+        artifact_type: str = "code",
+        *,
+        content: str = "",
+        language: str | None = None,
+        tokens: int = 500,
+        parent: ContextNode | str | None = None,
+    ) -> ArtifactNode:
+        """Create an ArtifactNode for code/output.
+
+        Args:
+            artifact_type: "code", "output", "error", or "file"
+            content: The artifact content
+            language: Programming language (for code)
+            tokens: Token budget
+            parent: Optional parent node or node ID
+
+        Returns:
+            The created ArtifactNode
+        """
+        node = ArtifactNode(
+            artifact_type=artifact_type,
+            content=content,
+            language=language,
+            tokens=tokens,
+        )
+
+        # Add to graph
+        self._context_graph.add_node(node)
+
+        # Link to parent if provided
+        if parent:
+            parent_id = parent.node_id if isinstance(parent, ContextNode) else parent
+            self._context_graph.link(node.node_id, parent_id)
+
+        # Legacy compatibility
+        self._context_objects[node.node_id] = node
+        return node
+
+    def _link(
+        self,
+        child: ContextNode | str,
+        parent: ContextNode | str,
+    ) -> bool:
+        """Link a child node to a parent node.
+
+        A node can have multiple parents (DAG structure).
+
+        Args:
+            child: Child node or node ID
+            parent: Parent node or node ID
+
+        Returns:
+            True if link was created, False if failed
+        """
+        child_id = child.node_id if isinstance(child, ContextNode) else child
+        parent_id = parent.node_id if isinstance(parent, ContextNode) else parent
+        return self._context_graph.link(child_id, parent_id)
+
+    def _unlink(
+        self,
+        child: ContextNode | str,
+        parent: ContextNode | str,
+    ) -> bool:
+        """Remove link between child and parent.
+
+        Args:
+            child: Child node or node ID
+            parent: Parent node or node ID
+
+        Returns:
+            True if link was removed, False if failed
+        """
+        child_id = child.node_id if isinstance(child, ContextNode) else child
+        parent_id = parent.node_id if isinstance(parent, ContextNode) else parent
+        return self._context_graph.unlink(child_id, parent_id)
 
     def _ls_handles(self) -> list[dict[str, Any]]:
         """List all context object handles with brief digests."""
@@ -308,10 +381,12 @@ class Timeline:
 
     def _snapshot_namespace(self) -> dict[str, Any]:
         """Create a shallow snapshot of user-defined namespace entries."""
+        # Exclude injected DSL functions
+        excluded = {"view", "group", "topic", "artifact", "link", "unlink", "ls", "show", "done"}
         return {
             k: v
             for k, v in self._namespace.items()
-            if not k.startswith("__") and k not in ("view", "group", "ls", "show")
+            if not k.startswith("__") and k not in excluded
         }
 
     async def execute_statement(self, source: str) -> ExecutionResult:
@@ -398,9 +473,10 @@ class Timeline:
         if statement_index < 0 or statement_index >= len(self._statements):
             return
 
-        # Reset namespace
+        # Reset namespace and context
         self._namespace.clear()
         self._context_objects.clear()
+        self._context_graph.clear()
         self._setup_namespace()
 
         # Replay statements from start to get to clean state, then from index
@@ -422,5 +498,14 @@ class Timeline:
         return self._snapshot_namespace()
 
     def get_context_objects(self) -> dict[str, Any]:
-        """Get all tracked context objects."""
+        """Get all tracked context objects (legacy compatibility)."""
         return dict(self._context_objects)
+
+    def get_context_graph(self) -> ContextGraph:
+        """Get the context graph."""
+        return self._context_graph
+
+    @property
+    def context_graph(self) -> ContextGraph:
+        """The context graph (DAG of context nodes)."""
+        return self._context_graph

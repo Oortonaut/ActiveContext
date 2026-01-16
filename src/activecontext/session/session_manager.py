@@ -13,6 +13,7 @@ import uuid
 from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, Any
 
+from activecontext.context.graph import ContextGraph
 from activecontext.core.projection_engine import ProjectionConfig, ProjectionEngine
 from activecontext.logging import get_logger
 from activecontext.session.protocols import (
@@ -308,29 +309,58 @@ class Session:
         )
 
     async def tick(self) -> list[SessionUpdate]:
-        """Run the tick phase for all context objects.
+        """Run the tick phase for context graph nodes.
 
         Tick ordering:
         1. Apply ready async payloads (TODO)
-        2. Sync ticks for running nodes
-        3. Periodic ticks (TODO)
-        4. Group recompute
+        2. Sync ticks for running nodes (calls Recompute → notify_parents cascade)
+        3. Periodic ticks based on tick_freq
+        4. Group summaries auto-invalidated via on_child_changed() during cascade
         """
         updates: list[SessionUpdate] = []
         timestamp = time.time()
 
-        context_objects = self._timeline.get_context_objects()
+        # Get running nodes from the context graph
+        context_graph = self._timeline.context_graph
+        running_nodes = context_graph.get_running_nodes()
 
-        for obj_id, obj in context_objects.items():
-            if hasattr(obj, "mode") and obj.mode == "running":
+        for node in running_nodes:
+            tick_kind: str | None = None
+
+            # Check tick frequency
+            if node.tick_freq == "Sync":
+                # Sync tick: recompute on every tick
+                tick_kind = "sync"
+            elif node.tick_freq and node.tick_freq.startswith("Periodic:"):
+                # Periodic tick: check interval
+                try:
+                    interval_str = node.tick_freq.split(":")[1]
+                    # Parse interval (e.g., "5s" -> 5.0 seconds)
+                    if interval_str.endswith("s"):
+                        interval = float(interval_str[:-1])
+                    elif interval_str.endswith("m"):
+                        interval = float(interval_str[:-1]) * 60
+                    else:
+                        interval = float(interval_str)
+
+                    if timestamp - node.updated_at >= interval:
+                        tick_kind = "periodic"
+                except (ValueError, IndexError):
+                    log.warning("Invalid tick frequency: %s", node.tick_freq)
+
+            if tick_kind:
+                # Call Recompute which triggers notify_parents() cascade
+                node.Recompute()
+                node.updated_at = timestamp
+
                 updates.append(
                     SessionUpdate(
                         kind=UpdateKind.TICK_APPLIED,
                         session_id=self._session_id,
                         payload={
-                            "object_id": obj_id,
-                            "tick_kind": "sync",
-                            "digest": obj.GetDigest() if hasattr(obj, "GetDigest") else {},
+                            "node_id": node.node_id,
+                            "tick_kind": tick_kind,
+                            "digest": node.GetDigest(),
                         },
                         timestamp=timestamp,
                     )
@@ -347,6 +377,7 @@ class Session:
     def get_projection(self) -> Projection:
         """Build the LLM projection from current session state."""
         return self._projection_engine.build(
+            context_graph=self._timeline.context_graph,
             context_objects=self._timeline.get_context_objects(),
             conversation=self._conversation,
             cwd=self._cwd,
@@ -357,8 +388,17 @@ class Session:
         self._conversation.clear()
 
     def get_context_objects(self) -> dict[str, Any]:
-        """Get all tracked context objects (views, groups)."""
+        """Get all tracked context objects (legacy compatibility)."""
         return self._timeline.get_context_objects()
+
+    def get_context_graph(self) -> ContextGraph:
+        """Get the context graph (DAG of context nodes)."""
+        return self._timeline.context_graph
+
+    @property
+    def context_graph(self) -> ContextGraph:
+        """The context graph (DAG of context nodes)."""
+        return self._timeline.context_graph
 
     async def _setup_initial_context(self) -> None:
         """Set up initial context views for a new session.

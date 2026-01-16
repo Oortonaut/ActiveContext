@@ -12,7 +12,8 @@ from typing import TYPE_CHECKING, Any
 from activecontext.session.protocols import Projection, ProjectionSection
 
 if TYPE_CHECKING:
-    pass
+    from activecontext.context.graph import ContextGraph
+    from activecontext.context.nodes import ContextNode
 
 
 @dataclass
@@ -63,7 +64,8 @@ class ProjectionEngine:
     def build(
         self,
         *,
-        context_objects: dict[str, Any],
+        context_graph: ContextGraph | None = None,
+        context_objects: dict[str, Any] | None = None,
         conversation: list[Any],  # list[Message]
         cwd: str = ".",
         token_budget: int | None = None,
@@ -71,7 +73,8 @@ class ProjectionEngine:
         """Build a projection from current session state.
 
         Args:
-            context_objects: ViewHandle/GroupHandle instances
+            context_graph: ContextGraph (DAG of nodes) - preferred
+            context_objects: ViewHandle/GroupHandle instances - legacy fallback
             conversation: Message history
             cwd: Working directory for file access
             token_budget: Override total token budget
@@ -84,36 +87,125 @@ class ProjectionEngine:
 
         # Compute budget allocation
         conv_budget = int(budget * self.config.conversation_ratio)
-        views_budget = int(budget * self.config.views_ratio)
-        groups_budget = int(budget * self.config.groups_ratio)
+        tree_budget = int(budget * (self.config.views_ratio + self.config.groups_ratio))
 
         # 1. Render conversation history
         conv_section = self._render_conversation(conversation, conv_budget)
         if conv_section:
             sections.append(conv_section)
 
-        # 2. Render views
-        views = {k: v for k, v in context_objects.items() if self._is_view(v)}
-        view_sections = self._render_views(views, views_budget, cwd)
-        sections.extend(view_sections)
+        # 2. Render context (prefer graph, fall back to legacy objects)
+        if context_graph and len(context_graph) > 0:
+            graph_sections = self._render_graph(context_graph, tree_budget, cwd)
+            sections.extend(graph_sections)
 
-        # 3. Render groups
-        groups = {k: v for k, v in context_objects.items() if self._is_group(v)}
-        group_sections = self._render_groups(groups, groups_budget)
-        sections.extend(group_sections)
+            # Build handles dict from graph
+            handles = {
+                node.node_id: node.GetDigest()
+                for node in context_graph
+            }
+        elif context_objects:
+            # Legacy path: render views and groups separately
+            views_budget = int(budget * self.config.views_ratio)
+            groups_budget = int(budget * self.config.groups_ratio)
 
-        # Build legacy handles dict for compatibility
-        handles = {
-            obj_id: obj.GetDigest()
-            for obj_id, obj in context_objects.items()
-            if hasattr(obj, "GetDigest")
-        }
+            views = {k: v for k, v in context_objects.items() if self._is_view(v)}
+            view_sections = self._render_views(views, views_budget, cwd)
+            sections.extend(view_sections)
+
+            groups = {k: v for k, v in context_objects.items() if self._is_group(v)}
+            group_sections = self._render_groups(groups, groups_budget)
+            sections.extend(group_sections)
+
+            handles = {
+                obj_id: obj.GetDigest()
+                for obj_id, obj in context_objects.items()
+                if hasattr(obj, "GetDigest")
+            }
+        else:
+            handles = {}
 
         return Projection(
             sections=sections,
             token_budget=budget,
             handles=handles,
         )
+
+    def _render_graph(
+        self,
+        graph: ContextGraph,
+        budget: int,
+        cwd: str,
+    ) -> list[ProjectionSection]:
+        """Render visible nodes from the context graph.
+
+        Visible nodes are:
+        - Running nodes (mode="running")
+        - Root nodes that are paused (explicitly included)
+
+        Args:
+            graph: The context graph
+            budget: Token budget for all graph content
+            cwd: Working directory for file access
+
+        Returns:
+            List of ProjectionSections for visible nodes
+        """
+        sections: list[ProjectionSection] = []
+
+        # Collect visible nodes
+        visible_nodes = self._collect_visible_nodes(graph)
+
+        if not visible_nodes:
+            return sections
+
+        # Allocate budget proportionally
+        per_node_budget = budget // len(visible_nodes)
+
+        for node in visible_nodes:
+            content = node.Render(tokens=per_node_budget, cwd=cwd)
+
+            sections.append(
+                ProjectionSection(
+                    section_type=node.node_type,
+                    source_id=node.node_id,
+                    content=content,
+                    tokens_used=len(content) // 4,
+                    lod=node.lod,
+                    metadata=node.GetDigest(),
+                )
+            )
+
+            # Clear pending diffs after rendering
+            node.clear_pending_diffs()
+
+        return sections
+
+    def _collect_visible_nodes(self, graph: ContextGraph) -> list[ContextNode]:
+        """Collect nodes that should be rendered in projection.
+
+        Visibility rules:
+        - Running nodes are always visible
+        - Paused root nodes are visible (explicit includes)
+        - Non-root paused nodes are not visible (summarized by parent)
+
+        Args:
+            graph: The context graph
+
+        Returns:
+            List of nodes to render
+        """
+        visible: list[ContextNode] = []
+
+        # Running nodes are always visible
+        visible.extend(graph.get_running_nodes())
+
+        # Add paused root nodes (nodes with no parents)
+        for node in graph.get_roots():
+            if node.mode == "paused" and node not in visible:
+                visible.append(node)
+
+        return visible
 
     def _render_conversation(
         self,
