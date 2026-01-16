@@ -530,34 +530,33 @@ class ActiveContextAgent:
 
         match update.kind:
             case UpdateKind.STATEMENT_EXECUTING:
-                # Emit as tool call start
+                # Emit as agent thought (shows as "thinking")
+                source = update.payload.get("source", "")
+                # Truncate long statements for display
+                display = source[:100] + "..." if len(source) > 100 else source
                 await self._conn.session_update(
                     session_id,
-                    acp.start_tool_call(
-                        tool_call_id=update.payload.get("source", "")[:20],
-                        title="python_exec",
-                        status="in_progress",
-                    ),
+                    acp.update_agent_thought_text(f"Executing: {display}"),
                 )
 
             case UpdateKind.STATEMENT_EXECUTED:
                 status = update.payload.get("status", "ok")
                 stdout = update.payload.get("stdout", "")
+                exception = update.payload.get("exception")
 
-                # Emit tool call completion
-                await self._conn.session_update(
-                    session_id,
-                    acp.update_tool_call(
-                        tool_call_id=update.payload.get("statement_id", "")[:20],
-                        status="completed" if status == "ok" else "failed",
-                    ),
-                )
-
-                # Emit output as message if any
-                if stdout:
+                # Emit result as thought
+                if status == "ok":
+                    if stdout:
+                        await self._conn.session_update(
+                            session_id,
+                            acp.update_agent_thought_text(f"Result: {stdout[:200]}"),
+                        )
+                else:
+                    # Show error in thought
+                    err_msg = exception.get("message", "Unknown error") if exception else "Error"
                     await self._conn.session_update(
                         session_id,
-                        acp.update_agent_message_text(stdout),
+                        acp.update_agent_thought_text(f"Error: {err_msg}"),
                     )
 
             case UpdateKind.RESPONSE_CHUNK:

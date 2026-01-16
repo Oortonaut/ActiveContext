@@ -32,6 +32,7 @@ from activecontext.session.protocols import (
     NamespaceDiff,
     Statement,
 )
+from activecontext.session.xml_parser import is_xml_command, parse_xml_to_python
 
 if TYPE_CHECKING:
     pass
@@ -390,12 +391,39 @@ class Timeline:
         }
 
     async def execute_statement(self, source: str) -> ExecutionResult:
-        """Execute a Python statement and record it."""
+        """Execute a Python statement and record it.
+
+        Supports both Python syntax and XML-style tags:
+            Python: v = view("main.py", tokens=2000)
+            XML:    <view name="v" path="main.py" tokens="2000"/>
+        """
         statement_id = str(uuid.uuid4())
         execution_id = str(uuid.uuid4())
         timestamp = time.time()
 
-        # Record the statement
+        # Convert XML to Python if needed
+        original_source = source
+        if is_xml_command(source):
+            try:
+                source = parse_xml_to_python(source)
+            except ValueError as e:
+                # Return error result for malformed XML
+                return ExecutionResult(
+                    execution_id=execution_id,
+                    statement_id=statement_id,
+                    status=ExecutionStatus.ERROR,
+                    stdout="",
+                    stderr="",
+                    exception={
+                        "type": "XMLParseError",
+                        "message": str(e),
+                        "traceback": f"Failed to parse XML: {original_source}",
+                    },
+                    state_diff=NamespaceDiff(added={}, changed={}, deleted=[]),
+                    duration_ms=0.0,
+                )
+
+        # Record the statement (with original source for history)
         stmt = Statement(
             statement_id=statement_id,
             index=len(self._statements),

@@ -50,6 +50,35 @@ main = view("src/main.py", tokens=3000)
 Regular ```python blocks are for showing examples WITHOUT execution.
 Only ```python/acrepl blocks run in the REPL.
 
+## Alternative: XML Syntax
+
+You can also use XML-style tags instead of Python syntax:
+
+```xml
+<!-- Object creation (name becomes variable) -->
+<view name="v" path="src/main.py" tokens="3000"/>
+<group name="g" tokens="500">
+    <member ref="v"/>
+</group>
+<topic name="t" title="Feature X" tokens="1000"/>
+
+<!-- Method calls (self refers to variable) -->
+<SetLod self="v" level="1"/>
+<SetTokens self="v" count="500"/>
+<Run self="v" freq="Sync"/>
+
+<!-- Utility functions -->
+<ls/>
+<show self="v"/>
+<done message="Task complete"/>
+
+<!-- DAG manipulation -->
+<link child="v" parent="g"/>
+<unlink child="v" parent="g"/>
+```
+
+XML tags are converted to Python before execution. Use whichever syntax you prefer.
+
 ## Guidelines
 
 1. Use `view()` to examine files before making suggestions
