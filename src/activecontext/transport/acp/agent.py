@@ -232,6 +232,9 @@ class ActiveContextAgent:
         3. Streams updates back via session_update
         4. Returns the final response
         """
+        import sys
+        import traceback
+
         session = await self._manager.get_session(session_id)
         if not session:
             raise acp.RequestError(
@@ -259,19 +262,32 @@ class ActiveContextAgent:
                 return acp.PromptResponse(stop_reason="end_turn")
 
         # Process prompt and stream updates
-        response_text = ""
-        async for update in session.prompt(content):
-            if self._conn:
-                await self._emit_update(session_id, update)
+        try:
+            response_text = ""
+            async for update in session.prompt(content):
+                if self._conn:
+                    await self._emit_update(session_id, update)
 
-            # Collect response chunks
-            if update.kind == UpdateKind.RESPONSE_CHUNK:
-                response_text += update.payload.get("text", "")
-            elif update.kind == UpdateKind.STATEMENT_EXECUTED:
-                # Include execution output in response
-                stdout = update.payload.get("stdout", "")
-                if stdout:
-                    response_text += f"\n{stdout}"
+                # Collect response chunks
+                if update.kind == UpdateKind.RESPONSE_CHUNK:
+                    response_text += update.payload.get("text", "")
+                elif update.kind == UpdateKind.STATEMENT_EXECUTED:
+                    # Include execution output in response
+                    stdout = update.payload.get("stdout", "")
+                    if stdout:
+                        response_text += f"\n{stdout}"
+        except Exception as e:
+            # Log the error but don't crash the agent
+            from activecontext.__main__ import _log
+
+            _log(f"ERROR in prompt: {e}")
+            _log(traceback.format_exc())
+            # Send error message to user
+            if self._conn:
+                await self._conn.session_update(
+                    session_id,
+                    acp.update_agent_message_text(f"\n\nError: {e}"),
+                )
 
         return acp.PromptResponse(stop_reason="end_turn")
 

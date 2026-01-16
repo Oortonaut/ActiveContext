@@ -15,9 +15,33 @@ import sys
 import threading
 
 
+_LOG_FILE = None
+
+
 def _log(msg: str) -> None:
-    """Log to stderr for debugging."""
-    print(f"[activecontext] {msg}", file=sys.stderr, flush=True)
+    """Log for debugging - to file if ACTIVECONTEXT_LOG is set, else stderr."""
+    global _LOG_FILE
+    import time
+
+    timestamp = time.strftime("%H:%M:%S")
+    line = f"[{timestamp}] {msg}\n"
+
+    # Initialize log file on first call
+    if _LOG_FILE is None:
+        log_path = os.environ.get("ACTIVECONTEXT_LOG")
+        if log_path:
+            try:
+                _LOG_FILE = open(log_path, "a", encoding="utf-8")
+            except Exception:
+                _LOG_FILE = False  # type: ignore[assignment]
+        else:
+            _LOG_FILE = False  # type: ignore[assignment]
+
+    if _LOG_FILE:
+        _LOG_FILE.write(line)
+        _LOG_FILE.flush()
+    else:
+        print(f"[activecontext] {msg}", file=sys.stderr, flush=True)
 
 
 def _setup_parent_death_monitor() -> None:
@@ -83,6 +107,68 @@ def _setup_parent_death_monitor() -> None:
     _log(f"Monitoring parent process {parent_pid}")
 
 
+async def _main() -> None:
+    """Async entry point with proper cleanup."""
+    import asyncio
+
+    import acp
+    from acp.agent.connection import AgentSideConnection
+    from acp.connection import StreamDirection, StreamEvent
+    from acp.stdio import stdio_streams
+
+    from activecontext.transport.acp.agent import create_agent
+
+    _log("Creating agent...")
+    agent = create_agent()
+
+    _log(f"Agent ready, model={agent._current_model_id}")
+
+    # Track activity for inactivity timeout
+    last_activity = [asyncio.get_event_loop().time()]
+    INACTIVITY_TIMEOUT = 300  # 5 minutes
+
+    def log_message(event: StreamEvent) -> None:
+        """Log all ACP messages for debugging."""
+        direction = "<<" if event.direction == StreamDirection.INCOMING else ">>"
+        method = event.message.get("method", "response")
+        msg_id = event.message.get("id", "-")
+        _log(f"{direction} {method} (id={msg_id})")
+        last_activity[0] = asyncio.get_event_loop().time()
+
+    async def inactivity_monitor() -> None:
+        """Exit if no activity for too long."""
+        while True:
+            await asyncio.sleep(30)
+            elapsed = asyncio.get_event_loop().time() - last_activity[0]
+            if elapsed > INACTIVITY_TIMEOUT:
+                _log(f"No activity for {elapsed:.0f}s, exiting...")
+                os._exit(0)
+
+    # Create connection manually so we can clean up properly
+    output_stream, input_stream = await stdio_streams()
+    conn = AgentSideConnection(
+        agent,
+        input_stream,
+        output_stream,
+        listening=False,
+        use_unstable_protocol=True,
+    )
+
+    # Add message observer for logging
+    conn._conn.add_observer(log_message)
+
+    # Start inactivity monitor
+    monitor_task = asyncio.create_task(inactivity_monitor())
+
+    try:
+        await conn.listen()
+    finally:
+        # Ensure connection is properly closed
+        _log("Connection closed, cleaning up...")
+        monitor_task.cancel()
+        await conn.close()
+
+
 def main() -> None:
     """Run the ActiveContext ACP agent."""
     import asyncio
@@ -92,16 +178,12 @@ def main() -> None:
     # Ensure we exit when parent dies
     _setup_parent_death_monitor()
 
-    import acp
-
-    _log("Importing agent...")
-    from activecontext.transport.acp.agent import create_agent
-
-    _log("Creating agent...")
-    agent = create_agent()
-
-    _log(f"Agent ready, model={agent._current_model_id}")
-    asyncio.run(acp.run_agent(agent, use_unstable_protocol=True))
+    try:
+        asyncio.run(_main())
+    finally:
+        # Ensure process exits even if there are lingering resources
+        _log("Exiting...")
+        os._exit(0)
 
 
 if __name__ == "__main__":
