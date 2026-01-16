@@ -108,65 +108,104 @@ class Session:
         )
 
     async def _prompt_with_llm(self, content: str) -> AsyncIterator[SessionUpdate]:
-        """Process prompt using the LLM provider."""
+        """Process prompt using the LLM provider.
+
+        Runs an agent loop: LLM responds, code is executed, results feed back
+        to LLM until it produces no code (indicating completion).
+        """
         import os
         import sys
 
         from activecontext.core.llm.provider import Message, Role
         from activecontext.core.prompts import SYSTEM_PROMPT, parse_response
 
-        # Build projection (contains conversation history and view contents)
-        projection = self.get_projection()
+        max_iterations = 10  # Safety limit
+        iteration = 0
+        current_request = content
 
-        # Build messages: system prompt + projection + new user message
-        # The projection is the single source of context (conversation, views, groups)
-        projection_content = projection.render()
-        if projection_content:
-            user_message = f"{projection_content}\n\n## Current Request\n\n{content}"
-        else:
-            user_message = content
+        while iteration < max_iterations:
+            iteration += 1
 
-        # Debug logging
-        if os.environ.get("ACTIVECONTEXT_DEBUG"):
-            tokens_est = len(projection_content) // 4 if projection_content else 0
-            print(f"\n[activecontext] === PROJECTION ({tokens_est} tokens) ===", file=sys.stderr)
-            print(projection_content or "(empty)", file=sys.stderr)
-            print(f"[activecontext] === END PROJECTION ===\n", file=sys.stderr)
-            print(f"[activecontext] User request: {content[:200]}{'...' if len(content) > 200 else ''}", file=sys.stderr)
+            # Build projection (contains conversation history and view contents)
+            projection = self.get_projection()
 
-        messages = [
-            Message(role=Role.SYSTEM, content=SYSTEM_PROMPT),
-            Message(role=Role.USER, content=user_message),
-        ]
+            # Build messages: system prompt + projection + current request
+            projection_content = projection.render()
+            if projection_content:
+                user_message = f"{projection_content}\n\n## Current Request\n\n{current_request}"
+            else:
+                user_message = current_request
 
-        # Stream response from LLM
-        full_response = ""
-        async for chunk in self._llm.stream(messages):  # type: ignore[union-attr]
-            if chunk.text:
-                full_response += chunk.text
-                yield SessionUpdate(
-                    kind=UpdateKind.RESPONSE_CHUNK,
-                    session_id=self._session_id,
-                    payload={"text": chunk.text},
-                    timestamp=time.time(),
-                )
+            # Debug logging
+            if os.environ.get("ACTIVECONTEXT_DEBUG"):
+                tokens_est = len(projection_content) // 4 if projection_content else 0
+                print(f"\n[activecontext] === ITERATION {iteration} ===", file=sys.stderr)
+                print(f"[activecontext] === PROJECTION ({tokens_est} tokens) ===", file=sys.stderr)
+                print(projection_content or "(empty)", file=sys.stderr)
+                print(f"[activecontext] === END PROJECTION ===\n", file=sys.stderr)
+                print(f"[activecontext] Request: {current_request[:200]}{'...' if len(current_request) > 200 else ''}", file=sys.stderr)
 
-        # Update conversation history (stored for next projection)
-        self._conversation.append(Message(role=Role.USER, content=content, actor="user"))
-        self._conversation.append(Message(role=Role.ASSISTANT, content=full_response, actor="agent"))
+            messages = [
+                Message(role=Role.SYSTEM, content=SYSTEM_PROMPT),
+                Message(role=Role.USER, content=user_message),
+            ]
 
-        # Parse response and execute code blocks
-        parsed = parse_response(full_response)
-        for segment_type, segment_content in parsed.segments:
-            if segment_type == "code" and segment_content:
-                # Execute the code block
-                async for update in self._execute_code(segment_content):
+            # Stream response from LLM
+            full_response = ""
+            async for chunk in self._llm.stream(messages):  # type: ignore[union-attr]
+                if self._cancelled:
+                    return
+                if chunk.text:
+                    full_response += chunk.text
+                    yield SessionUpdate(
+                        kind=UpdateKind.RESPONSE_CHUNK,
+                        session_id=self._session_id,
+                        payload={"text": chunk.text},
+                        timestamp=time.time(),
+                    )
+
+            # Update conversation history
+            self._conversation.append(Message(role=Role.USER, content=current_request, actor="user"))
+            self._conversation.append(Message(role=Role.ASSISTANT, content=full_response, actor="agent"))
+
+            # Parse response and execute code blocks
+            parsed = parse_response(full_response)
+            code_blocks = parsed.code_blocks
+            execution_results: list[str] = []
+
+            for code in code_blocks:
+                if self._cancelled:
+                    return
+                async for update in self._execute_code(code):
                     yield update
+                    # Collect execution output for feedback
+                    if update.kind == UpdateKind.STATEMENT_EXECUTED:
+                        stdout = update.payload.get("stdout", "")
+                        stderr = update.payload.get("stderr", "")
+                        exception = update.payload.get("exception")
+                        if stdout:
+                            execution_results.append(f"Output:\n{stdout}")
+                        if stderr:
+                            execution_results.append(f"Stderr:\n{stderr}")
+                        if exception:
+                            execution_results.append(
+                                f"Error: {exception.get('type')}: {exception.get('message')}"
+                            )
 
-        # Run tick phase
-        tick_updates = await self.tick()
-        for update in tick_updates:
-            yield update
+            # Run tick phase
+            tick_updates = await self.tick()
+            for update in tick_updates:
+                yield update
+
+            # If no code was executed, the agent is done
+            if not code_blocks:
+                break
+
+            # Otherwise, loop back with execution results as the next request
+            if execution_results:
+                current_request = "Execution results:\n" + "\n".join(execution_results)
+            else:
+                current_request = "Code executed successfully. Continue or respond."
 
     async def _prompt_direct(self, content: str) -> AsyncIterator[SessionUpdate]:
         """Process prompt in direct execution mode (no LLM)."""
