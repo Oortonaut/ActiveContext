@@ -18,10 +18,23 @@ class Role(Enum):
 
 @dataclass(frozen=True, slots=True)
 class Message:
-    """A message in an LLM conversation."""
+    """A message in an LLM conversation.
+
+    Attributes:
+        role: The role (system, user, assistant)
+        content: The message content
+        actor: Who produced this message. Examples:
+            - "user" - direct user input
+            - "agent" - main agent response
+            - "agent:plan" - agent in plan mode
+            - "subagent:{name}" - a subagent
+            - "tool:{name}" - tool execution result
+            - None - unspecified (legacy)
+    """
 
     role: Role
     content: str
+    actor: str | None = None
 
 
 @dataclass(slots=True)

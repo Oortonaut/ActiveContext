@@ -152,8 +152,8 @@ class Session:
                 )
 
         # Update conversation history (stored for next projection)
-        self._conversation.append(Message(role=Role.USER, content=content))
-        self._conversation.append(Message(role=Role.ASSISTANT, content=full_response))
+        self._conversation.append(Message(role=Role.USER, content=content, actor="user"))
+        self._conversation.append(Message(role=Role.ASSISTANT, content=full_response, actor="agent"))
 
         # Parse response and execute code blocks
         parsed = parse_response(full_response)

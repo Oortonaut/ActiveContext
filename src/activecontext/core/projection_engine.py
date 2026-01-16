@@ -110,13 +110,18 @@ class ProjectionEngine:
         messages_to_include: list[str] = []
         for msg in reversed(conversation):
             role = msg.role.value.upper()
+            actor = getattr(msg, "actor", None)
             content = msg.content
 
             # Truncate very long messages
             if len(content) > 2000:
                 content = content[:2000] + "..."
 
-            entry = f"**{role}**: {content}\n\n"
+            # Format with actor if present: "USER (user):" or "ASSISTANT (agent):"
+            if actor:
+                entry = f"**{role}** ({actor}): {content}\n\n"
+            else:
+                entry = f"**{role}**: {content}\n\n"
             entry_chars = len(entry)
 
             if tokens_used * 4 + entry_chars > char_budget:

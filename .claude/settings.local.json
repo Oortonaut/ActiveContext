@@ -24,7 +24,9 @@
       "Bash(printf:*)",
       "Bash(timeout 10 uv run:*)",
       "Bash(git add:*)",
-      "Bash(git commit -m \"$\\(cat <<''EOF''\nInitial commit: ActiveContext agent loop architecture\n\n- ACP transport for IDE integration \\(Rider, Zed\\)\n- Direct Python API transport\n- Session management with timeline-based execution\n- LLM provider integration via LiteLLM\n- Model discovery from environment variables\n- Support for modes \\(normal, plan, brave\\)\n\n🤖 Generated with [Claude Code]\\(https://claude.com/claude-code\\)\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")"
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nInitial commit: ActiveContext agent loop architecture\n\n- ACP transport for IDE integration \\(Rider, Zed\\)\n- Direct Python API transport\n- Session management with timeline-based execution\n- LLM provider integration via LiteLLM\n- Model discovery from environment variables\n- Support for modes \\(normal, plan, brave\\)\n\n🤖 Generated with [Claude Code]\\(https://claude.com/claude-code\\)\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git worktree:*)",
+      "Bash(git commit:*)"
     ]
   }
 }

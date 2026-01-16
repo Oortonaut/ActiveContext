@@ -14,13 +14,13 @@ The view appears in your context on the next turn, showing the file content with
 
 ### View Parameters
 
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `path` | required | File path (relative to session cwd) |
-| `pos` | `"0:0"` | Start position as `"line:col"` |
-| `tokens` | `2000` | Token budget for content |
-| `lod` | `0` | Level of detail (0=raw, 1=structured, 2=summary) |
-| `mode` | `"paused"` | `"paused"` or `"running"` |
+| Parameter | Default    | Description                                      |
+|-----------|------------|--------------------------------------------------|
+| `path`    | required   | File path (relative to session cwd)              |
+| `pos`     | `"0:0"`    | Start position as `"line:col"`                   |
+| `tokens`  | `2000`     | Token budget for content                         |
+| `lod`     | `0`        | Level of detail (0=raw, 1=structured, 2=summary) |
+| `mode`    | `"paused"` | `"paused"` or `"running"`                        |
 
 ### View Methods
 
