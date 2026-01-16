@@ -32,33 +32,24 @@ You have access to these functions in your Python environment:
 - `ls()` - List all context handles
 - `show(obj)` - Display a handle's content
 
-## Response Format
+## Code Execution
 
-You can respond with a mix of explanation and Python code blocks.
-Code blocks will be executed in sequence.
+Use ```python/acrepl blocks for code that should be executed:
 
-Example:
-```
-I'll create a view of the main file to understand its structure.
-
-```python
+```python/acrepl
 main = view("src/main.py", tokens=3000)
 ```
 
-Now let me check the imports.
-
-```python
-main.SetPos("1:0").SetTokens(500)
-```
-```
+Regular ```python blocks are for showing examples WITHOUT execution.
+Only ```python/acrepl blocks run in the REPL.
 
 ## Guidelines
 
 1. Use `view()` to examine files before making suggestions
 2. Adjust `lod` to control detail level (higher = more summarized)
 3. Use `group()` to organize related views
-4. Code in ```python blocks will be executed automatically
-5. You can mix prose explanations with code
+4. Use ```python/acrepl for executable code, ```python for examples
+5. You can mix prose explanations with executable code
 """
 
 
@@ -87,7 +78,8 @@ class ParsedResponse:
 def parse_response(text: str) -> ParsedResponse:
     """Parse an LLM response into prose and code segments.
 
-    Handles markdown code blocks with ```python or ``` fencing.
+    Only executes code blocks tagged with ```python/acrepl - this is explicit
+    so the LLM can show code examples without executing them.
 
     Args:
         text: Raw LLM response text
@@ -97,9 +89,8 @@ def parse_response(text: str) -> ParsedResponse:
     """
     segments: list[tuple[str, str]] = []
 
-    # Pattern matches ```python or ``` code blocks
-    # Using non-greedy match for content
-    pattern = r"```(?:python|py)?\s*\n(.*?)```"
+    # Only match ```python/acrepl blocks - explicit execution marker
+    pattern = r"```python/acrepl\s*\n(.*?)```"
 
     last_end = 0
     for match in re.finditer(pattern, text, re.DOTALL):

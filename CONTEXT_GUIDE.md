@@ -6,7 +6,7 @@ This guide explains how to use the context system to work with files and code.
 
 A **view** is a window into a file. Create one with:
 
-```python
+```python/acrepl
 v = view("src/main.py", tokens=2000)
 ```
 
