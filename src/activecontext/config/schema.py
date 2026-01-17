@@ -11,11 +11,25 @@ from typing import Any
 
 
 @dataclass
+class RoleModelConfig:
+    """User's saved model choice for a role.
+
+    Allows persisting the user's preferred model for each role.
+    """
+
+    role: str  # e.g., "coding", "fast", "reasoning"
+    provider: str  # e.g., "anthropic", "openai"
+    model_id: str  # e.g., "claude-sonnet-4-5-20250929"
+
+
+@dataclass
 class LLMConfig:
     """LLM provider configuration."""
 
     provider: str | None = None  # e.g., "anthropic", "openai"
-    model: str | None = None  # e.g., "claude-sonnet-4-20250514"
+    model: str | None = None  # e.g., "claude-sonnet-4-20250514" (explicit override)
+    default_role: str | None = None  # e.g., "coding" - role to use when model not specified
+    role_models: list[RoleModelConfig] = field(default_factory=list)  # User's saved choices
     api_key: str | None = None  # Override env var
     api_base: str | None = None  # Custom endpoint
     temperature: float | None = None  # Default: 0.0

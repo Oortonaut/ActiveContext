@@ -42,6 +42,7 @@ from activecontext.config.schema import (
     LLMConfig,
     LoggingConfig,
     ProjectionConfig,
+    RoleModelConfig,
     SessionConfig,
     SessionModeConfig,
 )
@@ -61,6 +62,7 @@ __all__ = [
     "on_config_reload",
     # Schema types
     "LLMConfig",
+    "RoleModelConfig",
     "SessionConfig",
     "SessionModeConfig",
     "ProjectionConfig",
