@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, Any
 from activecontext.context.graph import ContextGraph
 from activecontext.core.projection_engine import ProjectionConfig, ProjectionEngine
 from activecontext.logging import get_logger
-from activecontext.session.permissions import PermissionManager, ShellPermissionManager
+from activecontext.session.permissions import ImportGuard, PermissionManager, ShellPermissionManager
 from activecontext.session.protocols import (
     Projection,
     SessionUpdate,
@@ -44,6 +44,18 @@ if TYPE_CHECKING:
     # async (session_id, command, args) -> (granted, persist)
     ShellPermissionRequester = Callable[
         [str, str, list[str] | None], Coroutine[Any, Any, tuple[bool, bool]]
+    ]
+
+    # Type for website permission requester callback:
+    # async (session_id, url, method) -> (granted, persist)
+    WebsitePermissionRequester = Callable[
+        [str, str, str], Coroutine[Any, Any, tuple[bool, bool]]
+    ]
+
+    # Type for import permission requester callback:
+    # async (session_id, module) -> (granted, persist, include_submodules)
+    ImportPermissionRequester = Callable[
+        [str, str], Coroutine[Any, Any, tuple[bool, bool, bool]]
     ]
 
 
@@ -478,6 +490,8 @@ class SessionManager:
         terminal_executor: TerminalExecutor | None = None,
         permission_requester: PermissionRequester | None = None,
         shell_permission_requester: ShellPermissionRequester | None = None,
+        website_permission_requester: WebsitePermissionRequester | None = None,
+        import_permission_requester: ImportPermissionRequester | None = None,
     ) -> Session:
         """Create a new session with its own timeline.
 
@@ -491,6 +505,10 @@ class SessionManager:
                 async (session_id, path, mode) -> (granted, persist)
             shell_permission_requester: Optional callback for ACP shell permission prompts;
                 async (session_id, command, args) -> (granted, persist)
+            website_permission_requester: Optional callback for ACP website permission prompts;
+                async (session_id, url, method) -> (granted, persist)
+            import_permission_requester: Optional callback for ACP import permission prompts;
+                async (session_id, module) -> (granted, persist, include_submodules)
         """
         if session_id is None:
             session_id = str(uuid.uuid4())
@@ -508,14 +526,29 @@ class SessionManager:
         # Create shell permission manager from config
         shell_permission_manager = ShellPermissionManager.from_config(sandbox_config)
 
+        # Create website permission manager from config
+        from activecontext.session.permissions import WebsitePermissionManager
+
+        website_permission_manager = WebsitePermissionManager.from_config(
+            sandbox_config, Path(cwd)
+        )
+
+        # Create import guard from config
+        import_config = sandbox_config.imports if sandbox_config else None
+        import_guard = ImportGuard.from_config(import_config)
+
         timeline = Timeline(
             session_id,
             cwd=cwd,
             permission_manager=permission_manager,
             terminal_executor=terminal_executor,
             permission_requester=permission_requester,  # type: ignore[arg-type]
+            import_guard=import_guard,
+            import_permission_requester=import_permission_requester,  # type: ignore[arg-type]
             shell_permission_manager=shell_permission_manager,
             shell_permission_requester=shell_permission_requester,  # type: ignore[arg-type]
+            website_permission_manager=website_permission_manager,
+            website_permission_requester=website_permission_requester,  # type: ignore[arg-type]
         )
         session = Session(
             session_id=session_id,
@@ -528,7 +561,7 @@ class SessionManager:
 
         # Register for config reload to update permissions
         unregister = self._setup_permission_reload(
-            session_id, cwd, permission_manager
+            session_id, cwd, permission_manager, shell_permission_manager, website_permission_manager, import_guard
         )
         self._reload_unregisters[session_id] = unregister
 
@@ -542,13 +575,19 @@ class SessionManager:
         session_id: str,
         cwd: str,
         permission_manager: PermissionManager,
+        shell_permission_manager: ShellPermissionManager | None = None,
+        website_permission_manager: Any | None = None,
+        import_guard: ImportGuard | None = None,
     ) -> Callable[[], None]:
-        """Set up config reload callback for a session's permission manager.
+        """Set up config reload callback for a session's permission managers.
 
         Args:
             session_id: Session ID for tracking.
             cwd: Working directory for config loading.
             permission_manager: PermissionManager to update on reload.
+            shell_permission_manager: Optional ShellPermissionManager to update on reload.
+            website_permission_manager: Optional WebsitePermissionManager to update on reload.
+            import_guard: Optional ImportGuard to update on reload.
 
         Returns:
             Unregister function to remove the callback.
@@ -566,6 +605,28 @@ class SessionManager:
                         session_id,
                         len(permission_manager.rules),
                     )
+                    if shell_permission_manager:
+                        shell_permission_manager.reload(sandbox_config)
+                        log.debug(
+                            "Shell permissions reloaded for session %s: %d rules",
+                            session_id,
+                            len(shell_permission_manager.rules),
+                        )
+                    if website_permission_manager:
+                        website_permission_manager.reload(sandbox_config)
+                        log.debug(
+                            "Website permissions reloaded for session %s: %d rules",
+                            session_id,
+                            len(website_permission_manager.rules),
+                        )
+                    if import_guard:
+                        import_config = sandbox_config.imports if sandbox_config else None
+                        import_guard.reload(import_config)
+                        log.debug(
+                            "Import whitelist reloaded for session %s: %d modules",
+                            session_id,
+                            len(import_guard.allowed_modules),
+                        )
 
             return on_config_reload(on_reload)
         except ImportError:

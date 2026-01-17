@@ -316,7 +316,162 @@ class ActiveContextAgent:
             log.error("Shell permission request failed: %s", e)
             return (False, False)
 
+
     # --- End shell permission requests ---
+
+    # --- Website permission requests ---
+
+    async def _request_website_permission(
+        self, session_id: str, url: str, method: str
+    ) -> tuple[bool, bool]:
+        """Request website access permission from user via ACP.
+
+        This is called when the Timeline catches a website permission denied.
+        The user is prompted to allow or deny the request.
+
+        Args:
+            session_id: The session requesting permission.
+            url: The URL to access.
+            method: HTTP method (GET, POST, etc.).
+
+        Returns:
+            (granted, persist) - granted=True if allowed, persist=True if "allow_always"
+        """
+        if not self._conn:
+            log.warning("No ACP client connected, denying website permission request")
+            return (False, False)
+
+        from urllib.parse import urlparse
+
+        parsed = urlparse(url)
+
+        tool_call = ToolCallUpdate(
+            tool_call_id=f"website-access-{uuid.uuid4()}",
+            title=f"Website {method} request",
+            kind="read" if method == "GET" else "edit",
+            status="pending",
+            content=[
+                helpers.tool_content(
+                    helpers.text_block(
+                        f"The agent wants to make a {method} request to:\n{url}\nDomain: {parsed.netloc}"
+                    )
+                )
+            ],
+        )
+
+        options = [
+            PermissionOption(option_id="allow_once", name="Allow once", kind="allow_once"),
+            PermissionOption(
+                option_id="allow_always", name="Allow always", kind="allow_always"
+            ),
+            PermissionOption(option_id="deny", name="Deny", kind="reject_once"),
+        ]
+
+        try:
+            response = await self._conn.request_permission(
+                options=options,
+                session_id=session_id,
+                tool_call=tool_call,
+            )
+
+            if response.outcome.outcome == "selected":
+                option_id = response.outcome.option_id
+                if option_id == "allow_once":
+                    log.info("Website permission granted (once): %s %s", method, url)
+                    return (True, False)
+                elif option_id == "allow_always":
+                    log.info("Website permission granted (always): %s %s", method, url)
+                    return (True, True)
+
+            log.info("Website permission denied: %s %s", method, url)
+            return (False, False)
+
+        except Exception as e:
+            log.error("Website permission request failed: %s", e)
+            return (False, False)
+
+    # --- End website permission requests ---
+
+    # --- Import permission requests ---
+
+    async def _request_import_permission(
+        self, session_id: str, module: str
+    ) -> tuple[bool, bool, bool]:
+        """Request import permission from user via ACP.
+
+        This is called when the Timeline catches an ImportDenied exception.
+        The user is prompted to allow or deny the import.
+
+        Args:
+            session_id: The session requesting permission.
+            module: The module name that was denied.
+
+        Returns:
+            (granted, persist, include_submodules) -
+            granted=True if allowed,
+            persist=True if "allow_always",
+            include_submodules=True if "allow with submodules"
+        """
+        if not self._conn:
+            log.warning("No ACP client connected, denying import permission request")
+            return (False, False, False)
+
+        # Get the top-level module for display
+        top_level = module.split(".")[0]
+        display_module = module if module == top_level else f"{module} (top-level: {top_level})"
+
+        tool_call = ToolCallUpdate(
+            tool_call_id=f"import-access-{uuid.uuid4()}",
+            title=f"Import '{top_level}'",
+            kind="execute",
+            status="pending",
+            content=[
+                helpers.tool_content(
+                    helpers.text_block(
+                        f"The agent wants to import:\n```\nimport {display_module}\n```"
+                    )
+                )
+            ],
+        )
+
+        options = [
+            PermissionOption(option_id="allow_once", name="Allow once", kind="allow_once"),
+            PermissionOption(
+                option_id="allow_always", name="Allow always (this module only)", kind="allow_always"
+            ),
+            PermissionOption(
+                option_id="allow_always_submodules", name="Allow always (+ submodules)", kind="allow_always"
+            ),
+            PermissionOption(option_id="deny", name="Deny", kind="reject_once"),
+        ]
+
+        try:
+            response = await self._conn.request_permission(
+                options=options,
+                session_id=session_id,
+                tool_call=tool_call,
+            )
+
+            if response.outcome.outcome == "selected":
+                option_id = response.outcome.option_id
+                if option_id == "allow_once":
+                    log.info("Import permission granted (once): %s", module)
+                    return (True, False, False)
+                elif option_id == "allow_always":
+                    log.info("Import permission granted (always, module only): %s", module)
+                    return (True, True, False)
+                elif option_id == "allow_always_submodules":
+                    log.info("Import permission granted (always, + submodules): %s", module)
+                    return (True, True, True)
+
+            log.info("Import permission denied: %s", module)
+            return (False, False, False)
+
+        except Exception as e:
+            log.error("Import permission request failed: %s", e)
+            return (False, False, False)
+
+    # --- End import permission requests ---
 
     def on_connect(self, conn: Client) -> None:
         """Called when a client connects."""
@@ -356,11 +511,15 @@ class ActiveContextAgent:
         # Create permission requester callbacks bound to this agent
         permission_requester = self._request_file_permission
         shell_permission_requester = self._request_shell_permission
+        website_permission_requester = self._request_website_permission
+        import_permission_requester = self._request_import_permission
 
         session = await self._manager.create_session(
             cwd=cwd,
             permission_requester=permission_requester,
             shell_permission_requester=shell_permission_requester,
+            website_permission_requester=website_permission_requester,
+            import_permission_requester=import_permission_requester,
         )
 
         # Now create ACP terminal executor with the actual session_id

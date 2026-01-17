@@ -944,11 +944,16 @@ class ImportGuard:
 
     Controls which modules can be imported during code execution.
     Supports whitelisting top-level modules and optionally their submodules.
+
+    Temporary grants can be added via grant_temporary() for session-scoped
+    "allow once" permissions from interactive prompts.
     """
 
     allowed_modules: set[str] = field(default_factory=set)
     allow_submodules: bool = True
     allow_all: bool = False
+    _temporary_grants: set[str] = field(default_factory=set)  # module names
+    _temporary_submodule_grants: set[str] = field(default_factory=set)  # modules with submodule access
 
     @classmethod
     def from_config(cls, config: ImportConfig | None) -> ImportGuard:
@@ -983,12 +988,23 @@ class ImportGuard:
         if self.allow_all:
             return True
 
-        if not self.allowed_modules:
-            # Empty whitelist means nothing is allowed
-            return False
-
         # Get the top-level module
         top_level = module_name.split(".")[0]
+
+        # Check temporary grants first (from "allow once" prompts)
+        if module_name in self._temporary_grants:
+            return True
+        if top_level in self._temporary_grants:
+            # Check if this temporary grant includes submodules
+            if top_level in self._temporary_submodule_grants:
+                return True
+            # Otherwise only exact match counts
+            if module_name == top_level:
+                return True
+
+        if not self.allowed_modules:
+            # Empty whitelist means nothing is allowed (unless temp granted)
+            return False
 
         # Check exact match first
         if module_name in self.allowed_modules:
@@ -1029,6 +1045,45 @@ class ImportGuard:
             Sorted list of allowed module names.
         """
         return sorted(self.allowed_modules)
+
+    def grant_temporary(self, module: str, include_submodules: bool = False) -> None:
+        """Grant temporary access to a module (allow_once).
+
+        Temporary grants are not persisted and are cleared when the
+        session ends or the ImportGuard is recreated.
+
+        Args:
+            module: Module name to allow (typically top-level like "json").
+            include_submodules: If True, also allow submodules (e.g., "json.decoder").
+        """
+        self._temporary_grants.add(module)
+        if include_submodules:
+            self._temporary_submodule_grants.add(module)
+        _log.debug(
+            "Temporary import grant added: %s (submodules=%s)", module, include_submodules
+        )
+
+    def clear_temporary_grants(self) -> None:
+        """Clear all temporary grants."""
+        self._temporary_grants.clear()
+        self._temporary_submodule_grants.clear()
+        _log.debug("Temporary import grants cleared")
+
+    def reload(self, config: ImportConfig | None) -> None:
+        """Reload import whitelist from a new config.
+
+        Args:
+            config: New import configuration.
+        """
+        from activecontext.config.schema import ImportConfig
+
+        if config is None:
+            config = ImportConfig()
+
+        self.allowed_modules = set(config.allowed_modules)
+        self.allow_submodules = config.allow_submodules
+        self.allow_all = config.allow_all
+        _log.debug("Import whitelist reloaded: %d modules", len(self.allowed_modules))
 
 
 def make_safe_import(import_guard: ImportGuard) -> Any:
@@ -1082,3 +1137,488 @@ def make_safe_import(import_guard: ImportGuard) -> Any:
         return original_import(name, globals, locals, fromlist, level)
 
     return safe_import
+
+
+def write_import_to_config(
+    cwd: Path, module: str, include_submodules: bool = False
+) -> None:
+    """Append an import permission to .ac/config.yaml.
+
+    Creates the config file and directory if they don't exist.
+    If the file exists, the new module is appended to sandbox.imports.allowed_modules.
+
+    Args:
+        cwd: Working directory (project root).
+        module: Module name to allow (typically top-level like "json").
+        include_submodules: If True, also set allow_submodules to True.
+    """
+    config_path = cwd / ".ac" / "config.yaml"
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Load existing config or create new
+    data: dict[str, Any] = {}
+    if config_path.exists():
+        with open(config_path) as f:
+            data = yaml.safe_load(f) or {}
+
+    # Ensure sandbox.imports exists
+    data.setdefault("sandbox", {})
+    data["sandbox"].setdefault("imports", {})
+    data["sandbox"]["imports"].setdefault("allowed_modules", [])
+
+    # Check if module already exists
+    existing_modules = set(data["sandbox"]["imports"]["allowed_modules"])
+    if module in existing_modules:
+        _log.debug("Import module already allowed: %s", module)
+        # Still might need to update allow_submodules
+        if include_submodules:
+            data["sandbox"]["imports"]["allow_submodules"] = True
+    else:
+        # Add new module
+        data["sandbox"]["imports"]["allowed_modules"].append(module)
+
+    # Update allow_submodules if needed
+    if include_submodules:
+        data["sandbox"]["imports"]["allow_submodules"] = True
+
+    # Write back with proper YAML formatting
+    with open(config_path, "w") as f:
+        yaml.safe_dump(data, f, default_flow_style=False, sort_keys=False)
+
+    _log.info(
+        "Added import permission to %s: %s (submodules=%s)",
+        config_path,
+        module,
+        include_submodules,
+    )
+
+
+# =============================================================================
+# Website Permission System
+# =============================================================================
+
+
+@dataclass
+class WebsitePermissionDenied(Exception):
+    """Raised when website access is denied.
+
+    This exception is caught by Timeline to trigger ACP permission requests.
+    """
+
+    url: str  # The URL that was denied
+    method: str  # HTTP method (GET, POST, etc.)
+    parsed_url: dict[str, str] | None = None  # Parsed URL components
+
+    def __str__(self) -> str:
+        return f"Website access denied: {self.method} {self.url}"
+
+
+@dataclass
+class WebsitePermissionRule:
+    """A website permission rule."""
+
+    pattern: str  # URL pattern (glob or typed placeholders)
+    methods: set[str]  # Allowed HTTP methods (e.g., {"GET", "POST"})
+    allow: bool  # True to allow, False to deny
+
+
+class URLTypeValidator:
+    """Validates captured values for URL-specific types."""
+
+    @staticmethod
+    def validate(value: str, type_name: str) -> bool:
+        """Validate value against type.
+
+        Args:
+            value: Captured value to validate.
+            type_name: Type name (domain, host, url, etc.).
+
+        Returns:
+            True if value is valid for the type.
+        """
+        match type_name:
+            case "domain":
+                return URLTypeValidator._is_valid_domain(value)
+            case "host":
+                return URLTypeValidator._is_valid_host(value)
+            case "url":
+                return URLTypeValidator._is_valid_url(value)
+            case "subdomain":
+                return URLTypeValidator._is_valid_subdomain(value)
+            case "protocol":
+                return value.lower() in ("http", "https", "ws", "wss")
+            case "port":
+                return URLTypeValidator._is_valid_port(value)
+            case "path" | "endpoint" | "str":
+                return True  # Any string accepted
+            case "int":
+                try:
+                    int(value)
+                    return True
+                except ValueError:
+                    return False
+            case _:
+                return True
+
+    @staticmethod
+    def _is_valid_domain(value: str) -> bool:
+        """Check if value is a valid domain name."""
+        # Domain: letters, digits, hyphens, dots
+        # Must not start/end with hyphen or dot
+        pattern = r"^(?:[a-zA-Z0-9](?:[a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)*[a-zA-Z0-9](?:[a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?$"
+        return bool(re.match(pattern, value))
+
+    @staticmethod
+    def _is_valid_host(value: str) -> bool:
+        """Check if value is a valid hostname (domain, IPv4, or IPv6)."""
+        # Try domain
+        if URLTypeValidator._is_valid_domain(value):
+            return True
+
+        # Try IPv4
+        if URLTypeValidator._is_valid_ipv4(value):
+            return True
+
+        # Try IPv6 (with or without brackets)
+        value_stripped = value.strip("[]")
+        if URLTypeValidator._is_valid_ipv6(value_stripped):
+            return True
+
+        return False
+
+    @staticmethod
+    def _is_valid_ipv4(value: str) -> bool:
+        """Check if value is a valid IPv4 address."""
+        import socket
+
+        try:
+            socket.inet_pton(socket.AF_INET, value)
+            return True
+        except (socket.error, OSError):
+            return False
+
+    @staticmethod
+    def _is_valid_ipv6(value: str) -> bool:
+        """Check if value is a valid IPv6 address."""
+        import socket
+
+        try:
+            socket.inet_pton(socket.AF_INET6, value)
+            return True
+        except (socket.error, OSError):
+            return False
+
+    @staticmethod
+    def _is_valid_url(value: str) -> bool:
+        """Check if value is a valid URL."""
+        from urllib.parse import urlparse
+
+        try:
+            result = urlparse(value)
+            # Must have scheme and netloc
+            return bool(result.scheme and result.netloc)
+        except Exception:
+            return False
+
+    @staticmethod
+    def _is_valid_subdomain(value: str) -> bool:
+        """Check if value is a valid subdomain (single label)."""
+        # Single label: alphanumeric, hyphens (not at start/end)
+        pattern = r"^[a-zA-Z0-9](?:[a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?$"
+        return bool(re.match(pattern, value))
+
+    @staticmethod
+    def _is_valid_port(value: str) -> bool:
+        """Check if value is a valid port number."""
+        try:
+            port = int(value)
+            return 1 <= port <= 65535
+        except ValueError:
+            return False
+
+    @staticmethod
+    def get_regex_pattern(type_name: str) -> str:
+        """Get regex pattern for a type.
+
+        Args:
+            type_name: Type name.
+
+        Returns:
+            Regex pattern string.
+        """
+        match type_name:
+            case "domain":
+                # Domain: alphanumeric with dots and hyphens
+                return r"[a-zA-Z0-9\-\.]+"
+            case "host":
+                # Host: domain or IP (permissive pattern)
+                return r"[a-zA-Z0-9\-\.\[\]::]+"
+            case "url":
+                # URL: protocol + host + optional path/query/fragment
+                return r"[a-zA-Z][a-zA-Z0-9+.\-]*://[^\s]+"
+            case "subdomain":
+                return r"[a-zA-Z0-9\-]+"
+            case "path" | "endpoint":
+                return r"[^?#]*"
+            case "protocol":
+                return r"https?"
+            case "port":
+                return r"\d+"
+            case "int":
+                return r"\d+"
+            case "str":
+                return r"[^/]*"
+            case _:
+                return r".+"
+
+
+class URLPatternMatcher:
+    """Matches URLs against patterns with typed placeholders."""
+
+    def __init__(self) -> None:
+        self._validator = URLTypeValidator()
+
+    def match(self, pattern: str, url: str) -> MatchResult:
+        """Match URL against pattern.
+
+        Args:
+            pattern: Pattern with optional typed placeholders.
+            url: URL to match.
+
+        Returns:
+            MatchResult with matched status and captures.
+        """
+        # Check if pattern uses typed placeholders
+        if "{" in pattern and ":" in pattern:
+            return self._match_typed(pattern, url)
+        else:
+            # Legacy fnmatch glob
+            if fnmatch.fnmatch(url, pattern):
+                return MatchResult(matched=True)
+            return MatchResult(matched=False)
+
+    def _match_typed(self, pattern: str, url: str) -> MatchResult:
+        """Match using typed placeholders.
+
+        Args:
+            pattern: Pattern with typed placeholders.
+            url: URL to match.
+
+        Returns:
+            MatchResult with captures.
+        """
+        captures: dict[str, str] = {}
+
+        # Find all placeholders in pattern
+        placeholder_pattern = re.compile(
+            r"\{([a-zA-Z_][a-zA-Z0-9_]*):([a-zA-Z_][a-zA-Z0-9_]*)\}"
+        )
+        placeholders: list[tuple[str, str]] = []  # (name, type)
+
+        # Build regex pattern by replacing placeholders
+        regex_pattern = re.escape(pattern)
+
+        for match in placeholder_pattern.finditer(pattern):
+            full_match = re.escape(match.group(0))
+            name = match.group(1)
+            type_name = match.group(2)
+            placeholders.append((name, type_name))
+
+            # Replace escaped placeholder with regex group
+            type_regex = self._validator.get_regex_pattern(type_name)
+            regex_pattern = regex_pattern.replace(full_match, f"({type_regex})", 1)
+
+        # Try to match
+        try:
+            regex_match = re.fullmatch(regex_pattern, url)
+            if not regex_match:
+                return MatchResult(matched=False)
+
+            # Extract and validate captures
+            for i, (name, type_name) in enumerate(placeholders):
+                value = regex_match.group(i + 1)
+                if not self._validator.validate(value, type_name):
+                    return MatchResult(matched=False)
+                captures[name] = value
+
+            return MatchResult(matched=True, captures=captures)
+        except Exception:
+            return MatchResult(matched=False)
+
+
+@dataclass
+class WebsitePermissionManager:
+    """Manages website access permissions."""
+
+    rules: list[WebsitePermissionRule] = field(default_factory=list)
+    deny_by_default: bool = True
+    allow_localhost: bool = False
+    cwd: Path | None = None
+    _temporary_grants: set[tuple[str, str]] = field(default_factory=set)
+    _url_matcher: URLPatternMatcher = field(default_factory=URLPatternMatcher)
+
+    @classmethod
+    def from_config(
+        cls, config: SandboxConfig | None, cwd: Path | None = None
+    ) -> WebsitePermissionManager:
+        """Create from config."""
+        if config is None:
+            return cls(deny_by_default=True, allow_localhost=False, cwd=cwd)
+
+        rules = [
+            WebsitePermissionRule(
+                pattern=p.pattern,
+                methods={m.upper() for m in p.methods},
+                allow=p.allow,
+            )
+            for p in config.website_permissions
+        ]
+
+        return cls(
+            rules=rules,
+            deny_by_default=config.website_deny_by_default,
+            allow_localhost=config.allow_localhost,
+            cwd=cwd,
+        )
+
+    def check_access(self, url: str, method: str = "GET") -> bool:
+        """Check if access is permitted."""
+        method = method.upper()
+
+        # Check temporary grants
+        if (url, method) in self._temporary_grants or (url, "ALL") in self._temporary_grants:
+            return True
+
+        # Auto-grant localhost if configured
+        if self.allow_localhost and self._is_localhost(url):
+            return True
+
+        # Check rules (first match wins)
+        for rule in self.rules:
+            result = self._url_matcher.match(rule.pattern, url)
+            if result.matched:
+                if "ALL" in rule.methods or method in rule.methods:
+                    return rule.allow
+
+        # No match - use default policy
+        return not self.deny_by_default
+
+    def _is_localhost(self, url: str) -> bool:
+        """Check if URL is localhost."""
+        from urllib.parse import urlparse
+
+        try:
+            parsed = urlparse(url)
+            hostname = (parsed.hostname or "").lower()
+            return hostname in ("localhost", "127.0.0.1", "::1", "0.0.0.0")
+        except Exception:
+            return False
+
+    def grant_temporary(self, url: str, method: str = "GET") -> None:
+        """Grant temporary access (allow once)."""
+        self._temporary_grants.add((url, method.upper()))
+
+    def clear_temporary_grants(self) -> None:
+        """Clear all temporary grants."""
+        self._temporary_grants.clear()
+
+    def reload(self, config: SandboxConfig | None) -> None:
+        """Reload from new config."""
+        new_manager = WebsitePermissionManager.from_config(config, self.cwd)
+        self.rules = new_manager.rules
+        self.deny_by_default = new_manager.deny_by_default
+        self.allow_localhost = new_manager.allow_localhost
+
+    def list_permissions(self) -> list[dict[str, Any]]:
+        """List all rules."""
+        return [
+            {"pattern": r.pattern, "methods": sorted(r.methods), "allow": r.allow}
+            for r in self.rules
+        ]
+
+
+def make_safe_fetch(website_permission_manager: WebsitePermissionManager) -> Any:
+    """Create permission-checked fetch() wrapper."""
+
+    async def safe_fetch(
+        url: str,
+        *,
+        method: str = "GET",
+        headers: dict[str, str] | None = None,
+        data: Any = None,
+        json: Any = None,
+        timeout: float = 30.0,
+    ) -> Any:
+        # Check permission
+        if not website_permission_manager.check_access(url, method):
+            from urllib.parse import urlparse
+
+            parsed = urlparse(url)
+            raise WebsitePermissionDenied(
+                url=url,
+                method=method,
+                parsed_url={
+                    "scheme": parsed.scheme,
+                    "netloc": parsed.netloc,
+                    "path": parsed.path,
+                },
+            )
+
+        # Execute request
+        import httpx
+
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            return await client.request(
+                method=method,
+                url=url,
+                headers=headers,
+                data=data,
+                json=json,
+            )
+
+    return safe_fetch
+
+
+def write_website_permission_to_config(
+    cwd: Path, url: str, method: str = "GET"
+) -> None:
+    """Write permission to .ac/config.yaml."""
+    config_path = cwd / ".ac" / "config.yaml"
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Load existing config
+    data: dict[str, Any] = {}
+    if config_path.exists():
+        with open(config_path) as f:
+            data = yaml.safe_load(f) or {}
+
+    # Ensure structure exists
+    data.setdefault("sandbox", {})
+    data["sandbox"].setdefault("website_permissions", [])
+
+    # Check if pattern exists - merge methods
+    method_upper = method.upper()
+    pattern_exists = False
+    for p in data["sandbox"]["website_permissions"]:
+        if isinstance(p, dict) and p.get("pattern") == url:
+            methods = [m.upper() for m in p.get("methods", [])]
+            if method_upper not in methods:
+                methods.append(method_upper)
+                p["methods"] = methods
+            pattern_exists = True
+            break
+
+    # Add new rule if pattern doesn't exist
+    if not pattern_exists:
+        data["sandbox"]["website_permissions"].append(
+            {
+                "pattern": url,
+                "methods": [method_upper],
+            }
+        )
+
+    # Write back
+    with open(config_path, "w") as f:
+        yaml.safe_dump(data, f, default_flow_style=False, sort_keys=False)
+
+    _log.info("Added website permission to %s: %s (%s)", config_path, url, method)

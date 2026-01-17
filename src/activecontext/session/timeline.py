@@ -29,14 +29,20 @@ from activecontext.context.nodes import (
     ViewNode,
 )
 from activecontext.session.permissions import (
+    ImportDenied,
     ImportGuard,
     PermissionDenied,
     PermissionManager,
     ShellPermissionManager,
+    WebsitePermissionDenied,
+    WebsitePermissionManager,
+    make_safe_fetch,
     make_safe_import,
     make_safe_open,
+    write_import_to_config,
     write_permission_to_config,
     write_shell_permission_to_config,
+    write_website_permission_to_config,
 )
 from activecontext.session.protocols import (
     ExecutionResult,
@@ -59,6 +65,18 @@ if TYPE_CHECKING:
     # async (session_id, command, args) -> (granted, persist)
     ShellPermissionRequester = Callable[
         [str, str, list[str] | None], "asyncio.Future[tuple[bool, bool]]"
+    ]
+
+    # Type for website permission requester callback:
+    # async (session_id, url, method) -> (granted, persist)
+    WebsitePermissionRequester = Callable[
+        [str, str, str], "asyncio.Future[tuple[bool, bool]]"
+    ]
+
+    # Type for import permission requester callback:
+    # async (session_id, module) -> (granted, persist, include_submodules)
+    ImportPermissionRequester = Callable[
+        [str, str], "asyncio.Future[tuple[bool, bool, bool]]"
     ]
 
 
@@ -93,8 +111,11 @@ class Timeline:
         terminal_executor: TerminalExecutor | None = None,
         permission_requester: PermissionRequester | None = None,
         import_guard: ImportGuard | None = None,
+        import_permission_requester: ImportPermissionRequester | None = None,
         shell_permission_manager: ShellPermissionManager | None = None,
         shell_permission_requester: ShellPermissionRequester | None = None,
+        website_permission_manager: WebsitePermissionManager | None = None,
+        website_permission_requester: WebsitePermissionRequester | None = None,
     ) -> None:
         self._session_id = session_id
         self._cwd = cwd
@@ -110,6 +131,10 @@ class Timeline:
         # Import guard for module whitelist control
         self._import_guard = import_guard
 
+        # Import permission requester callback for ACP permission prompts
+        # Called when ImportDenied is raised: async (sid, module) -> (granted, persist, include_submodules)
+        self._import_permission_requester = import_permission_requester
+
         # Permission requester callback for ACP permission prompts
         # Called when PermissionDenied is raised: async (sid, path, mode) -> (granted, persist)
         self._permission_requester = permission_requester
@@ -120,6 +145,13 @@ class Timeline:
         # Shell permission requester callback for ACP permission prompts
         # Called when shell command is denied: async (sid, cmd, args) -> (granted, persist)
         self._shell_permission_requester = shell_permission_requester
+
+        # Website permission manager for HTTP/HTTPS access control
+        self._website_permission_manager = website_permission_manager
+
+        # Website permission requester callback for ACP permission prompts
+        # Called when website access is denied: async (sid, url, method) -> (granted, persist)
+        self._website_permission_requester = website_permission_requester
 
         # Terminal executor for shell commands (default to subprocess)
         if terminal_executor is None:
@@ -194,8 +226,11 @@ class Timeline:
             "ls_permissions": self._ls_permissions,
             "ls_imports": self._ls_imports,
             "ls_shell_permissions": self._ls_shell_permissions,
+            "ls_website_permissions": self._ls_website_permissions,
             # Shell execution
             "shell": self._shell,
+            # HTTP/HTTPS requests
+            "fetch": self._fetch,
             # Agent control
             "done": self._done,
         }
@@ -242,6 +277,24 @@ class Timeline:
         return {
             "rules": [],
             "deny_by_default": True,  # No manager means default deny
+        }
+
+    def _ls_website_permissions(self) -> dict[str, Any]:
+        """List website permission configuration (read-only inspection).
+
+        Returns:
+            Dict with website permission rules, deny_by_default flag, and allow_localhost.
+        """
+        if self._website_permission_manager:
+            return {
+                "rules": self._website_permission_manager.list_permissions(),
+                "deny_by_default": self._website_permission_manager.deny_by_default,
+                "allow_localhost": self._website_permission_manager.allow_localhost,
+            }
+        return {
+            "rules": [],
+            "deny_by_default": True,  # No manager means default deny
+            "allow_localhost": False,
         }
 
     def _make_view_node(
@@ -613,6 +666,118 @@ class Timeline:
             timeout=timeout,
         )
 
+    def _fetch(
+        self,
+        url: str,
+        *,
+        method: str = "GET",
+        headers: dict[str, str] | None = None,
+        data: Any = None,
+        json: Any = None,
+        timeout: float = 30.0,
+    ) -> Any:
+        """Perform HTTP/HTTPS request with permission checking.
+
+        Returns a coroutine that must be awaited by execute_statement.
+        If a website_permission_manager is configured, the URL will be
+        checked against the permission rules before execution.
+
+        Args:
+            url: The URL to fetch.
+            method: HTTP method (GET, POST, PUT, DELETE, etc.).
+            headers: Optional request headers.
+            data: Optional request body data.
+            json: Optional JSON request body.
+            timeout: Timeout in seconds (default: 30).
+
+        Returns:
+            Coroutine that resolves to httpx.Response.
+        """
+        return self._fetch_with_permission(
+            url=url,
+            method=method,
+            headers=headers,
+            data=data,
+            json=json,
+            timeout=timeout,
+        )
+
+    async def _fetch_with_permission(
+        self,
+        url: str,
+        method: str = "GET",
+        headers: dict[str, str] | None = None,
+        data: Any = None,
+        json: Any = None,
+        timeout: float = 30.0,
+    ) -> Any:
+        """Execute HTTP request with permission check and request flow.
+
+        Args:
+            url: The URL to fetch.
+            method: HTTP method.
+            headers: Optional request headers.
+            data: Optional request body data.
+            json: Optional JSON request body.
+            timeout: Timeout in seconds.
+
+        Returns:
+            httpx.Response from execution, or raises WebsitePermissionDenied if denied.
+        """
+        # Check permission if manager is configured
+        if self._website_permission_manager:
+            if not self._website_permission_manager.check_access(url, method):
+                # Permission denied - try to request
+                if self._website_permission_requester:
+                    granted, persist = await self._website_permission_requester(
+                        self._session_id, url, method
+                    )
+
+                    if granted:
+                        if persist:
+                            # "Allow always" - write to config file
+                            write_website_permission_to_config(
+                                Path(self._cwd), url, method
+                            )
+                            # Reload config to pick up new rule
+                            from activecontext.config import load_config
+
+                            config = load_config(session_root=self._cwd)
+                            self._website_permission_manager.reload(config.sandbox)
+                        else:
+                            # "Allow once" - grant temporary access
+                            self._website_permission_manager.grant_temporary(url, method)
+                    else:
+                        # Denied - raise exception
+                        raise WebsitePermissionDenied(url=url, method=method)
+                else:
+                    # No requester available - raise exception
+                    raise WebsitePermissionDenied(url=url, method=method)
+
+        # Permission granted (or no manager) - execute request
+        if self._website_permission_manager:
+            safe_fetch = make_safe_fetch(self._website_permission_manager)
+            return await safe_fetch(
+                url=url,
+                method=method,
+                headers=headers,
+                data=data,
+                json=json,
+                timeout=timeout,
+            )
+        else:
+            # No permission manager - execute directly
+            import httpx
+
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                return await client.request(
+                    method=method,
+                    url=url,
+                    headers=headers,
+                    data=data,
+                    json=json,
+                )
+
     def _done(self, message: str = "") -> None:
         """Signal that the agent has completed its task.
 
@@ -793,6 +958,60 @@ class Timeline:
                         duration_ms=result.duration_ms,
                     )
 
+            # Check if we got an ImportDenied error
+            if (
+                result.status == ExecutionStatus.ERROR
+                and result.exception
+                and result.exception.get("type") == "ImportDenied"
+            ):
+                import_info = result.exception.get("_import_info")
+                if import_info:
+                    module, top_level = import_info
+
+                    # Try to request permission if requester is available
+                    if self._import_permission_requester and self._import_guard:
+                        # Request permission from user via ACP
+                        granted, persist, include_submodules = await self._import_permission_requester(
+                            self._session_id, module
+                        )
+
+                        if granted:
+                            # User granted permission
+                            if persist:
+                                # "Allow always" - write to config file
+                                write_import_to_config(
+                                    Path(self._cwd), top_level, include_submodules
+                                )
+                                # Reload config to pick up new rule
+                                from activecontext.config import load_config
+
+                                config = load_config(session_root=self._cwd)
+                                self._import_guard.reload(config.sandbox.imports)
+                            else:
+                                # "Allow once" - grant temporary access
+                                self._import_guard.grant_temporary(top_level, include_submodules)
+
+                            # Retry the statement with new permission
+                            execution_id = str(uuid.uuid4())  # New execution ID for retry
+                            continue
+
+                    # No requester or user denied - convert to ImportError for LLM
+                    # The LLM shouldn't see the internal ImportDenied type
+                    result = ExecutionResult(
+                        execution_id=result.execution_id,
+                        statement_id=result.statement_id,
+                        status=result.status,
+                        stdout=result.stdout,
+                        stderr=result.stderr,
+                        exception={
+                            "type": "ImportError",
+                            "message": f"Import denied: '{module}' is not in the allowed modules whitelist",
+                            "traceback": result.exception.get("traceback", ""),
+                        },
+                        state_diff=result.state_diff,
+                        duration_ms=result.duration_ms,
+                    )
+
             # No permission retry needed or granted, return result
             return result
 
@@ -837,6 +1056,15 @@ class Timeline:
                 "message": str(e),
                 "traceback": traceback.format_exc(),
                 "_permission_info": (e.path, e.mode, e.original_path),
+            }
+        except ImportDenied as e:
+            # Special handling for import denied - include metadata for retry
+            status = ExecutionStatus.ERROR
+            exception_info = {
+                "type": "ImportDenied",
+                "message": str(e),
+                "traceback": traceback.format_exc(),
+                "_import_info": (e.module, e.top_level),
             }
         except Exception as e:
             status = ExecutionStatus.ERROR
