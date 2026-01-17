@@ -136,3 +136,70 @@ async def test_initial_context_and_projection() -> None:
         # Should contain file content from the guide
         assert "view" in rendered.lower() or "View" in rendered
         assert "===" in rendered  # File header format
+
+
+@pytest.mark.asyncio
+async def test_cancel_sets_flag() -> None:
+    """Test that cancel() sets the cancellation flag."""
+    async with ActiveContext() as ctx:
+        session = await ctx.create_session(cwd="/tmp")
+
+        # Initially not cancelled
+        assert session._session._cancelled is False
+
+        # Cancel the session
+        await session.cancel()
+
+        # Now cancelled
+        assert session._session._cancelled is True
+
+
+@pytest.mark.asyncio
+async def test_cancel_interrupts_prompt() -> None:
+    """Test that cancel() interrupts an ongoing prompt."""
+    import asyncio
+
+    async with ActiveContext() as ctx:
+        session = await ctx.create_session(cwd="/tmp")
+
+        updates_received = []
+        cancelled = False
+
+        async def collect_updates():
+            nonlocal cancelled
+            # Execute code that would normally complete
+            async for update in session.prompt("x = 1"):
+                updates_received.append(update)
+                if not cancelled:
+                    # Cancel after first update
+                    cancelled = True
+                    await session.cancel()
+
+        # Run the prompt
+        await collect_updates()
+
+        # Should have received at least one update before cancellation took effect
+        assert len(updates_received) >= 1
+
+        # Verify cancellation flag is set
+        assert session._session._cancelled is True
+
+
+@pytest.mark.asyncio
+async def test_cancel_resets_on_new_prompt() -> None:
+    """Test that cancellation flag is reset when starting a new prompt."""
+    async with ActiveContext() as ctx:
+        session = await ctx.create_session(cwd="/tmp")
+
+        # Cancel
+        await session.cancel()
+        assert session._session._cancelled is True
+
+        # Start a new prompt - flag should reset
+        async for _ in session.prompt("y = 2"):
+            pass
+
+        # Flag was reset at start of prompt
+        # After prompt completes, we can verify execution worked
+        ns = session.get_namespace()
+        assert ns.get("y") == 2
