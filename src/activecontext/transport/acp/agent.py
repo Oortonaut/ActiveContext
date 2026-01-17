@@ -508,69 +508,84 @@ class ActiveContextAgent:
         **kwargs: Any,
     ) -> acp.NewSessionResponse:
         """Create a new session."""
-        # Create permission requester callbacks bound to this agent
-        permission_requester = self._request_file_permission
-        shell_permission_requester = self._request_shell_permission
-        website_permission_requester = self._request_website_permission
-        import_permission_requester = self._request_import_permission
+        import traceback
 
-        session = await self._manager.create_session(
-            cwd=cwd,
-            permission_requester=permission_requester,
-            shell_permission_requester=shell_permission_requester,
-            website_permission_requester=website_permission_requester,
-            import_permission_requester=import_permission_requester,
-        )
+        try:
+            # Create permission requester callbacks bound to this agent
+            permission_requester = self._request_file_permission
+            shell_permission_requester = self._request_shell_permission
+            website_permission_requester = self._request_website_permission
+            import_permission_requester = self._request_import_permission
 
-        # Now create ACP terminal executor with the actual session_id
-        if self._conn:
-            terminal_executor = ACPTerminalExecutor(
-                client=self._conn,
+            session = await self._manager.create_session(
+                cwd=cwd,
+                permission_requester=permission_requester,
+                shell_permission_requester=shell_permission_requester,
+                website_permission_requester=website_permission_requester,
+                import_permission_requester=import_permission_requester,
+            )
+
+            # Now create ACP terminal executor with the actual session_id
+            if self._conn:
+                terminal_executor = ACPTerminalExecutor(
+                    client=self._conn,
+                    session_id=session.session_id,
+                    default_cwd=cwd,
+                )
+                # Update the timeline with the ACP executor
+                session.timeline._terminal_executor = terminal_executor
+
+            self._sessions_cwd[session.session_id] = cwd
+            self._sessions_mode[session.session_id] = self._default_mode_id
+
+            # Build available models from environment
+            available = get_available_models()
+            models_state = None
+            if available:
+                current_model = self._current_model_id or available[0].model_id
+                self._sessions_model[session.session_id] = current_model
+                models_state = SessionModelState(
+                    available_models=[
+                        ModelInfo(
+                            model_id=m.model_id,
+                            name=m.name,
+                            description=m.description,
+                        )
+                        for m in available
+                    ],
+                    current_model_id=current_model,
+                )
+
+            # Build session modes
+            modes_state = SessionModeState(
+                available_modes=self._session_modes,
+                current_mode_id=self._default_mode_id,
+            )
+
+            model_ids = [m.model_id for m in models_state.available_models] if models_state else []
+            mode_ids = [m.id for m in modes_state.available_modes]
+            
+            log.info("Created session %s", session.session_id)
+            log.info("  Models (%d): %s", len(model_ids), ", ".join(model_ids) if model_ids else "none")
+            log.info("  Modes (%d): %s", len(mode_ids), ", ".join(mode_ids))
+            
+            return acp.NewSessionResponse(
                 session_id=session.session_id,
-                default_cwd=cwd,
-            )
-            # Update the timeline with the ACP executor
-            session.timeline._terminal_executor = terminal_executor
-
-        self._sessions_cwd[session.session_id] = cwd
-        self._sessions_mode[session.session_id] = self._default_mode_id
-
-        # Build available models from environment
-        available = get_available_models()
-        models_state = None
-        if available:
-            current_model = self._current_model_id or available[0].model_id
-            self._sessions_model[session.session_id] = current_model
-            models_state = SessionModelState(
-                available_models=[
-                    ModelInfo(
-                        model_id=m.model_id,
-                        name=m.name,
-                        description=m.description,
-                    )
-                    for m in available
-                ],
-                current_model_id=current_model,
+                models=models_state,
+                modes=modes_state,
             )
 
-        # Build session modes
-        modes_state = SessionModeState(
-            available_modes=self._session_modes,
-            current_mode_id=self._default_mode_id,
-        )
-
-        model_ids = [m.model_id for m in models_state.available_models] if models_state else []
-        mode_ids = [m.id for m in modes_state.available_modes]
-        
-        log.info("Created session %s", session.session_id)
-        log.info("  Models (%d): %s", len(model_ids), ", ".join(model_ids) if model_ids else "none")
-        log.info("  Modes (%d): %s", len(mode_ids), ", ".join(mode_ids))
-        
-        return acp.NewSessionResponse(
-            session_id=session.session_id,
-            models=models_state,
-            modes=modes_state,
-        )
+        except Exception as e:
+            # Log the full error with traceback
+            log.error("Failed to create session: %s", e)
+            log.error("%s", traceback.format_exc())
+            
+            # Return proper ACP error to the IDE instead of hanging
+            raise acp.RequestError(
+                code=-32603,  # Internal error
+                message="Failed to initialize ACP session",
+                data={"details": str(e)},
+            )
 
     async def load_session(
         self,
