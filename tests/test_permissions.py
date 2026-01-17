@@ -14,16 +14,24 @@ from activecontext.config.schema import (
     ShellPermissionConfig,
 )
 from activecontext.session.permissions import (
+    GlobSegment,
     ImportDenied,
     ImportGuard,
+    LiteralSegment,
+    MatchResult,
+    PatternMatcher,
     PermissionDenied,
     PermissionManager,
     PermissionRule,
+    PlaceholderSegment,
     ShellPermissionDenied,
     ShellPermissionManager,
     ShellPermissionRule,
+    TypeValidator,
+    is_typed_pattern,
     make_safe_import,
     make_safe_open,
+    parse_pattern,
     write_permission_to_config,
     write_shell_permission_to_config,
 )
@@ -1645,3 +1653,490 @@ class TestShellPermissionRequestFlow:
         assert result.status.value == "ok"
         # Should indicate error (exit=126 is permission denied)
         assert "error" in result.stdout.lower() or "exit=126" in result.stdout
+
+
+# =============================================================================
+# Typed Placeholder Pattern Tests
+# =============================================================================
+
+
+class TestPatternParsing:
+    """Test the pattern parsing functionality."""
+
+    def test_parse_literal_pattern(self) -> None:
+        """Test parsing a pattern with only literals."""
+        segments = parse_pattern("git status")
+        assert len(segments) == 2
+        assert isinstance(segments[0], LiteralSegment)
+        assert segments[0].value == "git"
+        assert isinstance(segments[1], LiteralSegment)
+        assert segments[1].value == "status"
+
+    def test_parse_named_placeholder(self) -> None:
+        """Test parsing a pattern with named placeholder."""
+        segments = parse_pattern("rm -rf {target:dir}")
+        assert len(segments) == 3
+        assert isinstance(segments[0], LiteralSegment)
+        assert segments[0].value == "rm"
+        assert isinstance(segments[1], LiteralSegment)
+        assert segments[1].value == "-rf"
+        assert isinstance(segments[2], PlaceholderSegment)
+        assert segments[2].name == "target"
+        assert segments[2].type == "dir"
+
+    def test_parse_anonymous_placeholder(self) -> None:
+        """Test parsing a pattern with anonymous placeholder."""
+        segments = parse_pattern("git add {:args}")
+        assert len(segments) == 3
+        assert isinstance(segments[0], LiteralSegment)
+        assert isinstance(segments[1], LiteralSegment)
+        assert isinstance(segments[2], PlaceholderSegment)
+        assert segments[2].name is None
+        assert segments[2].type == "args"
+
+    def test_parse_glob_pattern(self) -> None:
+        """Test parsing a pattern with legacy glob."""
+        segments = parse_pattern("npm run *")
+        assert len(segments) == 3
+        assert isinstance(segments[0], LiteralSegment)
+        assert isinstance(segments[1], LiteralSegment)
+        assert isinstance(segments[2], GlobSegment)
+
+    def test_parse_mixed_pattern(self) -> None:
+        """Test parsing a pattern with mixed elements."""
+        segments = parse_pattern("git add {:args} {file:r}")
+        assert len(segments) == 4
+        assert isinstance(segments[0], LiteralSegment)
+        assert isinstance(segments[1], LiteralSegment)
+        assert isinstance(segments[2], PlaceholderSegment)
+        assert segments[2].type == "args"
+        assert isinstance(segments[3], PlaceholderSegment)
+        assert segments[3].name == "file"
+        assert segments[3].type == "r"
+
+    def test_is_typed_pattern(self) -> None:
+        """Test is_typed_pattern detection."""
+        assert is_typed_pattern("rm -rf {target:dir}")
+        assert is_typed_pattern("{:args}")
+        assert not is_typed_pattern("git *")
+        assert not is_typed_pattern("npm run build")
+
+
+class TestTypeValidator:
+    """Test the TypeValidator class."""
+
+    @pytest.fixture
+    def temp_cwd(self, tmp_path: Path) -> Path:
+        """Create a temporary working directory with test files."""
+        (tmp_path / "test_dir").mkdir()
+        (tmp_path / "test_file.txt").write_text("test content")
+        return tmp_path
+
+    def test_validate_dir_type(self, temp_cwd: Path) -> None:
+        """Test dir type validation."""
+        validator = TypeValidator(cwd=temp_cwd)
+
+        # Existing directory should pass
+        assert validator.validate("test_dir", "dir")
+
+        # File should fail
+        assert not validator.validate("test_file.txt", "dir")
+
+        # Non-existent path should fail
+        assert not validator.validate("nonexistent", "dir")
+
+    def test_validate_path_type(self, temp_cwd: Path) -> None:
+        """Test path type validation."""
+        validator = TypeValidator(cwd=temp_cwd)
+
+        # Existing directory should pass
+        assert validator.validate("test_dir", "path")
+
+        # Existing file should pass
+        assert validator.validate("test_file.txt", "path")
+
+        # Non-existent path should fail
+        assert not validator.validate("nonexistent", "path")
+
+    def test_validate_str_type(self, temp_cwd: Path) -> None:
+        """Test str type validation."""
+        validator = TypeValidator(cwd=temp_cwd)
+
+        # Any string should pass
+        assert validator.validate("anything", "str")
+        assert validator.validate("123", "str")
+        assert validator.validate("", "str")
+
+    def test_validate_int_type(self, temp_cwd: Path) -> None:
+        """Test int type validation."""
+        validator = TypeValidator(cwd=temp_cwd)
+
+        assert validator.validate("123", "int")
+        assert validator.validate("-456", "int")
+        assert validator.validate("0", "int")
+        assert not validator.validate("abc", "int")
+        assert not validator.validate("12.34", "int")
+
+    def test_validate_args_type(self, temp_cwd: Path) -> None:
+        """Test args type validation (always passes)."""
+        validator = TypeValidator(cwd=temp_cwd)
+
+        assert validator.validate("any value", "args")
+        assert validator.validate("", "args")
+
+    def test_validate_read_type_with_permission_manager(self, temp_cwd: Path) -> None:
+        """Test read type validation with permission manager."""
+        # Create permission manager that allows reading test_file.txt
+        config = SandboxConfig(allow_cwd=True)
+        perm_manager = PermissionManager.from_config(str(temp_cwd), config)
+
+        validator = TypeValidator(cwd=temp_cwd, permission_manager=perm_manager)
+
+        # File exists and is readable
+        assert validator.validate("test_file.txt", "r")
+        assert validator.validate("test_file.txt", "read")
+
+    def test_validate_write_type_with_permission_manager(self, temp_cwd: Path) -> None:
+        """Test write type validation with permission manager."""
+        # Create permission manager that allows writing
+        config = SandboxConfig(allow_cwd=True, allow_cwd_write=True)
+        perm_manager = PermissionManager.from_config(str(temp_cwd), config)
+
+        validator = TypeValidator(cwd=temp_cwd, permission_manager=perm_manager)
+
+        # File should be writable
+        assert validator.validate("test_file.txt", "w")
+        assert validator.validate("test_file.txt", "write")
+
+    def test_validate_mdir_type(self, temp_cwd: Path) -> None:
+        """Test mdir (mutable directory) type validation."""
+        # Create permission manager that allows writing
+        config = SandboxConfig(allow_cwd=True, allow_cwd_write=True)
+        perm_manager = PermissionManager.from_config(str(temp_cwd), config)
+
+        validator = TypeValidator(cwd=temp_cwd, permission_manager=perm_manager)
+
+        # Directory with write permission
+        assert validator.validate("test_dir", "mdir")
+
+        # File should fail (not a directory)
+        assert not validator.validate("test_file.txt", "mdir")
+
+    def test_validate_unknown_type(self, temp_cwd: Path) -> None:
+        """Test unknown type validation fails."""
+        validator = TypeValidator(cwd=temp_cwd)
+
+        assert not validator.validate("anything", "unknown_type")
+
+
+class TestPatternMatcher:
+    """Test the PatternMatcher class."""
+
+    @pytest.fixture
+    def temp_cwd(self, tmp_path: Path) -> Path:
+        """Create a temporary working directory with test files."""
+        (tmp_path / "test_dir").mkdir()
+        (tmp_path / "test_file.txt").write_text("test content")
+        return tmp_path
+
+    def test_match_literal_pattern(self, temp_cwd: Path) -> None:
+        """Test matching a literal pattern."""
+        matcher = PatternMatcher(cwd=temp_cwd)
+
+        result = matcher.match("git status", "git", ["status"])
+        assert result.matched
+        assert result.captures == {}
+
+        result = matcher.match("git status", "git", ["commit"])
+        assert not result.matched
+
+    def test_match_glob_pattern(self, temp_cwd: Path) -> None:
+        """Test matching a legacy glob pattern."""
+        matcher = PatternMatcher(cwd=temp_cwd)
+
+        result = matcher.match("git *", "git", ["status"])
+        assert result.matched
+
+        result = matcher.match("git *", "git", ["commit", "-m", "test"])
+        assert result.matched
+
+        result = matcher.match("npm *", "git", ["status"])
+        assert not result.matched
+
+    def test_match_dir_placeholder(self, temp_cwd: Path) -> None:
+        """Test matching a dir type placeholder."""
+        matcher = PatternMatcher(cwd=temp_cwd)
+
+        # Should match when target is a directory
+        result = matcher.match("rm -rf {target:dir}", "rm", ["-rf", "test_dir"])
+        assert result.matched
+        assert result.captures == {"target": "test_dir"}
+
+        # Should not match when target is a file
+        result = matcher.match("rm -rf {target:dir}", "rm", ["-rf", "test_file.txt"])
+        assert not result.matched
+
+        # Should not match when target doesn't exist
+        result = matcher.match("rm -rf {target:dir}", "rm", ["-rf", "nonexistent"])
+        assert not result.matched
+
+    def test_match_str_placeholder(self, temp_cwd: Path) -> None:
+        """Test matching a str type placeholder."""
+        matcher = PatternMatcher(cwd=temp_cwd)
+
+        result = matcher.match("echo {msg:str}", "echo", ["hello"])
+        assert result.matched
+        assert result.captures == {"msg": "hello"}
+
+    def test_match_anonymous_placeholder(self, temp_cwd: Path) -> None:
+        """Test matching an anonymous placeholder."""
+        matcher = PatternMatcher(cwd=temp_cwd)
+
+        result = matcher.match("echo {:str}", "echo", ["hello"])
+        assert result.matched
+        assert result.captures == {}  # Anonymous placeholders don't capture
+
+    def test_match_args_placeholder(self, temp_cwd: Path) -> None:
+        """Test matching an args type placeholder."""
+        matcher = PatternMatcher(cwd=temp_cwd)
+
+        result = matcher.match("git add {files:args}", "git", ["add", "a.txt", "b.txt"])
+        assert result.matched
+        assert result.captures == {"files": "a.txt b.txt"}
+
+    def test_match_args_with_trailing_literal(self, temp_cwd: Path) -> None:
+        """Test args placeholder followed by literal."""
+        matcher = PatternMatcher(cwd=temp_cwd)
+
+        # Pattern: command {:args} --flag
+        result = matcher.match("cmd {:args} --end", "cmd", ["a", "b", "--end"])
+        assert result.matched
+
+    def test_match_int_placeholder(self, temp_cwd: Path) -> None:
+        """Test matching an int type placeholder."""
+        matcher = PatternMatcher(cwd=temp_cwd)
+
+        result = matcher.match("kill {pid:int}", "kill", ["1234"])
+        assert result.matched
+        assert result.captures == {"pid": "1234"}
+
+        result = matcher.match("kill {pid:int}", "kill", ["abc"])
+        assert not result.matched
+
+    def test_match_multiple_placeholders(self, temp_cwd: Path) -> None:
+        """Test matching multiple placeholders."""
+        matcher = PatternMatcher(cwd=temp_cwd)
+
+        result = matcher.match(
+            "cp {src:path} {dst:str}", "cp", ["test_file.txt", "output.txt"]
+        )
+        assert result.matched
+        assert result.captures == {"src": "test_file.txt", "dst": "output.txt"}
+
+    def test_match_too_few_tokens(self, temp_cwd: Path) -> None:
+        """Test matching fails with too few tokens."""
+        matcher = PatternMatcher(cwd=temp_cwd)
+
+        result = matcher.match("rm -rf {target:str}", "rm", ["-rf"])
+        assert not result.matched
+
+    def test_match_too_many_tokens(self, temp_cwd: Path) -> None:
+        """Test matching fails with too many tokens."""
+        matcher = PatternMatcher(cwd=temp_cwd)
+
+        result = matcher.match("git status", "git", ["status", "extra"])
+        assert not result.matched
+
+
+class TestShellPermissionManagerTypedPatterns:
+    """Test ShellPermissionManager with typed patterns."""
+
+    @pytest.fixture
+    def temp_cwd(self, tmp_path: Path) -> Path:
+        """Create a temporary working directory with test files."""
+        (tmp_path / "test_dir").mkdir()
+        (tmp_path / "test_file.txt").write_text("test content")
+        return tmp_path
+
+    def test_typed_pattern_matches_directory(self, temp_cwd: Path) -> None:
+        """Test typed pattern matches only directories."""
+        config = SandboxConfig(
+            shell_permissions=[
+                ShellPermissionConfig(pattern="rm -rf {target:dir}", allow=True),
+            ],
+            shell_deny_by_default=True,
+        )
+        manager = ShellPermissionManager.from_config(config, cwd=temp_cwd)
+
+        # Should match directory
+        assert manager.check_access("rm", ["-rf", "test_dir"])
+
+        # Should not match file
+        assert not manager.check_access("rm", ["-rf", "test_file.txt"])
+
+        # Should not match non-existent path
+        assert not manager.check_access("rm", ["-rf", "nonexistent"])
+
+    def test_typed_pattern_returns_captures(self, temp_cwd: Path) -> None:
+        """Test typed pattern returns captured values."""
+        config = SandboxConfig(
+            shell_permissions=[
+                ShellPermissionConfig(pattern="rm -rf {target:dir}", allow=True),
+            ],
+            shell_deny_by_default=True,
+        )
+        manager = ShellPermissionManager.from_config(config, cwd=temp_cwd)
+
+        allowed, captures = manager.check_access_with_captures("rm", ["-rf", "test_dir"])
+        assert allowed
+        assert captures == {"target": "test_dir"}
+
+    def test_legacy_glob_still_works(self, temp_cwd: Path) -> None:
+        """Test legacy glob patterns still work."""
+        config = SandboxConfig(
+            shell_permissions=[
+                ShellPermissionConfig(pattern="git *", allow=True),
+            ],
+            shell_deny_by_default=True,
+        )
+        manager = ShellPermissionManager.from_config(config, cwd=temp_cwd)
+
+        assert manager.check_access("git", ["status"])
+        assert manager.check_access("git", ["commit", "-m", "test"])
+        assert not manager.check_access("npm", ["install"])
+
+    def test_mixed_patterns(self, temp_cwd: Path) -> None:
+        """Test mixing typed and glob patterns."""
+        config = SandboxConfig(
+            shell_permissions=[
+                # Typed pattern: only delete directories
+                ShellPermissionConfig(pattern="rm -rf {target:dir}", allow=True),
+                # Legacy glob: any git command
+                ShellPermissionConfig(pattern="git *", allow=True),
+            ],
+            shell_deny_by_default=True,
+        )
+        manager = ShellPermissionManager.from_config(config, cwd=temp_cwd)
+
+        # rm -rf should only work on directories
+        assert manager.check_access("rm", ["-rf", "test_dir"])
+        assert not manager.check_access("rm", ["-rf", "test_file.txt"])
+
+        # git commands should work
+        assert manager.check_access("git", ["status"])
+
+    def test_path_type_placeholder(self, temp_cwd: Path) -> None:
+        """Test path type placeholder accepts files and directories."""
+        config = SandboxConfig(
+            shell_permissions=[
+                ShellPermissionConfig(pattern="ls {target:path}", allow=True),
+            ],
+            shell_deny_by_default=True,
+        )
+        manager = ShellPermissionManager.from_config(config, cwd=temp_cwd)
+
+        # Should match directory
+        assert manager.check_access("ls", ["test_dir"])
+
+        # Should match file
+        assert manager.check_access("ls", ["test_file.txt"])
+
+        # Should not match non-existent
+        assert not manager.check_access("ls", ["nonexistent"])
+
+    def test_args_placeholder_captures_remaining(self, temp_cwd: Path) -> None:
+        """Test args placeholder captures remaining tokens."""
+        config = SandboxConfig(
+            shell_permissions=[
+                ShellPermissionConfig(pattern="git add {files:args}", allow=True),
+            ],
+            shell_deny_by_default=True,
+        )
+        manager = ShellPermissionManager.from_config(config, cwd=temp_cwd)
+
+        allowed, captures = manager.check_access_with_captures(
+            "git", ["add", "file1.txt", "file2.txt"]
+        )
+        assert allowed
+        assert captures == {"files": "file1.txt file2.txt"}
+
+    def test_file_permission_integration(self, temp_cwd: Path) -> None:
+        """Test file permission integration with read/write types."""
+        # Create permission manager that allows reading but not writing
+        file_config = SandboxConfig(allow_cwd=True, allow_cwd_write=False)
+        perm_manager = PermissionManager.from_config(str(temp_cwd), file_config)
+
+        config = SandboxConfig(
+            shell_permissions=[
+                ShellPermissionConfig(pattern="cat {file:r}", allow=True),
+                ShellPermissionConfig(pattern="write_to {file:w}", allow=True),
+            ],
+            shell_deny_by_default=True,
+        )
+        manager = ShellPermissionManager.from_config(
+            config, cwd=temp_cwd, permission_manager=perm_manager
+        )
+
+        # cat should work (file is readable)
+        assert manager.check_access("cat", ["test_file.txt"])
+
+        # write_to should fail (file is not writable per file permissions)
+        assert not manager.check_access("write_to", ["test_file.txt"])
+
+    def test_no_cwd_falls_back_to_fnmatch(self) -> None:
+        """Test without cwd, typed patterns fall back to fnmatch."""
+        config = SandboxConfig(
+            shell_permissions=[
+                # This pattern won't work as typed without cwd
+                ShellPermissionConfig(pattern="rm -rf {target:dir}", allow=True),
+                # This glob should still work
+                ShellPermissionConfig(pattern="git *", allow=True),
+            ],
+            shell_deny_by_default=True,
+        )
+        # No cwd provided
+        manager = ShellPermissionManager.from_config(config, cwd=None)
+
+        # Typed pattern won't match (no matcher)
+        # But it will fall back to fnmatch which won't match either
+        # because fnmatch doesn't know about {target:dir}
+        assert not manager.check_access("rm", ["-rf", "somedir"])
+
+        # Legacy glob should still work
+        assert manager.check_access("git", ["status"])
+
+    def test_first_match_wins_with_typed(self, temp_cwd: Path) -> None:
+        """Test first matching rule wins with typed patterns."""
+        config = SandboxConfig(
+            shell_permissions=[
+                # Deny rm -rf on directories
+                ShellPermissionConfig(pattern="rm -rf {target:dir}", allow=False),
+                # Allow rm on anything (but this won't match rm -rf since first rule matched)
+                ShellPermissionConfig(pattern="rm *", allow=True),
+            ],
+            shell_deny_by_default=True,
+        )
+        manager = ShellPermissionManager.from_config(config, cwd=temp_cwd)
+
+        # rm -rf on directory should be denied (first rule)
+        assert not manager.check_access("rm", ["-rf", "test_dir"])
+
+        # rm without -rf should be allowed (second rule)
+        assert manager.check_access("rm", ["test_file.txt"])
+
+    def test_int_type_placeholder(self, temp_cwd: Path) -> None:
+        """Test int type placeholder validates numeric values."""
+        config = SandboxConfig(
+            shell_permissions=[
+                ShellPermissionConfig(pattern="kill {pid:int}", allow=True),
+            ],
+            shell_deny_by_default=True,
+        )
+        manager = ShellPermissionManager.from_config(config, cwd=temp_cwd)
+
+        # Should match numeric PID
+        assert manager.check_access("kill", ["1234"])
+        assert manager.check_access("kill", ["-9"])  # Negative works
+
+        # Should not match non-numeric
+        assert not manager.check_access("kill", ["all"])

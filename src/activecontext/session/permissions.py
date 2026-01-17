@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import fnmatch
 import logging
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
@@ -388,6 +389,306 @@ class ShellPermissionRule:
     allow: bool  # True to allow, False to deny
 
 
+# =============================================================================
+# Typed Placeholder Pattern Matching
+# =============================================================================
+
+
+@dataclass
+class PatternSegment:
+    """Base class for pattern segments."""
+
+    pass
+
+
+@dataclass
+class LiteralSegment(PatternSegment):
+    """Exact string match."""
+
+    value: str
+
+
+@dataclass
+class PlaceholderSegment(PatternSegment):
+    """Typed placeholder: {name:type} or {:type}."""
+
+    name: str | None  # None for anonymous {:type}
+    type: str  # "dir", "r", "w", "args", "str", etc.
+
+
+@dataclass
+class GlobSegment(PatternSegment):
+    """Legacy glob wildcard: *"""
+
+    pass
+
+
+# Regex to match placeholders: {name:type} or {:type}
+_PLACEHOLDER_PATTERN = re.compile(r"\{(?:([a-zA-Z_][a-zA-Z0-9_]*)?):([a-zA-Z_][a-zA-Z0-9_]*)\}")
+
+
+def parse_pattern(pattern: str) -> list[PatternSegment]:
+    """Parse pattern into segments.
+
+    Examples:
+        "rm -rf {target:dir}" -> [Literal("rm"), Literal("-rf"), Placeholder("target", "dir")]
+        "git add {:args} {file:r}" -> [Literal("git"), Literal("add"), Placeholder(None, "args"), Placeholder("file", "r")]
+        "npm run *" -> [Literal("npm"), Literal("run"), Glob()]
+
+    Args:
+        pattern: The pattern string to parse.
+
+    Returns:
+        List of PatternSegment instances.
+    """
+    segments: list[PatternSegment] = []
+
+    # Split pattern on whitespace, preserving structure
+    tokens = pattern.split()
+
+    for token in tokens:
+        # Check if token is a placeholder
+        match = _PLACEHOLDER_PATTERN.fullmatch(token)
+        if match:
+            name = match.group(1)  # May be None for {:type}
+            type_name = match.group(2)
+            segments.append(PlaceholderSegment(name=name, type=type_name))
+        elif token == "*":
+            # Legacy glob wildcard
+            segments.append(GlobSegment())
+        else:
+            # Literal string
+            segments.append(LiteralSegment(value=token))
+
+    return segments
+
+
+def is_typed_pattern(pattern: str) -> bool:
+    """Check if a pattern uses typed placeholders.
+
+    Args:
+        pattern: The pattern string to check.
+
+    Returns:
+        True if the pattern contains typed placeholders.
+    """
+    return bool(_PLACEHOLDER_PATTERN.search(pattern))
+
+
+@dataclass
+class TypeValidator:
+    """Validates captured values against their declared types."""
+
+    cwd: Path
+    permission_manager: PermissionManager | None = None
+
+    def validate(self, value: str, type_name: str) -> bool:
+        """Validate a captured value against its type.
+
+        Args:
+            value: The value to validate.
+            type_name: The type name (e.g., "dir", "r", "path").
+
+        Returns:
+            True if the value is valid for the type.
+        """
+        match type_name:
+            case "dir":
+                path = self._resolve_path(value)
+                return path.is_dir() if path else False
+
+            case "mdir":
+                path = self._resolve_path(value)
+                if not path or not path.is_dir():
+                    return False
+                # Check write permission
+                if self.permission_manager:
+                    return self.permission_manager.check_access(str(path), "write")
+                return True
+
+            case "r" | "read":
+                path = self._resolve_path(value)
+                if not path or not path.exists():
+                    return False
+                if self.permission_manager:
+                    return self.permission_manager.check_access(str(path), "read")
+                return True
+
+            case "w" | "write":
+                if self.permission_manager:
+                    path = self._resolve_path(value)
+                    return (
+                        self.permission_manager.check_access(str(path), "write")
+                        if path
+                        else False
+                    )
+                return True
+
+            case "path":
+                path = self._resolve_path(value)
+                return path.exists() if path else False
+
+            case "str":
+                return True  # Any string is valid
+
+            case "int":
+                return value.lstrip("-").isdigit()
+
+            case "args":
+                return True  # Args captures multiple tokens, always valid
+
+            case _:
+                _log.warning("Unknown placeholder type: %s", type_name)
+                return False  # Unknown type
+
+    def _resolve_path(self, value: str) -> Path | None:
+        """Resolve a path relative to cwd.
+
+        Args:
+            value: The path string to resolve.
+
+        Returns:
+            Resolved absolute Path, or None if resolution fails.
+        """
+        try:
+            p = Path(value)
+            if not p.is_absolute():
+                p = self.cwd / p
+            return p.resolve()
+        except (ValueError, OSError) as e:
+            _log.debug("Path resolution failed for '%s': %s", value, e)
+            return None
+
+
+@dataclass
+class MatchResult:
+    """Result of pattern matching."""
+
+    matched: bool
+    captures: dict[str, str] = field(default_factory=dict)  # name -> value
+
+
+class PatternMatcher:
+    """Matches command strings against typed patterns."""
+
+    def __init__(
+        self, cwd: Path, permission_manager: PermissionManager | None = None
+    ) -> None:
+        """Initialize the pattern matcher.
+
+        Args:
+            cwd: Working directory for path resolution.
+            permission_manager: Optional PermissionManager for file permission checks.
+        """
+        self.cwd = cwd
+        self.validator = TypeValidator(cwd, permission_manager)
+
+    def match(
+        self, pattern: str, command: str, args: list[str] | None
+    ) -> MatchResult:
+        """Match a command against a pattern.
+
+        Args:
+            pattern: The pattern to match against.
+            command: The command name (e.g., "git", "rm").
+            args: Optional command arguments.
+
+        Returns:
+            MatchResult with matched=True if the pattern matches.
+        """
+        # Check if pattern uses typed placeholders
+        if is_typed_pattern(pattern):
+            return self._match_typed(pattern, command, args)
+        else:
+            # Fall back to legacy fnmatch glob
+            full_cmd = f"{command} {' '.join(args or [])}" if args else command
+            if fnmatch.fnmatch(full_cmd, pattern):
+                return MatchResult(matched=True)
+            return MatchResult(matched=False)
+
+    def _match_typed(
+        self, pattern: str, command: str, args: list[str] | None
+    ) -> MatchResult:
+        """Match using typed placeholder system.
+
+        Args:
+            pattern: The pattern with typed placeholders.
+            command: The command name.
+            args: Command arguments.
+
+        Returns:
+            MatchResult with matched status and captured values.
+        """
+        segments = parse_pattern(pattern)
+        tokens = [command] + (args or [])
+        captures: dict[str, str] = {}
+
+        seg_idx = 0
+        tok_idx = 0
+
+        while seg_idx < len(segments):
+            segment = segments[seg_idx]
+
+            if isinstance(segment, LiteralSegment):
+                # Must have a token to match
+                if tok_idx >= len(tokens):
+                    return MatchResult(matched=False)
+                if tokens[tok_idx] != segment.value:
+                    return MatchResult(matched=False)
+                tok_idx += 1
+                seg_idx += 1
+
+            elif isinstance(segment, PlaceholderSegment):
+                if segment.type == "args":
+                    # Greedy: capture all remaining tokens until next literal segment
+                    # or end of segments
+                    next_literal = None
+                    for i in range(seg_idx + 1, len(segments)):
+                        next_seg = segments[i]
+                        if isinstance(next_seg, LiteralSegment):
+                            next_literal = next_seg.value
+                            break
+
+                    if next_literal:
+                        # Find where the next literal appears in tokens
+                        captured_tokens = []
+                        while tok_idx < len(tokens) and tokens[tok_idx] != next_literal:
+                            captured_tokens.append(tokens[tok_idx])
+                            tok_idx += 1
+                        if segment.name:
+                            captures[segment.name] = " ".join(captured_tokens)
+                    else:
+                        # Capture all remaining tokens
+                        captured_tokens = tokens[tok_idx:]
+                        if segment.name:
+                            captures[segment.name] = " ".join(captured_tokens)
+                        tok_idx = len(tokens)
+                    seg_idx += 1
+                else:
+                    # Must have a token to match
+                    if tok_idx >= len(tokens):
+                        return MatchResult(matched=False)
+                    value = tokens[tok_idx]
+                    if not self.validator.validate(value, segment.type):
+                        return MatchResult(matched=False)
+                    if segment.name:
+                        captures[segment.name] = value
+                    tok_idx += 1
+                    seg_idx += 1
+
+            elif isinstance(segment, GlobSegment):
+                # Legacy glob: consume rest and match
+                return MatchResult(matched=True, captures=captures)
+
+            else:
+                # Unknown segment type
+                return MatchResult(matched=False)
+
+        # Check we consumed all tokens
+        matched = tok_idx == len(tokens)
+        return MatchResult(matched=matched, captures=captures)
+
+
 @dataclass
 class ShellPermissionManager:
     """Manages shell command permissions for the Timeline sandbox.
@@ -395,27 +696,51 @@ class ShellPermissionManager:
     Permissions come from config files. Rules are matched against the full
     command string (command + args). First matching rule wins.
 
+    Supports both legacy glob patterns and typed placeholders:
+    - Legacy: "git *" matches any git command
+    - Typed: "rm -rf {target:dir}" only matches if target is a directory
+
     Temporary grants can be added via grant_temporary() for session-scoped
     "allow once" permissions from interactive prompts.
     """
 
     rules: list[ShellPermissionRule] = field(default_factory=list)
     deny_by_default: bool = True
+    cwd: Path | None = None  # For typed pattern path resolution
+    permission_manager: PermissionManager | None = None  # For file permission delegation
     _temporary_grants: set[str] = field(default_factory=set)  # full command strings
+    _matcher: PatternMatcher | None = field(default=None, init=False)
+
+    def __post_init__(self) -> None:
+        """Initialize the pattern matcher if cwd is provided."""
+        if self.cwd:
+            self._matcher = PatternMatcher(self.cwd, self.permission_manager)
 
     @classmethod
-    def from_config(cls, config: SandboxConfig | None) -> ShellPermissionManager:
+    def from_config(
+        cls,
+        config: SandboxConfig | None,
+        cwd: Path | None = None,
+        permission_manager: PermissionManager | None = None,
+    ) -> ShellPermissionManager:
         """Create a ShellPermissionManager from a SandboxConfig.
 
         Args:
             config: Sandbox configuration (or None for defaults).
+            cwd: Working directory for typed pattern path resolution.
+            permission_manager: Optional PermissionManager for file permission delegation.
 
         Returns:
             Configured ShellPermissionManager.
         """
         if config is None:
             # Default: deny all shell commands
-            return cls(rules=[], deny_by_default=True)
+            return cls(
+                rules=[],
+                deny_by_default=True,
+                cwd=cwd,
+                permission_manager=permission_manager,
+            )
 
         rules = [
             ShellPermissionRule(pattern=p.pattern, allow=p.allow)
@@ -425,6 +750,8 @@ class ShellPermissionManager:
         return cls(
             rules=rules,
             deny_by_default=config.shell_deny_by_default,
+            cwd=cwd,
+            permission_manager=permission_manager,
         )
 
     def reload(self, config: SandboxConfig | None) -> None:
@@ -433,7 +760,9 @@ class ShellPermissionManager:
         Args:
             config: New sandbox configuration.
         """
-        new_manager = ShellPermissionManager.from_config(config)
+        new_manager = ShellPermissionManager.from_config(
+            config, self.cwd, self.permission_manager
+        )
         self.rules = new_manager.rules
         self.deny_by_default = new_manager.deny_by_default
         _log.debug("Shell permissions reloaded: %d rules", len(self.rules))
@@ -448,24 +777,49 @@ class ShellPermissionManager:
         Returns:
             True if the command is permitted.
         """
+        result = self.check_access_with_captures(command, args)
+        return result[0]
+
+    def check_access_with_captures(
+        self, command: str, args: list[str] | None = None
+    ) -> tuple[bool, dict[str, str]]:
+        """Check if a shell command is permitted and return captures.
+
+        This method is useful for getting named captures from typed placeholders
+        to display in permission prompts.
+
+        Args:
+            command: The command to execute (e.g., "git", "npm").
+            args: Optional command arguments.
+
+        Returns:
+            Tuple of (allowed, captures) where captures is a dict of named values.
+        """
         full_command = self._build_command_string(command, args)
 
         # Check temporary grants first (from "allow once" prompts)
         if full_command in self._temporary_grants:
-            return True
+            return (True, {})
 
         # Check against rules (first match wins)
         for rule in self.rules:
-            if fnmatch.fnmatch(full_command, rule.pattern):
-                return rule.allow
+            if self._matcher:
+                # Use typed pattern matching
+                result = self._matcher.match(rule.pattern, command, args)
+                if result.matched:
+                    return (rule.allow, result.captures)
+            else:
+                # Fallback to simple fnmatch if no matcher
+                if fnmatch.fnmatch(full_command, rule.pattern):
+                    return (rule.allow, {})
 
         # No matching rule found
         if self.deny_by_default:
             _log.debug("Shell command denied (no matching rule): %s", full_command)
-            return False
+            return (False, {})
 
         # Allow by default if deny_by_default is False
-        return True
+        return (True, {})
 
     def grant_temporary(self, command: str, args: list[str] | None = None) -> None:
         """Grant temporary access for this session (allow_once).
