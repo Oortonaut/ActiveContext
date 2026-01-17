@@ -427,14 +427,16 @@ class TestMainEntryPoint:
         # Should not raise
         _setup_parent_death_monitor()
 
-    @patch("activecontext.__main__.asyncio.run")
-    @patch("activecontext.__main__.load_config")
+    @patch("asyncio.run")
+    @patch("activecontext.config.load_config")
     @patch("activecontext.__main__.setup_logging")
     @patch("activecontext.__main__._expand_env_vars")
+    @patch("activecontext.core.llm.discovery.get_default_model")
     @patch("os._exit")
     def test_main_startup_sequence(
         self,
         mock_exit,
+        mock_get_default_model,
         mock_expand,
         mock_setup_log,
         mock_load_config,
@@ -443,6 +445,8 @@ class TestMainEntryPoint:
         """Test main() startup sequence."""
         from activecontext.__main__ import main
 
+        from activecontext.config.schema import LoggingConfig
+
         mock_config = Mock()
         mock_config.llm = Mock()
         mock_config.llm.role = "coding"
@@ -450,8 +454,9 @@ class TestMainEntryPoint:
         mock_config.llm.role_providers = []
         mock_config.projection = Mock()
         mock_config.projection.total_budget = 8000
-        mock_config.logging = Mock()
+        mock_config.logging = LoggingConfig()  # Use real LoggingConfig with defaults
         mock_load_config.return_value = mock_config
+        mock_get_default_model.return_value = "test-model"
 
         main()
 
@@ -463,8 +468,8 @@ class TestMainEntryPoint:
         mock_exit.assert_called_once_with(0)
 
     @pytest.mark.asyncio
-    @patch("activecontext.__main__.stdio_streams")
-    @patch("activecontext.__main__.create_agent")
+    @patch("acp.stdio.stdio_streams")
+    @patch("activecontext.transport.acp.agent.create_agent")
     async def test_main_async_entry(self, mock_create_agent, mock_stdio):
         """Test _main async entry point."""
         from activecontext.__main__ import _main
@@ -481,7 +486,7 @@ class TestMainEntryPoint:
 
         # Mock connection
         with patch(
-            "activecontext.__main__.AgentSideConnection"
+            "acp.agent.connection.AgentSideConnection"
         ) as mock_conn_class:
             mock_conn = AsyncMock()
             mock_conn._conn = Mock()

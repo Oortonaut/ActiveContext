@@ -1262,11 +1262,19 @@ class URLTypeValidator:
 
     @staticmethod
     def _is_valid_domain(value: str) -> bool:
-        """Check if value is a valid domain name."""
+        """Check if value is a valid domain name (not an IP address)."""
+        # Reject if it looks like an IPv4 address
+        if re.match(r"^\d{1,3}(\.\d{1,3}){3}$", value):
+            return False
+
         # Domain: letters, digits, hyphens, dots
         # Must not start/end with hyphen or dot
         pattern = r"^(?:[a-zA-Z0-9](?:[a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)*[a-zA-Z0-9](?:[a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?$"
-        return bool(re.match(pattern, value))
+        if not re.match(pattern, value):
+            return False
+
+        # Must contain at least one letter to be a domain (not just numbers)
+        return bool(re.search(r"[a-zA-Z]", value))
 
     @staticmethod
     def _is_valid_host(value: str) -> bool:

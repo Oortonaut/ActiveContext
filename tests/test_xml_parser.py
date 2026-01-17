@@ -102,7 +102,7 @@ class TestMethodCalls:
     def test_run(self):
         xml = '<Run self="v" freq="Sync"/>'
         py = parse_xml_to_python(xml)
-        assert py == "v.Run(freq='Sync')"
+        assert py == "v.Run(freq=TickFrequency.turn())"  # Sync maps to turn()
 
     def test_chained_methods_as_separate_tags(self):
         xml = '<SetLod self="v" level="1"/><SetTokens self="v" count="500"/>'

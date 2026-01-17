@@ -668,7 +668,9 @@ class TestImportTimelineIntegration:
 
         assert result.status.value == "error"
         assert result.exception is not None
-        assert "ImportDenied" in result.exception["type"]
+        # ImportDenied is converted to ImportError for LLM consumption
+        assert result.exception["type"] == "ImportError"
+        assert "not in the allowed modules whitelist" in result.exception["message"]
 
     @pytest.mark.asyncio
     async def test_timeline_allows_authorized_import(self, temp_cwd: Path) -> None:
@@ -769,7 +771,8 @@ class TestImportTimelineIntegration:
         # Now os should be blocked
         result = await timeline.execute_statement("import sys")
         assert result.status.value == "error"
-        assert "ImportDenied" in result.exception["type"]
+        # ImportDenied is converted to ImportError for LLM consumption
+        assert result.exception["type"] == "ImportError"
 
 
 class TestImportConfigParsing:
