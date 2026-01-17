@@ -81,6 +81,18 @@ class ShellPermissionConfig:
 
 
 @dataclass
+class WebsitePermissionConfig:
+    """Website permission rule for sandbox.
+
+    Defines URL pattern and allowed HTTP methods for web requests.
+    """
+
+    pattern: str  # URL pattern with optional typed placeholders
+    methods: list[str] = field(default_factory=lambda: ["GET"])
+    allow: bool = True  # True to allow, False to deny
+
+
+@dataclass
 class ImportConfig:
     """Import whitelist configuration for the REPL sandbox.
 
@@ -108,6 +120,9 @@ class SandboxConfig:
     imports: ImportConfig = field(default_factory=ImportConfig)  # Import whitelist
     shell_permissions: list[ShellPermissionConfig] = field(default_factory=list)
     shell_deny_by_default: bool = True  # Deny unlisted shell commands
+    website_permissions: list[WebsitePermissionConfig] = field(default_factory=list)
+    website_deny_by_default: bool = True  # Deny unlisted websites
+    allow_localhost: bool = False  # Auto-grant access to localhost  # Deny unlisted shell commands
 
 
 @dataclass

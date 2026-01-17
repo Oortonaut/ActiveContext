@@ -2140,3 +2140,375 @@ class TestShellPermissionManagerTypedPatterns:
 
         # Should not match non-numeric
         assert not manager.check_access("kill", ["all"])
+
+
+# =============================================================================
+# Website Permission Tests
+# =============================================================================
+
+
+class TestURLTypeValidator:
+    """Test URL type validators."""
+
+    def test_domain_valid(self) -> None:
+        """Test valid domain names."""
+        from activecontext.session.permissions import URLTypeValidator
+
+        assert URLTypeValidator.validate("github.com", "domain")
+        assert URLTypeValidator.validate("api.example.com", "domain")
+        assert URLTypeValidator.validate("sub.domain.example.com", "domain")
+        assert URLTypeValidator.validate("example-site.com", "domain")
+
+    def test_domain_invalid(self) -> None:
+        """Test invalid domain names."""
+        from activecontext.session.permissions import URLTypeValidator
+
+        assert not URLTypeValidator.validate("-invalid.com", "domain")
+        assert not URLTypeValidator.validate("domain-.com", "domain")
+        assert not URLTypeValidator.validate("192.168.1.1", "domain")
+
+    def test_host_valid_domain(self) -> None:
+        """Test host validator with valid domains."""
+        from activecontext.session.permissions import URLTypeValidator
+
+        assert URLTypeValidator.validate("github.com", "host")
+        assert URLTypeValidator.validate("api.example.com", "host")
+
+    def test_host_valid_ipv4(self) -> None:
+        """Test host validator with IPv4 addresses."""
+        from activecontext.session.permissions import URLTypeValidator
+
+        assert URLTypeValidator.validate("192.168.1.1", "host")
+        assert URLTypeValidator.validate("127.0.0.1", "host")
+        assert URLTypeValidator.validate("8.8.8.8", "host")
+
+    def test_host_valid_ipv6(self) -> None:
+        """Test host validator with IPv6 addresses."""
+        from activecontext.session.permissions import URLTypeValidator
+
+        assert URLTypeValidator.validate("::1", "host")
+        assert URLTypeValidator.validate("2001:0db8:85a3::8a2e:0370:7334", "host")
+        assert URLTypeValidator.validate("[::1]", "host")  # Bracketed
+        assert URLTypeValidator.validate("2001:db8::1", "host")
+
+    def test_host_invalid(self) -> None:
+        """Test host validator with invalid values."""
+        from activecontext.session.permissions import URLTypeValidator
+
+        assert not URLTypeValidator.validate("999.999.999.999", "host")
+        assert not URLTypeValidator.validate("not a host!", "host")
+
+    def test_url_valid(self) -> None:
+        """Test valid URLs."""
+        from activecontext.session.permissions import URLTypeValidator
+
+        assert URLTypeValidator.validate("https://example.com", "url")
+        assert URLTypeValidator.validate("http://localhost:8080/api", "url")
+        assert URLTypeValidator.validate("https://api.github.com/repos?page=1", "url")
+        assert URLTypeValidator.validate("ws://localhost:3000/socket", "url")
+
+    def test_url_invalid(self) -> None:
+        """Test invalid URLs."""
+        from activecontext.session.permissions import URLTypeValidator
+
+        assert not URLTypeValidator.validate("not-a-url", "url")
+        assert not URLTypeValidator.validate("://missing-scheme", "url")
+        assert not URLTypeValidator.validate("http://", "url")  # No netloc
+
+    def test_port_valid(self) -> None:
+        """Test valid port numbers."""
+        from activecontext.session.permissions import URLTypeValidator
+
+        assert URLTypeValidator.validate("80", "port")
+        assert URLTypeValidator.validate("8080", "port")
+        assert URLTypeValidator.validate("65535", "port")
+        assert URLTypeValidator.validate("1", "port")
+
+    def test_port_invalid(self) -> None:
+        """Test invalid port numbers."""
+        from activecontext.session.permissions import URLTypeValidator
+
+        assert not URLTypeValidator.validate("0", "port")
+        assert not URLTypeValidator.validate("65536", "port")
+        assert not URLTypeValidator.validate("abc", "port")
+
+    def test_protocol_valid(self) -> None:
+        """Test valid protocols."""
+        from activecontext.session.permissions import URLTypeValidator
+
+        assert URLTypeValidator.validate("http", "protocol")
+        assert URLTypeValidator.validate("https", "protocol")
+        assert URLTypeValidator.validate("ws", "protocol")
+        assert URLTypeValidator.validate("wss", "protocol")
+        assert URLTypeValidator.validate("HTTP", "protocol")  # Case insensitive
+
+    def test_protocol_invalid(self) -> None:
+        """Test invalid protocols."""
+        from activecontext.session.permissions import URLTypeValidator
+
+        assert not URLTypeValidator.validate("ftp", "protocol")
+        assert not URLTypeValidator.validate("ssh", "protocol")
+
+
+class TestURLPatternMatcher:
+    """Test URL pattern matching."""
+
+    def test_exact_match(self) -> None:
+        """Test exact URL matching."""
+        from activecontext.session.permissions import URLPatternMatcher
+
+        matcher = URLPatternMatcher()
+        result = matcher.match(
+            "https://api.github.com/repos", "https://api.github.com/repos"
+        )
+        assert result.matched is True
+
+    def test_glob_pattern(self) -> None:
+        """Test glob pattern matching."""
+        from activecontext.session.permissions import URLPatternMatcher
+
+        matcher = URLPatternMatcher()
+        result = matcher.match("https://api.github.com/*", "https://api.github.com/repos")
+        assert result.matched is True
+
+    def test_host_placeholder_with_domain(self) -> None:
+        """Test host placeholder with domain."""
+        from activecontext.session.permissions import URLPatternMatcher
+
+        matcher = URLPatternMatcher()
+        result = matcher.match("https://{host:host}/api", "https://github.com/api")
+        assert result.matched is True
+        assert result.captures["host"] == "github.com"
+
+    def test_host_placeholder_with_ipv4(self) -> None:
+        """Test host placeholder with IPv4."""
+        from activecontext.session.permissions import URLPatternMatcher
+
+        matcher = URLPatternMatcher()
+        result = matcher.match("http://{host:host}:{port:port}/api", "http://192.168.1.1:8080/api")
+        assert result.matched is True
+        assert result.captures["host"] == "192.168.1.1"
+        assert result.captures["port"] == "8080"
+
+    def test_url_placeholder(self) -> None:
+        """Test url placeholder."""
+        from activecontext.session.permissions import URLPatternMatcher
+
+        matcher = URLPatternMatcher()
+        result = matcher.match(
+            "Redirect to {target:url}", "Redirect to https://example.com/callback"
+        )
+        assert result.matched is True
+        assert result.captures["target"] == "https://example.com/callback"
+
+    def test_multiple_placeholders(self) -> None:
+        """Test multiple placeholders."""
+        from activecontext.session.permissions import URLPatternMatcher
+
+        matcher = URLPatternMatcher()
+        result = matcher.match(
+            "{protocol:protocol}://{host:host}/{endpoint:path}",
+            "https://api.example.com/v1/users",
+        )
+        assert result.matched is True
+        assert result.captures["protocol"] == "https"
+        assert result.captures["host"] == "api.example.com"
+        assert result.captures["endpoint"] == "v1/users"
+
+
+class TestWebsitePermissionManager:
+    """Test website permission manager."""
+
+    def test_default_config_denies_all(self, tmp_path: Path) -> None:
+        """Test default config denies all requests."""
+        from activecontext.session.permissions import WebsitePermissionManager
+
+        manager = WebsitePermissionManager.from_config(None, tmp_path)
+        assert manager.deny_by_default is True
+        assert not manager.check_access("https://example.com", "GET")
+
+    def test_explicit_allow_rule(self, tmp_path: Path) -> None:
+        """Test explicit allow rule."""
+        from activecontext.config.schema import WebsitePermissionConfig
+
+        config = SandboxConfig(
+            website_permissions=[
+                WebsitePermissionConfig(pattern="https://api.github.com/*", methods=["GET"]),
+            ],
+        )
+        from activecontext.session.permissions import WebsitePermissionManager
+
+        manager = WebsitePermissionManager.from_config(config, tmp_path)
+
+        assert manager.check_access("https://api.github.com/repos", "GET")
+        assert not manager.check_access("https://api.github.com/repos", "POST")
+        assert not manager.check_access("https://example.com", "GET")
+
+    def test_host_placeholder_allows_ip_and_domain(self, tmp_path: Path) -> None:
+        """Test host placeholder with IP and domain."""
+        from activecontext.config.schema import WebsitePermissionConfig
+
+        config = SandboxConfig(
+            website_permissions=[
+                WebsitePermissionConfig(
+                    pattern="http://{host:host}/api",
+                    methods=["GET"],
+                ),
+            ],
+        )
+        from activecontext.session.permissions import WebsitePermissionManager
+
+        manager = WebsitePermissionManager.from_config(config, tmp_path)
+
+        assert manager.check_access("http://example.com/api", "GET")
+        assert manager.check_access("http://192.168.1.1/api", "GET")
+        assert manager.check_access("http://[::1]/api", "GET")
+
+    def test_allow_localhost(self, tmp_path: Path) -> None:
+        """Test allow_localhost setting."""
+        from activecontext.config.schema import WebsitePermissionConfig
+
+        config = SandboxConfig(
+            website_permissions=[],
+            website_deny_by_default=True,
+            allow_localhost=True,
+        )
+        from activecontext.session.permissions import WebsitePermissionManager
+
+        manager = WebsitePermissionManager.from_config(config, tmp_path)
+
+        assert manager.check_access("http://localhost:8080/api", "GET")
+        assert manager.check_access("http://127.0.0.1/api", "GET")
+        assert not manager.check_access("http://example.com/api", "GET")
+
+    def test_all_methods(self, tmp_path: Path) -> None:
+        """Test ALL methods wildcard."""
+        from activecontext.config.schema import WebsitePermissionConfig
+
+        config = SandboxConfig(
+            website_permissions=[
+                WebsitePermissionConfig(
+                    pattern="https://api.example.com/*",
+                    methods=["ALL"],
+                ),
+            ],
+        )
+        from activecontext.session.permissions import WebsitePermissionManager
+
+        manager = WebsitePermissionManager.from_config(config, tmp_path)
+
+        assert manager.check_access("https://api.example.com/users", "GET")
+        assert manager.check_access("https://api.example.com/users", "POST")
+        assert manager.check_access("https://api.example.com/users", "PUT")
+        assert manager.check_access("https://api.example.com/users", "DELETE")
+
+    def test_temporary_grants(self, tmp_path: Path) -> None:
+        """Test temporary grants."""
+        from activecontext.session.permissions import WebsitePermissionManager
+
+        config = SandboxConfig(website_deny_by_default=True)
+        manager = WebsitePermissionManager.from_config(config, tmp_path)
+
+        url = "https://example.com/api"
+        assert not manager.check_access(url, "GET")
+
+        manager.grant_temporary(url, "GET")
+        assert manager.check_access(url, "GET")
+        assert not manager.check_access(url, "POST")
+
+    def test_clear_temporary_grants(self, tmp_path: Path) -> None:
+        """Test clearing temporary grants."""
+        from activecontext.session.permissions import WebsitePermissionManager
+
+        config = SandboxConfig(website_deny_by_default=True)
+        manager = WebsitePermissionManager.from_config(config, tmp_path)
+
+        url = "https://example.com/api"
+        manager.grant_temporary(url, "GET")
+        assert manager.check_access(url, "GET")
+
+        manager.clear_temporary_grants()
+        assert not manager.check_access(url, "GET")
+
+
+class TestWriteWebsitePermissionToConfig:
+    """Test write_website_permission_to_config functionality."""
+
+    def test_creates_config_file_if_not_exists(self, tmp_path: Path) -> None:
+        """Test creating a new config file with website permission."""
+        from activecontext.session.permissions import write_website_permission_to_config
+
+        write_website_permission_to_config(
+            tmp_path, "https://api.github.com/*", "GET"
+        )
+
+        config_path = tmp_path / ".ac" / "config.yaml"
+        assert config_path.exists()
+
+        with open(config_path) as f:
+            data = yaml.safe_load(f)
+
+        assert "sandbox" in data
+        assert "website_permissions" in data["sandbox"]
+        assert len(data["sandbox"]["website_permissions"]) == 1
+        assert data["sandbox"]["website_permissions"][0]["pattern"] == "https://api.github.com/*"
+        assert data["sandbox"]["website_permissions"][0]["methods"] == ["GET"]
+
+    def test_merges_methods_for_existing_pattern(self, tmp_path: Path) -> None:
+        """Test merging methods for existing pattern."""
+        from activecontext.session.permissions import write_website_permission_to_config
+
+        # Add first permission
+        write_website_permission_to_config(tmp_path, "https://api.example.com/*", "GET")
+
+        # Add same pattern with different method
+        write_website_permission_to_config(tmp_path, "https://api.example.com/*", "POST")
+
+        config_path = tmp_path / ".ac" / "config.yaml"
+        with open(config_path) as f:
+            data = yaml.safe_load(f)
+
+        # Should have merged methods
+        assert len(data["sandbox"]["website_permissions"]) == 1
+        methods = data["sandbox"]["website_permissions"][0]["methods"]
+        assert set(methods) == {"GET", "POST"}
+
+
+class TestWebsitePermissionConfigParsing:
+    """Test website permission config parsing from YAML."""
+
+    @pytest.fixture
+    def temp_config_dir(self, tmp_path: Path) -> Path:
+        """Create a temporary config directory."""
+        config_dir = tmp_path / ".ac"
+        config_dir.mkdir()
+        return config_dir
+
+    def test_website_config_from_yaml(self, temp_config_dir: Path) -> None:
+        """Test loading website config from YAML file."""
+        from activecontext.config import load_config, reset_config
+
+        reset_config()
+
+        config_file = temp_config_dir / "config.yaml"
+        config_file.write_text(
+            """
+sandbox:
+  website_deny_by_default: true
+  allow_localhost: false
+  website_permissions:
+    - pattern: "https://api.github.com/*"
+      methods: [GET, POST]
+    - pattern: "http://{host:host}/api"
+      methods: [GET]
+"""
+        )
+
+        config = load_config(session_root=str(temp_config_dir.parent))
+
+        assert config.sandbox.website_deny_by_default is True
+        assert config.sandbox.allow_localhost is False
+        assert len(config.sandbox.website_permissions) == 2
+        assert config.sandbox.website_permissions[0].pattern == "https://api.github.com/*"
+        assert set(config.sandbox.website_permissions[0].methods) == {"GET", "POST"}
+        assert config.sandbox.website_permissions[1].pattern == "http://{host:host}/api"
