@@ -125,9 +125,14 @@ def main() -> None:
     # Initialize logging with config
     setup_logging(config.logging)
 
+    from activecontext.core.llm.discovery import get_default_model
+
     log.info("Starting ActiveContext ACP agent...")
-    log.info("Configuration loaded (llm_model=%s, projection_budget=%s)", 
-              config.llm.model or "auto-detect", 
+    model = get_default_model()
+    log.info("Configuration loaded (role=%s, provider=%s, model=%s, budget=%s)",
+              config.llm.role or "balanced",
+              config.llm.provider or "auto",
+              model or "none",
               config.projection.total_budget or "default")
 
     # Ensure we exit when parent dies

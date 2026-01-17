@@ -157,7 +157,12 @@ Later levels override earlier ones. Environment variables override all config fi
 
 ```yaml
 llm:
-  model: claude-sonnet-4-20250514
+  role: coding              # Last selected role
+  provider: anthropic       # Last selected provider
+  role_providers:           # Per-role provider preferences (optional)
+    - role: fast
+      provider: openai
+      model: gpt-5-mini     # Optional model override
   temperature: 0.0
   max_tokens: 8192
 
@@ -191,7 +196,7 @@ from activecontext import Config, load_config, get_config
 config = load_config(session_root="/path/to/project")
 
 # Access typed configuration
-print(config.llm.model)
+print(config.llm.role)
 print(config.projection.total_budget)
 
 # Get cached global config
@@ -210,7 +215,7 @@ start_watching(session_root="/path/to/project")
 
 # Register callback for config changes
 def on_change(new_config):
-    print("Config reloaded:", new_config.llm.model)
+    print("Config reloaded:", new_config.llm.role)
 
 unregister = on_config_reload(on_change)
 ```

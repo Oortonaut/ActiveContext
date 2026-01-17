@@ -13,7 +13,7 @@ Example usage:
     config = load_config(session_root="/path/to/project")
 
     # Access typed configuration
-    print(config.llm.model)
+    print(config.llm.role)
     print(config.projection.total_budget)
 
     # Get cached global config
