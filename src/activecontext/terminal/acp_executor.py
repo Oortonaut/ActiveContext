@@ -78,7 +78,7 @@ class ACPTerminalExecutor:
                 session_id=self._session_id,
                 command=full_command,
                 cwd=working_dir,
-                env=env,
+                env=env,  # type: ignore[arg-type]
             )
             terminal_id = terminal_response.terminal_id
 
@@ -86,16 +86,16 @@ class ACPTerminalExecutor:
             try:
                 if timeout is not None:
                     exit_response = await asyncio.wait_for(
-                        self._client.wait_for_terminal_exit(terminal_id),
+                        self._client.wait_for_terminal_exit(terminal_id),  # type: ignore[call-arg]
                         timeout=timeout,
                     )
                 else:
                     exit_response = await self._client.wait_for_terminal_exit(
-                        terminal_id
+                        terminal_id  # type: ignore[call-arg]
                     )
 
                 # Get terminal output
-                output_response = await self._client.terminal_output(terminal_id)
+                output_response = await self._client.terminal_output(terminal_id)  # type: ignore[call-arg]
                 output = output_response.output
 
                 # Check if output needs truncation
@@ -131,7 +131,7 @@ class ACPTerminalExecutor:
                 duration_ms = (time.perf_counter() - start_time) * 1000
 
                 with contextlib.suppress(Exception):
-                    await self._client.kill_terminal(terminal_id)
+                    await self._client.kill_terminal(terminal_id)  # type: ignore[call-arg]
 
                 return ShellResult(
                     command=full_command,
@@ -170,4 +170,4 @@ class ACPTerminalExecutor:
             # Always try to release the terminal
             if terminal_id:
                 with contextlib.suppress(Exception):
-                    await self._client.release_terminal(terminal_id)
+                    await self._client.release_terminal(terminal_id)  # type: ignore[call-arg]

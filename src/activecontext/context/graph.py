@@ -357,11 +357,11 @@ class ContextGraph:
 
         # Restore group states
         for node_id, state in cp.group_states.items():
-            node = self._nodes.get(node_id)
-            if isinstance(node, GroupNode):
-                node.summary_prompt = state.summary_prompt
-                node.cached_summary = state.cached_summary
-                node.last_child_versions = dict(state.last_child_versions)
+            group_node = self._nodes.get(node_id)
+            if group_node is not None and isinstance(group_node, GroupNode):
+                group_node.summary_prompt = state.summary_prompt
+                group_node.cached_summary = state.cached_summary
+                group_node.last_child_versions = dict(state.last_child_versions)
 
     def get_checkpoints(self) -> list[Checkpoint]:
         """List all checkpoints.

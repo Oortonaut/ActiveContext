@@ -513,9 +513,9 @@ class SessionManager:
             cwd=cwd,
             permission_manager=permission_manager,
             terminal_executor=terminal_executor,
-            permission_requester=permission_requester,
+            permission_requester=permission_requester,  # type: ignore[arg-type]
             shell_permission_manager=shell_permission_manager,
-            shell_permission_requester=shell_permission_requester,
+            shell_permission_requester=shell_permission_requester,  # type: ignore[arg-type]
         )
         session = Session(
             session_id=session_id,
