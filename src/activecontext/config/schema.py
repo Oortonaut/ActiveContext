@@ -11,26 +11,24 @@ from typing import Any
 
 
 @dataclass
-class RoleModelConfig:
-    """User's saved model choice for a role.
+class RoleProviderConfig:
+    """User's saved provider/model choice for a role.
 
-    Allows persisting the user's preferred model for each role.
+    Allows persisting the user's preferred provider and optional model override per role.
     """
 
     role: str  # e.g., "coding", "fast", "reasoning"
     provider: str  # e.g., "anthropic", "openai"
-    model_id: str  # e.g., "claude-sonnet-4-5-20250929"
+    model: str | None = None  # Optional model override (e.g., "gpt-5-mini")
 
 
 @dataclass
 class LLMConfig:
     """LLM provider configuration."""
 
-    provider: str | None = None  # e.g., "anthropic", "openai"
-    model: str | None = None  # e.g., "claude-sonnet-4-20250514" (explicit override)
-    default_role: str | None = None  # e.g., "coding" - role to use when model not specified
-    role_models: list[RoleModelConfig] = field(default_factory=list)  # User's saved choices
-    api_key: str | None = None  # Override env var
+    role: str | None = None  # Last selected role (e.g., "coding")
+    provider: str | None = None  # Last selected provider (e.g., "anthropic")
+    role_providers: list[RoleProviderConfig] = field(default_factory=list)  # Per-role prefs
     api_base: str | None = None  # Custom endpoint
     temperature: float | None = None  # Default: 0.0
     max_tokens: int | None = None  # Default: 4096

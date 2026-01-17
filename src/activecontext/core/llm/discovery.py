@@ -9,9 +9,9 @@ that map to the best model for each provider.
 
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
 
+from activecontext.config.secrets import fetch_secret
 from activecontext.core.llm.providers import (
     DEFAULT_ROLES,
     PROVIDER_CONFIGS,
@@ -42,10 +42,15 @@ class RoleModelEntry:
 
 
 def _get_provider_api_key(config: ProviderConfig) -> str | None:
-    """Get API key for a provider, checking direct key then env var."""
+    """Get API key for a provider using fetch_secret.
+
+    Priority:
+    1. Direct api_key in ProviderConfig (for programmatic override)
+    2. fetch_secret() (.env file > os.environ)
+    """
     if config.api_key:
         return config.api_key
-    return os.environ.get(config.env_var)
+    return fetch_secret(config.env_var)
 
 
 def _get_model_display_name(model_id: str, provider: str) -> str:
@@ -151,7 +156,9 @@ def get_model_for_role(role: str, provider: str | None = None) -> str | None:
     """Get the best model for a role, optionally from a specific provider.
 
     Selection priority:
-    1. Check config.llm.role_models for user's saved choice (if no provider specified)
+    1. Check config.llm.role_providers for user's saved choice (if no provider specified)
+       - If entry has model override, use it directly
+       - Otherwise lookup provider in ROLE_MODEL_DEFAULTS
     2. Use specified provider or first available by priority
     3. Lookup in ROLE_MODEL_DEFAULTS
 
@@ -168,12 +175,16 @@ def get_model_for_role(role: str, provider: str | None = None) -> str | None:
             from activecontext.config import get_config
 
             config = get_config()
-            if config.llm.role_models:
-                for rm in config.llm.role_models:
-                    if rm.role == role:
+            if config.llm.role_providers:
+                for rp in config.llm.role_providers:
+                    if rp.role == role:
                         # Verify the provider is available
-                        if rm.provider in get_available_providers():
-                            return rm.model_id
+                        if rp.provider in get_available_providers():
+                            # Use model override if specified, else lookup default
+                            if rp.model:
+                                return rp.model
+                            key = (role, rp.provider)
+                            return ROLE_MODEL_DEFAULTS.get(key)
         except ImportError:
             pass  # Config not available
 
@@ -203,9 +214,11 @@ def get_default_model() -> str | None:
     """Return the default model ID based on config and role system.
 
     Selection priority:
-    1. config.llm.model (explicit model override)
-    2. config.llm.default_role → get_model_for_role()
-    3. "balanced" role with priority provider
+    1. config.llm.role + config.llm.provider → get_model_for_role()
+    2. "balanced" role with priority provider
+    3. First model from first available provider
+
+    Note: Model is always derived from role/provider, not stored directly.
     """
     # Check config first
     try:
@@ -213,13 +226,9 @@ def get_default_model() -> str | None:
 
         config = get_config()
 
-        # Explicit model takes highest priority
-        if config.llm.model:
-            return config.llm.model
-
-        # Use default_role if configured
-        if config.llm.default_role:
-            model = get_model_for_role(config.llm.default_role)
+        # Use saved role/provider if configured
+        if config.llm.role:
+            model = get_model_for_role(config.llm.role, config.llm.provider)
             if model:
                 return model
 

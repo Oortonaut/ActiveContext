@@ -152,35 +152,38 @@ class TestConfigLoading:
         config_file.write_text(
             """
 llm:
-  model: claude-sonnet-4-20250514
+  role: coding
+  provider: anthropic
   temperature: 0.2
 projection:
   total_budget: 16000
 """
         )
         config = load_config(session_root=str(temp_config_dir.parent))
-        assert config.llm.model == "claude-sonnet-4-20250514"
+        assert config.llm.role == "coding"
+        assert config.llm.provider == "anthropic"
         assert config.llm.temperature == 0.2
         assert config.projection.total_budget == 16000
 
     def test_env_overrides_config(
         self, temp_config_dir: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Test that environment variables override config files."""
+        """Test that config file values persist (env vars handled separately via fetch_secret)."""
         config_file = temp_config_dir / "config.yaml"
         config_file.write_text(
             """
 llm:
-  api_key: config-key
+  role: coding
   provider: openai
 """
         )
-        monkeypatch.setenv("ANTHROPIC_API_KEY", "env-key")
+        # API keys are handled via fetch_secret(), not config
+        monkeypatch.setenv("OPENAI_API_KEY", "env-key")
 
         config = load_config(session_root=str(temp_config_dir.parent))
-        # Env var should win
-        assert config.llm.api_key == "env-key"
-        assert config.llm.provider == "anthropic"
+        # Config file values should persist
+        assert config.llm.role == "coding"
+        assert config.llm.provider == "openai"
 
     def test_invalid_yaml_uses_defaults(
         self, temp_config_dir: Path, caplog: pytest.LogCaptureFixture
@@ -191,14 +194,14 @@ llm:
 
         config = load_config(session_root=str(temp_config_dir.parent))
         # Should get default values
-        assert config.llm.model is None
+        assert config.llm.role is None
         assert config.projection.total_budget is None
 
     def test_missing_file_uses_defaults(self, tmp_path: Path) -> None:
         """Test that missing config files use defaults."""
         config = load_config(session_root=str(tmp_path))
         assert isinstance(config, Config)
-        assert config.llm.model is None
+        assert config.llm.role is None
 
     def test_session_modes_from_config(self, temp_config_dir: Path) -> None:
         """Test loading session modes from config."""
@@ -247,12 +250,19 @@ class TestBackwardCompatibility:
         reset_config()
 
     def test_env_only_still_works(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Test that env-var-only users see no behavior change."""
+        """Test that env-var-only users get default config (API keys via fetch_secret)."""
         monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
 
         config = load_config()
-        assert config.llm.api_key == "test-key"
-        assert config.llm.provider == "anthropic"
+        # API keys are now fetched via fetch_secret(), not stored in config
+        # Config should have defaults
+        assert config.llm.role is None
+        assert config.llm.provider is None
+
+        # But API key should be available via fetch_secret
+        from activecontext.config import fetch_secret, clear_secret_cache
+        clear_secret_cache()  # Clear cache to pick up monkeypatched env
+        assert fetch_secret("ANTHROPIC_API_KEY") == "test-key"
 
     def test_activecontext_log_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test ACTIVECONTEXT_LOG env var is respected."""

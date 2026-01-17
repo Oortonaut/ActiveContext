@@ -42,9 +42,13 @@ from activecontext.config.schema import (
     LLMConfig,
     LoggingConfig,
     ProjectionConfig,
-    RoleModelConfig,
+    RoleProviderConfig,
     SessionConfig,
     SessionModeConfig,
+)
+from activecontext.config.secrets import (
+    clear_secret_cache,
+    fetch_secret,
 )
 from activecontext.config.watcher import (
     ConfigWatcher,
@@ -62,11 +66,14 @@ __all__ = [
     "on_config_reload",
     # Schema types
     "LLMConfig",
-    "RoleModelConfig",
+    "RoleProviderConfig",
     "SessionConfig",
     "SessionModeConfig",
     "ProjectionConfig",
     "LoggingConfig",
+    # Secret management
+    "fetch_secret",
+    "clear_secret_cache",
     # Path utilities
     "get_config_paths",
     "get_system_config_path",

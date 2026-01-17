@@ -135,22 +135,23 @@ class TestProviderDiscovery:
         assert get_default_model() == "claude-sonnet-4-5-20250929"
 
     def test_config_override_default_model(self, monkeypatch):
-        """Test that config.llm.model overrides provider-based default."""
+        """Test that config.llm.role overrides default 'balanced' role."""
         # Set up API key
         for _, config in PROVIDER_CONFIGS.items():
             monkeypatch.delenv(config.env_var, raising=False)
         monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-123")
 
-        # Mock config to return custom model
+        # Mock config to use "reasoning" role instead of default "balanced"
         mock_config = Mock()
         mock_config.llm = Mock()
-        mock_config.llm.model = "custom-model-from-config"
-        mock_config.llm.default_role = None
-        mock_config.llm.role_models = []
+        mock_config.llm.role = "reasoning"
+        mock_config.llm.provider = None  # Use priority order
+        mock_config.llm.role_providers = []
 
         with patch("activecontext.config.get_config", return_value=mock_config):
             default_model = get_default_model()
-            assert default_model == "custom-model-from-config"
+            # reasoning role for anthropic = opus
+            assert default_model == "claude-opus-4-5-20251101"
 
     def test_model_info_attributes(self, monkeypatch):
         """Test ModelInfo dataclass attributes."""
@@ -290,34 +291,58 @@ class TestRoleBasedSelection:
         monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant")
         monkeypatch.setenv("OPENAI_API_KEY", "sk-oai")
 
-        # Mock config with saved role preference
-        mock_role_model = Mock()
-        mock_role_model.role = "coding"
-        mock_role_model.provider = "openai"
-        mock_role_model.model_id = "gpt-5.2-codex"
+        # Mock config with saved role preference (provider only - model looked up)
+        mock_role_provider = Mock()
+        mock_role_provider.role = "coding"
+        mock_role_provider.provider = "openai"
+        mock_role_provider.model = None  # No override, lookup from ROLE_MODEL_DEFAULTS
 
         mock_config = Mock()
         mock_config.llm = Mock()
-        mock_config.llm.model = None
-        mock_config.llm.default_role = None
-        mock_config.llm.role_models = [mock_role_model]
+        mock_config.llm.role = None
+        mock_config.llm.provider = None
+        mock_config.llm.role_providers = [mock_role_provider]
 
         with patch("activecontext.config.get_config", return_value=mock_config):
             # Should use saved preference (OpenAI) instead of priority (Anthropic)
             model = get_model_for_role("coding")
             assert model == "gpt-5.2-codex"
 
-    def test_get_default_model_uses_default_role(self, monkeypatch):
-        """Test get_default_model uses default_role from config."""
+    def test_get_model_for_role_uses_model_override(self, monkeypatch):
+        """Test get_model_for_role uses model override when specified."""
+        for _, config in PROVIDER_CONFIGS.items():
+            monkeypatch.delenv(config.env_var, raising=False)
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant")
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-oai")
+
+        # Mock config with explicit model override
+        mock_role_provider = Mock()
+        mock_role_provider.role = "fast"
+        mock_role_provider.provider = "openai"
+        mock_role_provider.model = "gpt-5-mini-custom"  # Custom model override
+
+        mock_config = Mock()
+        mock_config.llm = Mock()
+        mock_config.llm.role = None
+        mock_config.llm.provider = None
+        mock_config.llm.role_providers = [mock_role_provider]
+
+        with patch("activecontext.config.get_config", return_value=mock_config):
+            # Should use the custom model override
+            model = get_model_for_role("fast")
+            assert model == "gpt-5-mini-custom"
+
+    def test_get_default_model_uses_role_from_config(self, monkeypatch):
+        """Test get_default_model uses role from config."""
         for _, config in PROVIDER_CONFIGS.items():
             monkeypatch.delenv(config.env_var, raising=False)
         monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant")
 
         mock_config = Mock()
         mock_config.llm = Mock()
-        mock_config.llm.model = None
-        mock_config.llm.default_role = "coding"
-        mock_config.llm.role_models = []
+        mock_config.llm.role = "coding"
+        mock_config.llm.provider = None
+        mock_config.llm.role_providers = []
 
         with patch("activecontext.config.get_config", return_value=mock_config):
             model = get_default_model()

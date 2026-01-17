@@ -26,10 +26,12 @@ from activecontext.config.schema import (
     LLMConfig,
     LoggingConfig,
     ProjectionConfig,
+    RoleProviderConfig,
     SandboxConfig,
     SessionConfig,
     SessionModeConfig,
     ShellPermissionConfig,
+    WebsitePermissionConfig,
 )
 
 # Module logger (may not be configured yet at import time)
@@ -73,34 +75,12 @@ def env_overrides() -> dict[str, Any]:
     """Build config dict from environment variables.
 
     Environment variables take highest priority for backward compatibility.
+    Note: API keys are NOT loaded here - use fetch_secret() for secrets.
 
     Returns:
         Config dict with values from environment.
     """
     overrides: dict[str, Any] = {}
-
-    # API keys - check all providers
-    api_key_env_vars = [
-        ("ANTHROPIC_API_KEY", "anthropic"),
-        ("OPENAI_API_KEY", "openai"),
-        ("GROQ_API_KEY", "groq"),
-        ("DEEPSEEK_API_KEY", "deepseek"),
-        ("MISTRAL_API_KEY", "mistral"),
-        ("GEMINI_API_KEY", "gemini"),
-        ("OPENROUTER_API_KEY", "openrouter"),
-    ]
-
-    for env_var, provider in api_key_env_vars:
-        api_key = os.environ.get(env_var)
-        if api_key:
-            if "llm" not in overrides:
-                overrides["llm"] = {}
-            # Only set if not already set by a higher-priority env var
-            if overrides["llm"].get("api_key") is None:
-                overrides["llm"]["api_key"] = api_key
-            if overrides["llm"].get("provider") is None:
-                overrides["llm"]["provider"] = provider
-            break  # First found wins for default provider
 
     # Logging from ACTIVECONTEXT_LOG
     log_path = os.environ.get("ACTIVECONTEXT_LOG")
@@ -123,10 +103,20 @@ def dict_to_config(data: dict[str, Any]) -> Config:
     """
     # LLM config
     llm_data = data.get("llm", {})
+    role_providers_data = llm_data.get("role_providers", [])
+    role_providers = [
+        RoleProviderConfig(
+            role=rp.get("role", ""),
+            provider=rp.get("provider", ""),
+            model=rp.get("model"),
+        )
+        for rp in role_providers_data
+        if isinstance(rp, dict) and rp.get("role") and rp.get("provider")
+    ]
     llm = LLMConfig(
+        role=llm_data.get("role"),
         provider=llm_data.get("provider"),
-        model=llm_data.get("model"),
-        api_key=llm_data.get("api_key"),
+        role_providers=role_providers,
         api_base=llm_data.get("api_base"),
         temperature=llm_data.get("temperature"),
         max_tokens=llm_data.get("max_tokens"),
@@ -196,6 +186,18 @@ def dict_to_config(data: dict[str, Any]) -> Config:
         if isinstance(p, dict) and p.get("pattern")
     ]
 
+    # Website permission config
+    website_perms_data = sandbox_data.get("website_permissions", [])
+    website_permissions = [
+        WebsitePermissionConfig(
+            pattern=p.get("pattern", ""),
+            methods=p.get("methods", ["GET"]),
+            allow=p.get("allow", True),
+        )
+        for p in website_perms_data
+        if isinstance(p, dict) and p.get("pattern")
+    ]
+
     sandbox = SandboxConfig(
         file_permissions=file_permissions,
         allow_cwd=sandbox_data.get("allow_cwd", True),
@@ -205,6 +207,9 @@ def dict_to_config(data: dict[str, Any]) -> Config:
         imports=imports,
         shell_permissions=shell_permissions,
         shell_deny_by_default=sandbox_data.get("shell_deny_by_default", True),
+        website_permissions=website_permissions,
+        website_deny_by_default=sandbox_data.get("website_deny_by_default", True),
+        allow_localhost=sandbox_data.get("allow_localhost", False),
     )
 
     # Extra fields for extensibility
