@@ -19,67 +19,43 @@ from activecontext.logging import get_logger, setup_logging
 log = get_logger()
 
 
+def _expand_env_vars() -> None:
+    """Expand ${VAR_NAME} references in environment variables.
+    
+    This allows acp.json to use:
+        "env": { "OPENAI_API_KEY": "${OPENAI_API_KEY}" }
+    
+    To pull from the system environment.
+    """
+    import re
+    
+    pattern = re.compile(r'\$\{([^}]+)\}')
+    
+    # Iterate over a copy since we're modifying os.environ
+    for key, value in list(os.environ.items()):
+        if not isinstance(value, str):
+            continue
+            
+        # Find all ${VAR_NAME} patterns
+        def replace_var(match: re.Match[str]) -> str:
+            var_name = match.group(1)
+            # Get from original environment (not the modified one)
+            return os.environ.get(var_name, match.group(0))
+        
+        expanded = pattern.sub(replace_var, value)
+        if expanded != value:
+            os.environ[key] = expanded
+            log.debug("Expanded env var: %s", key)
+
+
 def _setup_parent_death_monitor() -> None:
     """Exit when parent process dies.
 
     This prevents orphan processes when the IDE crashes or is killed.
     """
-    parent_pid = os.getppid()
-
-    # On Linux, use prctl to get SIGTERM when parent dies
-    if sys.platform == "linux":
-        try:
-            import ctypes
-            import signal
-
-            libc = ctypes.CDLL("libc.so.6", use_errno=True)
-            PR_SET_PDEATHSIG = 1
-            libc.prctl(PR_SET_PDEATHSIG, signal.SIGTERM)
-            log.debug("Registered for parent death signal (parent=%d)", parent_pid)
-            return
-        except Exception:
-            pass  # Fall through to polling
-
-    # Cross-platform fallback: poll parent PID and check stdio
-    def monitor() -> None:
-        import time
-
-        while True:
-            time.sleep(2)
-
-            # Check if stdin/stdout are still open
-            try:
-                if sys.stdin.closed or sys.stdout.closed:
-                    log.info("stdio closed, exiting")
-                    os._exit(0)
-            except Exception:
-                log.info("stdio check failed, exiting")
-                os._exit(0)
-
-            # Check if parent still exists
-            try:
-                if sys.platform == "win32":
-                    # On Windows, check if process exists
-                    import ctypes
-
-                    kernel32 = ctypes.windll.kernel32
-                    SYNCHRONIZE = 0x00100000
-                    handle = kernel32.OpenProcess(SYNCHRONIZE, False, parent_pid)
-                    if handle:
-                        kernel32.CloseHandle(handle)
-                    else:
-                        log.info("Parent process %d died, exiting", parent_pid)
-                        os._exit(0)
-                else:
-                    # On Unix, send signal 0 to check existence
-                    os.kill(parent_pid, 0)
-            except (OSError, ProcessLookupError):
-                log.info("Parent process %d died, exiting", parent_pid)
-                os._exit(0)
-
-    thread = threading.Thread(target=monitor, daemon=True)
-    thread.start()
-    log.debug("Monitoring parent process %d", parent_pid)
+    # Parent process monitoring disabled - relying on stdio handle monitoring instead.
+    # The connection will close naturally when stdin/stdout are closed.
+    pass
 
 
 async def _main() -> None:
@@ -95,11 +71,10 @@ async def _main() -> None:
     log.info("Creating agent...")
     agent = create_agent()
 
-    log.info("Agent ready, model=%s", agent._current_model_id)
-
-    # Track activity for inactivity timeout
-    last_activity = [asyncio.get_event_loop().time()]
-    INACTIVITY_TIMEOUT = 300  # 5 minutes
+    if agent._current_model_id:
+        log.info("Agent ready, model=%s", agent._current_model_id)
+    else:
+        log.warning("Agent ready, no LLM configured (set ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY, or DEEPSEEK_API_KEY)")
 
     def log_message(event: StreamEvent) -> None:
         """Log all ACP messages for debugging."""
@@ -107,17 +82,8 @@ async def _main() -> None:
         method = event.message.get("method", "response")
         msg_id = event.message.get("id", "-")
         log.debug("%s %s (id=%s)", direction, method, msg_id)
-        last_activity[0] = asyncio.get_event_loop().time()
 
-    async def inactivity_monitor() -> None:
-        """Exit if no activity for too long."""
-        while True:
-            await asyncio.sleep(30)
-            elapsed = asyncio.get_event_loop().time() - last_activity[0]
-            if elapsed > INACTIVITY_TIMEOUT:
-                log.info("No activity for %.0fs, exiting...", elapsed)
-                os._exit(0)
-
+    log.info("Setting up stdio connection...")
     # Create connection manually so we can clean up properly
     output_stream, input_stream = await stdio_streams()
     conn = AgentSideConnection(
@@ -131,23 +97,27 @@ async def _main() -> None:
     # Add message observer for logging
     conn._conn.add_observer(log_message)
 
-    # Start inactivity monitor
-    monitor_task = asyncio.create_task(inactivity_monitor())
+    log.info("Ready to accept ACP requests")
 
     try:
         await conn.listen()
     finally:
         # Ensure connection is properly closed
         log.info("Connection closed, cleaning up...")
-        monitor_task.cancel()
         await conn.close()
 
 
 def main() -> None:
     """Run the ActiveContext ACP agent."""
     import asyncio
+    import re
 
     from activecontext.config import load_config
+
+    # Expand environment variable references like ${VAR_NAME}
+    # This allows acp.json to reference system env vars:
+    #   "env": { "OPENAI_API_KEY": "${OPENAI_API_KEY}" }
+    _expand_env_vars()
 
     # Load config before logging so we can use config.logging settings
     config = load_config()
@@ -155,7 +125,10 @@ def main() -> None:
     # Initialize logging with config
     setup_logging(config.logging)
 
-    log.info("Starting...")
+    log.info("Starting ActiveContext ACP agent...")
+    log.info("Configuration loaded (llm_model=%s, projection_budget=%s)", 
+              config.llm.model or "auto-detect", 
+              config.projection.total_budget or "default")
 
     # Ensure we exit when parent dies
     _setup_parent_death_monitor()

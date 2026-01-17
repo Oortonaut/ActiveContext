@@ -559,6 +559,13 @@ class ActiveContextAgent:
             current_mode_id=self._default_mode_id,
         )
 
+        model_ids = [m.model_id for m in models_state.available_models] if models_state else []
+        mode_ids = [m.id for m in modes_state.available_modes]
+        
+        log.info("Created session %s", session.session_id)
+        log.info("  Models (%d): %s", len(model_ids), ", ".join(model_ids) if model_ids else "none")
+        log.info("  Modes (%d): %s", len(mode_ids), ", ".join(mode_ids))
+        
         return acp.NewSessionResponse(
             session_id=session.session_id,
             models=models_state,
