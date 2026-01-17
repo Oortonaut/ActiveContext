@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, Any
 from activecontext.context.checkpoint import Checkpoint, GroupState
 
 if TYPE_CHECKING:
-    from activecontext.context.nodes import ContextNode, GroupNode
+    from activecontext.context.nodes import ContextNode
 
 
 @dataclass
