@@ -12,6 +12,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
+from activecontext.context.state import NodeState
+
 if TYPE_CHECKING:
     pass
 
@@ -103,7 +105,7 @@ class ProjectionSection:
     source_id: str
     content: str
     tokens_used: int
-    lod: int = 0
+    state: NodeState = NodeState.DETAILS
     metadata: dict[str, Any] = field(default_factory=dict)
 
 

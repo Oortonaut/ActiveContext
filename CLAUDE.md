@@ -78,10 +78,10 @@ async with ActiveContext() as ctx:
     session = await ctx.create_session(cwd=".")
 
     # Execute Python directly
-    await session.execute('v = view("main.py", tokens=2000)')
+    await session.execute('v = view("main.py", tokens=2000, state=NodeState.ALL)')
 
     # Or stream updates from a prompt
-    async for update in session.prompt("v.SetLod(1)"):
+    async for update in session.prompt("v.SetState(NodeState.SUMMARY)"):
         print(update)
 
     # Access namespace and context objects
@@ -224,10 +224,13 @@ unregister = on_config_reload(on_change)
 ## DSL for the LLM
 
 ```python
-v = view("main.py", pos="0:0", tokens=2000)  # create view
-v.SetLod(1).SetTokens(500)                    # adjust rendering
-v.Run(freq="Sync")                            # enable auto-updates
-g = group(v, tokens=300, lod=2)               # create summary group
+from activecontext import NodeState, TickFrequency
+
+v = view("main.py", pos="1:0", tokens=2000, state=NodeState.ALL)  # create view
+v.SetState(NodeState.SUMMARY).SetTokens(500)                      # adjust rendering
+v.Run(TickFrequency.turn())                                       # enable auto-updates
+g = group(v, tokens=300, state=NodeState.SUMMARY)                 # create summary group
+g = group(v.node_id, "other_id", summary="Summary text")          # accept node IDs and summary
 ```
 
 ## Key Design Invariants
@@ -235,4 +238,9 @@ g = group(v, tokens=300, lod=2)               # create summary group
 1. **Tick boundary**: All automatic mutations occur at tick phases, never in background threads
 2. **1:1 session-timeline**: Each session has exactly one statement timeline
 3. **Groups are summaries**: A group is a summarized facade over its members
-4. **LOD ladder**: lod=0 (raw), lod=1 (structured), lod=2 (summary), lod=3 (diff-only)
+4. **State-based rendering**: NodeState controls visibility and detail level
+   - HIDDEN: Not shown in projection (but still ticked)
+   - COLLAPSED: Metadata only
+   - SUMMARY: LLM-generated summary
+   - DETAILS: Full view with child settings
+   - ALL: Everything including diffs

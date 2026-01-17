@@ -83,6 +83,7 @@ class Session:
         self._current_task: asyncio.Task[Any] | None = None
         self._conversation: list[Message] = []
         self._projection_engine = self._build_projection_engine(config)
+        self._show_message_actors = True  # Show actor info by default
 
     @property
     def session_id(self) -> str:
@@ -343,8 +344,8 @@ class Session:
 
         Tick ordering:
         1. Apply ready async payloads (TODO)
-        2. Sync ticks for running nodes (calls Recompute → notify_parents cascade)
-        3. Periodic ticks based on tick_freq
+        2. Turn ticks for running nodes (calls Recompute → notify_parents cascade)
+        3. Periodic ticks based on tick_frequency
         4. Group summaries auto-invalidated via on_child_changed() during cascade
         """
         updates: list[SessionUpdate] = []
@@ -358,25 +359,27 @@ class Session:
             tick_kind: str | None = None
 
             # Check tick frequency
-            if node.tick_freq == "Sync":
-                # Sync tick: recompute on every tick
-                tick_kind = "sync"
-            elif node.tick_freq and node.tick_freq.startswith("Periodic:"):
-                # Periodic tick: check interval
-                try:
-                    interval_str = node.tick_freq.split(":")[1]
-                    # Parse interval (e.g., "5s" -> 5.0 seconds)
-                    if interval_str.endswith("s"):
-                        interval = float(interval_str[:-1])
-                    elif interval_str.endswith("m"):
-                        interval = float(interval_str[:-1]) * 60
-                    else:
-                        interval = float(interval_str)
+            if node.tick_frequency is None:
+                # No tick frequency set, skip
+                continue
 
-                    if timestamp - node.updated_at >= interval:
-                        tick_kind = "periodic"
-                except (ValueError, IndexError):
-                    log.warning("Invalid tick frequency: %s", node.tick_freq)
+            if node.tick_frequency.mode == "turn":
+                # Turn tick: recompute on every tick (replaces "Sync")
+                tick_kind = "turn"
+            elif node.tick_frequency.mode == "periodic":
+                # Periodic tick: check interval
+                if node.tick_frequency.interval is None:
+                    log.warning("Periodic tick frequency without interval for node %s", node.node_id)
+                    continue
+
+                if timestamp - node.updated_at >= node.tick_frequency.interval:
+                    tick_kind = "periodic"
+            elif node.tick_frequency.mode == "async":
+                # Async mode - not yet implemented
+                pass
+            elif node.tick_frequency.mode == "never":
+                # Never tick
+                continue
 
             if tick_kind:
                 # Call Recompute which triggers notify_parents() cascade
@@ -411,7 +414,16 @@ class Session:
             context_objects=self._timeline.get_context_objects(),
             conversation=self._conversation,
             cwd=self._cwd,
+            show_message_actors=self._show_message_actors,
         )
+
+    def show_message_ids(self, show: bool) -> None:
+        """Control whether message actors are shown in conversation rendering.
+
+        Args:
+            show: If True, show actor info like "(user)", "(agent)". If False, hide actors.
+        """
+        self._show_message_actors = show
 
     def clear_conversation(self) -> None:
         """Clear the conversation history."""

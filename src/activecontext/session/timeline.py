@@ -28,6 +28,7 @@ from activecontext.context.nodes import (
     TopicNode,
     ViewNode,
 )
+from activecontext.context.state import NodeState, TickFrequency
 from activecontext.session.permissions import (
     ImportDenied,
     ImportGuard,
@@ -207,6 +208,9 @@ class Timeline:
             "__builtins__": safe_builtins,
             "__name__": "__activecontext__",
             "__session_id__": self._session_id,
+            # Type enums for LLM use
+            "NodeState": NodeState,
+            "TickFrequency": TickFrequency,
             # Context node constructors
             "view": self._make_view_node,
             "group": self._make_group_node,
@@ -303,7 +307,7 @@ class Timeline:
         *,
         pos: str = "1:0",
         tokens: int = 2000,
-        lod: int = 0,
+        state: NodeState = NodeState.ALL,
         mode: str = "paused",
         parent: ContextNode | str | None = None,
     ) -> ViewNode:
@@ -313,7 +317,7 @@ class Timeline:
             path: File path relative to session cwd
             pos: Start position as "line:col" (1-indexed)
             tokens: Token budget for rendering
-            lod: Level of detail (0=raw, 1=structured, 2=summary, 3=diff)
+            state: Rendering state (HIDDEN, COLLAPSED, SUMMARY, DETAILS, ALL)
             mode: "paused" or "running"
             parent: Optional parent node or node ID
 
@@ -324,7 +328,7 @@ class Timeline:
             path=path,
             pos=pos,
             tokens=tokens,
-            lod=lod,
+            state=state,
             mode=mode,
         )
 
@@ -342,19 +346,21 @@ class Timeline:
 
     def _make_group_node(
         self,
-        *members: ContextNode,
+        *members: ContextNode | str,
         tokens: int = 500,
-        lod: int = 1,
+        state: NodeState = NodeState.SUMMARY,
         mode: str = "paused",
+        summary: str | None = None,
         parent: ContextNode | str | None = None,
     ) -> GroupNode:
         """Create a GroupNode that summarizes its members.
 
         Args:
-            *members: Child nodes to include in the group
+            *members: Child nodes or node IDs to include in the group
             tokens: Token budget for summary
-            lod: Level of detail
+            state: Rendering state (HIDDEN, COLLAPSED, SUMMARY, DETAILS, ALL)
             mode: "paused" or "running"
+            summary: Optional pre-computed summary text
             parent: Optional parent node or node ID
 
         Returns:
@@ -362,8 +368,10 @@ class Timeline:
         """
         node = GroupNode(
             tokens=tokens,
-            lod=lod,
+            state=state,
             mode=mode,
+            cached_summary=summary,
+            summary_stale=summary is None,  # Not stale if summary provided
         )
 
         # Add to graph
@@ -377,7 +385,12 @@ class Timeline:
         # Link members as children of this group
         for member in members:
             if isinstance(member, ContextNode):
-                self._context_graph.link(member.node_id, node.node_id)
+                member_id = member.node_id
+            else:
+                # member is already a node ID string
+                member_id = member
+            
+            self._context_graph.link(member_id, node.node_id)
 
         # Legacy compatibility
         self._context_objects[node.node_id] = node
@@ -827,13 +840,15 @@ class Timeline:
 
     def _snapshot_namespace(self) -> dict[str, Any]:
         """Create a shallow snapshot of user-defined namespace entries."""
-        # Exclude injected DSL functions
+        # Exclude injected DSL functions and types
         excluded = {
+            "NodeState", "TickFrequency",
             "view", "group", "topic", "artifact",
             "link", "unlink",
             "checkpoint", "restore", "checkpoints", "branch",
             "ls", "show", "ls_permissions", "ls_imports", "ls_shell_permissions",
-            "shell", "done",
+            "ls_website_permissions",
+            "shell", "fetch", "done",
         }
         return {
             k: v

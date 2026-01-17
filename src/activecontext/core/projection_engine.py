@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from activecontext.context.state import NodeState
 from activecontext.session.protocols import Projection, ProjectionSection
 
 if TYPE_CHECKING:
@@ -69,6 +70,7 @@ class ProjectionEngine:
         conversation: list[Any],  # list[Message]
         cwd: str = ".",
         token_budget: int | None = None,
+        show_message_actors: bool = True,
     ) -> Projection:
         """Build a projection from current session state.
 
@@ -78,6 +80,7 @@ class ProjectionEngine:
             conversation: Message history
             cwd: Working directory for file access
             token_budget: Override total token budget
+            show_message_actors: Whether to show message actors in conversation
 
         Returns:
             Complete Projection ready for LLM
@@ -90,7 +93,7 @@ class ProjectionEngine:
         tree_budget = int(budget * (self.config.views_ratio + self.config.groups_ratio))
 
         # 1. Render conversation history
-        conv_section = self._render_conversation(conversation, conv_budget)
+        conv_section = self._render_conversation(conversation, conv_budget, show_actors=show_message_actors)
         if conv_section:
             sections.append(conv_section)
 
@@ -163,6 +166,10 @@ class ProjectionEngine:
         per_node_budget = budget // len(visible_nodes)
 
         for node in visible_nodes:
+            # Skip hidden nodes (state=HIDDEN means not in projection)
+            if node.state == NodeState.HIDDEN:
+                continue
+
             content = node.Render(tokens=per_node_budget, cwd=cwd)
 
             sections.append(
@@ -171,7 +178,7 @@ class ProjectionEngine:
                     source_id=node.node_id,
                     content=content,
                     tokens_used=len(content) // 4,
-                    lod=node.lod,
+                    state=node.state,
                     metadata=node.GetDigest(),
                 )
             )
@@ -211,6 +218,7 @@ class ProjectionEngine:
         self,
         conversation: list[Any],
         budget: int,
+        show_actors: bool = True,
     ) -> ProjectionSection | None:
         """Render conversation history within token budget."""
         if not conversation:
@@ -231,8 +239,8 @@ class ProjectionEngine:
             if len(content) > 2000:
                 content = content[:2000] + "..."
 
-            # Format with actor if present: "USER (user):" or "ASSISTANT (agent):"
-            if actor:
+            # Format with actor if present and show_actors is True
+            if show_actors and actor:
                 entry = f"**{role}** ({actor}): {content}\n\n"
             else:
                 entry = f"**{role}**: {content}\n\n"
@@ -255,7 +263,7 @@ class ProjectionEngine:
             source_id="conversation",
             content="".join(parts),
             tokens_used=tokens_used,
-            lod=0,
+            state=NodeState.DETAILS,
         )
 
     def _render_views(
@@ -291,7 +299,7 @@ class ProjectionEngine:
                     source_id=view_id,
                     content=content,
                     tokens_used=tokens_used,
-                    lod=view.lod if hasattr(view, "lod") else 0,
+                    state=view.state if hasattr(view, "state") else NodeState.DETAILS,
                     metadata=view.GetDigest() if hasattr(view, "GetDigest") else {},
                 )
             )
@@ -323,7 +331,7 @@ class ProjectionEngine:
                     source_id=group_id,
                     content=content,
                     tokens_used=len(content) // 4,
-                    lod=group.lod if hasattr(group, "lod") else 1,
+                    state=group.state if hasattr(group, "state") else NodeState.SUMMARY,
                     metadata=group.GetDigest() if hasattr(group, "GetDigest") else {},
                 )
             )

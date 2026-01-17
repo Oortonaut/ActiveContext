@@ -5,8 +5,8 @@ This module converts XML tags to equivalent Python statements.
 
 Syntax examples:
     <!-- Object constructors (name becomes variable) -->
-    <view name="v" path="main.py" tokens="2000"/>
-    <group name="g" tokens="300" lod="2">
+    <view name="v" path="main.py" tokens="2000" state="all"/>
+    <group name="g" tokens="300" state="summary">
         <member ref="v"/>
         <member ref="w"/>
     </group>
@@ -14,9 +14,9 @@ Syntax examples:
     <artifact name="a" type="code" content="..." language="python"/>
 
     <!-- Method calls (self refers to variable) -->
-    <SetLod self="v" level="1"/>
-    <SetTokens self="v" count="500"/>
-    <Run self="v" freq="Sync"/>
+    <SetState self="v" s="collapsed"/>
+    <SetTokens self="v" n="500"/>
+    <Run self="v" freq="turn"/>
 
     <!-- Utility functions -->
     <ls/>
@@ -230,6 +230,8 @@ def _format_value(val: str) -> str:
     Attempts to preserve type:
     - Numbers remain unquoted
     - Booleans (true/false) become True/False
+    - NodeState values (hidden, collapsed, summary, details, all) become NodeState.HIDDEN, etc.
+    - TickFrequency patterns (turn, async, never, period:N) become TickFrequency.turn(), etc.
     - Everything else is quoted as string
     """
     # Check for boolean
@@ -237,6 +239,36 @@ def _format_value(val: str) -> str:
         return "True"
     if val.lower() == "false":
         return "False"
+
+    # Check for NodeState enum values
+    state_values = {"hidden", "collapsed", "summary", "details", "all"}
+    if val.lower() in state_values:
+        return f"NodeState.{val.upper()}"
+
+    # Check for TickFrequency patterns
+    if val.lower() in ("turn", "sync"):
+        return "TickFrequency.turn()"
+    if val.lower() == "async":
+        return "TickFrequency.async_()"
+    if val.lower() == "never":
+        return "TickFrequency.never()"
+    if val.lower().startswith("period:") or val.lower().startswith("periodic:"):
+        # Extract the interval value
+        parts = val.split(":", 1)
+        if len(parts) == 2:
+            interval_str = parts[1].strip()
+            # Parse interval with units
+            if interval_str.endswith("s"):
+                seconds = interval_str[:-1]
+            elif interval_str.endswith("m"):
+                minutes = interval_str[:-1]
+                seconds = f"{float(minutes) * 60}"
+            elif interval_str.endswith("h"):
+                hours = interval_str[:-1]
+                seconds = f"{float(hours) * 3600}"
+            else:
+                seconds = interval_str
+            return f"TickFrequency.period({seconds})"
 
     # Check for integer
     if re.match(r"^-?\d+$", val):

@@ -52,3 +52,6 @@ warn_unused_ignores = true
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+
+[too.uv]
+link-mode = "copy"

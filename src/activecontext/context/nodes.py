@@ -17,6 +17,8 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
+from activecontext.context.state import NodeState, TickFrequency
+
 if TYPE_CHECKING:
     from activecontext.context.graph import ContextGraph
 
@@ -45,9 +47,9 @@ class ContextNode(ABC):
         parent_ids: Set of parent node IDs (DAG allows multiple parents)
         children_ids: Set of child node IDs
         tokens: Token budget for rendering
-        lod: Level of detail (0=raw, 1=structured, 2=summary, 3=diff-only)
+        state: Rendering state (HIDDEN, COLLAPSED, SUMMARY, DETAILS, ALL)
         mode: "paused" or "running" for tick processing
-        tick_freq: Tick frequency ("Sync", "Periodic:5s", or None)
+        tick_frequency: Tick frequency specification (turn, async, never, period)
         version: Incremented on change for diff detection
         created_at: Unix timestamp of creation
         updated_at: Unix timestamp of last update
@@ -61,9 +63,9 @@ class ContextNode(ABC):
 
     # Rendering configuration
     tokens: int = 1000
-    lod: int = 0
+    state: NodeState = NodeState.DETAILS
     mode: str = "paused"
-    tick_freq: str | None = None
+    tick_frequency: TickFrequency | None = None
 
     # Version tracking
     version: int = 0
@@ -146,10 +148,14 @@ class ContextNode(ABC):
         self.pending_diffs.clear()
 
     # Fluent API for mode control
-    def Run(self, freq: str = "Sync") -> ContextNode:
-        """Enable tick recomputation with given frequency."""
+    def Run(self, freq: TickFrequency | None = None) -> ContextNode:
+        """Enable tick recomputation with given frequency.
+
+        Args:
+            freq: Tick frequency (defaults to turn() if not specified)
+        """
         self.mode = "running"
-        self.tick_freq = freq
+        self.tick_frequency = freq or TickFrequency.turn()
         if self._graph:
             self._graph._running_nodes.add(self.node_id)
         return self
@@ -166,9 +172,9 @@ class ContextNode(ABC):
         self.tokens = n
         return self
 
-    def SetLod(self, k: int) -> ContextNode:
-        """Set level of detail."""
-        self.lod = k
+    def SetState(self, s: NodeState) -> ContextNode:
+        """Set rendering state."""
+        self.state = s
         return self
 
 
@@ -198,14 +204,18 @@ class ViewNode(ContextNode):
             "pos": self.pos,
             "end_pos": self.end_pos,
             "tokens": self.tokens,
-            "lod": self.lod,
+            "state": self.state.value,
             "mode": self.mode,
             "version": self.version,
         }
 
     def Render(self, tokens: int | None = None, cwd: str = ".") -> str:
-        """Render file content with pending diffs at highest LOD."""
+        """Render file content based on rendering state."""
         import os
+
+        # HIDDEN: don't render anything
+        if self.state == NodeState.HIDDEN:
+            return ""
 
         effective_tokens = tokens or self.tokens
         char_budget = effective_tokens * 4
@@ -239,7 +249,13 @@ class ViewNode(ContextNode):
         end_idx = end_line if end_line else len(lines)
         selected_lines = lines[start_idx:end_idx]
 
-        # Build output with line numbers
+        # COLLAPSED: only show metadata
+        if self.state == NodeState.COLLAPSED:
+            line_count = len(selected_lines)
+            diff_count = len(self.pending_diffs)
+            return f"[{self.path}: {line_count} lines, {diff_count} pending changes]\n"
+
+        # Build output with line numbers (for SUMMARY, DETAILS, ALL)
         output_parts: list[str] = []
         output_parts.append(f"=== {self.path} (lines {start_line}-{start_idx + len(selected_lines)}) ===\n")
 
@@ -261,8 +277,8 @@ class ViewNode(ContextNode):
 
         content = "".join(output_parts)
 
-        # At highest LOD (lod=0), append pending diffs
-        if self.lod == 0 and self.pending_diffs:
+        # At ALL state, append pending diffs
+        if self.state == NodeState.ALL and self.pending_diffs:
             diff_section = "\n--- Pending Changes ---\n"
             for diff in self.pending_diffs:
                 diff_section += f"[v{diff.old_version}→v{diff.new_version}] {diff.description}\n"
@@ -309,24 +325,36 @@ class GroupNode(ContextNode):
             "type": self.node_type,
             "member_count": len(self.children_ids),
             "tokens": self.tokens,
-            "lod": self.lod,
+            "state": self.state.value,
             "mode": self.mode,
             "version": self.version,
             "summary_stale": self.summary_stale,
         }
 
     def Render(self, tokens: int | None = None, cwd: str = ".") -> str:
-        """Render group summary, including child diffs."""
-        effective_tokens = tokens or self.tokens
+        """Render group based on rendering state."""
+        # HIDDEN: don't render anything
+        if self.state == NodeState.HIDDEN:
+            return ""
 
         if not self.children_ids:
             return "[Empty group]"
 
-        # If summary is stale, mark that it needs regeneration
-        # (actual LLM summarization would happen elsewhere)
-        if self.summary_stale:
-            # For now, render children directly
-            parts: list[str] = [f"=== Group ({len(self.children_ids)} members) ===\n"]
+        # COLLAPSED: only show metadata
+        if self.state == NodeState.COLLAPSED:
+            member_count = len(self.children_ids)
+            diff_count = len(self.pending_diffs)
+            return f"[Group: {member_count} members, {diff_count} changes]\n"
+
+        effective_tokens = tokens or self.tokens
+
+        # SUMMARY: use cached summary if available, otherwise fall back to children
+        if self.state == NodeState.SUMMARY:
+            if self.cached_summary and not self.summary_stale:
+                return self.cached_summary
+
+            # Summary is stale or missing, fall back to rendering children
+            parts: list[str] = [f"=== Group ({len(self.children_ids)} members) [summary stale] ===\n"]
 
             if self._graph:
                 per_child_tokens = effective_tokens // len(self.children_ids)
@@ -337,15 +365,27 @@ class GroupNode(ContextNode):
                         parts.append(child_content)
                         parts.append("\n")
 
-            # Include pending diffs from children in summary
-            if self.pending_diffs:
-                parts.append("--- Group Changes ---\n")
-                for diff in self.pending_diffs:
-                    parts.append(f"[{diff.node_id}] {diff.description}\n")
-
             return "".join(parts)
 
-        return self.cached_summary or "[Summary pending]"
+        # DETAILS or ALL: render children with their own settings
+        parts: list[str] = [f"=== Group ({len(self.children_ids)} members) ===\n"]
+
+        if self._graph:
+            per_child_tokens = effective_tokens // len(self.children_ids)
+            for child_id in self.children_ids:
+                child = self._graph.get_node(child_id)
+                if child:
+                    child_content = child.Render(tokens=per_child_tokens, cwd=cwd)
+                    parts.append(child_content)
+                    parts.append("\n")
+
+        # At ALL state, include pending diffs from children
+        if self.state == NodeState.ALL and self.pending_diffs:
+            parts.append("--- Group Changes ---\n")
+            for diff in self.pending_diffs:
+                parts.append(f"[{diff.node_id}] {diff.description}\n")
+
+        return "".join(parts)
 
     def on_child_changed(self, child: ContextNode, diff: Diff | None = None) -> None:
         """Handle child change: track version, generate diff, propagate."""
@@ -403,7 +443,7 @@ class TopicNode(ContextNode):
             "message_count": len(self.message_indices),
             "status": self.status,
             "tokens": self.tokens,
-            "lod": self.lod,
+            "state": self.state.value,
             "mode": self.mode,
             "version": self.version,
         }
@@ -463,7 +503,7 @@ class ArtifactNode(ContextNode):
             "language": self.language,
             "content_length": len(self.content),
             "tokens": self.tokens,
-            "lod": self.lod,
+            "state": self.state.value,
             "mode": self.mode,
             "version": self.version,
         }
