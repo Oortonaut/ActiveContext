@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ActiveContext Dashboard</title>
+    <link rel="stylesheet" href="/static/dashboard.css">
+</head>
+<body>
+    <header>
+        <h1>ActiveContext Dashboard</h1>
+        <div class="header-controls">
+            <select id="session-select">
+                <option value="">No sessions</option>
+            </select>
+            <button id="copy-session-id" class="control-btn" title="Copy session ID">📋 Copy ID</button>
+            <span id="connection-status" class="status-indicator disconnected">Disconnected</span>
+        </div>
+    </header>
+
+    <main>
+        <div class="dashboard-grid">
+            <!-- LLM Status Card -->
+            <section class="card" id="llm-card">
+                <h2>LLM Status</h2>
+                <div class="card-content">
+                    <div class="stat-row">
+                        <span class="stat-label">Current Model:</span>
+                        <span id="current-model" class="stat-value">-</span>
+                    </div>
+                    <div class="stat-row">
+                        <span class="stat-label">Provider:</span>
+                        <span id="current-provider" class="stat-value">-</span>
+                    </div>
+                    <div class="stat-row">
+                        <span class="stat-label">Available:</span>
+                        <span id="available-providers" class="stat-value">-</span>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Token Budget Card -->
+            <section class="card" id="token-card">
+                <h2>Token Budget</h2>
+                <div class="card-content">
+                    <div class="progress-container">
+                        <div id="token-progress" class="progress-bar">
+                            <div class="progress-fill" style="width: 0%"></div>
+                        </div>
+                        <span id="token-usage" class="progress-label">0 / 0</span>
+                    </div>
+                    <div class="token-breakdown">
+                        <div class="breakdown-item">
+                            <span class="breakdown-color conv"></span>
+                            <span>Conversation</span>
+                            <span id="conv-tokens">0</span>
+                        </div>
+                        <div class="breakdown-item">
+                            <span class="breakdown-color views"></span>
+                            <span>Views</span>
+                            <span id="views-tokens">0</span>
+                        </div>
+                        <div class="breakdown-item">
+                            <span class="breakdown-color groups"></span>
+                            <span>Groups</span>
+                            <span id="groups-tokens">0</span>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Context Objects Card -->
+            <section class="card" id="context-card">
+                <h2>Context Objects <span id="context-count" class="badge">0</span></h2>
+                <div class="card-content">
+                    <div class="context-section">
+                        <h3>Views <span id="views-count" class="badge small">0</span></h3>
+                        <ul id="views-list" class="context-list"></ul>
+                    </div>
+                    <div class="context-section">
+                        <h3>Groups <span id="groups-count" class="badge small">0</span></h3>
+                        <ul id="groups-list" class="context-list"></ul>
+                    </div>
+                    <div class="context-section collapsed">
+                        <h3>Topics <span id="topics-count" class="badge small">0</span></h3>
+                        <ul id="topics-list" class="context-list"></ul>
+                    </div>
+                    <div class="context-section collapsed">
+                        <h3>Artifacts <span id="artifacts-count" class="badge small">0</span></h3>
+                        <ul id="artifacts-list" class="context-list"></ul>
+                    </div>
+                    <div class="context-section collapsed">
+                        <h3>Messages <span id="messages-count" class="badge small">0</span></h3>
+                        <ul id="messages-list" class="context-list"></ul>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Execution Timeline Card -->
+            <section class="card wide" id="timeline-card">
+                <h2>Execution Timeline <span id="statement-count" class="badge">0</span></h2>
+                <div class="card-content">
+                    <div id="timeline-list" class="timeline-list">
+                        <div class="timeline-empty">No statements executed yet</div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Message History Card -->
+            <section class="card wide" id="conversation-card">
+                <h2>Message History <span id="conversation-count" class="badge">0</span></h2>
+                <div class="card-content">
+                    <div id="conversation-list" class="conversation-list">
+                        <div class="conversation-empty">No messages yet</div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Rendered Context Card -->
+            <section class="card wide" id="rendered-card">
+                <h2>
+                    Rendered Context (LLM View)
+                    <span id="rendered-tokens" class="badge">0 tokens</span>
+                </h2>
+                <div class="card-controls">
+                    <button id="toggle-sections" class="control-btn">Show Sections</button>
+                    <button id="copy-rendered" class="control-btn">Copy</button>
+                </div>
+                <div class="card-content">
+                    <div id="rendered-content" class="rendered-content">
+                        <div class="rendered-empty">No projection rendered yet</div>
+                    </div>
+                    <div id="rendered-sections" class="rendered-sections hidden">
+                        <!-- Section breakdown will be rendered here -->
+                    </div>
+                </div>
+            </section>
+        </div>
+    </main>
+
+    <footer>
+        <span>ActiveContext Dashboard</span>
+        <span id="uptime">Uptime: -</span>
+    </footer>
+
+    <script src="/static/dashboard.js"></script>
+</body>
+</html>
