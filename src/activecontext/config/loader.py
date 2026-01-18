@@ -118,7 +118,6 @@ def dict_to_config(data: dict[str, Any]) -> Config:
         provider=llm_data.get("provider"),
         role_providers=role_providers,
         api_base=llm_data.get("api_base"),
-        temperature=llm_data.get("temperature"),
         max_tokens=llm_data.get("max_tokens"),
     )
 

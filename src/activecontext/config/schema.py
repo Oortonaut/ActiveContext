@@ -30,7 +30,6 @@ class LLMConfig:
     provider: str | None = None  # Last selected provider (e.g., "anthropic")
     role_providers: list[RoleProviderConfig] = field(default_factory=list)  # Per-role prefs
     api_base: str | None = None  # Custom endpoint
-    temperature: float | None = None  # Default: 0.0
     max_tokens: int | None = None  # Default: 4096
 
 

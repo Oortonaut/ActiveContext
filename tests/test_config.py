@@ -154,7 +154,6 @@ class TestConfigLoading:
 llm:
   role: coding
   provider: anthropic
-  temperature: 0.2
 projection:
   total_budget: 16000
 """
@@ -162,7 +161,6 @@ projection:
         config = load_config(session_root=str(temp_config_dir.parent))
         assert config.llm.role == "coding"
         assert config.llm.provider == "anthropic"
-        assert config.llm.temperature == 0.2
         assert config.projection.total_budget == 16000
 
     def test_env_overrides_config(

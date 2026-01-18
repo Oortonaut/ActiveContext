@@ -72,7 +72,6 @@ class LLMProvider(Protocol):
         messages: list[Message],
         *,
         max_tokens: int = 4096,
-        temperature: float = 0.0,
         stop: list[str] | None = None,
     ) -> CompletionResult:
         """Generate a completion (non-streaming).
@@ -80,7 +79,6 @@ class LLMProvider(Protocol):
         Args:
             messages: Conversation history
             max_tokens: Maximum tokens to generate
-            temperature: Sampling temperature
             stop: Stop sequences
 
         Returns:
@@ -93,7 +91,6 @@ class LLMProvider(Protocol):
         messages: list[Message],
         *,
         max_tokens: int = 4096,
-        temperature: float = 0.0,
         stop: list[str] | None = None,
     ) -> AsyncIterator[StreamChunk]:
         """Generate a streaming completion.
@@ -101,7 +98,6 @@ class LLMProvider(Protocol):
         Args:
             messages: Conversation history
             max_tokens: Maximum tokens to generate
-            temperature: Sampling temperature
             stop: Stop sequences
 
         Yields:
