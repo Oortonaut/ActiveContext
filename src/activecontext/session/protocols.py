@@ -51,7 +51,47 @@ class WaitMode(Enum):
     ALL = "all"        # Wait for all nodes
     ANY = "any"        # Wait for any node (first to complete)
     MESSAGE = "message"  # Wait for incoming message
-    AGENT = "agent"    # Wait for agent to complete        # Wait for any node (first to complete)
+    AGENT = "agent"    # Wait for agent to complete
+
+
+class EventResponse(Enum):
+    """Response type for event handlers."""
+
+    WAKE = "wake"    # Wake agent immediately when event occurs
+    QUEUE = "queue"  # Queue event for processing on next wake
+
+
+@dataclass(slots=True)
+class EventHandler:
+    """Handler configuration for an event type.
+
+    Built-in event names:
+    - "message": incoming message from another agent
+    - "agent_done": child agent completed (DONE/TERMINATED)
+    - "tick": tick occurred
+
+    Attributes:
+        event_name: Name of the event (e.g., "message", "agent_done")
+        response: How to respond (WAKE or QUEUE)
+        prompt_template: Template for wake prompt, can use {event_data} placeholders
+        once: If True, handler is removed after firing once
+        target_id: Optional target ID (e.g., specific agent ID for agent_done)
+    """
+
+    event_name: str
+    response: EventResponse
+    prompt_template: str
+    once: bool = False
+    target_id: str | None = None
+
+
+@dataclass(slots=True)
+class QueuedEvent:
+    """An event that was queued for later processing."""
+
+    event_name: str
+    data: dict[str, Any]
+    timestamp: float = field(default_factory=lambda: __import__("time").time())
 
 
 # -----------------------------------------------------------------------------

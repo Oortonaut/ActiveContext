@@ -59,9 +59,12 @@ from activecontext.session.permissions import (
     write_website_permission_to_config,
 )
 from activecontext.session.protocols import (
+    EventHandler,
+    EventResponse,
     ExecutionResult,
     ExecutionStatus,
     NamespaceDiff,
+    QueuedEvent,
     Statement,
     WaitCondition,
     WaitMode,
@@ -239,6 +242,11 @@ class Timeline:
         self._agent_manager: "AgentManager | None" = None
         self._agent_id: str | None = None
 
+        # Event handling system
+        self._event_handlers: dict[str, EventHandler] = {}
+        self._queued_events: list[QueuedEvent] = []
+        self._setup_default_event_handlers()
+
     def set_title_callback(self, callback: Callable[[str], None] | None) -> None:
         """Set the callback for set_title() DSL function.
 
@@ -352,6 +360,7 @@ class Timeline:
         self._namespace.update({
             "spawn": self._spawn_agent,
             "send": self._send_message,
+            "send_update": self._send_update,
             "recv": self._recv_messages,
             "wait_message": self._wait_message,
             "agents": self._list_agents,
@@ -360,7 +369,192 @@ class Timeline:
             "resume_agent": self._resume_agent,
             "terminate_agent": self._terminate_agent,
             "get_shared_node": self._get_shared_node,
+            # Event system
+            "event_response": self._event_response,
+            "wait": self._wait_event,
+            "EventResponse": EventResponse,
         })
+
+    def _setup_default_event_handlers(self) -> None:
+        """Set up default event handlers for built-in events."""
+        # Default: queue messages (don't wake unless explicitly waiting)
+        self._event_handlers["message"] = EventHandler(
+            event_name="message",
+            response=EventResponse.QUEUE,
+            prompt_template="Message from {sender}: {content}",
+        )
+        # Default: queue agent_done events
+        self._event_handlers["agent_done"] = EventHandler(
+            event_name="agent_done",
+            response=EventResponse.QUEUE,
+            prompt_template="Agent {agent_id} completed with state: {state}",
+        )
+        # Default: queue tick events (rarely used as wake trigger)
+        self._event_handlers["tick"] = EventHandler(
+            event_name="tick",
+            response=EventResponse.QUEUE,
+            prompt_template="Tick occurred",
+        )
+
+    def _event_response(
+        self,
+        event_name: str,
+        response: EventResponse,
+        prompt: str = "",
+    ) -> None:
+        """Set the response type for an event.
+
+        DSL function: event_response(name, response, prompt)
+
+        Args:
+            event_name: Event name ("message", "agent_done", "tick", or custom)
+            response: EventResponse.WAKE or EventResponse.QUEUE
+            prompt: Template for wake prompt (can use {placeholders})
+
+        Example:
+            event_response("message", EventResponse.WAKE, "Message: {content}")
+        """
+        self._event_handlers[event_name] = EventHandler(
+            event_name=event_name,
+            response=response,
+            prompt_template=prompt or f"Event: {event_name}",
+        )
+
+    def _wait_event(
+        self,
+        target: Any,
+        event_name: str,
+        prompt: str | None = None,
+        timeout: float | None = None,
+    ) -> None:
+        """Wait for a specific event from a target.
+
+        DSL function: wait(target, event_name, prompt=None, timeout=None)
+
+        Sets a one-time WAKE handler for the specified event.
+
+        Args:
+            target: AgentHandle, agent_id string, or None for global events
+            event_name: Event to wait for ("agent_done", "message", etc.)
+            prompt: Optional wake prompt override
+            timeout: Optional timeout in seconds
+
+        Example:
+            wait(child_agent, "agent_done")  # Wake when child completes
+        """
+        from activecontext.agents.handle import AgentHandle
+
+        # Resolve target_id
+        target_id: str | None = None
+        if isinstance(target, AgentHandle):
+            target_id = target.agent_id
+        elif isinstance(target, str):
+            target_id = target
+
+        # Create one-time wake handler
+        handler_key = f"{event_name}:{target_id}" if target_id else event_name
+        default_prompt = self._event_handlers.get(event_name, EventHandler(
+            event_name=event_name,
+            response=EventResponse.QUEUE,
+            prompt_template=f"Event {event_name} occurred",
+        )).prompt_template
+
+        self._event_handlers[handler_key] = EventHandler(
+            event_name=event_name,
+            response=EventResponse.WAKE,
+            prompt_template=prompt or default_prompt,
+            once=True,
+            target_id=target_id,
+        )
+
+        # Set up wait condition
+        self._wait_condition = WaitCondition(
+            node_ids=[],
+            mode=WaitMode.AGENT if event_name == "agent_done" else WaitMode.MESSAGE,
+            wake_prompt=prompt or default_prompt,
+            timeout=timeout,
+            timeout_prompt=f"Timed out waiting for {event_name}" if timeout else None,
+            agent_id=target_id,
+        )
+        self._done_called = True  # End turn to wait
+
+    def fire_event(self, event_name: str, data: dict[str, Any]) -> str | None:
+        """Fire an event and return wake prompt if handler says WAKE.
+
+        Called internally when events occur. Returns prompt if agent should wake.
+
+        Args:
+            event_name: Event name
+            data: Event data (used for prompt template formatting)
+
+        Returns:
+            Wake prompt if WAKE response, None if QUEUE
+        """
+        # Check for targeted handler first (e.g., "agent_done:abc123")
+        target_id = data.get("agent_id") or data.get("sender")
+        handler_key = f"{event_name}:{target_id}" if target_id else None
+
+        handler = None
+        if handler_key and handler_key in self._event_handlers:
+            handler = self._event_handlers[handler_key]
+        elif event_name in self._event_handlers:
+            handler = self._event_handlers[event_name]
+
+        if not handler:
+            # No handler, queue by default
+            self._queued_events.append(QueuedEvent(event_name=event_name, data=data))
+            return None
+
+        if handler.response == EventResponse.WAKE:
+            # Format wake prompt
+            try:
+                prompt = handler.prompt_template.format(**data)
+            except KeyError:
+                prompt = handler.prompt_template
+
+            # Remove if one-time handler
+            if handler.once:
+                if handler_key and handler_key in self._event_handlers:
+                    del self._event_handlers[handler_key]
+                elif event_name in self._event_handlers and self._event_handlers[event_name].once:
+                    del self._event_handlers[event_name]
+
+            return prompt
+        else:
+            # Queue the event
+            self._queued_events.append(QueuedEvent(event_name=event_name, data=data))
+            return None
+
+    def get_queued_events(self, event_name: str | None = None) -> list[QueuedEvent]:
+        """Get queued events, optionally filtered by name.
+
+        Args:
+            event_name: Filter by event name, or None for all
+
+        Returns:
+            List of queued events
+        """
+        if event_name is None:
+            return list(self._queued_events)
+        return [e for e in self._queued_events if e.event_name == event_name]
+
+    def clear_queued_events(self, event_name: str | None = None) -> int:
+        """Clear queued events, optionally filtered by name.
+
+        Args:
+            event_name: Clear only this event type, or None for all
+
+        Returns:
+            Number of events cleared
+        """
+        if event_name is None:
+            count = len(self._queued_events)
+            self._queued_events.clear()
+            return count
+
+        original_count = len(self._queued_events)
+        self._queued_events = [e for e in self._queued_events if e.event_name != event_name]
+        return original_count - len(self._queued_events)
 
     def _ls_permissions(self) -> list[dict[str, Any]]:
         """List current file permissions (read-only inspection).
@@ -1862,6 +2056,64 @@ class Timeline:
             return asyncio.ensure_future(coro)  # type: ignore
         except RuntimeError:
             raise RuntimeError("send() must be called in async context")
+
+    def _send_update(
+        self,
+        content: str,
+        *node_refs: ContextNode,
+    ) -> str:
+        """Send an update message to parent agent and continue running.
+
+        DSL function: send_update(content, *node_refs)
+
+        Unlike send(), this sends to the parent agent specifically and
+        does NOT end the turn - the agent continues executing.
+
+        Args:
+            content: Message content
+            *node_refs: Nodes to share with the parent
+
+        Returns:
+            Message ID
+
+        Example:
+            send_update("Found 3 auth files so far", partial_results)
+            # Agent continues working...
+        """
+        if not self._agent_manager:
+            raise RuntimeError("Agent manager not available")
+
+        # Get parent ID
+        entry = self._agent_manager.get_agent(self._agent_id) if self._agent_id else None
+        if not entry or not entry.parent_id:
+            raise RuntimeError("No parent agent to send update to")
+
+        parent_id = entry.parent_id
+
+        # Share nodes and collect IDs
+        ref_ids: list[str] = []
+        for node in node_refs:
+            self._agent_manager.share_node(node)
+            ref_ids.append(node.node_id)
+
+        # Get sender ID
+        sender = self._agent_id or "unknown"
+
+        # Send message (sync operation via scratchpad)
+        import asyncio
+        try:
+            loop = asyncio.get_running_loop()
+            coro = self._agent_manager.send_message(
+                sender=sender,
+                recipient=parent_id,
+                content=content,
+                node_refs=ref_ids,
+            )
+            future = asyncio.ensure_future(coro)
+            # Don't set _done_called - agent continues running
+            return future  # type: ignore
+        except RuntimeError:
+            raise RuntimeError("send_update() must be called in async context")
 
     def _recv_messages(self) -> list[dict[str, Any]]:
         """Receive pending messages for this agent.
