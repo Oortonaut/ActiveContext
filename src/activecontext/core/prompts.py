@@ -4,20 +4,15 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from importlib.resources import files
 from typing import TYPE_CHECKING
+
+from activecontext.prompts import FULL_SYSTEM_PROMPT, SYSTEM_PROMPT
 
 if TYPE_CHECKING:
     from activecontext.session.protocols import Projection
 
-
-def _load_prompt(name: str) -> str:
-    """Load a prompt from the prompts package."""
-    return files("activecontext.prompts").joinpath(name).read_text(encoding="utf-8")
-
-
-# Load system prompt from file
-SYSTEM_PROMPT = _load_prompt("system.md")
+# Re-export for backward compatibility
+__all__ = ["SYSTEM_PROMPT", "FULL_SYSTEM_PROMPT", "ParsedResponse", "parse_response", "build_user_message"]
 
 
 @dataclass
