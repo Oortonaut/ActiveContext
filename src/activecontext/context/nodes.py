@@ -1095,7 +1095,7 @@ class LockNode(ContextNode):
 
         return "".join(parts)
 
-    def set_acquired(self, pid: int) -> "LockNode":
+    def set_acquired(self, pid: int) -> LockNode:
         """Mark lock as acquired."""
         self.lock_status = LockStatus.ACQUIRED
         self.acquired_at = time.time()
@@ -1110,7 +1110,7 @@ class LockNode(ContextNode):
         self._mark_changed(diff)
         return self
 
-    def set_timeout(self) -> "LockNode":
+    def set_timeout(self) -> LockNode:
         """Mark lock acquisition as timed out."""
         self.lock_status = LockStatus.TIMEOUT
         self.error_message = f"Timed out after {self.timeout}s"
@@ -1124,7 +1124,7 @@ class LockNode(ContextNode):
         self._mark_changed(diff)
         return self
 
-    def set_released(self) -> "LockNode":
+    def set_released(self) -> LockNode:
         """Mark lock as released."""
         self.lock_status = LockStatus.RELEASED
 
@@ -1137,7 +1137,7 @@ class LockNode(ContextNode):
         self._mark_changed(diff)
         return self
 
-    def set_error(self, message: str) -> "LockNode":
+    def set_error(self, message: str) -> LockNode:
         """Mark lock operation as failed with error."""
         self.lock_status = LockStatus.ERROR
         self.error_message = message
@@ -1165,7 +1165,7 @@ class LockNode(ContextNode):
         return data
 
     @classmethod
-    def _from_dict(cls, data: dict[str, Any]) -> "LockNode":
+    def _from_dict(cls, data: dict[str, Any]) -> LockNode:
         """Deserialize LockNode from dict."""
         tick_freq = None
         if data.get("tick_frequency"):
@@ -1625,7 +1625,7 @@ class MessageNode(ContextNode):
             result = result[: char_budget - 40] + "\n... [truncated]"
         return f"[Result] {result}"
 
-    def set_content(self, content: str) -> "MessageNode":
+    def set_content(self, content: str) -> MessageNode:
         """Update message content."""
         old_len = len(self.content)
         self.content = content
@@ -1652,7 +1652,7 @@ class MessageNode(ContextNode):
         return data
 
     @classmethod
-    def _from_dict(cls, data: dict[str, Any]) -> "MessageNode":
+    def _from_dict(cls, data: dict[str, Any]) -> MessageNode:
         """Deserialize MessageNode from dict."""
         tick_freq = None
         if data.get("tick_frequency"):
@@ -1759,19 +1759,19 @@ class WorkNode(ContextNode):
 
         return "".join(parts)
 
-    def set_intent(self, intent: str) -> "WorkNode":
+    def set_intent(self, intent: str) -> WorkNode:
         """Update work intent."""
         self.intent = intent
         self._mark_changed()
         return self
 
-    def set_files(self, files: list[dict[str, str]]) -> "WorkNode":
+    def set_files(self, files: list[dict[str, str]]) -> WorkNode:
         """Update files being worked on."""
         self.files = files
         self._mark_changed()
         return self
 
-    def set_conflicts(self, conflicts: list[dict[str, str]]) -> "WorkNode":
+    def set_conflicts(self, conflicts: list[dict[str, str]]) -> WorkNode:
         """Update detected conflicts."""
         old_count = len(self.conflicts)
         self.conflicts = conflicts
@@ -1799,7 +1799,7 @@ class WorkNode(ContextNode):
         return data
 
     @classmethod
-    def _from_dict(cls, data: dict[str, Any]) -> "WorkNode":
+    def _from_dict(cls, data: dict[str, Any]) -> WorkNode:
         """Deserialize WorkNode from dict."""
         tick_freq = None
         if data.get("tick_frequency"):
