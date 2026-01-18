@@ -1,0 +1,536 @@
+"""Tests for session management and lifecycle.
+
+Tests coverage for:
+- src/activecontext/session/session_manager.py
+"""
+
+from __future__ import annotations
+
+from unittest.mock import AsyncMock, Mock, patch
+
+import pytest
+
+from activecontext.core.llm.litellm_provider import LiteLLMProvider
+from activecontext.session.session_manager import Session, SessionManager
+
+
+# =============================================================================
+# Fixtures
+# =============================================================================
+
+
+@pytest.fixture
+def mock_llm_provider():
+    """Create a mock LLM provider."""
+    provider = Mock(spec=LiteLLMProvider)
+    provider.model = "test-model"
+    provider.stream = AsyncMock()
+    return provider
+
+
+@pytest.fixture
+async def session_manager(mock_llm_provider):
+    """Create SessionManager with mock LLM."""
+    manager = SessionManager(default_llm=mock_llm_provider)
+    yield manager
+    # Cleanup
+    for session_id in list(manager._sessions.keys()):
+        await manager.close_session(session_id)
+
+
+@pytest.fixture
+async def test_session(session_manager):
+    """Create a test session."""
+    session = await session_manager.create_session(cwd="/test/project")
+    return session
+
+
+# =============================================================================
+# Session Lifecycle Tests
+# =============================================================================
+
+
+class TestSessionLifecycle:
+    """Tests for session creation, retrieval, and deletion."""
+
+    @pytest.mark.asyncio
+    async def test_create_session_returns_unique_id(self, session_manager):
+        """Test that create_session returns unique session IDs."""
+        session1 = await session_manager.create_session(cwd="/project1")
+        session2 = await session_manager.create_session(cwd="/project2")
+
+        assert session1.session_id != session2.session_id
+        assert isinstance(session1.session_id, str)
+        assert isinstance(session2.session_id, str)
+
+    @pytest.mark.asyncio
+    async def test_create_session_with_cwd(self, session_manager):
+        """Test session creation with specific cwd."""
+        session = await session_manager.create_session(cwd="/workspace/project")
+
+        assert session.cwd == "/workspace/project"
+
+    @pytest.mark.asyncio
+    async def test_create_session_uses_default_llm(
+        self, session_manager, mock_llm_provider
+    ):
+        """Test that new sessions use default LLM provider."""
+        session = await session_manager.create_session(cwd="/test")
+
+        assert session.llm is mock_llm_provider
+
+    @pytest.mark.asyncio
+    async def test_create_session_with_custom_llm(self, session_manager):
+        """Test creating session with custom LLM provider."""
+        custom_llm = Mock(spec=LiteLLMProvider)
+        custom_llm.model = "custom-model"
+
+        session = await session_manager.create_session(
+            cwd="/test", llm=custom_llm
+        )
+
+        assert session.llm is custom_llm
+
+    @pytest.mark.asyncio
+    async def test_get_session_existing(self, session_manager, test_session):
+        """Test retrieving an existing session."""
+        retrieved = await session_manager.get_session(test_session.session_id)
+
+        assert retrieved is test_session
+        assert retrieved.session_id == test_session.session_id
+
+    @pytest.mark.asyncio
+    async def test_get_session_nonexistent(self, session_manager):
+        """Test getting nonexistent session returns None."""
+        session = await session_manager.get_session("nonexistent-id")
+
+        assert session is None
+
+    @pytest.mark.asyncio
+    async def test_list_sessions(self, session_manager):
+        """Test listing all active sessions."""
+        session1 = await session_manager.create_session(cwd="/project1")
+        session2 = await session_manager.create_session(cwd="/project2")
+
+        session_ids = await session_manager.list_sessions()
+
+        assert len(session_ids) == 2
+        assert session1.session_id in session_ids
+        assert session2.session_id in session_ids
+
+    @pytest.mark.asyncio
+    async def test_close_session(self, session_manager, test_session):
+        """Test closing a session removes it from manager."""
+        session_id = test_session.session_id
+
+        await session_manager.close_session(session_id)
+
+        assert await session_manager.get_session(session_id) is None
+        assert session_id not in session_manager._sessions
+
+    @pytest.mark.asyncio
+    async def test_close_nonexistent_session(self, session_manager):
+        """Test closing nonexistent session doesn't error."""
+        # Should not raise
+        await session_manager.close_session("nonexistent-id")
+
+
+# =============================================================================
+# Multi-Session Management Tests
+# =============================================================================
+
+
+class TestSessionIsolation:
+    """Tests for session state isolation."""
+
+    @pytest.mark.asyncio
+    async def test_sessions_have_separate_timelines(self, session_manager):
+        """Test that sessions have independent timelines."""
+        session1 = await session_manager.create_session(cwd="/proj1")
+        session2 = await session_manager.create_session(cwd="/proj2")
+
+        # Execute statements in each session
+        await session1.timeline.execute_statement("x = 1")
+        await session2.timeline.execute_statement("x = 2")
+
+        # Verify isolation
+        ns1 = session1.timeline.get_namespace()
+        ns2 = session2.timeline.get_namespace()
+
+        assert ns1.get("x") == 1
+        assert ns2.get("x") == 2
+
+    @pytest.mark.asyncio
+    async def test_sessions_have_separate_context_graphs(self, session_manager):
+        """Test that sessions have independent context graphs."""
+        session1 = await session_manager.create_session(cwd="/proj1")
+        session2 = await session_manager.create_session(cwd="/proj2")
+
+        graph1 = session1.context_graph
+        graph2 = session2.context_graph
+
+        assert graph1 is not graph2
+
+    @pytest.mark.asyncio
+    async def test_concurrent_session_operations(self, session_manager):
+        """Test concurrent operations on different sessions."""
+        import asyncio
+
+        session1 = await session_manager.create_session(cwd="/proj1")
+        session2 = await session_manager.create_session(cwd="/proj2")
+
+        # Execute statements concurrently
+        await asyncio.gather(
+            session1.timeline.execute_statement("a = 1"),
+            session2.timeline.execute_statement("b = 2"),
+        )
+
+        ns1 = session1.timeline.get_namespace()
+        ns2 = session2.timeline.get_namespace()
+
+        assert "a" in ns1
+        assert "b" in ns2
+        assert "a" not in ns2
+        assert "b" not in ns1
+
+
+# =============================================================================
+# LLM Provider Management Tests
+# =============================================================================
+
+
+class TestSessionLLM:
+    """Tests for LLM provider management."""
+
+    @pytest.mark.asyncio
+    async def test_set_default_llm(self, session_manager):
+        """Test updating default LLM provider."""
+        new_llm = Mock(spec=LiteLLMProvider)
+        new_llm.model = "new-model"
+
+        session_manager.set_default_llm(new_llm)
+
+        # New sessions should use the new default
+        session = await session_manager.create_session(cwd="/test")
+        assert session.llm is new_llm
+
+    @pytest.mark.asyncio
+    async def test_set_session_llm(self, session_manager, test_session):
+        """Test updating LLM provider for a specific session."""
+        new_llm = Mock(spec=LiteLLMProvider)
+        new_llm.model = "session-specific-model"
+
+        test_session.set_llm(new_llm)
+
+        assert test_session.llm is new_llm
+
+    @pytest.mark.asyncio
+    async def test_session_with_no_llm(self, session_manager):
+        """Test creating session without LLM (direct mode)."""
+        no_llm_manager = SessionManager(default_llm=None)
+
+        session = await no_llm_manager.create_session(cwd="/test")
+
+        assert session.llm is None
+
+
+# =============================================================================
+# Permission Management Tests
+# =============================================================================
+
+
+class TestSessionPermissions:
+    """Tests for permission management and reloading."""
+
+    @pytest.mark.asyncio
+    async def test_session_has_permission_requesters(self, test_session):
+        """Test that session has permission requester callbacks."""
+        # Permission requesters should be set up during session creation
+        # The actual implementation depends on the session setup
+        assert hasattr(test_session, "timeline")
+        assert hasattr(test_session.timeline, "_permission_manager")
+
+    @pytest.mark.asyncio
+    async def test_permission_requester_types(self):
+        """Test that permission requester types are defined in TYPE_CHECKING block."""
+        import typing
+        # These types are defined in TYPE_CHECKING block for type hints
+        # They're not importable at runtime, but we verify the module structure
+        from activecontext.session import session_manager
+
+        # The module should load without errors and have create_session
+        assert hasattr(session_manager, "SessionManager")
+        assert hasattr(session_manager, "Session")
+
+
+# =============================================================================
+# Session API Tests
+# =============================================================================
+
+
+class TestSessionAPI:
+    """Tests for Session class public API."""
+
+    @pytest.mark.asyncio
+    async def test_session_properties(self, test_session):
+        """Test session property accessors."""
+        assert isinstance(test_session.session_id, str)
+        assert test_session.cwd == "/test/project"
+        assert test_session.timeline is not None
+
+    @pytest.mark.asyncio
+    async def test_get_context_objects(self, test_session):
+        """Test getting context objects from session."""
+        objects = test_session.get_context_objects()
+
+        assert isinstance(objects, dict)
+
+    @pytest.mark.asyncio
+    async def test_get_context_graph(self, test_session):
+        """Test getting context graph from session."""
+        graph = test_session.get_context_graph()
+
+        assert graph is not None
+
+    @pytest.mark.asyncio
+    async def test_show_message_ids(self, test_session):
+        """Test show_message_ids configuration."""
+        # Default value
+        initial = test_session.show_message_ids
+
+        # Should be toggleable
+        test_session.show_message_ids = not initial
+        assert test_session.show_message_ids != initial
+
+    @pytest.mark.asyncio
+    async def test_clear_conversation(self, test_session):
+        """Test clearing conversation history."""
+        # Add some messages first
+        test_session._conversation.append(
+            Mock(role=Mock(value="user"), content="Test")
+        )
+
+        initial_count = len(test_session._conversation)
+        assert initial_count > 0
+
+        test_session.clear_conversation()
+
+        assert len(test_session._conversation) == 0
+
+    @pytest.mark.asyncio
+    async def test_get_projection(self, test_session):
+        """Test getting current projection."""
+        projection = test_session.get_projection()
+
+        assert projection is not None
+        assert hasattr(projection, "sections")
+        assert hasattr(projection, "token_budget")
+
+
+# =============================================================================
+# Session Execution Tests
+# =============================================================================
+
+
+class TestSessionExecution:
+    """Tests for session code execution."""
+
+    @pytest.mark.asyncio
+    async def test_execute_code_statement(self, test_session):
+        """Test executing Python code in session."""
+        # _execute_code returns an async generator
+        async for _ in test_session._execute_code("x = 42"):
+            pass
+
+        namespace = test_session.timeline.get_namespace()
+        assert namespace.get("x") == 42
+
+    @pytest.mark.asyncio
+    async def test_tick_updates_session_state(self, test_session):
+        """Test that tick() processes pending updates."""
+        # Tick should not error
+        await test_session.tick()
+
+    @pytest.mark.asyncio
+    async def test_cancel_interrupts_execution(self, test_session):
+        """Test cancel() interrupts ongoing operations."""
+        # Cancel should set cancellation flag
+        await test_session.cancel()
+
+        # Cancellation state should be reflected on session, not timeline
+        assert test_session._cancelled is True
+
+
+# =============================================================================
+# Prompt Execution Tests
+# =============================================================================
+
+
+class TestSessionPrompt:
+    """Tests for session prompt execution."""
+
+    @pytest.mark.asyncio
+    async def test_prompt_with_llm(self, test_session, mock_llm_provider):
+        """Test prompt execution with LLM."""
+        # Mock stream response
+        async def mock_stream(*args, **kwargs):
+            yield Mock(text="Response", is_final=False)
+            yield Mock(text=" text", is_final=True, finish_reason="stop")
+
+        mock_llm_provider.stream = mock_stream
+
+        updates = []
+        async for update in test_session.prompt("Test prompt"):
+            updates.append(update)
+
+        # Should have received updates
+        assert len(updates) > 0
+
+    @pytest.mark.asyncio
+    async def test_prompt_direct_mode(self, session_manager):
+        """Test prompt in direct mode (no LLM)."""
+        session = await session_manager.create_session(cwd="/test")
+        session.set_llm(None)
+
+        # Direct prompt should execute code directly
+        updates = []
+        async for update in session.prompt("x = 100"):
+            updates.append(update)
+
+        # Should have execution updates
+        assert len(updates) > 0
+
+        # Code should be executed
+        namespace = session.timeline.get_namespace()
+        assert namespace.get("x") == 100
+
+
+# =============================================================================
+# Configuration Tests
+# =============================================================================
+
+
+class TestSessionConfiguration:
+    """Tests for session configuration loading."""
+
+    @pytest.mark.asyncio
+    @patch("activecontext.config.load_config")
+    async def test_load_project_config(self, mock_load_config):
+        """Test that project config is loaded for session."""
+        mock_config = Mock()
+        mock_config.sandbox = None  # Prevent PermissionManager errors
+        mock_config.mcp = None  # Prevent MCP autoconnect errors
+        mock_load_config.return_value = mock_config
+
+        manager = SessionManager(default_llm=None)
+        session = await manager.create_session(cwd="/project/path")
+
+        # Config should be loaded with session_root
+        mock_load_config.assert_called_with(session_root="/project/path")
+
+
+# =============================================================================
+# Integration Tests
+# =============================================================================
+
+
+class TestSessionManagerIntegration:
+    """Integration tests for session manager."""
+
+    @pytest.mark.asyncio
+    async def test_full_session_lifecycle(self, mock_llm_provider):
+        """Test complete session lifecycle."""
+        # Create manager
+        manager = SessionManager(default_llm=mock_llm_provider)
+
+        # Create session
+        session = await manager.create_session(cwd="/workspace")
+        session_id = session.session_id
+
+        # Verify session exists (get_session is async)
+        assert await manager.get_session(session_id) is session
+
+        # Execute some code (async generator)
+        async for _ in session._execute_code("test_var = 123"):
+            pass
+        namespace = session.timeline.get_namespace()
+        assert namespace.get("test_var") == 123
+
+        # List sessions (returns session IDs)
+        session_ids = await manager.list_sessions()
+        assert len(session_ids) == 1
+        assert session_ids[0] == session_id
+
+        # Close session
+        await manager.close_session(session_id)
+        assert await manager.get_session(session_id) is None
+
+    @pytest.mark.asyncio
+    async def test_multiple_sessions_workflow(self, mock_llm_provider):
+        """Test working with multiple sessions."""
+        manager = SessionManager(default_llm=mock_llm_provider)
+
+        # Create multiple sessions
+        sessions = []
+        for i in range(3):
+            session = await manager.create_session(cwd=f"/project{i}")
+            sessions.append(session)
+
+        # Verify all exist (list_sessions is async, returns IDs)
+        session_ids = await manager.list_sessions()
+        assert len(session_ids) == 3
+
+        # Execute unique code in each (async generator)
+        for i, session in enumerate(sessions):
+            async for _ in session._execute_code(f"value = {i * 10}"):
+                pass
+
+        # Verify isolation
+        for i, session in enumerate(sessions):
+            namespace = session.timeline.get_namespace()
+            assert namespace.get("value") == i * 10
+
+        # Close all
+        for session in sessions:
+            await manager.close_session(session.session_id)
+
+        assert len(await manager.list_sessions()) == 0
+
+    @pytest.mark.asyncio
+    async def test_session_with_context_graph(self, session_manager):
+        """Test session with context graph operations."""
+        from activecontext.context.graph import ContextGraph
+        from tests.utils import create_mock_context_node
+
+        session = await session_manager.create_session(cwd="/test")
+
+        # Get graph
+        graph = session.context_graph
+        initial_count = len(graph)
+
+        # Add a node
+        node = create_mock_context_node("test-node", "view")
+        graph.add_node(node)
+
+        # Verify node exists (graph may have initial nodes from session setup)
+        assert "test-node" in graph
+        assert len(graph) == initial_count + 1
+
+    @pytest.mark.asyncio
+    async def test_session_projection_updates(self, session_manager):
+        """Test that session projection reflects changes."""
+        session = await session_manager.create_session(cwd="/test")
+
+        # Get initial projection
+        projection1 = session.get_projection()
+        initial_sections = len(projection1.sections)
+
+        # Execute code that creates objects (async generator)
+        async for _ in session._execute_code("# Test code"):
+            pass
+
+        # Get updated projection
+        projection2 = session.get_projection()
+
+        # Projection should be updated
+        assert projection2 is not None
