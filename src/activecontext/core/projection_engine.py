@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from activecontext.context.state import NodeState
+from activecontext.core.tokens import MediaType, count_tokens
 from activecontext.session.protocols import Projection, ProjectionSection
 
 if TYPE_CHECKING:
@@ -211,12 +212,14 @@ class ProjectionEngine:
 
             content = node.Render(tokens=per_node_budget, cwd=cwd)
 
+            # Use node's media_type if available (ViewNode), otherwise TEXT
+            media_type = getattr(node, "media_type", MediaType.TEXT)
             sections.append(
                 ProjectionSection(
                     section_type=node.node_type,
                     source_id=node.node_id,
                     content=content,
-                    tokens_used=len(content) // 4,
+                    tokens_used=count_tokens(content, media_type),
                     state=node.state,
                     metadata=node.GetDigest(),
                 )
@@ -285,7 +288,8 @@ class ProjectionEngine:
                 entry = f"**{role}**: {content}\n\n"
             entry_chars = len(entry)
 
-            if tokens_used * 4 + entry_chars > char_budget:
+            entry_tokens = count_tokens(entry, MediaType.TEXT)
+            if tokens_used + entry_tokens > budget:
                 # Summarize remaining messages
                 remaining = len(conversation) - len(messages_to_include)
                 if remaining > 0:
@@ -293,7 +297,7 @@ class ProjectionEngine:
                 break
 
             messages_to_include.insert(0, entry)  # Prepend to maintain order
-            tokens_used += entry_chars // 4
+            tokens_used += entry_tokens
 
         parts.extend(messages_to_include)
 
@@ -311,72 +315,91 @@ class ProjectionEngine:
         budget: int,
         user_display_name: str = "User",
     ) -> ProjectionSection | None:
-        """Render conversation from MessageNodes with role alternation.
+        """Render conversation from MessageNodes with structural containment.
 
-        Groups adjacent same-role messages into blocks for proper LLM
-        pretraining compatibility. Each block shows the first message's ID.
+        Renders root-level items (messages and groups) in temporal order.
+        Adjacent same-role messages are merged into blocks.
+        Groups are rendered with their children indented inside.
 
         Args:
-            graph: Context graph containing MessageNodes
+            graph: Context graph containing MessageNodes and GroupNodes
             budget: Token budget for conversation
             user_display_name: Display name for user messages (e.g., "Ace")
 
         Returns:
             ProjectionSection with rendered conversation, or None if no messages
         """
-        from activecontext.context.nodes import MessageNode
+        from activecontext.context.nodes import GroupNode, MessageNode
 
-        # Get all message nodes sorted by creation time
-        msg_nodes: list[MessageNode] = []
+        # Collect root-level conversation items in temporal order
+        # Each item is (created_at, type, data) where:
+        # - type="msg": data is MessageNode
+        # - type="group": data is GroupNode
+        items: list[tuple[float, str, object]] = []
+
         for node in graph:
             if isinstance(node, MessageNode):
-                msg_nodes.append(node)
+                # Only add root-level messages (not inside groups)
+                if not node.parent_ids:
+                    items.append((node.created_at, "msg", node))
+            elif isinstance(node, GroupNode):
+                # Add root-level groups that have message children (tool use groups)
+                if not node.parent_ids:
+                    has_message_child = any(
+                        isinstance(graph.get_node(cid), MessageNode)
+                        for cid in node.children_ids
+                    )
+                    if has_message_child:
+                        items.append((node.created_at, "group", node))
 
-        if not msg_nodes:
+        if not items:
             return None
 
         # Sort by creation time
-        msg_nodes.sort(key=lambda n: n.created_at)
+        items.sort(key=lambda x: x[0])
 
-        # Group into blocks by effective role
-        blocks: list[tuple[str, list[MessageNode]]] = []  # (role, nodes)
-        for node in msg_nodes:
-            effective_role = node.effective_role  # "USER" or "ASSISTANT"
-            if blocks and blocks[-1][0] == effective_role:
-                blocks[-1][1].append(node)  # Merge into current block
-            else:
-                blocks.append((effective_role, [node]))  # New block
+        # Group adjacent messages by effective role, but keep groups separate
+        blocks: list[tuple[str, list[object]]] = []  # (block_type, items)
+
+        for _, item_type, item in items:
+            if item_type == "group":
+                # Groups are always their own block
+                blocks.append(("group", [item]))
+            elif item_type == "msg":
+                assert isinstance(item, MessageNode)
+                role = item.effective_role  # "USER" or "ASSISTANT"
+                # Try to merge with previous block if same role and previous was msg
+                if blocks and blocks[-1][0] == role:
+                    # Check that previous block is all messages (not a group)
+                    prev_items = blocks[-1][1]
+                    if all(isinstance(x, MessageNode) for x in prev_items):
+                        blocks[-1][1].append(item)
+                        continue
+                # Start new block
+                blocks.append((role, [item]))
 
         # Render blocks
         parts = ["## Conversation\n\n"]
         tokens_used = 50  # header overhead
-        char_budget = budget * 4
 
-        for role, nodes in blocks:
-            # Get block ID from first node
-            block_id = nodes[0].node_id
+        for block_type, block_items in blocks:
+            if block_type == "group":
+                # Render group with children
+                group = block_items[0]
+                assert isinstance(group, GroupNode)
+                entry = self._render_group_entry(group, graph, user_display_name)
+            else:
+                # Render message block (may contain multiple merged messages)
+                msg_nodes = [n for n in block_items if isinstance(n, MessageNode)]
+                per_block_budget = budget // len(blocks) if blocks else budget
+                entry = self._render_message_block(msg_nodes, user_display_name, per_block_budget)
 
-            # Get display label
-            label = self._get_block_label(nodes, user_display_name)
-
-            # Render block content
-            block_content = self._render_block_content(nodes, char_budget // len(blocks))
-
-            # Format block with ID and label
-            block_header = f"[msg:{block_id}] **{label}**:\n"
-            entry = block_header + block_content + "\n"
-
-            entry_chars = len(entry)
-            if tokens_used * 4 + entry_chars > char_budget:
-                # Over budget, truncate and note
-                current_idx = blocks.index((role, nodes))
-                remaining_blocks = len(blocks) - current_idx - 1
-                if remaining_blocks > 0:
-                    parts.append(f"[{remaining_blocks} earlier message blocks omitted]\n\n")
+            entry_tokens = count_tokens(entry, MediaType.TEXT)
+            if tokens_used + entry_tokens > budget:
                 break
 
             parts.append(entry)
-            tokens_used += entry_chars // 4
+            tokens_used += entry_tokens
 
         return ProjectionSection(
             section_type="conversation",
@@ -422,6 +445,165 @@ class ProjectionEngine:
 
         # Use first node's display_label
         return first_node.display_label
+
+    def _render_message_entry(
+        self,
+        node: ContextNode,
+        user_display_name: str,
+    ) -> str:
+        """Render a single message node entry.
+
+        Args:
+            node: MessageNode to render
+            user_display_name: Display name for user messages
+
+        Returns:
+            Formatted entry string with ID and label
+        """
+        from activecontext.context.nodes import MessageNode
+
+        if not isinstance(node, MessageNode):
+            return ""
+
+        # Get display label
+        label = user_display_name if node.actor == "user" else node.display_label
+
+        # Render content based on role
+        if node.role == "tool_call":
+            content = self._render_tool_call_content(node)
+        elif node.role == "tool_result":
+            result_label = self._get_tool_result_label(node)
+            content = f"[{result_label}] {node.content[:200]}..." if len(node.content) > 200 else f"[{result_label}] {node.content}"
+        else:
+            content = node.content
+
+        return f"[msg:{node.node_id}] **{label}**:\n{content}\n\n"
+
+    def _render_message_block(
+        self,
+        nodes: list[ContextNode],
+        user_display_name: str,
+        char_budget: int,
+    ) -> str:
+        """Render a block of merged same-role messages.
+
+        Args:
+            nodes: MessageNodes in this block (all same effective role)
+            user_display_name: Display name for user messages
+            char_budget: Character budget for this block
+
+        Returns:
+            Formatted block string with ID and label
+        """
+        from activecontext.context.nodes import MessageNode
+
+        if not nodes:
+            return ""
+
+        # Get block ID from first node
+        first_node = nodes[0]
+        if not isinstance(first_node, MessageNode):
+            return ""
+
+        block_id = first_node.node_id
+
+        # Get display label
+        label = self._get_block_label(nodes, user_display_name)
+
+        # Render block content
+        content = self._render_block_content(nodes, char_budget)
+
+        return f"[msg:{block_id}] **{label}**:\n{content}\n\n"
+
+    def _render_group_entry(
+        self,
+        group: ContextNode,
+        graph: ContextGraph,
+        user_display_name: str,
+    ) -> str:
+        """Render a group with its children.
+
+        Args:
+            group: GroupNode to render
+            graph: Context graph for looking up children
+            user_display_name: Display name for user messages
+
+        Returns:
+            Formatted group entry with indented children
+        """
+        from activecontext.context.nodes import GroupNode, MessageNode, ViewNode
+
+        if not isinstance(group, GroupNode):
+            return ""
+
+        parts = []
+
+        # Group header
+        summary_text = group.summary_prompt or "Group"
+        parts.append(f"[group:{group.node_id}] {summary_text}\n")
+
+        # Get children sorted by creation time
+        children = []
+        for child_id in group.children_ids:
+            child = graph.get_node(child_id)
+            if child:
+                children.append((child.created_at, child))
+        children.sort(key=lambda x: x[0])
+
+        # Render children with indentation
+        for _, child in children:
+            if isinstance(child, MessageNode):
+                if child.role == "tool_call":
+                    content = self._render_tool_call_content(child)
+                    parts.append(f"  [call] {content}\n")
+                elif child.role == "tool_result":
+                    label = self._get_tool_result_label(child)
+                    truncated = child.content[:100] + "..." if len(child.content) > 100 else child.content
+                    parts.append(f"  [{label}] {truncated}\n")
+                else:
+                    parts.append(f"  [msg] {child.content[:100]}\n")
+            elif isinstance(child, ViewNode):
+                parts.append(f"  [view:{child.node_id}] {child.path}\n")
+            elif isinstance(child, GroupNode):
+                # Nested group (rare, but possible)
+                parts.append(f"  [group:{child.node_id}] {child.summary_prompt or 'Nested'}\n")
+
+        # Group summary (if available)
+        if group.cached_summary:
+            parts.append(f"  Summary: {group.cached_summary}\n")
+
+        parts.append("\n")
+        return "".join(parts)
+
+    def _render_tool_call_content(self, node: ContextNode) -> str:
+        """Render tool call content showing tool name and args.
+
+        Args:
+            node: MessageNode with role=tool_call
+
+        Returns:
+            Formatted tool call string like 'view("main.py", tokens=2000)'
+        """
+        from activecontext.context.nodes import MessageNode
+
+        if not isinstance(node, MessageNode):
+            return ""
+
+        tool_name = node.tool_name or "unknown"
+        args = node.tool_args or {}
+
+        if not args:
+            return f"{tool_name}()"
+
+        # Format args as key=value pairs
+        arg_parts = []
+        for k, v in args.items():
+            if isinstance(v, str):
+                arg_parts.append(f'{k}="{v}"')
+            else:
+                arg_parts.append(f"{k}={v}")
+
+        return f"{tool_name}({', '.join(arg_parts)})"
 
     def _render_block_content(
         self,
@@ -566,7 +748,9 @@ class ProjectionEngine:
                 digest = view.GetDigest() if hasattr(view, "GetDigest") else {}
                 content = f"[View {view_id}: {digest.get('path', '?')}]"
 
-            tokens_used = len(content) // 4
+            # Use view's media_type if available
+            media_type = getattr(view, "media_type", MediaType.TEXT)
+            tokens_used = count_tokens(content, media_type)
 
             sections.append(
                 ProjectionSection(
@@ -605,7 +789,7 @@ class ProjectionEngine:
                     section_type="group",
                     source_id=group_id,
                     content=content,
-                    tokens_used=len(content) // 4,
+                    tokens_used=count_tokens(content, MediaType.TEXT),
                     state=group.state if hasattr(group, "state") else NodeState.SUMMARY,
                     metadata=group.GetDigest() if hasattr(group, "GetDigest") else {},
                 )

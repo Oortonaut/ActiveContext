@@ -21,6 +21,7 @@ from enum import Enum
 from typing import TYPE_CHECKING, Any
 
 from activecontext.context.state import NodeState, TickFrequency
+from activecontext.core.tokens import MediaType, detect_media_type, tokens_to_chars
 
 
 class ShellStatus(Enum):
@@ -263,11 +264,18 @@ class ViewNode(ContextNode):
         path: File path relative to cwd
         pos: Start position as "line:col" (1-indexed)
         end_pos: End position as "line:col" (None = to end of file)
+        media_type: Content media type (auto-detected from file extension)
     """
 
     path: str = ""
     pos: str = "1:0"
     end_pos: str | None = None
+    media_type: MediaType = field(default=MediaType.TEXT)
+
+    def __post_init__(self) -> None:
+        """Auto-detect media type from file extension."""
+        if self.path and self.media_type == MediaType.TEXT:
+            self.media_type = detect_media_type(self.path)
 
     @property
     def node_type(self) -> str:
@@ -284,6 +292,7 @@ class ViewNode(ContextNode):
             "state": self.state.value,
             "mode": self.mode,
             "version": self.version,
+            "media_type": self.media_type.value,
         }
 
     def Render(self, tokens: int | None = None, cwd: str = ".") -> str:
@@ -295,7 +304,7 @@ class ViewNode(ContextNode):
             return ""
 
         effective_tokens = tokens or self.tokens
-        char_budget = effective_tokens * 4
+        char_budget = tokens_to_chars(effective_tokens, self.media_type)
 
         # Parse start position
         try:
@@ -382,6 +391,7 @@ class ViewNode(ContextNode):
             "path": self.path,
             "pos": self.pos,
             "end_pos": self.end_pos,
+            "media_type": self.media_type.value,
         })
         return data
 
@@ -391,6 +401,13 @@ class ViewNode(ContextNode):
         tick_freq = None
         if data.get("tick_frequency"):
             tick_freq = TickFrequency.from_dict(data["tick_frequency"])
+
+        # Parse media_type, default to TEXT
+        media_type_str = data.get("media_type", "text")
+        try:
+            media_type = MediaType(media_type_str)
+        except ValueError:
+            media_type = MediaType.TEXT
 
         node = cls(
             node_id=data["node_id"],
@@ -407,6 +424,7 @@ class ViewNode(ContextNode):
             path=data.get("path", ""),
             pos=data.get("pos", "1:0"),
             end_pos=data.get("end_pos"),
+            media_type=media_type,
         )
         return node
 
