@@ -77,9 +77,12 @@ class ProjectionEngine:
             from activecontext.config import get_config
 
             app_config = get_config()
-            if hasattr(app_config, "user") and app_config.user:
-                if app_config.user.display_name:
-                    return app_config.user.display_name
+            if (
+                hasattr(app_config, "user")
+                and app_config.user
+                and app_config.user.display_name
+            ):
+                return app_config.user.display_name
         except ImportError:
             pass
 
@@ -366,7 +369,8 @@ class ProjectionEngine:
             entry_chars = len(entry)
             if tokens_used * 4 + entry_chars > char_budget:
                 # Over budget, truncate and note
-                remaining_blocks = len(blocks) - len([b for b in blocks if blocks.index(b) <= blocks.index((role, nodes))])
+                current_idx = blocks.index((role, nodes))
+                remaining_blocks = len(blocks) - current_idx - 1
                 if remaining_blocks > 0:
                     parts.append(f"[{remaining_blocks} earlier message blocks omitted]\n\n")
                 break
@@ -406,13 +410,9 @@ class ProjectionEngine:
         if first_node.actor == "user":
             return user_display_name
 
-        # Check for mixed content in block (agent + tools)
+        # Check for agent content in block (may be mixed with tool calls)
         has_agent = any(
             isinstance(n, MessageNode) and n.actor == "agent"
-            for n in nodes
-        )
-        has_tools = any(
-            isinstance(n, MessageNode) and n.actor and n.actor.startswith("tool:")
             for n in nodes
         )
 

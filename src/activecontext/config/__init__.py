@@ -45,6 +45,7 @@ from activecontext.config.schema import (
     RoleProviderConfig,
     SessionConfig,
     SessionModeConfig,
+    UserConfig,
 )
 from activecontext.config.secrets import (
     clear_secret_cache,
@@ -71,6 +72,7 @@ __all__ = [
     "SessionModeConfig",
     "ProjectionConfig",
     "LoggingConfig",
+    "UserConfig",
     # Secret management
     "fetch_secret",
     "clear_secret_cache",

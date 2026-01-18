@@ -137,6 +137,17 @@ class SandboxConfig:
     allow_localhost: bool = False  # Auto-grant access to localhost  # Deny unlisted shell commands
 
 
+
+@dataclass
+class UserConfig:
+    """User identity configuration.
+
+    Configures the display name shown in conversation rendering.
+    Falls back to USER/USERNAME environment variable if not set.
+    """
+
+    display_name: str | None = None  # e.g., "Ace"
+
 @dataclass
 class Config:
     """Root configuration object.
@@ -150,6 +161,7 @@ class Config:
     projection: ProjectionConfig = field(default_factory=ProjectionConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
     sandbox: SandboxConfig = field(default_factory=SandboxConfig)
+    user: UserConfig = field(default_factory=UserConfig)
 
     # Extension point for future config sections
     extra: dict[str, Any] = field(default_factory=dict)
