@@ -127,7 +127,7 @@ async def test_initial_context_and_projection() -> None:
         guide = ns["guide"]
         digest = guide.GetDigest()
         assert digest["type"] == "view"
-        assert "CONTEXT_GUIDE.md" in digest["path"]
+        assert "context_guide.md" in digest["path"]
 
         # Projection should render the guide content
         projection = session.get_projection()

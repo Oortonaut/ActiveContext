@@ -36,7 +36,8 @@ from activecontext.core.llm import (
 )
 from activecontext.logging import get_logger
 from activecontext.session.protocols import UpdateKind
-from activecontext.session.session_manager import SessionManager
+from activecontext.session.session_manager import Session, SessionManager
+from activecontext.session.storage import list_sessions as list_sessions_from_disk
 from activecontext.terminal.acp_executor import ACPTerminalExecutor
 
 log = get_logger("acp")
@@ -79,6 +80,7 @@ class ActiveContextAgent:
         self._sessions_model: dict[str, str] = {}  # session_id -> model_id
         self._sessions_mode: dict[str, str] = {}  # session_id -> mode_id
         self._current_model_id = default_model
+        self._current_cwd: str | None = None  # Track most recent cwd for list_sessions
 
         # Nagle-style batching for RESPONSE_CHUNK updates
         self._chunk_buffers: dict[str, str] = {}  # session_id -> accumulated text
@@ -492,7 +494,7 @@ class ActiveContextAgent:
                 version="0.1.0",
             ),
             agent_capabilities=AgentCapabilities(
-                load_session=False,  # Persistence not yet implemented
+                load_session=True,  # Session persistence enabled
                 prompt_capabilities=PromptCapabilities(
                     image=False,
                     audio=False,
@@ -511,6 +513,9 @@ class ActiveContextAgent:
         import traceback
 
         try:
+            # Track current cwd for list_sessions
+            self._current_cwd = cwd
+
             # Create permission requester callbacks bound to this agent
             permission_requester = self._request_file_permission
             shell_permission_requester = self._request_shell_permission
@@ -537,6 +542,13 @@ class ActiveContextAgent:
 
             self._sessions_cwd[session.session_id] = cwd
             self._sessions_mode[session.session_id] = self._default_mode_id
+
+            # Save session to disk immediately
+            try:
+                session.save()
+                log.debug("Saved new session %s to disk", session.session_id)
+            except Exception as e:
+                log.warning("Failed to save session to disk: %s", e)
 
             # Build available models from environment
             available = get_available_models()
@@ -595,8 +607,84 @@ class ActiveContextAgent:
         **kwargs: Any,
     ) -> acp.LoadSessionResponse | None:
         """Load a previously persisted session."""
-        # Persistence not yet implemented
-        return None
+        import traceback
+
+        try:
+            # Track current cwd
+            self._current_cwd = cwd
+
+            # Check if already loaded in memory
+            existing = await self._manager.get_session(session_id)
+            if existing:
+                log.info("Session %s already loaded", session_id)
+                return acp.LoadSessionResponse(
+                    session_id=session_id,
+                    modes=SessionModeState(
+                        available_modes=self._session_modes,
+                        current_mode_id=self._sessions_mode.get(session_id, self._default_mode_id),
+                    ),
+                )
+
+            # Load from disk
+            session = Session.from_file(
+                cwd=cwd,
+                session_id=session_id,
+                llm=self._manager._default_llm,
+            )
+
+            if not session:
+                log.warning("Session %s not found on disk", session_id)
+                return None
+
+            # Register with manager
+            self._manager._sessions[session_id] = session
+
+            # Set up ACP terminal executor
+            if self._conn:
+                terminal_executor = ACPTerminalExecutor(
+                    client=self._conn,
+                    session_id=session_id,
+                    default_cwd=cwd,
+                )
+                session.timeline._terminal_executor = terminal_executor
+
+            # Track session metadata
+            self._sessions_cwd[session_id] = cwd
+            self._sessions_mode[session_id] = self._default_mode_id
+
+            # Build model state
+            available = get_available_models()
+            models_state = None
+            if available:
+                current_model = self._current_model_id or available[0].model_id
+                self._sessions_model[session_id] = current_model
+                models_state = SessionModelState(
+                    available_models=[
+                        ModelInfo(
+                            model_id=m.model_id,
+                            name=m.name,
+                            description=m.description,
+                        )
+                        for m in available
+                    ],
+                    current_model_id=current_model,
+                )
+
+            log.info("Loaded session %s from disk (title: %s)", session_id, session.title)
+
+            return acp.LoadSessionResponse(
+                session_id=session_id,
+                models=models_state,
+                modes=SessionModeState(
+                    available_modes=self._session_modes,
+                    current_mode_id=self._default_mode_id,
+                ),
+            )
+
+        except Exception as e:
+            log.error("Failed to load session %s: %s", session_id, e)
+            log.error("%s", traceback.format_exc())
+            return None
 
     async def list_sessions(
         self,
@@ -604,24 +692,28 @@ class ActiveContextAgent:
         cwd: str | None = None,
         **kwargs: Any,
     ) -> acp.schema.ListSessionsResponse:
-        """List all active sessions."""
-        session_ids = await self._manager.list_sessions()
+        """List all sessions (both active and persisted on disk)."""
+        # Determine which cwd to use
+        target_cwd = cwd or self._current_cwd
+        if not target_cwd:
+            # No cwd available, return empty
+            return acp.schema.ListSessionsResponse(sessions=[])
 
-        # Filter by cwd if provided
-        if cwd:
-            session_ids = [
-                sid for sid in session_ids if self._sessions_cwd.get(sid) == cwd
-            ]
+        # Get persisted sessions from disk
+        persisted = list_sessions_from_disk(target_cwd)
 
-        return acp.schema.ListSessionsResponse(
-            sessions=[
+        # Build session info list
+        sessions = []
+        for meta in persisted:
+            sessions.append(
                 acp.schema.SessionInfo(
-                    session_id=sid,
-                    cwd=self._sessions_cwd.get(sid, ""),
+                    session_id=meta.session_id,
+                    cwd=meta.cwd,
+                    # Include title and timestamps in custom fields if ACP supports it
                 )
-                for sid in session_ids
-            ]
-        )
+            )
+
+        return acp.schema.ListSessionsResponse(sessions=sessions)
 
     async def set_session_mode(
         self,
@@ -738,6 +830,13 @@ class ActiveContextAgent:
                     acp.update_agent_message_text(f"\n\nError: {e}"),
                 )
 
+        # Auto-save session after each prompt
+        try:
+            session.save()
+            log.debug("Auto-saved session %s", session_id)
+        except Exception as e:
+            log.warning("Failed to auto-save session: %s", e)
+
         return acp.PromptResponse(stop_reason="end_turn")
 
     async def fork_session(
@@ -827,11 +926,34 @@ class ActiveContextAgent:
         elif command == "/help":
             return True, (
                 "Available commands:\n"
-                "  /exit - Shutdown the agent\n"
-                "  /help - Show this help\n"
-                "  /clear - Clear conversation history\n"
-                "  /context - Show current context objects"
+                "  /exit      - Shutdown the agent\n"
+                "  /help      - Show this help\n"
+                "  /clear     - Clear conversation history\n"
+                "  /context   - Show current context objects\n"
+                "  /title     - Set session title\n"
+                "  /dashboard - Open monitoring dashboard (start/stop/status/open)"
             )
+
+        elif command == "/title":
+            args = parts[1] if len(parts) > 1 else ""
+            if not args.strip():
+                # Show current title
+                session = await self._manager.get_session(session_id)
+                if session:
+                    return True, f"Current title: {session.title}"
+                return True, "Session not found."
+
+            # Set new title
+            session = await self._manager.get_session(session_id)
+            if session:
+                session.set_title(args.strip())
+                # Save immediately to persist the title
+                try:
+                    session.save()
+                except Exception as e:
+                    log.warning("Failed to save session after title change: %s", e)
+                return True, f"Session title set to: {args.strip()}"
+            return True, "Session not found."
 
         elif command == "/clear":
             session = await self._manager.get_session(session_id)
@@ -854,6 +976,88 @@ class ActiveContextAgent:
                 else:
                     return True, "No context objects."
             return True, "Session not found."
+
+        elif command == "/dashboard":
+            args = parts[1] if len(parts) > 1 else "open"
+            subcommand_parts = args.split(maxsplit=1)
+            subcommand = subcommand_parts[0].lower()
+
+            from activecontext.dashboard import (
+                get_dashboard_status,
+                is_dashboard_running,
+                start_dashboard,
+                stop_dashboard,
+            )
+
+            if subcommand == "start":
+                port = 8765  # default
+                if len(subcommand_parts) > 1:
+                    try:
+                        port = int(subcommand_parts[1])
+                    except ValueError:
+                        return True, f"Invalid port: {subcommand_parts[1]}"
+
+                if is_dashboard_running():
+                    status = get_dashboard_status()
+                    return True, f"Dashboard already running at http://127.0.0.1:{status['port']}"
+
+                try:
+                    await start_dashboard(
+                        port=port,
+                        manager=self._manager,
+                        get_current_model=lambda: self._current_model_id,
+                        sessions_model=self._sessions_model,
+                        sessions_mode=self._sessions_mode,
+                    )
+                    return True, f"Dashboard started at http://127.0.0.1:{port}"
+                except Exception as e:
+                    return True, f"Failed to start dashboard: {e}"
+
+            elif subcommand == "stop":
+                if not is_dashboard_running():
+                    return True, "Dashboard is not running."
+                await stop_dashboard()
+                return True, "Dashboard stopped."
+
+            elif subcommand == "status":
+                if is_dashboard_running():
+                    status = get_dashboard_status()
+                    return True, (
+                        f"Dashboard running at http://127.0.0.1:{status['port']}\n"
+                        f"  Uptime: {status['uptime']:.1f}s\n"
+                        f"  Connections: {status['connections']}"
+                    )
+                return True, "Dashboard is not running."
+
+            elif subcommand == "open":
+                import webbrowser
+
+                if not is_dashboard_running():
+                    # Auto-start with default port
+                    try:
+                        await start_dashboard(
+                            port=8765,
+                            manager=self._manager,
+                            get_current_model=lambda: self._current_model_id,
+                            sessions_model=self._sessions_model,
+                            sessions_mode=self._sessions_mode,
+                        )
+                    except Exception as e:
+                        return True, f"Failed to start dashboard: {e}"
+
+                status = get_dashboard_status()
+                url = f"http://127.0.0.1:{status['port']}"
+                webbrowser.open(url)
+                return True, f"Opening dashboard at {url}"
+
+            else:
+                return True, (
+                    "Usage: /dashboard [subcommand]\n"
+                    "  start [port] - Start dashboard server (default port: 8765)\n"
+                    "  stop         - Stop dashboard server\n"
+                    "  status       - Show dashboard status\n"
+                    "  open         - Open dashboard in browser (auto-starts if needed)"
+                )
 
         # Unknown command - let it pass through to LLM
         return False, ""
@@ -925,6 +1129,17 @@ class ActiveContextAgent:
                             f"Context: {len(handles)} handles"
                         ),
                     )
+
+        # Broadcast to dashboard if running
+        from activecontext.dashboard import broadcast_update, is_dashboard_running
+
+        if is_dashboard_running():
+            await broadcast_update(
+                session_id,
+                update.kind.value,
+                update.payload,
+                update.timestamp,
+            )
 
 
 def create_agent() -> ActiveContextAgent:

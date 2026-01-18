@@ -1493,12 +1493,23 @@ class TestShellTimelineIntegration:
     async def test_timeline_allows_authorized_shell(self, temp_cwd: Path) -> None:
         """Test Timeline allows authorized shell commands."""
         import asyncio
+        import sys
         from activecontext.session.timeline import Timeline
         from activecontext.context.nodes import ShellNode, ShellStatus
 
+        # Windows uses cmd.exe for echo; Unix uses echo directly
+        if sys.platform == "win32":
+            pattern = "cmd *"
+            cmd = "cmd"
+            args = ["/c", "echo", "hello"]
+        else:
+            pattern = "echo *"
+            cmd = "echo"
+            args = ["hello"]
+
         config = SandboxConfig(
             shell_permissions=[
-                ShellPermissionConfig(pattern="echo *", allow=True),
+                ShellPermissionConfig(pattern=pattern, allow=True),
             ],
             shell_deny_by_default=True,
         )
@@ -1509,7 +1520,7 @@ class TestShellTimelineIntegration:
             shell_permission_manager=manager,
         )
 
-        result = await timeline.execute_statement('s = shell("echo", ["hello"])')
+        result = await timeline.execute_statement(f's = shell("{cmd}", {args!r})')
 
         assert result.status.value == "ok"
         ns = timeline.get_namespace()
@@ -1575,11 +1586,33 @@ class TestShellPermissionRequestFlow:
         """Create a temporary working directory."""
         return tmp_path
 
-    @pytest.mark.asyncio
-    async def test_shell_permission_request_allow_once(self, temp_cwd: Path) -> None:
-        """Test allow_once grants temporary shell access."""
-        from activecontext.session.timeline import Timeline
+    @pytest.fixture
+    async def timeline_factory(self, temp_cwd: Path):
+        """Factory for creating timelines with proper cleanup."""
+        import asyncio
+        timelines: list = []
 
+        def create(**kwargs):
+            from activecontext.session.timeline import Timeline
+            tl = Timeline("test-session", cwd=str(temp_cwd), **kwargs)
+            timelines.append(tl)
+            return tl
+
+        yield create
+
+        # Cleanup: cancel all background tasks
+        for tl in timelines:
+            for task in tl._shell_tasks.values():
+                if not task.done():
+                    task.cancel()
+                    try:
+                        await task
+                    except asyncio.CancelledError:
+                        pass
+
+    @pytest.mark.asyncio
+    async def test_shell_permission_request_allow_once(self, timeline_factory) -> None:
+        """Test allow_once grants temporary shell access."""
         config = SandboxConfig(shell_deny_by_default=True)
         manager = ShellPermissionManager.from_config(config)
 
@@ -1589,9 +1622,7 @@ class TestShellPermissionRequestFlow:
         ) -> tuple[bool, bool]:
             return (True, False)  # granted=True, persist=False
 
-        timeline = Timeline(
-            "test-session",
-            cwd=str(temp_cwd),
+        timeline = timeline_factory(
             shell_permission_manager=manager,
             shell_permission_requester=mock_requester,
         )
@@ -1603,9 +1634,9 @@ class TestShellPermissionRequestFlow:
         assert "exit=126" not in result.stdout
 
     @pytest.mark.asyncio
-    async def test_shell_permission_request_allow_always(self, temp_cwd: Path) -> None:
+    async def test_shell_permission_request_allow_always(self, temp_cwd: Path, timeline_factory) -> None:
         """Test allow_always persists shell permission to config."""
-        from activecontext.session.timeline import Timeline
+        import asyncio
 
         config = SandboxConfig(shell_deny_by_default=True)
         manager = ShellPermissionManager.from_config(config)
@@ -1616,20 +1647,20 @@ class TestShellPermissionRequestFlow:
         ) -> tuple[bool, bool]:
             return (True, True)  # granted=True, persist=True
 
-        timeline = Timeline(
-            "test-session",
-            cwd=str(temp_cwd),
+        timeline = timeline_factory(
             shell_permission_manager=manager,
             shell_permission_requester=mock_requester,
         )
 
-        result = await timeline.execute_statement('shell("echo", ["hello"])')
-
+        result = await timeline.execute_statement('s = shell("echo", ["hello"])')
         assert result.status.value == "ok"
+
+        # Wait for background task to complete
+        await asyncio.sleep(0.2)
 
         # Verify config was updated
         config_path = temp_cwd / ".ac" / "config.yaml"
-        assert config_path.exists()
+        assert config_path.exists(), f"Config file not found at {config_path}"
 
         with open(config_path) as f:
             data = yaml.safe_load(f)
@@ -1641,9 +1672,9 @@ class TestShellPermissionRequestFlow:
         assert "echo hello" in patterns
 
     @pytest.mark.asyncio
-    async def test_shell_permission_request_denied(self, temp_cwd: Path) -> None:
+    async def test_shell_permission_request_denied(self, timeline_factory) -> None:
         """Test denied shell permission returns error result."""
-        from activecontext.session.timeline import Timeline
+        from activecontext.context.nodes import ShellNode, ShellStatus
 
         config = SandboxConfig(shell_deny_by_default=True)
         manager = ShellPermissionManager.from_config(config)
@@ -1654,39 +1685,59 @@ class TestShellPermissionRequestFlow:
         ) -> tuple[bool, bool]:
             return (False, False)  # denied
 
-        timeline = Timeline(
-            "test-session",
-            cwd=str(temp_cwd),
+        timeline = timeline_factory(
             shell_permission_manager=manager,
             shell_permission_requester=mock_requester,
         )
 
-        result = await timeline.execute_statement('shell("echo", ["hello"])')
+        result = await timeline.execute_statement('s = shell("echo", ["hello"])')
 
         assert result.status.value == "ok"
-        # Should indicate error (exit=126 is permission denied)
-        assert "error" in result.stdout.lower() or "exit=126" in result.stdout
+
+        # Wait for background task and process results
+        import asyncio
+        await asyncio.sleep(0.2)
+        timeline.process_pending_shell_results()
+
+        # Check the ShellNode has permission denied status
+        ns = timeline.get_namespace()
+        assert "s" in ns
+        shell_node = ns["s"]
+        assert isinstance(shell_node, ShellNode)
+        # Permission denied should set exit_code=126 and FAILED status
+        assert shell_node.shell_status == ShellStatus.FAILED
+        assert shell_node.exit_code == 126
 
     @pytest.mark.asyncio
-    async def test_no_shell_requester_returns_denied(self, temp_cwd: Path) -> None:
+    async def test_no_shell_requester_returns_denied(self, timeline_factory) -> None:
         """Test that without a requester, shell command is denied."""
-        from activecontext.session.timeline import Timeline
+        import asyncio
+        from activecontext.context.nodes import ShellNode, ShellStatus
 
         config = SandboxConfig(shell_deny_by_default=True)
         manager = ShellPermissionManager.from_config(config)
 
         # No permission requester
-        timeline = Timeline(
-            "test-session",
-            cwd=str(temp_cwd),
+        timeline = timeline_factory(
             shell_permission_manager=manager,
         )
 
-        result = await timeline.execute_statement('shell("echo", ["hello"])')
+        result = await timeline.execute_statement('s = shell("echo", ["hello"])')
 
         assert result.status.value == "ok"
-        # Should indicate error (exit=126 is permission denied)
-        assert "error" in result.stdout.lower() or "exit=126" in result.stdout
+
+        # Wait for background task and process results
+        await asyncio.sleep(0.2)
+        timeline.process_pending_shell_results()
+
+        # Check the ShellNode has permission denied status
+        ns = timeline.get_namespace()
+        assert "s" in ns
+        shell_node = ns["s"]
+        assert isinstance(shell_node, ShellNode)
+        # Permission denied should set exit_code=126 and FAILED status
+        assert shell_node.shell_status == ShellStatus.FAILED
+        assert shell_node.exit_code == 126
 
 
 # =============================================================================

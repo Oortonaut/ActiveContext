@@ -447,6 +447,11 @@ class TestMainEntryPoint:
 
         from activecontext.config.schema import LoggingConfig
 
+        # Make mock_asyncio_run properly close the coroutine to avoid warning
+        def close_coro(coro):
+            coro.close()
+        mock_asyncio_run.side_effect = close_coro
+
         mock_config = Mock()
         mock_config.llm = Mock()
         mock_config.llm.role = "coding"

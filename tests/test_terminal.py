@@ -84,7 +84,10 @@ class TestSubprocessTerminalExecutor:
 
     @pytest.mark.asyncio
     async def test_echo_basic(self, executor):
-        result = await executor.execute("echo", args=["hello"])
+        if sys.platform == "win32":
+            result = await executor.execute("cmd", args=["/c", "echo", "hello"])
+        else:
+            result = await executor.execute("echo", args=["hello"])
         assert result.success
         assert "hello" in result.output
         assert result.status == "ok"
@@ -92,7 +95,10 @@ class TestSubprocessTerminalExecutor:
 
     @pytest.mark.asyncio
     async def test_echo_multiple_args(self, executor):
-        result = await executor.execute("echo", args=["hello", "world"])
+        if sys.platform == "win32":
+            result = await executor.execute("cmd", args=["/c", "echo", "hello", "world"])
+        else:
+            result = await executor.execute("echo", args=["hello", "world"])
         assert result.success
         assert "hello" in result.output
         assert "world" in result.output
@@ -205,47 +211,70 @@ class TestXmlParserShell:
 class TestTimelineShellIntegration:
     """Tests for shell() function in Timeline namespace."""
 
-    @pytest.mark.asyncio
-    async def test_shell_in_timeline(self, tmp_path):
+    @pytest.fixture
+    async def timeline(self, tmp_path):
+        """Create timeline and cleanup after test."""
         from activecontext.session.timeline import Timeline
+        tl = Timeline(session_id="test", cwd=str(tmp_path))
+        yield tl
+        # Cancel all background shell tasks
+        for task in tl._shell_tasks.values():
+            if not task.done():
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
 
-        timeline = Timeline(session_id="test", cwd=str(tmp_path))
+    @pytest.mark.asyncio
+    async def test_shell_in_timeline(self, timeline):
+        import asyncio
 
-        # Execute shell via timeline
-        result = await timeline.execute_statement('result = shell("echo", args=["hello"])')
+        # Execute shell via timeline (Windows needs cmd.exe for echo)
+        if sys.platform == "win32":
+            result = await timeline.execute_statement('result = shell("cmd", args=["/c", "echo", "hello"])')
+        else:
+            result = await timeline.execute_statement('result = shell("echo", args=["hello"])')
         assert result.status.value == "ok"
+
+        # Wait for background task and process results
+        await asyncio.sleep(0.5)
+        timeline.process_pending_shell_results()
 
         # Check result is in namespace
         ns = timeline.get_namespace()
         assert "result" in ns
         shell_result = ns["result"]
-        assert shell_result.success
+        assert shell_result.is_success
         assert "hello" in shell_result.output
 
     @pytest.mark.asyncio
-    async def test_shell_as_expression(self, tmp_path):
-        from activecontext.session.timeline import Timeline
-
-        timeline = Timeline(session_id="test", cwd=str(tmp_path))
+    async def test_shell_as_expression(self, timeline):
+        import asyncio
 
         # Execute shell as expression (result printed)
-        result = await timeline.execute_statement('shell("echo", args=["test"])')
+        if sys.platform == "win32":
+            result = await timeline.execute_statement('shell("cmd", args=["/c", "echo", "test"])')
+        else:
+            result = await timeline.execute_statement('shell("echo", args=["test"])')
         assert result.status.value == "ok"
-        # The ShellResult repr should be in stdout
-        assert "ShellResult" in result.stdout
+        # The ShellNode repr should be in stdout
+        assert "ShellNode" in result.stdout
 
     @pytest.mark.asyncio
-    async def test_shell_command_not_found(self, tmp_path):
-        from activecontext.session.timeline import Timeline
-
-        timeline = Timeline(session_id="test", cwd=str(tmp_path))
+    async def test_shell_command_not_found(self, timeline):
+        import asyncio
 
         result = await timeline.execute_statement(
             'r = shell("nonexistent_command_xyz_123")'
         )
         assert result.status.value == "ok"  # Statement executed successfully
 
+        # Wait for background task and process results
+        await asyncio.sleep(0.5)
+        timeline.process_pending_shell_results()
+
         ns = timeline.get_namespace()
         assert "r" in ns
-        assert not ns["r"].success
+        assert not ns["r"].is_success
         assert ns["r"].exit_code == 127

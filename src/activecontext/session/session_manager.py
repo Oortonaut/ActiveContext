@@ -807,15 +807,15 @@ class Session:
     async def _setup_initial_context(self) -> None:
         """Set up initial context views for a new session.
 
-        Creates an example view of CONTEXT_GUIDE.md if it exists,
+        Creates an example view of context_guide.md if it exists,
         demonstrating the view() DSL.
         """
         from pathlib import Path
 
-        # Check for context guide in cwd or package location
+        # Check for context guide in cwd first, then prompts directory
         guide_paths = [
             Path(self._cwd) / "CONTEXT_GUIDE.md",
-            Path(__file__).parent.parent.parent.parent / "CONTEXT_GUIDE.md",
+            Path(__file__).parent.parent / "prompts" / "context_guide.md",
         ]
 
         for guide_path in guide_paths:

@@ -104,6 +104,10 @@ class ContextNode(ABC):
     # Metadata
     tags: dict[str, Any] = field(default_factory=dict)
 
+    # Split architecture: optional reference to shared ContentData
+    # When set, nodes can delegate content storage to ContentRegistry
+    content_id: str | None = field(default=None)
+
     # Graph reference (set by ContextGraph.add_node)
     _graph: ContextGraph | None = field(default=None, repr=False)
 
@@ -191,6 +195,7 @@ class ContextNode(ABC):
             "created_at": self.created_at,
             "updated_at": self.updated_at,
             "tags": self.tags,
+            "content_id": self.content_id,
         }
 
     @classmethod
@@ -222,6 +227,8 @@ class ContextNode(ABC):
             return MCPServerNode._from_dict(data)
         elif node_type == "markdown":
             return MarkdownNode._from_dict(data)
+        elif node_type == "agent":
+            return AgentNode._from_dict(data)
         else:
             raise ValueError(f"Unknown node type: {node_type}")
 
@@ -2420,5 +2427,132 @@ class MarkdownNode(ContextNode):
             content=data.get("content", ""),
             child_order=data.get("child_order", []),
             summary_tokens=data.get("summary_tokens", 100),
+        )
+        return node
+
+
+@dataclass
+class AgentNode(ContextNode):
+    """Represents an agent in the context (self or another agent).
+
+    Used for agent awareness - showing the agent its own identity and
+    information about other agents (parent, children, peers).
+
+    Attributes:
+        agent_id: The agent's ID
+        agent_type: Type of agent (explorer, summarizer, etc.)
+        relation: Relationship to viewing agent ("self", "parent", "child", "peer")
+        task: The agent's task description
+        agent_state: Current state (spawned, running, waiting, etc.)
+        session_id: Underlying session ID
+        message_count: Number of pending messages for this agent
+    """
+
+    agent_id: str = ""
+    agent_type: str = "default"
+    relation: str = "self"  # self, parent, child, peer
+    task: str = ""
+    agent_state: str = "running"
+    session_id: str = ""
+    message_count: int = 0
+
+    @property
+    def node_type(self) -> str:
+        return "agent"
+
+    def GetDigest(self) -> dict[str, Any]:
+        return {
+            "id": self.node_id,
+            "type": self.node_type,
+            "agent_id": self.agent_id,
+            "agent_type": self.agent_type,
+            "relation": self.relation,
+            "task": self.task,
+            "agent_state": self.agent_state,
+            "message_count": self.message_count,
+            "tokens": self.tokens,
+            "state": self.state.value,
+            "mode": self.mode,
+            "version": self.version,
+        }
+
+    def Render(self, tokens: int | None = None, cwd: str = ".") -> str:
+        """Render agent information based on state."""
+        if self.state == NodeState.HIDDEN:
+            return ""
+
+        # Header with relation
+        relation_label = self.relation.title()
+        header = f"[{relation_label} Agent: {self.agent_id}]\n"
+
+        # COLLAPSED: just header
+        if self.state == NodeState.COLLAPSED:
+            return header
+
+        # SUMMARY/DETAILS/ALL: include more info
+        parts = [header]
+        parts.append(f"  Type: {self.agent_type}\n")
+        parts.append(f"  State: {self.agent_state}\n")
+
+        if self.task:
+            parts.append(f"  Task: {self.task}\n")
+
+        if self.message_count > 0:
+            parts.append(f"  Messages: {self.message_count} pending\n")
+
+        return "".join(parts)
+
+    def update_state(self, agent_state: str) -> "AgentNode":
+        """Update the agent's state."""
+        self.agent_state = agent_state
+        self._mark_changed()
+        return self
+
+    def update_message_count(self, count: int) -> "AgentNode":
+        """Update pending message count."""
+        self.message_count = count
+        self._mark_changed()
+        return self
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize AgentNode to dict."""
+        data = super().to_dict()
+        data.update({
+            "agent_id": self.agent_id,
+            "agent_type": self.agent_type,
+            "relation": self.relation,
+            "task": self.task,
+            "agent_state": self.agent_state,
+            "session_id": self.session_id,
+            "message_count": self.message_count,
+        })
+        return data
+
+    @classmethod
+    def _from_dict(cls, data: dict[str, Any]) -> "AgentNode":
+        """Deserialize AgentNode from dict."""
+        tick_freq = None
+        if data.get("tick_frequency"):
+            tick_freq = TickFrequency.from_dict(data["tick_frequency"])
+
+        node = cls(
+            node_id=data["node_id"],
+            parent_ids=set(data.get("parent_ids", [])),
+            children_ids=set(data.get("children_ids", [])),
+            tokens=data.get("tokens", 200),
+            state=NodeState(data.get("state", "details")),
+            mode=data.get("mode", "paused"),
+            tick_frequency=tick_freq,
+            version=data.get("version", 0),
+            created_at=data.get("created_at", time.time()),
+            updated_at=data.get("updated_at", time.time()),
+            tags=data.get("tags", {}),
+            agent_id=data.get("agent_id", ""),
+            agent_type=data.get("agent_type", "default"),
+            relation=data.get("relation", "self"),
+            task=data.get("task", ""),
+            agent_state=data.get("agent_state", "running"),
+            session_id=data.get("session_id", ""),
+            message_count=data.get("message_count", 0),
         )
         return node

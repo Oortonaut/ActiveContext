@@ -247,6 +247,15 @@ class Timeline:
         self._queued_events: list[QueuedEvent] = []
         self._setup_default_event_handlers()
 
+
+    def _setup_default_event_handlers(self) -> None:
+        """Set up default event handlers for built-in events.
+
+        Currently a no-op stub - event handlers can be registered via
+        register_event_handler() as needed.
+        """
+        pass
+
     def set_title_callback(self, callback: Callable[[str], None] | None) -> None:
         """Set the callback for set_title() DSL function.
 
