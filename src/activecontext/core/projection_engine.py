@@ -14,8 +14,10 @@ from activecontext.core.tokens import MediaType, count_tokens
 from activecontext.session.protocols import Projection, ProjectionSection
 
 if TYPE_CHECKING:
+    from activecontext.context.content import ContentRegistry
     from activecontext.context.graph import ContextGraph
     from activecontext.context.nodes import ContextNode
+    from activecontext.context.view import ViewRegistry
 
 
 @dataclass
@@ -99,6 +101,10 @@ class ProjectionEngine:
         cwd: str = ".",
         token_budget: int | None = None,
         show_message_actors: bool = True,
+        # Per-agent view support (split architecture)
+        agent_id: str | None = None,
+        view_registry: "ViewRegistry | None" = None,
+        content_registry: "ContentRegistry | None" = None,
     ) -> Projection:
         """Build a projection from current session state.
 
@@ -109,6 +115,9 @@ class ProjectionEngine:
             cwd: Working directory for file access
             token_budget: Override total token budget
             show_message_actors: Whether to show message actors in conversation
+            agent_id: Optional agent ID for per-agent view resolution
+            view_registry: Optional ViewRegistry for per-agent visibility
+            content_registry: Optional ContentRegistry for shared content
 
         Returns:
             Complete Projection ready for LLM
@@ -139,7 +148,14 @@ class ProjectionEngine:
 
         # 2. Render context (prefer graph, fall back to legacy objects)
         if context_graph and len(context_graph) > 0:
-            graph_sections = self._render_graph(context_graph, tree_budget, cwd)
+            graph_sections = self._render_graph(
+                context_graph,
+                tree_budget,
+                cwd,
+                agent_id=agent_id,
+                view_registry=view_registry,
+                content_registry=content_registry,
+            )
             sections.extend(graph_sections)
 
             # Build handles dict from graph
@@ -179,6 +195,10 @@ class ProjectionEngine:
         graph: ContextGraph,
         budget: int,
         cwd: str,
+        *,
+        agent_id: str | None = None,
+        view_registry: "ViewRegistry | None" = None,
+        content_registry: "ContentRegistry | None" = None,
     ) -> list[ProjectionSection]:
         """Render visible nodes from the context graph.
 
@@ -186,10 +206,16 @@ class ProjectionEngine:
         - Running nodes (mode="running")
         - Root nodes that are paused (explicitly included)
 
+        When view_registry and agent_id are provided, per-agent visibility
+        settings (hidden, state, tokens) are used instead of node defaults.
+
         Args:
             graph: The context graph
             budget: Token budget for all graph content
             cwd: Working directory for file access
+            agent_id: Optional agent ID for per-agent view resolution
+            view_registry: Optional ViewRegistry for per-agent visibility
+            content_registry: Optional ContentRegistry for shared content
 
         Returns:
             List of ProjectionSections for visible nodes
@@ -206,21 +232,59 @@ class ProjectionEngine:
         per_node_budget = budget // len(visible_nodes)
 
         for node in visible_nodes:
-            # Skip hidden nodes (state=HIDDEN means not in projection)
-            if node.state == NodeState.HIDDEN:
-                continue
+            # Check for per-agent view if available
+            agent_view = None
+            if view_registry and agent_id:
+                agent_view = view_registry.get_by_node(node.node_id)
+                if agent_view and agent_view.agent_id != agent_id:
+                    agent_view = None  # Not this agent's view
 
-            content = node.Render(tokens=per_node_budget, cwd=cwd)
+            # Determine visibility settings (per-agent or node default)
+            if agent_view:
+                # Use agent-specific visibility
+                if agent_view.hidden:
+                    # Hidden content shows token placeholder
+                    content = self._render_hidden_placeholder(node, content_registry)
+                    tokens_used = 10  # Minimal tokens for placeholder
+                    state = agent_view.state
+                elif content_registry and node.content_id:
+                    # Render via AgentView + ContentData
+                    content_data = content_registry.get(node.content_id)
+                    if content_data:
+                        content = agent_view.render(
+                            content_data, budget=agent_view.tokens
+                        )
+                        tokens_used = count_tokens(content, MediaType.TEXT)
+                        state = agent_view.state
+                    else:
+                        # Content not found, render node normally
+                        content = node.Render(tokens=agent_view.tokens, cwd=cwd)
+                        media_type = getattr(node, "media_type", MediaType.TEXT)
+                        tokens_used = count_tokens(content, media_type)
+                        state = agent_view.state
+                else:
+                    # AgentView without ContentData - use node's Render
+                    content = node.Render(tokens=agent_view.tokens, cwd=cwd)
+                    media_type = getattr(node, "media_type", MediaType.TEXT)
+                    tokens_used = count_tokens(content, media_type)
+                    state = agent_view.state
+            else:
+                # Default path: use node's built-in settings
+                if node.state == NodeState.HIDDEN:
+                    continue
 
-            # Use node's media_type if available (ViewNode), otherwise TEXT
-            media_type = getattr(node, "media_type", MediaType.TEXT)
+                content = node.Render(tokens=per_node_budget, cwd=cwd)
+                media_type = getattr(node, "media_type", MediaType.TEXT)
+                tokens_used = count_tokens(content, media_type)
+                state = node.state
+
             sections.append(
                 ProjectionSection(
                     section_type=node.node_type,
                     source_id=node.node_id,
                     content=content,
-                    tokens_used=count_tokens(content, media_type),
-                    state=node.state,
+                    tokens_used=tokens_used,
+                    state=state,
                     metadata=node.GetDigest(),
                 )
             )
@@ -255,6 +319,33 @@ class ProjectionEngine:
                 visible.append(node)
 
         return visible
+
+    def _render_hidden_placeholder(
+        self,
+        node: "ContextNode",
+        content_registry: "ContentRegistry | None",
+    ) -> str:
+        """Render a placeholder for hidden content.
+
+        Shows the node type and token count without revealing content.
+
+        Args:
+            node: The context node
+            content_registry: Optional ContentRegistry for token info
+
+        Returns:
+            Placeholder string like "[file: 500 tokens]"
+        """
+        # Try to get token count from ContentData if available
+        if content_registry and node.content_id:
+            content_data = content_registry.get(node.content_id)
+            if content_data:
+                return f"[{content_data.content_type}: {content_data.token_count} tokens]"
+
+        # Fall back to node info
+        node_type = node.node_type
+        tokens = node.tokens
+        return f"[{node_type}: {tokens} tokens]"
 
     def _render_conversation(
         self,
@@ -627,7 +718,7 @@ class ProjectionEngine:
         parts: list[str] = []
         chars_used = 0
 
-        for node in nodes:
+        for idx, node in enumerate(nodes):
             if not isinstance(node, MessageNode):
                 continue
 
@@ -655,7 +746,7 @@ class ProjectionEngine:
                 content = content + "\n"
 
             if chars_used + len(content) > budget:
-                remaining = len(nodes) - nodes.index(node)
+                remaining = len(nodes) - idx
                 if remaining > 1:
                     parts.append(f"... [{remaining} more items]\n")
                 break

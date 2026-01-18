@@ -229,27 +229,68 @@ class ScratchpadManager:
         scratchpad = self._load()
         conflicts: list[Conflict] = []
 
-        for entry in scratchpad.entries:
-            # Skip self
-            if entry.id == self._agent_id:
-                continue
-            # Skip inactive entries
-            if entry.status != "active":
-                continue
+        # Build indexes for O(1) exact-match lookups
+        # Separate exact paths from glob patterns
+        exact_files: dict[str, list[tuple[WorkEntry, FileAccess]]] = {}
+        glob_files: list[tuple[WorkEntry, FileAccess]] = []
 
+        for entry in scratchpad.entries:
+            # Skip self and inactive entries
+            if entry.id == self._agent_id or entry.status != "active":
+                continue
             for file_access in entry.files:
-                for path in paths:
-                    if self._paths_match(path, file_access.path):
-                        # Conflict if they're writing, or we're writing
-                        if file_access.mode == "write" or mode == "write":
-                            conflicts.append(
-                                Conflict(
-                                    agent_id=entry.id,
-                                    file=file_access.path,
-                                    their_mode=file_access.mode,
-                                    their_intent=entry.intent,
-                                )
+                normalized = Path(file_access.path).as_posix()
+                if "*" in normalized or "?" in normalized:
+                    glob_files.append((entry, file_access))
+                else:
+                    exact_files.setdefault(normalized, []).append((entry, file_access))
+
+        # Normalize query paths once
+        normalized_paths = [(p, Path(p).as_posix()) for p in paths]
+
+        for original_path, norm_path in normalized_paths:
+            is_glob = "*" in norm_path or "?" in norm_path
+
+            # O(1) exact match lookup for non-glob query paths
+            if not is_glob and norm_path in exact_files:
+                for entry, fa in exact_files[norm_path]:
+                    if fa.mode == "write" or mode == "write":
+                        conflicts.append(
+                            Conflict(
+                                agent_id=entry.id,
+                                file=fa.path,
+                                their_mode=fa.mode,
+                                their_intent=entry.intent,
                             )
+                        )
+
+            # Check against glob patterns from other agents
+            for entry, fa in glob_files:
+                if self._paths_match(original_path, fa.path):
+                    if fa.mode == "write" or mode == "write":
+                        conflicts.append(
+                            Conflict(
+                                agent_id=entry.id,
+                                file=fa.path,
+                                their_mode=fa.mode,
+                                their_intent=entry.intent,
+                            )
+                        )
+
+            # If query path is a glob, check against all exact paths
+            if is_glob:
+                for exact_path, entries_fas in exact_files.items():
+                    if fnmatch.fnmatch(exact_path, norm_path):
+                        for entry, fa in entries_fas:
+                            if fa.mode == "write" or mode == "write":
+                                conflicts.append(
+                                    Conflict(
+                                        agent_id=entry.id,
+                                        file=fa.path,
+                                        their_mode=fa.mode,
+                                        their_intent=entry.intent,
+                                    )
+                                )
 
         return conflicts
 

@@ -15,6 +15,7 @@ from __future__ import annotations
 import time
 import uuid
 from abc import ABC, abstractmethod
+from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
@@ -1422,9 +1423,9 @@ class SessionNode(ContextNode):
         root_nodes = self._graph.get_roots()
         if root_nodes:
             visited: set[str] = set()
-            queue: list[tuple[str, int]] = [(r.node_id, 1) for r in root_nodes]
+            queue: deque[tuple[str, int]] = deque((r.node_id, 1) for r in root_nodes)
             while queue:
-                nid, depth = queue.pop(0)
+                nid, depth = queue.popleft()
                 if nid in visited:
                     continue
                 visited.add(nid)
@@ -2106,14 +2107,13 @@ class MarkdownNode(ContextNode):
         parent = self._graph.get_node(parent_id)
         if not parent or not isinstance(parent, MarkdownNode):
             return None
-        try:
-            idx = parent.child_order.index(self.node_id)
-            if idx < len(parent.child_order) - 1:
-                next_id = parent.child_order[idx + 1]
-                sibling = self._graph.get_node(next_id)
-                return sibling if isinstance(sibling, MarkdownNode) else None
-        except ValueError:
-            pass
+        # Build index map for O(1) lookup instead of O(N) list.index()
+        child_index = {cid: i for i, cid in enumerate(parent.child_order)}
+        idx = child_index.get(self.node_id)
+        if idx is not None and idx < len(parent.child_order) - 1:
+            next_id = parent.child_order[idx + 1]
+            sibling = self._graph.get_node(next_id)
+            return sibling if isinstance(sibling, MarkdownNode) else None
         return None
 
     def prev_sibling(self) -> MarkdownNode | None:
@@ -2124,14 +2124,13 @@ class MarkdownNode(ContextNode):
         parent = self._graph.get_node(parent_id)
         if not parent or not isinstance(parent, MarkdownNode):
             return None
-        try:
-            idx = parent.child_order.index(self.node_id)
-            if idx > 0:
-                prev_id = parent.child_order[idx - 1]
-                sibling = self._graph.get_node(prev_id)
-                return sibling if isinstance(sibling, MarkdownNode) else None
-        except ValueError:
-            pass
+        # Build index map for O(1) lookup instead of O(N) list.index()
+        child_index = {cid: i for i, cid in enumerate(parent.child_order)}
+        idx = child_index.get(self.node_id)
+        if idx is not None and idx > 0:
+            prev_id = parent.child_order[idx - 1]
+            sibling = self._graph.get_node(prev_id)
+            return sibling if isinstance(sibling, MarkdownNode) else None
         return None
 
     def GetDigest(self) -> dict[str, Any]:
