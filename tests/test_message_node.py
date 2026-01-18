@@ -185,7 +185,6 @@ class TestMessageNodeRender:
             actor="tool:grep",
         )
         rendered = node.Render()
-        assert "[Result]" in rendered
         assert "test found" in rendered
 
 
@@ -336,3 +335,70 @@ class TestUserDisplayName:
         # Should return something (USER, USERNAME, or "User")
         assert name is not None
         assert len(name) > 0
+
+
+class TestDynamicToolLabels:
+    """Test dynamic label generation for tool results."""
+
+    def test_view_tool_shows_filename(self) -> None:
+        """Test that view/read tools show the filename."""
+        engine = ProjectionEngine(ProjectionConfig())
+        node = MessageNode(
+            role="tool_result",
+            content="file contents here",
+            actor="tool:read_file",
+            tool_name="read_file",
+            tool_args={"file_path": "/path/to/main.py"},
+        )
+        label = engine._get_tool_result_label(node)
+        assert label == "main.py"
+
+    def test_grep_tool_shows_pattern(self) -> None:
+        """Test that grep tools show the search pattern."""
+        engine = ProjectionEngine(ProjectionConfig())
+        node = MessageNode(
+            role="tool_result",
+            content="search results",
+            actor="tool:grep",
+            tool_name="grep",
+            tool_args={"pattern": "TODO"},
+        )
+        label = engine._get_tool_result_label(node)
+        assert label == "grep: TODO"
+
+    def test_shell_tool_shows_command(self) -> None:
+        """Test that shell tools show the command."""
+        engine = ProjectionEngine(ProjectionConfig())
+        node = MessageNode(
+            role="tool_result",
+            content="command output",
+            actor="tool:bash",
+            tool_name="bash",
+            tool_args={"command": "git status"},
+        )
+        label = engine._get_tool_result_label(node)
+        assert label == "git status"
+
+    def test_unknown_tool_shows_tool_name(self) -> None:
+        """Test that unknown tools show tool name + result."""
+        engine = ProjectionEngine(ProjectionConfig())
+        node = MessageNode(
+            role="tool_result",
+            content="output",
+            actor="tool:custom_tool",
+            tool_name="custom_tool",
+            tool_args={},
+        )
+        label = engine._get_tool_result_label(node)
+        assert label == "custom_tool result"
+
+    def test_no_tool_name_shows_result(self) -> None:
+        """Test fallback to 'Result' when no tool info."""
+        engine = ProjectionEngine(ProjectionConfig())
+        node = MessageNode(
+            role="tool_result",
+            content="output",
+            actor="tool:unknown",
+        )
+        label = engine._get_tool_result_label(node)
+        assert label == "Result"

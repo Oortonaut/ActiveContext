@@ -459,11 +459,12 @@ class ProjectionEngine:
                 else:
                     content = f"[Tool: {tool_name}]\n"
             elif node.role == "tool_result":
-                # Format tool result
+                # Format tool result with dynamic label
+                result_label = self._get_tool_result_label(node)
                 result_content = node.content
                 if len(result_content) > budget // len(nodes):
                     result_content = result_content[:budget // len(nodes) - 20] + "..."
-                content = f"[Result] {result_content}\n"
+                content = f"[{result_label}] {result_content}\n"
             else:
                 # Regular message content
                 content = node.content
@@ -481,6 +482,64 @@ class ProjectionEngine:
             chars_used += len(content)
 
         return "".join(parts)
+
+    def _get_tool_result_label(self, node: ContextNode) -> str:
+        """Get a dynamic label for a tool result.
+
+        Uses tool_args to extract meaningful context like filenames.
+
+        Args:
+            node: A MessageNode with role="tool_result"
+
+        Returns:
+            Dynamic label like "main.py" or "grep: pattern" or "Result"
+        """
+        from activecontext.context.nodes import MessageNode
+
+        if not isinstance(node, MessageNode):
+            return "Result"
+
+        tool_name = node.tool_name or ""
+        args = node.tool_args or {}
+
+        # File-based tools: show the filename
+        if tool_name in ("view", "read", "read_file", "Read"):
+            path = args.get("path") or args.get("file_path") or args.get("file")
+            if path:
+                # Extract just the filename from path
+                import os
+                return os.path.basename(str(path))
+
+        # Search tools: show the pattern
+        if tool_name in ("grep", "Grep", "search", "rg"):
+            pattern = args.get("pattern") or args.get("query")
+            if pattern:
+                # Truncate long patterns
+                pattern_str = str(pattern)
+                if len(pattern_str) > 20:
+                    pattern_str = pattern_str[:17] + "..."
+                return f"grep: {pattern_str}"
+
+        # Glob/find tools: show the pattern
+        if tool_name in ("glob", "Glob", "find", "find_file"):
+            pattern = args.get("pattern") or args.get("file_mask")
+            if pattern:
+                return f"glob: {pattern}"
+
+        # Shell/bash tools: show the command
+        if tool_name in ("shell", "bash", "Bash", "execute"):
+            cmd = args.get("command") or args.get("cmd")
+            if cmd:
+                cmd_str = str(cmd)
+                if len(cmd_str) > 25:
+                    cmd_str = cmd_str[:22] + "..."
+                return cmd_str
+
+        # Default: use tool name if available
+        if tool_name:
+            return f"{tool_name} result"
+
+        return "Result"
 
     def _render_views(
         self,
