@@ -31,7 +31,6 @@ class ModelInfo:
     provider: str
     context_length: int
     description: str | None = None
-    temperature: float | None = None  # None = don't send temperature param
 
 
 @dataclass
@@ -43,8 +42,7 @@ class RoleModelEntry:
     model_id: str  # "claude-sonnet-4-5-20250929"
     display_name: str  # "anthropic/Claude Sonnet 4.5"
     context_length: int  # 200000
-    description: str | None = None  # "Code generation... - Best for coding & agents"
-    temperature: float | None = None  # None = don't send temperature param  # "Code generation... - Best for coding & agents"
+    description: str | None = None  # "Code generation... - Best for coding & agents"  # "Code generation... - Best for coding & agents"
 
 
 def _get_provider_api_key(config: ProviderConfig) -> str | None:
@@ -91,7 +89,6 @@ def get_available_models() -> list[ModelInfo]:
                         provider=provider,
                         context_length=model.context_length,
                         description=model.description,
-                        temperature=model.temperature,
                     )
                 )
     return models
@@ -155,7 +152,6 @@ def get_role_models(role: str) -> list[RoleModelEntry]:
                 display_name=display_name,
                 context_length=model_config.context_length,
                 description=description,
-                temperature=model_config.temperature,
             )
         )
 

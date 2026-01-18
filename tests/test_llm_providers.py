@@ -189,7 +189,6 @@ class TestProviderDiscovery:
             assert model.provider == "anthropic"
             assert model.description == "Most capable, hybrid reasoning"
             assert model.context_length == 200000
-            assert model.temperature == 0.0
 
 
 # =============================================================================
@@ -399,7 +398,6 @@ class TestRoleBasedSelection:
             # Format: "provider/ModelName"
             assert entry.display_name == "anthropic/Claude Haiku 4.5"
             assert entry.context_length == 200000
-            assert entry.temperature == 0.0
 
 
 # =============================================================================
@@ -450,14 +448,12 @@ class TestLiteLLMProvider:
         kwargs = provider._build_kwargs(
             messages=messages,
             max_tokens=1000,
-            temperature=0.5,
             stop=["STOP"],
             stream=True,
         )
 
         assert kwargs["model"] == "claude-sonnet-4-20250514"
         assert kwargs["max_tokens"] == 1000
-        assert kwargs["temperature"] == 0.5
         assert kwargs["stop"] == ["STOP"]
         assert kwargs["stream"] is True
         assert kwargs["api_key"] == "sk-test"
@@ -480,7 +476,7 @@ class TestLiteLLMProvider:
             mock_acompletion.return_value = mock_response
 
             messages = [Message(role=Role.USER, content="Test prompt")]
-            result = await provider.complete(messages, max_tokens=100, temperature=0.7)
+            result = await provider.complete(messages, max_tokens=100)
 
             assert isinstance(result, CompletionResult)
             assert result.content == "This is the response!"
@@ -494,7 +490,6 @@ class TestLiteLLMProvider:
             call_kwargs = mock_acompletion.call_args.kwargs
             assert call_kwargs["model"] == "claude-sonnet-4-20250514"
             assert call_kwargs["max_tokens"] == 100
-            assert call_kwargs["temperature"] == 0.7
             assert call_kwargs["stream"] is False
 
     @pytest.mark.asyncio

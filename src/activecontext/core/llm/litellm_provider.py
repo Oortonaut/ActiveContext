@@ -21,7 +21,6 @@ from activecontext.core.llm.provider import (
     Message,
     StreamChunk,
 )
-from activecontext.core.llm.providers import PROVIDER_CONFIGS
 
 
 class LiteLLMProvider:
@@ -71,7 +70,6 @@ class LiteLLMProvider:
         messages: list[Message],
         *,
         max_tokens: int,
-        temperature: float | None,
         stop: list[str] | None,
         stream: bool,
     ) -> dict[str, Any]:
@@ -86,16 +84,6 @@ class LiteLLMProvider:
             **self._kwargs,
         }
 
-        # Only include temperature if model supports it
-        # Check model config for temperature support
-        model_temp = self._get_model_temperature()
-        if model_temp is not None and model_temp >= 0:
-            # Use provided temperature or model default
-            kwargs["temperature"] = temperature if temperature is not None else model_temp
-        elif temperature is not None and self._model_supports_temperature():
-            # Model not in config but temperature explicitly provided
-            kwargs["temperature"] = temperature
-
         if self._api_key:
             kwargs["api_key"] = self._api_key
         if self._api_base:
@@ -105,44 +93,18 @@ class LiteLLMProvider:
 
         return kwargs
 
-    def _get_model_temperature(self) -> float | None:
-        """Get the configured temperature for this model, or None if not configured."""
-        for provider_config in PROVIDER_CONFIGS.values():
-            for model in provider_config.models:
-                if model.id == self._model:
-                    return model.temperature
-        return None
-
-    def _model_supports_temperature(self) -> bool:
-        """Check if model is in our config (if not, assume it supports temperature)."""
-        for provider_config in PROVIDER_CONFIGS.values():
-            for model in provider_config.models:
-                if model.id == self._model:
-                    # Model is in config - only supports temp if configured
-                    return model.temperature is not None
-        # Model not in our config - assume it supports temperature
-        return True
 
     async def complete(
         self,
         messages: list[Message],
         *,
         max_tokens: int = 4096,
-        temperature: float | None = None,
         stop: list[str] | None = None,
     ) -> CompletionResult:
-        """Generate a completion (non-streaming).
-
-        Args:
-            messages: Conversation messages
-            max_tokens: Maximum tokens to generate
-            temperature: Sampling temperature (None = use model default, or omit if unsupported)
-            stop: Stop sequences
-        """
+        """Generate a completion (non-streaming)."""
         kwargs = self._build_kwargs(
             messages,
             max_tokens=max_tokens,
-            temperature=temperature,
             stop=stop,
             stream=False,
         )
@@ -171,21 +133,12 @@ class LiteLLMProvider:
         messages: list[Message],
         *,
         max_tokens: int = 4096,
-        temperature: float | None = None,
         stop: list[str] | None = None,
     ) -> AsyncIterator[StreamChunk]:
-        """Generate a streaming completion.
-
-        Args:
-            messages: Conversation messages
-            max_tokens: Maximum tokens to generate
-            temperature: Sampling temperature (None = use model default, or omit if unsupported)
-            stop: Stop sequences
-        """
+        """Generate a streaming completion."""
         kwargs = self._build_kwargs(
             messages,
             max_tokens=max_tokens,
-            temperature=temperature,
             stop=stop,
             stream=True,
         )

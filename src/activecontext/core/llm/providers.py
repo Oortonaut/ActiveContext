@@ -21,7 +21,6 @@ class ModelConfig:
     name: str
     description: str
     context_length: int
-    temperature: float | None = None  # None = don't send temperature param
 
 
 @dataclass
@@ -65,7 +64,6 @@ def _build_provider_configs() -> dict[str, ProviderConfig]:
                 name=m["name"],
                 description=m["description"],
                 context_length=m["context_length"],
-                temperature=m.get("temperature"),  # None if not specified
             )
             for m in provider_data.get("models", [])
         ]
