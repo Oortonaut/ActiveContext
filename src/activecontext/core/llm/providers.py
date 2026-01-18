@@ -21,6 +21,7 @@ class ModelConfig:
     name: str
     description: str
     context_length: int
+    capabilities: list[str] = field(default_factory=list)  # tool_use, image_input, image_generation, chat, thinking
 
 
 @dataclass
@@ -64,6 +65,7 @@ def _build_provider_configs() -> dict[str, ProviderConfig]:
                 name=m["name"],
                 description=m["description"],
                 context_length=m["context_length"],
+                capabilities=m.get("capabilities", []),
             )
             for m in provider_data.get("models", [])
         ]

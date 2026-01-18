@@ -1,5 +1,13 @@
 # LLM Provider Configurations
-# Updated January 2026
+# Updated January 2026 with current model releases
+#
+# Capabilities:
+#   - tool_use: Supports function/tool calling
+#   - image_input: Can analyze images
+#   - image_generation: Can generate images
+#   - chat: Supports conversational interaction
+#   - reasoning: Supports extended reasoning/chain-of-thought
+#   (audiovisual support will be added in future)
 
 roles:
   coding:
@@ -23,14 +31,17 @@ providers:
         name: Claude Opus 4.5
         description: Most capable, hybrid reasoning
         context_length: 200000
+        capabilities: [tool_use, image_input, chat, reasoning]
       - id: claude-sonnet-4-5-20250929
         name: Claude Sonnet 4.5
         description: Best for coding & agents
         context_length: 200000
+        capabilities: [tool_use, image_input, chat]
       - id: claude-haiku-4-5-20251001
         name: Claude Haiku 4.5
         description: Fast, cost-efficient
         context_length: 200000
+        capabilities: [tool_use, image_input, chat]
     role_models:
       coding: claude-sonnet-4-5-20250929
       thinking: claude-opus-4-5-20251101
@@ -44,31 +55,41 @@ providers:
     models:
       - id: gpt-5.2
         name: GPT-5.2
-        description: Most capable, reasoning
+        description: Best model for coding and agentic tasks
         context_length: 256000
-      - id: gpt-5.2-codex
-        name: GPT-5.2 Codex
-        description: Optimized for agentic coding
+        capabilities: [tool_use, image_input, chat]
+      - id: gpt-5-mini
+        name: GPT-5 mini
+        description: Faster, cost-efficient version of GPT-5
         context_length: 256000
+        capabilities: [tool_use, image_input, chat]
+      - id: gpt-5.2-pro
+        name: GPT-5.2 pro
+        description: Smarter, more precise responses
+        context_length: 256000
+        capabilities: [tool_use, image_input, chat, reasoning]
+      - id: gpt-5-nano
+        name: GPT-5 nano
+        description: Fastest, most cost-efficient version of GPT-5
+        context_length: 128000
+        capabilities: [tool_use, chat]
+      - id: gpt-5
+        name: GPT-5
+        description: Previous intelligent reasoning model with configurable effort
+        context_length: 200000
+        capabilities: [tool_use, image_input, chat, reasoning]
       - id: gpt-4.1
         name: GPT-4.1
-        description: Flagship, 1M context
-        context_length: 1000000
-      - id: gpt-4.1-mini
-        name: GPT-4.1 Mini
-        description: Fast and affordable
-        context_length: 1000000
-      - id: gpt-4.1-nano
-        name: GPT-4.1 Nano
-        description: Fastest, cheapest
+        description: Smartest non-reasoning model
         context_length: 128000
+        capabilities: [tool_use, image_input, chat]
     role_models:
-      coding: gpt-5.2-codex
-      thinking: gpt-5.2
-      writing: gpt-5.2
-      balanced: gpt-4.1
-      fast: gpt-4.1-mini
-      cheap: gpt-4.1-nano
+      coding: gpt-5.2
+      thinking: gpt-5.2-pro
+      writing: gpt-5.2-pro
+      balanced: gpt-5.2
+      fast: gpt-5-mini
+      cheap: gpt-5-nano
 
   groq:
     env_var: GROQ_API_KEY
@@ -77,14 +98,17 @@ providers:
         name: Llama 4 Maverick
         description: Latest multimodal
         context_length: 131072
+        capabilities: [tool_use, image_input, chat]
       - id: groq/llama-4-scout-17b-16e-instruct
         name: Llama 4 Scout
         description: Fast multimodal
         context_length: 131072
+        capabilities: [tool_use, image_input, chat]
       - id: groq/llama-3.3-70b-versatile
         name: Llama 3.3 70B
         description: Versatile, tool use
         context_length: 131072
+        capabilities: [tool_use, chat]
     role_models:
       coding: groq/llama-4-maverick-17b-128e-instruct
       thinking: groq/llama-4-maverick-17b-128e-instruct
@@ -100,10 +124,12 @@ providers:
         name: DeepSeek V3.2
         description: General purpose, tool use
         context_length: 131072
+        capabilities: [tool_use, chat]
       - id: deepseek/deepseek-reasoner
         name: DeepSeek R1
         description: Chain-of-thought reasoning
         context_length: 131072
+        capabilities: [chat, reasoning]
     role_models:
       coding: deepseek/deepseek-chat
       thinking: deepseek/deepseek-reasoner
@@ -119,14 +145,17 @@ providers:
         name: Mistral Large 3
         description: 41B params, 256K context
         context_length: 262144
+        capabilities: [tool_use, image_input, chat]
       - id: mistral/codestral-latest
         name: Codestral
         description: Code completion specialist
         context_length: 262144
+        capabilities: [tool_use, chat]
       - id: mistral/magistral-medium-2506
         name: Magistral Medium
         description: Reasoning specialist
         context_length: 262144
+        capabilities: [tool_use, chat, reasoning]
     role_models:
       coding: mistral/codestral-latest
       thinking: mistral/magistral-medium-2506
@@ -142,14 +171,17 @@ providers:
         name: Gemini 3 Flash
         description: Latest multimodal
         context_length: 1000000
+        capabilities: [tool_use, image_input, chat]
       - id: gemini/gemini-3-pro
         name: Gemini 3 Pro
         description: Reasoning-first, agentic
         context_length: 1000000
+        capabilities: [tool_use, image_input, chat, reasoning]
       - id: gemini/gemini-2.5-pro
         name: Gemini 2.5 Pro
         description: Deep Think, long context
         context_length: 2000000
+        capabilities: [tool_use, image_input, chat, reasoning]
     role_models:
       coding: gemini/gemini-3-pro
       thinking: gemini/gemini-3-pro
@@ -165,6 +197,7 @@ providers:
         name: OpenRouter Auto
         description: Auto-selects best model
         context_length: 200000
+        capabilities: [tool_use, image_input, chat]
     role_models:
       coding: openrouter/auto
       thinking: openrouter/auto

@@ -31,6 +31,7 @@ class ModelInfo:
     provider: str
     context_length: int
     description: str | None = None
+    capabilities: list[str] | None = None
 
 
 @dataclass
@@ -42,7 +43,8 @@ class RoleModelEntry:
     model_id: str  # "claude-sonnet-4-5-20250929"
     display_name: str  # "anthropic/Claude Sonnet 4.5"
     context_length: int  # 200000
-    description: str | None = None  # "Code generation... - Best for coding & agents"  # "Code generation... - Best for coding & agents"
+    description: str | None = None  # "Code generation... - Best for coding & agents"
+    capabilities: list[str] | None = None  # ["tool_use", "image_input", "chat"]
 
 
 def _get_provider_api_key(config: ProviderConfig) -> str | None:
@@ -89,6 +91,7 @@ def get_available_models() -> list[ModelInfo]:
                         provider=provider,
                         context_length=model.context_length,
                         description=model.description,
+                        capabilities=model.capabilities if model.capabilities else None,
                     )
                 )
     return models
@@ -152,6 +155,7 @@ def get_role_models(role: str) -> list[RoleModelEntry]:
                 display_name=display_name,
                 context_length=model_config.context_length,
                 description=description,
+                capabilities=model_config.capabilities if model_config.capabilities else None,
             )
         )
 
