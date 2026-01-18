@@ -59,3 +59,9 @@ warn_unused_ignores = true
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+
+[dependency-groups]
+dev = [
+    "pytest-cov>=7.0.0",
+    "pytest-timeout>=2.4.0",
+]

@@ -1039,11 +1039,8 @@ class Timeline:
         This runs in the background while the agent continues. When complete,
         it stores the result in _pending_shell_results for processing at tick.
         """
-        # Get the node and mark as running
+        # Get the node (stays PENDING until permission is granted)
         node = self._context_graph.get_node(node_id)
-        if isinstance(node, ShellNode):
-            node.shell_status = ShellStatus.RUNNING
-            node.started_at_exec = time.time()
 
         result: ShellResult
 
@@ -1114,7 +1111,11 @@ class Timeline:
                     self._pending_shell_results.append((node_id, result))
                     return
 
-        # Permission granted (or no manager) - execute
+        # Permission granted (or no manager) - mark as running and execute
+        if isinstance(node, ShellNode):
+            node.shell_status = ShellStatus.RUNNING
+            node.started_at_exec = time.time()
+
         try:
             result = await self._terminal_executor.execute(
                 command=command,
@@ -1484,6 +1485,43 @@ class Timeline:
             if self._lock_release(node_id):
                 released += 1
         return released
+
+    async def close(self) -> None:
+        """Clean up all background tasks and resources.
+
+        Should be called when done with the Timeline to ensure proper cleanup
+        of asyncio tasks. Can be used with `async with` or called directly.
+
+        Example:
+            timeline = Timeline("session-id", cwd="/path")
+            try:
+                await timeline.execute_statement(...)
+            finally:
+                await timeline.close()
+        """
+        # Cancel all pending shell tasks
+        self.cancel_all_shells()
+
+        # Cancel all pending lock tasks and release held locks
+        self.cancel_all_locks()
+        self.release_all_locks()
+
+        # Give cancelled tasks a chance to complete
+        if self._shell_tasks or self._lock_tasks:
+            await asyncio.sleep(0)
+
+    async def __aenter__(self) -> "Timeline":
+        """Async context manager entry."""
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: object,
+    ) -> None:
+        """Async context manager exit - ensures cleanup."""
+        await self.close()
 
     def _fetch(
         self,

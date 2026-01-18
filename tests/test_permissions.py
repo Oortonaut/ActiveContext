@@ -411,15 +411,18 @@ class TestTimelineIntegration:
         manager = PermissionManager.from_config(str(temp_cwd), config)
         timeline = Timeline("test-session", cwd=str(temp_cwd), permission_manager=manager)
 
-        # Use forward slashes to avoid Windows path escaping issues
-        file_path = (temp_cwd / "allowed.txt").as_posix()
-        result = await timeline.execute_statement(
-            f'open("{file_path}", "r").read()'
-        )
+        try:
+            # Use forward slashes to avoid Windows path escaping issues
+            file_path = (temp_cwd / "allowed.txt").as_posix()
+            result = await timeline.execute_statement(
+                f'open("{file_path}", "r").read()'
+            )
 
-        assert result.status.value == "error"
-        assert result.exception is not None
-        assert "PermissionError" in result.exception["type"]
+            assert result.status.value == "error"
+            assert result.exception is not None
+            assert "PermissionError" in result.exception["type"]
+        finally:
+            await timeline.close()
 
     @pytest.mark.asyncio
     async def test_timeline_allows_authorized_read(self, temp_cwd: Path) -> None:
@@ -430,14 +433,17 @@ class TestTimelineIntegration:
         manager = PermissionManager.from_config(str(temp_cwd), config)
         timeline = Timeline("test-session", cwd=str(temp_cwd), permission_manager=manager)
 
-        # Use forward slashes to avoid Windows path escaping issues
-        file_path = (temp_cwd / "allowed.txt").as_posix()
-        result = await timeline.execute_statement(
-            f'open("{file_path}", "r").read()'
-        )
+        try:
+            # Use forward slashes to avoid Windows path escaping issues
+            file_path = (temp_cwd / "allowed.txt").as_posix()
+            result = await timeline.execute_statement(
+                f'open("{file_path}", "r").read()'
+            )
 
-        assert result.status.value == "ok"
-        assert "allowed content" in result.stdout
+            assert result.status.value == "ok"
+            assert "allowed content" in result.stdout
+        finally:
+            await timeline.close()
 
     @pytest.mark.asyncio
     async def test_timeline_ls_permissions(self, temp_cwd: Path) -> None:
@@ -453,11 +459,14 @@ class TestTimelineIntegration:
         manager = PermissionManager.from_config(str(temp_cwd), config)
         timeline = Timeline("test-session", cwd=str(temp_cwd), permission_manager=manager)
 
-        result = await timeline.execute_statement("ls_permissions()")
+        try:
+            result = await timeline.execute_statement("ls_permissions()")
 
-        assert result.status.value == "ok"
-        assert "auto" in result.stdout  # Should show auto rule
-        assert "config" in result.stdout  # Should show config rule
+            assert result.status.value == "ok"
+            assert "auto" in result.stdout  # Should show auto rule
+            assert "config" in result.stdout  # Should show config rule
+        finally:
+            await timeline.close()
 
     @pytest.mark.asyncio
     async def test_timeline_without_permission_manager(self, temp_cwd: Path) -> None:
@@ -466,15 +475,18 @@ class TestTimelineIntegration:
 
         timeline = Timeline("test-session", cwd=str(temp_cwd))
 
-        # Use forward slashes to avoid Windows path escaping issues
-        file_path = (temp_cwd / "allowed.txt").as_posix()
-        result = await timeline.execute_statement(
-            f'open("{file_path}", "r").read()'
-        )
+        try:
+            # Use forward slashes to avoid Windows path escaping issues
+            file_path = (temp_cwd / "allowed.txt").as_posix()
+            result = await timeline.execute_statement(
+                f'open("{file_path}", "r").read()'
+            )
 
-        # Should work without restrictions
-        assert result.status.value == "ok"
-        assert "allowed content" in result.stdout
+            # Should work without restrictions
+            assert result.status.value == "ok"
+            assert "allowed content" in result.stdout
+        finally:
+            await timeline.close()
 
 
 class TestImportGuard:
@@ -664,13 +676,16 @@ class TestImportTimelineIntegration:
             import_guard=guard,
         )
 
-        result = await timeline.execute_statement("import os")
+        try:
+            result = await timeline.execute_statement("import os")
 
-        assert result.status.value == "error"
-        assert result.exception is not None
-        # ImportDenied is converted to ImportError for LLM consumption
-        assert result.exception["type"] == "ImportError"
-        assert "not in the allowed modules whitelist" in result.exception["message"]
+            assert result.status.value == "error"
+            assert result.exception is not None
+            # ImportDenied is converted to ImportError for LLM consumption
+            assert result.exception["type"] == "ImportError"
+            assert "not in the allowed modules whitelist" in result.exception["message"]
+        finally:
+            await timeline.close()
 
     @pytest.mark.asyncio
     async def test_timeline_allows_authorized_import(self, temp_cwd: Path) -> None:
@@ -684,10 +699,13 @@ class TestImportTimelineIntegration:
             import_guard=guard,
         )
 
-        result = await timeline.execute_statement("import json")
+        try:
+            result = await timeline.execute_statement("import json")
 
-        assert result.status.value == "ok"
-        assert "json" in timeline.get_namespace()
+            assert result.status.value == "ok"
+            assert "json" in timeline.get_namespace()
+        finally:
+            await timeline.close()
 
     @pytest.mark.asyncio
     async def test_timeline_allows_from_import(self, temp_cwd: Path) -> None:
@@ -701,10 +719,13 @@ class TestImportTimelineIntegration:
             import_guard=guard,
         )
 
-        result = await timeline.execute_statement("from json import dumps")
+        try:
+            result = await timeline.execute_statement("from json import dumps")
 
-        assert result.status.value == "ok"
-        assert "dumps" in timeline.get_namespace()
+            assert result.status.value == "ok"
+            assert "dumps" in timeline.get_namespace()
+        finally:
+            await timeline.close()
 
     @pytest.mark.asyncio
     async def test_timeline_ls_imports(self, temp_cwd: Path) -> None:
@@ -718,11 +739,14 @@ class TestImportTimelineIntegration:
             import_guard=guard,
         )
 
-        result = await timeline.execute_statement("ls_imports()")
+        try:
+            result = await timeline.execute_statement("ls_imports()")
 
-        assert result.status.value == "ok"
-        assert "json" in result.stdout
-        assert "math" in result.stdout
+            assert result.status.value == "ok"
+            assert "json" in result.stdout
+            assert "math" in result.stdout
+        finally:
+            await timeline.close()
 
     @pytest.mark.asyncio
     async def test_timeline_without_import_guard(self, temp_cwd: Path) -> None:
@@ -731,11 +755,14 @@ class TestImportTimelineIntegration:
 
         timeline = Timeline("test-session", cwd=str(temp_cwd))
 
-        result = await timeline.execute_statement("import json")
+        try:
+            result = await timeline.execute_statement("import json")
 
-        # Should work without restrictions
-        assert result.status.value == "ok"
-        assert "json" in timeline.get_namespace()
+            # Should work without restrictions
+            assert result.status.value == "ok"
+            assert "json" in timeline.get_namespace()
+        finally:
+            await timeline.close()
 
     @pytest.mark.asyncio
     async def test_timeline_import_guard_with_allow_all(self, temp_cwd: Path) -> None:
@@ -749,9 +776,12 @@ class TestImportTimelineIntegration:
             import_guard=guard,
         )
 
-        # Should allow any import
-        result = await timeline.execute_statement("import os")
-        assert result.status.value == "ok"
+        try:
+            # Should allow any import
+            result = await timeline.execute_statement("import os")
+            assert result.status.value == "ok"
+        finally:
+            await timeline.close()
 
     @pytest.mark.asyncio
     async def test_timeline_set_import_guard(self, temp_cwd: Path) -> None:
@@ -760,19 +790,22 @@ class TestImportTimelineIntegration:
 
         timeline = Timeline("test-session", cwd=str(temp_cwd))
 
-        # Initially no guard, imports work
-        result = await timeline.execute_statement("import os")
-        assert result.status.value == "ok"
+        try:
+            # Initially no guard, imports work
+            result = await timeline.execute_statement("import os")
+            assert result.status.value == "ok"
 
-        # Set guard
-        guard = ImportGuard(allowed_modules={"json"})
-        timeline.set_import_guard(guard)
+            # Set guard
+            guard = ImportGuard(allowed_modules={"json"})
+            timeline.set_import_guard(guard)
 
-        # Now os should be blocked
-        result = await timeline.execute_statement("import sys")
-        assert result.status.value == "error"
-        # ImportDenied is converted to ImportError for LLM consumption
-        assert result.exception["type"] == "ImportError"
+            # Now os should be blocked
+            result = await timeline.execute_statement("import sys")
+            assert result.status.value == "error"
+            # ImportDenied is converted to ImportError for LLM consumption
+            assert result.exception["type"] == "ImportError"
+        finally:
+            await timeline.close()
 
 
 class TestImportConfigParsing:
@@ -1011,11 +1044,14 @@ class TestPermissionRequestFlow:
             permission_requester=mock_requester,
         )
 
-        file_path = (temp_cwd / "protected.txt").as_posix()
-        result = await timeline.execute_statement(f'open("{file_path}", "r").read()')
+        try:
+            file_path = (temp_cwd / "protected.txt").as_posix()
+            result = await timeline.execute_statement(f'open("{file_path}", "r").read()')
 
-        assert result.status.value == "ok"
-        assert "protected content" in result.stdout
+            assert result.status.value == "ok"
+            assert "protected content" in result.stdout
+        finally:
+            await timeline.close()
 
     @pytest.mark.asyncio
     async def test_permission_request_allow_always(self, temp_cwd: Path) -> None:
@@ -1038,15 +1074,18 @@ class TestPermissionRequestFlow:
             permission_requester=mock_requester,
         )
 
-        file_path = (temp_cwd / "protected.txt").as_posix()
-        result = await timeline.execute_statement(f'open("{file_path}", "r").read()')
+        try:
+            file_path = (temp_cwd / "protected.txt").as_posix()
+            result = await timeline.execute_statement(f'open("{file_path}", "r").read()')
 
-        assert result.status.value == "ok"
-        assert "protected content" in result.stdout
+            assert result.status.value == "ok"
+            assert "protected content" in result.stdout
 
-        # Verify config was updated
-        config_path = temp_cwd / ".ac" / "config.yaml"
-        assert config_path.exists()
+            # Verify config was updated
+            config_path = temp_cwd / ".ac" / "config.yaml"
+            assert config_path.exists()
+        finally:
+            await timeline.close()
 
     @pytest.mark.asyncio
     async def test_permission_request_denied(self, temp_cwd: Path) -> None:
@@ -1069,12 +1108,15 @@ class TestPermissionRequestFlow:
             permission_requester=mock_requester,
         )
 
-        file_path = (temp_cwd / "protected.txt").as_posix()
-        result = await timeline.execute_statement(f'open("{file_path}", "r").read()')
+        try:
+            file_path = (temp_cwd / "protected.txt").as_posix()
+            result = await timeline.execute_statement(f'open("{file_path}", "r").read()')
 
-        assert result.status.value == "error"
-        assert result.exception is not None
-        assert result.exception["type"] == "PermissionError"
+            assert result.status.value == "error"
+            assert result.exception is not None
+            assert result.exception["type"] == "PermissionError"
+        finally:
+            await timeline.close()
 
     @pytest.mark.asyncio
     async def test_no_requester_returns_permission_error(self, temp_cwd: Path) -> None:
@@ -1091,13 +1133,16 @@ class TestPermissionRequestFlow:
             permission_manager=manager,
         )
 
-        file_path = (temp_cwd / "protected.txt").as_posix()
-        result = await timeline.execute_statement(f'open("{file_path}", "r").read()')
+        try:
+            file_path = (temp_cwd / "protected.txt").as_posix()
+            result = await timeline.execute_statement(f'open("{file_path}", "r").read()')
 
-        assert result.status.value == "error"
-        assert result.exception is not None
-        # Should be PermissionError, not PermissionDenied
-        assert result.exception["type"] == "PermissionError"
+            assert result.status.value == "error"
+            assert result.exception is not None
+            # Should be PermissionError, not PermissionDenied
+            assert result.exception["type"] == "PermissionError"
+        finally:
+            await timeline.close()
 
 
 # =============================================================================
@@ -1469,25 +1514,28 @@ class TestShellTimelineIntegration:
             shell_permission_manager=manager,
         )
 
-        result = await timeline.execute_statement('s = shell("echo", ["hello"])')
+        try:
+            result = await timeline.execute_statement('s = shell("echo", ["hello"])')
 
-        assert result.status.value == "ok"
-        # Shell now returns ShellNode immediately with PENDING status
-        ns = timeline.get_namespace()
-        assert "s" in ns
-        shell_node = ns["s"]
-        assert isinstance(shell_node, ShellNode)
+            assert result.status.value == "ok"
+            # Shell now returns ShellNode immediately with PENDING status
+            ns = timeline.get_namespace()
+            assert "s" in ns
+            shell_node = ns["s"]
+            assert isinstance(shell_node, ShellNode)
 
-        # Wait briefly for background task to complete
-        await asyncio.sleep(0.1)
+            # Wait briefly for background task to complete
+            await asyncio.sleep(0.1)
 
-        # Process pending results (applies async completions)
-        timeline.process_pending_shell_results()
+            # Process pending results (applies async completions)
+            timeline.process_pending_shell_results()
 
-        # The shell should have been denied (exit code 126)
-        assert shell_node.shell_status == ShellStatus.FAILED
-        assert shell_node.exit_code == 126
-        assert "denied" in shell_node.output.lower()
+            # The shell should have been denied (exit code 126)
+            assert shell_node.shell_status == ShellStatus.FAILED
+            assert shell_node.exit_code == 126
+            assert "denied" in shell_node.output.lower()
+        finally:
+            await timeline.close()
 
     @pytest.mark.asyncio
     async def test_timeline_allows_authorized_shell(self, temp_cwd: Path) -> None:
@@ -1520,24 +1568,27 @@ class TestShellTimelineIntegration:
             shell_permission_manager=manager,
         )
 
-        result = await timeline.execute_statement(f's = shell("{cmd}", {args!r})')
+        try:
+            result = await timeline.execute_statement(f's = shell("{cmd}", {args!r})')
 
-        assert result.status.value == "ok"
-        ns = timeline.get_namespace()
-        assert "s" in ns
-        shell_node = ns["s"]
-        assert isinstance(shell_node, ShellNode)
+            assert result.status.value == "ok"
+            ns = timeline.get_namespace()
+            assert "s" in ns
+            shell_node = ns["s"]
+            assert isinstance(shell_node, ShellNode)
 
-        # Wait for background task to complete
-        await asyncio.sleep(0.5)
+            # Wait for background task to complete
+            await asyncio.sleep(0.5)
 
-        # Process pending results
-        timeline.process_pending_shell_results()
+            # Process pending results
+            timeline.process_pending_shell_results()
 
-        # Should have completed successfully with output
-        assert shell_node.is_complete
-        assert shell_node.exit_code == 0
-        assert "hello" in shell_node.output
+            # Should have completed successfully with output
+            assert shell_node.is_complete
+            assert shell_node.exit_code == 0
+            assert "hello" in shell_node.output
+        finally:
+            await timeline.close()
 
     @pytest.mark.asyncio
     async def test_timeline_ls_shell_permissions(self, temp_cwd: Path) -> None:
@@ -1557,11 +1608,14 @@ class TestShellTimelineIntegration:
             shell_permission_manager=manager,
         )
 
-        result = await timeline.execute_statement("ls_shell_permissions()")
+        try:
+            result = await timeline.execute_statement("ls_shell_permissions()")
 
-        assert result.status.value == "ok"
-        assert "git *" in result.stdout
-        assert "deny_by_default" in result.stdout
+            assert result.status.value == "ok"
+            assert "git *" in result.stdout
+            assert "deny_by_default" in result.stdout
+        finally:
+            await timeline.close()
 
     @pytest.mark.asyncio
     async def test_timeline_without_shell_permission_manager(
@@ -1572,10 +1626,13 @@ class TestShellTimelineIntegration:
 
         timeline = Timeline("test-session", cwd=str(temp_cwd))
 
-        result = await timeline.execute_statement('shell("echo", ["hello"])')
+        try:
+            result = await timeline.execute_statement('shell("echo", ["hello"])')
 
-        # Should work without restrictions
-        assert result.status.value == "ok"
+            # Should work without restrictions
+            assert result.status.value == "ok"
+        finally:
+            await timeline.close()
 
 
 class TestShellPermissionRequestFlow:
