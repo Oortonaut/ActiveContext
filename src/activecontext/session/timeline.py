@@ -28,11 +28,17 @@ from activecontext.context.nodes import (
     LockNode,
     LockStatus,
     MarkdownNode,
+    MCPServerNode,
     ShellNode,
     ShellStatus,
     TopicNode,
     ViewNode,
     WorkNode,
+)
+from activecontext.mcp import (
+    MCPClientManager,
+    MCPPermissionDenied,
+    MCPToolResult,
 )
 from activecontext.context.state import NodeState, TickFrequency
 from activecontext.terminal.result import ShellResult
@@ -65,6 +71,7 @@ from activecontext.session.xml_parser import is_xml_command, parse_xml_to_python
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from activecontext.config.schema import MCPConfig, MCPServerConfig
     from activecontext.coordination.scratchpad import ScratchpadManager
     from activecontext.terminal.protocol import TerminalExecutor
 
@@ -128,6 +135,7 @@ class Timeline:
         website_permission_manager: WebsitePermissionManager | None = None,
         website_permission_requester: WebsitePermissionRequester | None = None,
         scratchpad_manager: "ScratchpadManager | None" = None,
+        mcp_config: "MCPConfig | None" = None,
     ) -> None:
         self._session_id = session_id
         self._cwd = cwd
@@ -180,6 +188,12 @@ class Timeline:
         # WorkNode for displaying coordination status (created on first work_on)
         self._work_node: WorkNode | None = None
 
+        # MCP client manager for external tool servers (must be set before _setup_namespace)
+        self._mcp_client_manager = MCPClientManager(config=mcp_config)
+
+        # MCPServerNodes keyed by server name (for tracking in graph)
+        self._mcp_server_nodes: dict[str, MCPServerNode] = {}
+
         # Controlled Python namespace
         self._namespace: dict[str, Any] = {}
         self._setup_namespace()
@@ -216,6 +230,9 @@ class Timeline:
 
         # Active wait condition (blocks turn until satisfied)
         self._wait_condition: WaitCondition | None = None
+
+        # Current group for automatic node linking (set by Session for tool scoping)
+        self._current_group_id: str | None = None
 
     def set_title_callback(self, callback: Callable[[str], None] | None) -> None:
         """Set the callback for set_title() DSL function.
@@ -308,6 +325,17 @@ class Timeline:
                 "work_list": self._work_list,
             })
 
+        # Add MCP functions
+        self._namespace.update({
+            "mcp_connect": self._mcp_connect,
+            "mcp_disconnect": self._mcp_disconnect,
+            "mcp_list": self._mcp_list,
+            "mcp_tools": self._mcp_tools,
+        })
+
+        # Inject connected MCP server proxies into namespace
+        self._namespace.update(self._mcp_client_manager.generate_namespace_bindings())
+
     def _ls_permissions(self) -> list[dict[str, Any]]:
         """List current file permissions (read-only inspection).
 
@@ -388,7 +416,7 @@ class Timeline:
             tokens: Token budget for rendering
             state: Rendering state (HIDDEN, COLLAPSED, SUMMARY, DETAILS, ALL)
             mode: "paused" or "running"
-            parent: Optional parent node or node ID
+            parent: Optional parent node or node ID (defaults to current_group if set)
 
         Returns:
             The created ViewNode
@@ -404,9 +432,14 @@ class Timeline:
         # Add to graph
         self._context_graph.add_node(node)
 
-        # Link to parent if provided
-        if parent:
-            parent_id = parent.node_id if isinstance(parent, ContextNode) else parent
+        # Determine parent: explicit > current_group > none
+        effective_parent = parent
+        if effective_parent is None and self._current_group_id:
+            effective_parent = self._current_group_id
+
+        # Link to parent if set
+        if effective_parent:
+            parent_id = effective_parent.node_id if isinstance(effective_parent, ContextNode) else effective_parent
             self._context_graph.link(node.node_id, parent_id)
 
         # Legacy compatibility
@@ -430,7 +463,7 @@ class Timeline:
             state: Rendering state (HIDDEN, COLLAPSED, SUMMARY, DETAILS, ALL)
             mode: "paused" or "running"
             summary: Optional pre-computed summary text
-            parent: Optional parent node or node ID
+            parent: Optional parent node or node ID (defaults to current_group if set)
 
         Returns:
             The created GroupNode
@@ -446,9 +479,14 @@ class Timeline:
         # Add to graph
         self._context_graph.add_node(node)
 
-        # Link to parent if provided
-        if parent:
-            parent_id = parent.node_id if isinstance(parent, ContextNode) else parent
+        # Determine parent: explicit > current_group > none
+        effective_parent = parent
+        if effective_parent is None and self._current_group_id:
+            effective_parent = self._current_group_id
+
+        # Link to parent if set
+        if effective_parent:
+            parent_id = effective_parent.node_id if isinstance(effective_parent, ContextNode) else effective_parent
             self._context_graph.link(node.node_id, parent_id)
 
         # Link members as children of this group
@@ -479,7 +517,7 @@ class Timeline:
             title: Short title for the topic
             tokens: Token budget for rendering
             status: "active", "resolved", or "deferred"
-            parent: Optional parent node or node ID
+            parent: Optional parent node or node ID (defaults to current_group if set)
 
         Returns:
             The created TopicNode
@@ -493,9 +531,14 @@ class Timeline:
         # Add to graph
         self._context_graph.add_node(node)
 
-        # Link to parent if provided
-        if parent:
-            parent_id = parent.node_id if isinstance(parent, ContextNode) else parent
+        # Determine parent: explicit > current_group > none
+        effective_parent = parent
+        if effective_parent is None and self._current_group_id:
+            effective_parent = self._current_group_id
+
+        # Link to parent if set
+        if effective_parent:
+            parent_id = effective_parent.node_id if isinstance(effective_parent, ContextNode) else effective_parent
             self._context_graph.link(node.node_id, parent_id)
 
         # Legacy compatibility
@@ -518,7 +561,7 @@ class Timeline:
             content: The artifact content
             language: Programming language (for code)
             tokens: Token budget
-            parent: Optional parent node or node ID
+            parent: Optional parent node or node ID (defaults to current_group if set)
 
         Returns:
             The created ArtifactNode
@@ -533,9 +576,14 @@ class Timeline:
         # Add to graph
         self._context_graph.add_node(node)
 
-        # Link to parent if provided
-        if parent:
-            parent_id = parent.node_id if isinstance(parent, ContextNode) else parent
+        # Determine parent: explicit > current_group > none
+        effective_parent = parent
+        if effective_parent is None and self._current_group_id:
+            effective_parent = self._current_group_id
+
+        # Link to parent if set
+        if effective_parent:
+            parent_id = effective_parent.node_id if isinstance(effective_parent, ContextNode) else effective_parent
             self._context_graph.link(node.node_id, parent_id)
 
         # Legacy compatibility
@@ -563,7 +611,7 @@ class Timeline:
             tokens: Token budget for root node
             state: Rendering state (HIDDEN, COLLAPSED, SUMMARY, DETAILS, ALL)
             summary_tokens: Tokens for summary (first paragraph)
-            parent: Optional parent node or node ID
+            parent: Optional parent node or node ID (defaults to current_group if set)
 
         Returns:
             The root MarkdownNode (children are accessible via child_order)
@@ -583,9 +631,14 @@ class Timeline:
             # Legacy compatibility
             self._context_objects[node.node_id] = node
 
-        # Link root to parent if provided
-        if parent:
-            parent_id = parent.node_id if isinstance(parent, ContextNode) else parent
+        # Determine parent: explicit > current_group > none
+        effective_parent = parent
+        if effective_parent is None and self._current_group_id:
+            effective_parent = self._current_group_id
+
+        # Link root to parent if set
+        if effective_parent:
+            parent_id = effective_parent.node_id if isinstance(effective_parent, ContextNode) else effective_parent
             self._context_graph.link(root.node_id, parent_id)
 
         return root
@@ -1656,6 +1709,147 @@ class Timeline:
             for e in entries
         ]
 
+    # =========================================================================
+    # MCP (Model Context Protocol) DSL Functions
+    # =========================================================================
+
+    async def _mcp_connect(
+        self,
+        name: str | None = None,
+        *,
+        command: list[str] | None = None,
+        url: str | None = None,
+        env: dict[str, str] | None = None,
+        tokens: int = 1000,
+        state: NodeState = NodeState.DETAILS,
+    ) -> MCPServerNode:
+        """Connect to an MCP server.
+
+        Args:
+            name: Server name from config, or custom name for dynamic connection
+            command: For stdio transport: command and args to spawn server
+            url: For streamable-http transport: server URL
+            env: Environment variables for the server process
+            tokens: Token budget for tool documentation
+            state: Initial rendering state
+
+        Returns:
+            MCPServerNode representing the connection
+
+        Examples:
+            # Connect to configured server
+            fs = mcp_connect("filesystem")
+
+            # Dynamic stdio connection
+            gh = mcp_connect("github", command=["npx", "-y", "@mcp/server-github"])
+
+            # Dynamic HTTP connection
+            tools = mcp_connect("remote", url="http://localhost:8000/mcp")
+        """
+        from activecontext.config.schema import MCPServerConfig
+
+        # Build config if dynamic
+        config: MCPServerConfig | None = None
+        if command or url:
+            config = MCPServerConfig(
+                name=name or "dynamic",
+                command=command,
+                url=url,
+                env=env or {},
+                transport="stdio" if command else "streamable-http",
+            )
+            name = config.name
+        elif name is None:
+            raise ValueError("Must provide 'name' or 'command'/'url'")
+
+        # Connect via MCPClientManager
+        connection = await self._mcp_client_manager.connect(name=name, config=config)
+
+        # Create or update MCPServerNode
+        if name in self._mcp_server_nodes:
+            node = self._mcp_server_nodes[name]
+        else:
+            node = MCPServerNode(
+                server_name=name,
+                tokens=tokens,
+                state=state,
+            )
+            self._mcp_server_nodes[name] = node
+            self._context_graph.add_node(node)
+
+        # Update node from connection
+        node.update_from_connection(connection)
+
+        # Update namespace with the server proxy
+        bindings = self._mcp_client_manager.generate_namespace_bindings()
+        if name in bindings:
+            self._namespace[name] = bindings[name]
+
+        return node
+
+    async def _mcp_disconnect(self, name: str) -> None:
+        """Disconnect from an MCP server.
+
+        Args:
+            name: Name of the server to disconnect
+        """
+        await self._mcp_client_manager.disconnect(name)
+
+        # Update node status
+        if name in self._mcp_server_nodes:
+            node = self._mcp_server_nodes[name]
+            node.status = "disconnected"
+            node.tools = []
+            node.resources = []
+            node.prompts = []
+            node._mark_changed()
+
+        # Remove from namespace
+        if name in self._namespace:
+            del self._namespace[name]
+
+    def _mcp_list(self) -> list[dict[str, Any]]:
+        """List all MCP server connections and their status.
+
+        Returns:
+            List of connection info dicts with name, status, tool/resource counts.
+        """
+        return [
+            {
+                "name": conn.name,
+                "status": conn.status.value,
+                "tools": len(conn.tools),
+                "resources": len(conn.resources),
+                "prompts": len(conn.prompts),
+            }
+            for conn in self._mcp_client_manager.list_connections()
+        ]
+
+    def _mcp_tools(self, server: str | None = None) -> list[dict[str, Any]]:
+        """List available MCP tools, optionally filtered by server.
+
+        Args:
+            server: Optional server name to filter by
+
+        Returns:
+            List of tool info dicts with server, name, description.
+        """
+        tools = self._mcp_client_manager.get_all_tools()
+        if server:
+            tools = [t for t in tools if t.server_name == server]
+        return [
+            {
+                "server": t.server_name,
+                "name": t.name,
+                "description": t.description,
+            }
+            for t in tools
+        ]
+
+    async def _mcp_cleanup(self) -> None:
+        """Disconnect from all MCP servers. Called during session cleanup."""
+        await self._mcp_client_manager.disconnect_all()
+
     def is_waiting(self) -> bool:
         """Check if a wait condition is active."""
         return self._wait_condition is not None
@@ -2128,6 +2322,27 @@ class Timeline:
     def context_graph(self) -> ContextGraph:
         """The context graph (DAG of context nodes)."""
         return self._context_graph
+
+    @property
+    def current_group_id(self) -> str | None:
+        """Current group ID for automatic node linking.
+
+        When set, nodes created by DSL functions (view(), group(), etc.)
+        will automatically be linked as children of this group.
+        """
+        return self._current_group_id
+
+    def set_current_group(self, group_id: str | None) -> None:
+        """Set the current group for automatic node linking.
+
+        Args:
+            group_id: Group ID to use as parent for new nodes, or None to clear.
+        """
+        self._current_group_id = group_id
+
+    def clear_current_group(self) -> None:
+        """Clear the current group (nodes will be added as roots)."""
+        self._current_group_id = None
 
     @property
     def permission_manager(self) -> PermissionManager | None:

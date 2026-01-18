@@ -149,6 +149,39 @@ List all active work entries from all agents.
 entries = work_list()
 ```
 
+## MCP (Model Context Protocol)
+
+### `mcp_connect(name, *, command=None, url=None, env=None, tokens=1000, state=NodeState.DETAILS)`
+Connect to an MCP server. Returns an MCPServerNode.
+
+```python
+fs = mcp_connect("filesystem")                                    # From config
+gh = mcp_connect("gh", command=["npx", "-y", "@mcp/server-github"])  # Dynamic
+result = fs.read_file(path="/home/user/data.txt")                 # Call tool
+```
+
+### `mcp_disconnect(name)`
+Disconnect from an MCP server.
+
+```python
+mcp_disconnect("filesystem")
+```
+
+### `mcp_list()`
+List connected servers.
+
+```python
+servers = mcp_list()  # [{"name": "...", "status": "connected", "tools": 5}]
+```
+
+### `mcp_tools(server=None)`
+List available tools.
+
+```python
+tools = mcp_tools()              # All tools
+tools = mcp_tools("filesystem")  # Specific server
+```
+
 ## Agent Control
 
 ### `done(message="")`

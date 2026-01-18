@@ -217,6 +217,8 @@ class ContextNode(ABC):
             return MessageNode._from_dict(data)
         elif node_type == "work":
             return WorkNode._from_dict(data)
+        elif node_type == "mcp_server":
+            return MCPServerNode._from_dict(data)
         elif node_type == "markdown":
             return MarkdownNode._from_dict(data)
         else:
@@ -1823,6 +1825,215 @@ class WorkNode(ContextNode):
             dependencies=data.get("dependencies", []),
             conflicts=data.get("conflicts", []),
             agent_id=data.get("agent_id", ""),
+        )
+        return node
+
+
+@dataclass
+class MCPServerNode(ContextNode):
+    """Represents an MCP server connection with its available tools.
+
+    Renders tool documentation for the LLM to understand available capabilities.
+    The LLM can call tools via server.tool_name(**kwargs) in the namespace.
+
+    Attributes:
+        server_name: Unique name identifying the MCP server
+        status: Connection status (disconnected, connecting, connected, error)
+        error_message: Error message if status is "error"
+        tools: List of available tools with name, description, input_schema
+        resources: List of available resources with uri, name, description
+        prompts: List of available prompts with name, description, arguments
+
+    Rendering states:
+        - HIDDEN: Not shown in projection
+        - COLLAPSED: "MCP: server_name [OK] (X tools)"
+        - SUMMARY: Server + tool names list
+        - DETAILS: Tool names + brief descriptions
+        - ALL: Full documentation with JSON schemas
+    """
+
+    server_name: str = ""
+    status: str = "disconnected"  # disconnected, connecting, connected, error
+    error_message: str | None = None
+    tools: list[dict[str, Any]] = field(default_factory=list)
+    resources: list[dict[str, Any]] = field(default_factory=list)
+    prompts: list[dict[str, Any]] = field(default_factory=list)
+
+    @property
+    def node_type(self) -> str:
+        return "mcp_server"
+
+    def GetDigest(self) -> dict[str, Any]:
+        return {
+            "id": self.node_id,
+            "type": self.node_type,
+            "server_name": self.server_name,
+            "status": self.status,
+            "tool_count": len(self.tools),
+            "resource_count": len(self.resources),
+            "prompt_count": len(self.prompts),
+            "tokens": self.tokens,
+            "state": self.state.value,
+            "mode": self.mode,
+            "version": self.version,
+        }
+
+    def Render(self, tokens: int | None = None, cwd: str = ".") -> str:
+        """Render MCP server as tool documentation for the LLM."""
+        if self.state == NodeState.HIDDEN:
+            return ""
+
+        status_indicator = {
+            "connected": "[OK]",
+            "connecting": "[...]",
+            "disconnected": "[-]",
+            "error": "[ERR]",
+        }.get(self.status, "[?]")
+
+        # COLLAPSED: just status line
+        if self.state == NodeState.COLLAPSED:
+            return f"MCP: {self.server_name} {status_indicator} ({len(self.tools)} tools)\n"
+
+        parts: list[str] = [f"## MCP Server: {self.server_name} {status_indicator}\n\n"]
+
+        if self.status == "error" and self.error_message:
+            parts.append(f"Error: {self.error_message}\n\n")
+            return "".join(parts)
+
+        if self.status != "connected":
+            parts.append(f"Status: {self.status}\n")
+            return "".join(parts)
+
+        # SUMMARY: tool names only
+        if self.state == NodeState.SUMMARY:
+            tool_names = [t.get("name", "?") for t in self.tools]
+            parts.append(f"Tools: {', '.join(tool_names)}\n")
+            if self.resources:
+                resource_names = [r.get("name", "?") for r in self.resources]
+                parts.append(f"Resources: {', '.join(resource_names)}\n")
+            return "".join(parts)
+
+        # DETAILS: tool names + descriptions
+        if self.state == NodeState.DETAILS:
+            parts.append("### Tools\n\n")
+            for tool in self.tools:
+                desc = tool.get("description", "No description")
+                if len(desc) > 100:
+                    desc = desc[:100] + "..."
+                parts.append(f"- **{tool.get('name', '?')}**: {desc}\n")
+
+            if self.resources:
+                parts.append("\n### Resources\n\n")
+                for res in self.resources:
+                    parts.append(f"- `{res.get('uri', '?')}`: {res.get('name', 'unnamed')}\n")
+
+            parts.append(f"\nUsage: `{self.server_name}.tool_name(arg1=value1, ...)`\n")
+            return "".join(parts)
+
+        # ALL: full documentation with schemas
+        parts.append("### Available Tools\n\n")
+        for tool in self.tools:
+            parts.append(f"#### `{self.server_name}.{tool.get('name', '?')}()`\n\n")
+            parts.append(f"{tool.get('description', 'No description')}\n\n")
+
+            schema = tool.get("input_schema", {})
+            props = schema.get("properties", {})
+            if props:
+                parts.append("**Parameters:**\n")
+                required = set(schema.get("required", []))
+                for param, param_schema in props.items():
+                    param_type = param_schema.get("type", "any")
+                    param_desc = param_schema.get("description", "")
+                    req_marker = " (required)" if param in required else ""
+                    parts.append(f"- `{param}` ({param_type}){req_marker}: {param_desc}\n")
+                parts.append("\n")
+
+        if self.resources:
+            parts.append("### Available Resources\n\n")
+            for res in self.resources:
+                parts.append(f"- `{res.get('uri', '?')}`")
+                if res.get("description"):
+                    parts.append(f": {res['description']}")
+                parts.append("\n")
+
+        if self.prompts:
+            parts.append("\n### Available Prompts\n\n")
+            for prompt in self.prompts:
+                parts.append(f"- **{prompt.get('name', '?')}**")
+                if prompt.get("description"):
+                    parts.append(f": {prompt['description']}")
+                parts.append("\n")
+
+        return "".join(parts)
+
+    def update_from_connection(self, connection: Any) -> None:
+        """Update node state from an MCPConnection object."""
+        self.status = connection.status.value
+        self.error_message = connection.error_message
+        self.tools = [
+            {
+                "name": t.name,
+                "description": t.description,
+                "input_schema": t.input_schema,
+            }
+            for t in connection.tools
+        ]
+        self.resources = [
+            {
+                "uri": r.uri,
+                "name": r.name,
+                "description": r.description,
+            }
+            for r in connection.resources
+        ]
+        self.prompts = [
+            {
+                "name": p.name,
+                "description": p.description,
+                "arguments": p.arguments,
+            }
+            for p in connection.prompts
+        ]
+        self._mark_changed()
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize MCPServerNode to dict."""
+        data = super().to_dict()
+        data.update({
+            "server_name": self.server_name,
+            "status": self.status,
+            "error_message": self.error_message,
+            "tools": self.tools,
+            "resources": self.resources,
+            "prompts": self.prompts,
+        })
+        return data
+
+    @classmethod
+    def _from_dict(cls, data: dict[str, Any]) -> "MCPServerNode":
+        """Deserialize MCPServerNode from dict."""
+        tick_freq = None
+        if data.get("tick_frequency"):
+            tick_freq = TickFrequency.from_dict(data["tick_frequency"])
+
+        node = cls(
+            node_id=data["node_id"],
+            parent_ids=set(data.get("parent_ids", [])),
+            children_ids=set(data.get("children_ids", [])),
+            tokens=data.get("tokens", 1000),
+            state=NodeState(data.get("state", "details")),
+            mode=data.get("mode", "paused"),
+            tick_frequency=tick_freq,
+            version=data.get("version", 0),
+            created_at=data.get("created_at", time.time()),
+            updated_at=data.get("updated_at", time.time()),
+            tags=data.get("tags", {}),
+            server_name=data.get("server_name", ""),
+            status=data.get("status", "disconnected"),
+            error_message=data.get("error_message"),
+            tools=data.get("tools", []),
+            resources=data.get("resources", []),
+            prompts=data.get("prompts", []),
         )
         return node
 

@@ -13,6 +13,7 @@ dependencies = [
     "filelock>=3.13",
     "httpx>=0.27.0",
     "litellm>=1.40",
+    "mcp>=1.0.0",
     "python-dotenv>=1.0",
     "pyyaml>=6.0",
     "aiohttp>=3.9.0,<3.13.0",  # Pin to avoid 3.13.x circular import issues

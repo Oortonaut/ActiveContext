@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from activecontext.context.graph import ContextGraph
-from activecontext.context.nodes import MessageNode, SessionNode
+from activecontext.context.nodes import GroupNode, MessageNode, SessionNode
 from activecontext.context.state import TickFrequency
 from activecontext.core.projection_engine import ProjectionConfig, ProjectionEngine
 from activecontext.logging import get_logger
@@ -113,6 +113,10 @@ class Session:
         # Track timing for turn statistics
         self._turn_start_time: float | None = None
 
+        # Context stack for structural containment
+        # When non-empty, new nodes are added as children of stack.top
+        self._context_stack: list[str] = []
+
         # Register set_title callback with timeline
         self._timeline.set_title_callback(self.set_title)
 
@@ -154,12 +158,137 @@ class Session:
         """When the session was created."""
         return self._created_at
 
+    # -------------------------------------------------------------------------
+    # Context Stack Operations
+    # -------------------------------------------------------------------------
+
+    @property
+    def current_group(self) -> str | None:
+        """Get the current container group ID, or None for root level.
+
+        When a group is on the stack, new nodes added via add_node()
+        will automatically become children of that group.
+        """
+        return self._context_stack[-1] if self._context_stack else None
+
+    def push_group(self, group_id: str) -> None:
+        """Push a group onto the context stack.
+
+        New nodes added via add_node() will become children of this group
+        until pop_group() is called. Also syncs with Timeline so DSL-created
+        nodes (view(), group(), etc.) are automatically linked.
+
+        Args:
+            group_id: The ID of the group to push.
+        """
+        self._context_stack.append(group_id)
+        # Sync with Timeline for DSL node creation
+        self._timeline.set_current_group(group_id)
+
+    def pop_group(self) -> str | None:
+        """Pop the current group from the context stack.
+
+        Returns:
+            The popped group ID, or None if stack was empty.
+        """
+        if not self._context_stack:
+            return None
+
+        popped = self._context_stack.pop()
+
+        # Sync with Timeline: set to new top or clear
+        new_top = self._context_stack[-1] if self._context_stack else None
+        self._timeline.set_current_group(new_top)
+
+        return popped
+
+    def add_node(self, node: Any) -> str:
+        """Add a node to the context graph, linking to current group if any.
+
+        This is the primary method for adding context nodes. When a group
+        is on the context stack, the node becomes a child of that group.
+
+        Args:
+            node: The ContextNode to add.
+
+        Returns:
+            The node's ID.
+        """
+        from activecontext.context.nodes import ContextNode
+
+        if not isinstance(node, ContextNode):
+            raise TypeError(f"Expected ContextNode, got {type(node).__name__}")
+
+        self._timeline.context_graph.add_node(node)
+
+        if self.current_group:
+            self._timeline.context_graph.link(node.node_id, self.current_group)
+
+        return node.node_id
+
+    def begin_tool_use(self, tool_name: str, args: dict[str, Any] | None = None) -> str:
+        """Begin a tool use scope by creating a group and pushing it to the stack.
+
+        Creates a GroupNode for the tool call, adds a tool_call MessageNode
+        as its first child, and pushes the group onto the context stack.
+        Subsequent nodes added via add_node() will be children of this group.
+
+        Args:
+            tool_name: Name of the tool being invoked.
+            args: Optional arguments passed to the tool.
+
+        Returns:
+            The group ID (can be used with end_tool_use).
+        """
+        # Create the tool group at current level
+        group = GroupNode(summary_prompt=f"Tool: {tool_name}")
+        self.add_node(group)  # Links to current_group if nested
+
+        # Create tool_call message as child of the group
+        tool_call = MessageNode(
+            role="tool_call",
+            content="",
+            actor=f"tool:{tool_name}",
+            tool_name=tool_name,
+            tool_args=args or {},
+        )
+        self._timeline.context_graph.add_node(tool_call)
+        self._timeline.context_graph.link(tool_call.node_id, group.node_id)
+
+        # Push group to stack - subsequent add_node calls will be children
+        self.push_group(group.node_id)
+
+        return group.node_id
+
+    def end_tool_use(self, summary: str | None = None) -> str | None:
+        """End the current tool use scope.
+
+        Pops the group from the context stack and optionally sets its summary.
+        The summary becomes the collapsed representation of the tool use.
+
+        Args:
+            summary: Optional summary text for the group.
+
+        Returns:
+            The popped group ID, or None if no group was active.
+        """
+        group_id = self.pop_group()
+
+        if group_id and summary:
+            group = self._timeline.context_graph.get_node(group_id)
+            if isinstance(group, GroupNode):
+                group.cached_summary = summary
+
+        return group_id
+
     def _add_message(self, message: Message) -> MessageNode:
         """Add a message to conversation and sync to context graph.
 
-        Creates a MessageNode and adds it to the context graph, enabling:
+        Creates a MessageNode and adds it to the context graph via add_node(),
+        which links to the current group if any. This enables:
         - ID-based referencing in the rendered context
         - Proper role alternation for LLM compatibility
+        - Structural containment when inside a tool use scope
 
         Args:
             message: The Message to add
@@ -170,14 +299,16 @@ class Session:
         # Add to conversation list
         self._conversation.append(message)
 
-        # Create and add MessageNode to graph
+        # Create MessageNode
         msg_node = MessageNode(
             role=message.role.value,  # Convert Role enum to string
             content=message.content,
             actor=message.actor,
             tokens=500,  # Default token budget for messages
         )
-        self._timeline.context_graph.add_node(msg_node)
+
+        # Add via add_node() which handles current_group linking
+        self.add_node(msg_node)
 
         return msg_node
 
@@ -704,6 +835,29 @@ class Session:
                 await self._timeline.execute_statement(source)
                 break
 
+        # Auto-connect to configured MCP servers
+        await self._setup_mcp_autoconnect()
+
+    async def _setup_mcp_autoconnect(self) -> None:
+        """Connect to MCP servers marked as auto_connect in config."""
+        if not self._config or not self._config.mcp:
+            return
+
+        import logging
+
+        _log = logging.getLogger("activecontext.session")
+
+        for server_config in self._config.mcp.servers:
+            if server_config.auto_connect:
+                try:
+                    source = f'mcp_connect("{server_config.name}")'
+                    await self._timeline.execute_statement(source)
+                    _log.info(f"Auto-connected to MCP server '{server_config.name}'")
+                except Exception as e:
+                    _log.warning(
+                        f"Failed to auto-connect to MCP server '{server_config.name}': {e}"
+                    )
+
 
 class SessionManager:
     """Manages multiple sessions with 1:1 session-timeline mapping.
@@ -786,6 +940,9 @@ class SessionManager:
 
         scratchpad_manager = ScratchpadManager(cwd)
 
+        # Get MCP config if available
+        mcp_config = project_config.mcp if project_config else None
+
         timeline = Timeline(
             session_id,
             cwd=cwd,
@@ -799,6 +956,7 @@ class SessionManager:
             website_permission_manager=website_permission_manager,
             website_permission_requester=website_permission_requester,  # type: ignore[arg-type]
             scratchpad_manager=scratchpad_manager,
+            mcp_config=mcp_config,
         )
         session = Session(
             session_id=session_id,

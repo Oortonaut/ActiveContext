@@ -5,6 +5,12 @@ __version__ = "0.1.0"
 # Public API
 from activecontext.config import Config, get_config, load_config
 from activecontext.core import LiteLLMProvider, LLMProvider, Message, Role
+from activecontext.mcp import (
+    MCPClientManager,
+    MCPConnectionStatus,
+    MCPToolInfo,
+    MCPToolResult,
+)
 from activecontext.session import (
     ExecutionResult,
     ExecutionStatus,
@@ -32,6 +38,11 @@ __all__ = [
     "LiteLLMProvider",
     "Message",
     "Role",
+    # MCP
+    "MCPClientManager",
+    "MCPConnectionStatus",
+    "MCPToolInfo",
+    "MCPToolResult",
     # Session
     "ExecutionResult",
     "ExecutionStatus",

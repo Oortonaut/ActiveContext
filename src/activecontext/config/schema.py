@@ -148,6 +148,48 @@ class UserConfig:
 
     display_name: str | None = None  # e.g., "Ace"
 
+
+@dataclass
+class MCPServerConfig:
+    """Configuration for a single MCP server.
+
+    Supports two transport types:
+        - stdio: Spawns a subprocess (requires command)
+        - streamable-http: Connects to HTTP endpoint (requires url)
+    """
+
+    name: str  # Unique identifier (e.g., "filesystem", "github")
+    command: list[str] | None = None  # For stdio: ["npx", "-y", "@mcp/server"]
+    args: list[str] = field(default_factory=list)  # Additional command args
+    env: dict[str, str] = field(default_factory=dict)  # Environment vars (supports ${VAR})
+    url: str | None = None  # For streamable-http: "http://localhost:8000/mcp"
+    transport: str = "stdio"  # "stdio" or "streamable-http"
+    auto_connect: bool = False  # Connect automatically on session start
+    timeout: float = 30.0  # Connection timeout in seconds
+
+
+@dataclass
+class MCPConfig:
+    """MCP client configuration.
+
+    Example config.yaml:
+        mcp:
+          allow_dynamic_servers: true
+          servers:
+            - name: filesystem
+              command: ["npx", "-y", "@modelcontextprotocol/server-filesystem"]
+              args: ["/home/user/allowed"]
+              auto_connect: true
+            - name: github
+              command: ["npx", "-y", "@modelcontextprotocol/server-github"]
+              env:
+                GITHUB_TOKEN: "${GITHUB_TOKEN}"
+    """
+
+    servers: list[MCPServerConfig] = field(default_factory=list)
+    allow_dynamic_servers: bool = True  # Allow mcp_connect() with inline config
+
+
 @dataclass
 class Config:
     """Root configuration object.
@@ -162,6 +204,7 @@ class Config:
     logging: LoggingConfig = field(default_factory=LoggingConfig)
     sandbox: SandboxConfig = field(default_factory=SandboxConfig)
     user: UserConfig = field(default_factory=UserConfig)
+    mcp: MCPConfig = field(default_factory=MCPConfig)
 
     # Extension point for future config sections
     extra: dict[str, Any] = field(default_factory=dict)
