@@ -24,7 +24,7 @@ from activecontext.core.llm.discovery import (
 from activecontext.core.llm.providers import (
     DEFAULT_ROLES,
     PROVIDER_CONFIGS,
-    PROVIDER_PRIORITY,
+    ROLE_DESCRIPTIONS,
     ROLE_MODEL_DEFAULTS,
 )
 from activecontext.core.llm.litellm_provider import LiteLLMProvider, create_provider
@@ -45,128 +45,151 @@ from tests.utils import create_mock_llm_response, create_mock_llm_stream_chunk
 class TestProviderDiscovery:
     """Tests for provider discovery based on API keys."""
 
-    def test_no_api_keys(self, monkeypatch):
+    def test_no_api_keys(self):
         """Test discovery with no API keys set."""
-        # Clear all API keys
-        for _, config in PROVIDER_CONFIGS.items():
-            monkeypatch.delenv(config.env_var, raising=False)
+        # Mock fetch_secret to return None for all keys
+        with patch("activecontext.core.llm.discovery.fetch_secret", return_value=None):
+            providers = get_available_providers()
+            assert providers == []
 
-        providers = get_available_providers()
-        assert providers == []
+            models = get_available_models()
+            assert models == []
 
-        models = get_available_models()
-        assert models == []
+            default_model = get_default_model()
+            assert default_model is None
 
-        default_model = get_default_model()
-        assert default_model is None
-
-    def test_anthropic_only(self, monkeypatch):
+    def test_anthropic_only(self):
         """Test discovery with only Anthropic API key."""
-        # Clear all, then set Anthropic
-        for _, config in PROVIDER_CONFIGS.items():
-            monkeypatch.delenv(config.env_var, raising=False)
-        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-123")
+        def mock_fetch_secret(key, default=None, env_path=None):
+            if key == "ANTHROPIC_API_KEY":
+                return "sk-test-123"
+            return None
 
-        providers = get_available_providers()
-        assert providers == ["anthropic"]
+        with patch("activecontext.core.llm.discovery.fetch_secret", side_effect=mock_fetch_secret):
+            providers = get_available_providers()
+            assert providers == ["anthropic"]
 
-        models = get_available_models()
-        assert len(models) == 3  # Opus, Sonnet, Haiku
-        assert all(isinstance(m, ModelInfo) for m in models)
-        assert all(m.provider == "anthropic" for m in models)
-        assert models[0].model_id == "claude-opus-4-5-20251101"
-        assert models[0].name == "Claude Opus 4.5"
+            models = get_available_models()
+            assert len(models) == 3  # Opus, Sonnet, Haiku
+            assert all(isinstance(m, ModelInfo) for m in models)
+            assert all(m.provider == "anthropic" for m in models)
+            assert models[0].model_id == "claude-opus-4-5-20251101"
+            assert models[0].name == "Claude Opus 4.5"
 
-        # Default is "balanced" role = sonnet for Anthropic
-        default_model = get_default_model()
-        assert default_model == "claude-sonnet-4-5-20250929"
+            # Default uses "coding" role = sonnet for Anthropic
+            default_model = get_default_model()
+            assert default_model == "claude-sonnet-4-5-20250929"
 
-    def test_openai_only(self, monkeypatch):
+    def test_openai_only(self):
         """Test discovery with only OpenAI API key."""
-        for _, config in PROVIDER_CONFIGS.items():
-            monkeypatch.delenv(config.env_var, raising=False)
-        monkeypatch.setenv("OPENAI_API_KEY", "sk-test-456")
+        def mock_fetch_secret(key, default=None, env_path=None):
+            if key == "OPENAI_API_KEY":
+                return "sk-test-456"
+            return None
 
-        providers = get_available_providers()
-        assert providers == ["openai"]
+        with patch("activecontext.core.llm.discovery.fetch_secret", side_effect=mock_fetch_secret):
+            providers = get_available_providers()
+            assert providers == ["openai"]
 
-        models = get_available_models()
-        assert len(models) == 5  # GPT-5.2, 5.2-codex, 4.1, 4.1-mini, 4.1-nano
-        assert all(m.provider == "openai" for m in models)
+            models = get_available_models()
+            assert len(models) == 5  # GPT-5.2, 5.2-codex, 4.1, 4.1-mini, 4.1-nano
+            assert all(m.provider == "openai" for m in models)
 
-        # Default is "balanced" role = gpt-4.1 for OpenAI
-        default_model = get_default_model()
-        assert default_model == "gpt-4.1"
+            # Default uses "coding" role = gpt-5.2-codex for OpenAI
+            default_model = get_default_model()
+            assert default_model == "gpt-5.2-codex"
 
-    def test_multiple_providers(self, monkeypatch):
+    def test_multiple_providers(self):
         """Test discovery with multiple API keys."""
-        for _, config in PROVIDER_CONFIGS.items():
-            monkeypatch.delenv(config.env_var, raising=False)
+        def mock_fetch_secret(key, default=None, env_path=None):
+            keys = {
+                "ANTHROPIC_API_KEY": "sk-ant-123",
+                "OPENAI_API_KEY": "sk-openai-456",
+                "DEEPSEEK_API_KEY": "sk-deepseek-789",
+            }
+            return keys.get(key)
 
-        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-123")
-        monkeypatch.setenv("OPENAI_API_KEY", "sk-openai-456")
-        monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-deepseek-789")
+        with patch("activecontext.core.llm.discovery.fetch_secret", side_effect=mock_fetch_secret):
+            providers = get_available_providers()
+            assert set(providers) == {"anthropic", "openai", "deepseek"}
 
-        providers = get_available_providers()
-        assert set(providers) == {"anthropic", "openai", "deepseek"}
+            models = get_available_models()
+            assert len(models) == 3 + 5 + 2  # Anthropic + OpenAI + DeepSeek
 
-        models = get_available_models()
-        assert len(models) == 3 + 5 + 2  # Anthropic + OpenAI + DeepSeek
+            # Default uses "coding" role, sorted by context_length
+            # OpenAI gpt-5.2-codex has highest context (256000)
+            default_model = get_default_model()
+            assert default_model == "gpt-5.2-codex"
 
-        # Default is "balanced" role, Anthropic has priority = sonnet
-        default_model = get_default_model()
-        assert default_model == "claude-sonnet-4-5-20250929"
+    def test_context_length_ordering(self):
+        """Test models are sorted by context_length descending."""
+        # Test 1: Only Groq
+        def mock_groq_only(key, default=None, env_path=None):
+            if key == "GROQ_API_KEY":
+                return "sk-groq-123"
+            return None
 
-    def test_priority_order(self, monkeypatch):
-        """Test default model priority: Anthropic > OpenAI > others (using balanced role)."""
-        for _, config in PROVIDER_CONFIGS.items():
-            monkeypatch.delenv(config.env_var, raising=False)
+        with patch("activecontext.core.llm.discovery.fetch_secret", side_effect=mock_groq_only):
+            assert get_default_model() == "groq/llama-4-maverick-17b-128e-instruct"
 
-        # Only Groq - balanced role = llama-3.3-70b-versatile
-        monkeypatch.setenv("GROQ_API_KEY", "sk-groq-123")
-        assert get_default_model() == "groq/llama-3.3-70b-versatile"
+        # Test 2: Groq + OpenAI - OpenAI wins on context
+        def mock_groq_openai(key, default=None, env_path=None):
+            keys = {"GROQ_API_KEY": "sk-groq-123", "OPENAI_API_KEY": "sk-openai-456"}
+            return keys.get(key)
 
-        # Add OpenAI (higher priority) - balanced role = gpt-4.1
-        monkeypatch.setenv("OPENAI_API_KEY", "sk-openai-456")
-        assert get_default_model() == "gpt-4.1"
+        with patch("activecontext.core.llm.discovery.fetch_secret", side_effect=mock_groq_openai):
+            assert get_default_model() == "gpt-5.2-codex"
 
-        # Add Anthropic (highest priority) - balanced role = sonnet
-        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-789")
-        assert get_default_model() == "claude-sonnet-4-5-20250929"
+        # Test 3: All three - OpenAI still wins on context
+        def mock_all_three(key, default=None, env_path=None):
+            keys = {
+                "GROQ_API_KEY": "sk-groq-123",
+                "OPENAI_API_KEY": "sk-openai-456",
+                "ANTHROPIC_API_KEY": "sk-ant-789",
+            }
+            return keys.get(key)
 
-    def test_config_override_default_model(self, monkeypatch):
-        """Test that config.llm.role overrides default 'balanced' role."""
-        # Set up API key
-        for _, config in PROVIDER_CONFIGS.items():
-            monkeypatch.delenv(config.env_var, raising=False)
-        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-123")
+        with patch("activecontext.core.llm.discovery.fetch_secret", side_effect=mock_all_three):
+            assert get_default_model() == "gpt-5.2-codex"  # OpenAI still wins on context
 
-        # Mock config to use "reasoning" role instead of default "balanced"
+    def test_config_override_default_model(self):
+        """Test that config.llm.role overrides default 'coding' role."""
+        def mock_fetch_secret(key, default=None, env_path=None):
+            if key == "ANTHROPIC_API_KEY":
+                return "sk-ant-123"
+            return None
+
+        # Mock config to use "thinking" role instead of default "coding"
         mock_config = Mock()
         mock_config.llm = Mock()
-        mock_config.llm.role = "reasoning"
-        mock_config.llm.provider = None  # Use priority order
+        mock_config.llm.role = "thinking"
+        mock_config.llm.provider = None  # Use context_length ordering
         mock_config.llm.role_providers = []
 
-        with patch("activecontext.config.get_config", return_value=mock_config):
-            default_model = get_default_model()
-            # reasoning role for anthropic = opus
-            assert default_model == "claude-opus-4-5-20251101"
+        with patch("activecontext.core.llm.discovery.fetch_secret", side_effect=mock_fetch_secret):
+            with patch("activecontext.config.get_config", return_value=mock_config):
+                default_model = get_default_model()
+                # thinking role for anthropic = opus
+                assert default_model == "claude-opus-4-5-20251101"
 
-    def test_model_info_attributes(self, monkeypatch):
+    def test_model_info_attributes(self):
         """Test ModelInfo dataclass attributes."""
-        for _, config in PROVIDER_CONFIGS.items():
-            monkeypatch.delenv(config.env_var, raising=False)
-        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+        def mock_fetch_secret(key, default=None, env_path=None):
+            if key == "ANTHROPIC_API_KEY":
+                return "sk-test"
+            return None
 
-        models = get_available_models()
-        model = models[0]
+        with patch("activecontext.core.llm.discovery.fetch_secret", side_effect=mock_fetch_secret):
+            models = get_available_models()
+            model = models[0]
 
-        assert isinstance(model, ModelInfo)
-        assert model.model_id == "claude-opus-4-5-20251101"
-        assert model.name == "Claude Opus 4.5"
-        assert model.provider == "anthropic"
-        assert model.description == "Most capable, hybrid reasoning"
+            assert isinstance(model, ModelInfo)
+            assert model.model_id == "claude-opus-4-5-20251101"
+            assert model.name == "Claude Opus 4.5"
+            assert model.provider == "anthropic"
+            assert model.description == "Most capable, hybrid reasoning"
+            assert model.context_length == 200000
+            assert model.temperature == 0.0
 
 
 # =============================================================================
@@ -180,18 +203,17 @@ class TestRoleBasedSelection:
     def test_default_roles_constant(self):
         """Test DEFAULT_ROLES contains expected roles."""
         assert "coding" in DEFAULT_ROLES
-        assert "reasoning" in DEFAULT_ROLES
+        assert "thinking" in DEFAULT_ROLES
         assert "writing" in DEFAULT_ROLES
         assert "balanced" in DEFAULT_ROLES
         assert "fast" in DEFAULT_ROLES
         assert "cheap" in DEFAULT_ROLES
 
-    def test_provider_priority_constant(self):
-        """Test PROVIDER_PRIORITY order."""
-        assert PROVIDER_PRIORITY[0] == "anthropic"
-        assert PROVIDER_PRIORITY[1] == "openai"
-        assert "groq" in PROVIDER_PRIORITY
-        assert "deepseek" in PROVIDER_PRIORITY
+    def test_role_descriptions_constant(self):
+        """Test ROLE_DESCRIPTIONS has entries for all roles."""
+        for role in DEFAULT_ROLES:
+            assert role in ROLE_DESCRIPTIONS, f"Missing description for {role}"
+            assert ROLE_DESCRIPTIONS[role], f"Empty description for {role}"
 
     def test_role_model_defaults_coverage(self):
         """Test ROLE_MODEL_DEFAULTS has entries for all role/provider combinations."""
@@ -200,96 +222,107 @@ class TestRoleBasedSelection:
                 key = (role, provider)
                 assert key in ROLE_MODEL_DEFAULTS, f"Missing {key}"
 
-    def test_get_role_models(self, monkeypatch):
+    def test_get_role_models(self):
         """Test get_role_models returns correct entries."""
-        for _, config in PROVIDER_CONFIGS.items():
-            monkeypatch.delenv(config.env_var, raising=False)
-        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant")
-        monkeypatch.setenv("OPENAI_API_KEY", "sk-oai")
+        def mock_fetch_secret(key, default=None, env_path=None):
+            keys = {"ANTHROPIC_API_KEY": "sk-ant", "OPENAI_API_KEY": "sk-oai"}
+            return keys.get(key)
 
-        models = get_role_models("coding")
+        with patch("activecontext.core.llm.discovery.fetch_secret", side_effect=mock_fetch_secret):
+            models = get_role_models("coding")
 
-        assert len(models) == 2  # Anthropic and OpenAI
-        assert all(isinstance(m, RoleModelEntry) for m in models)
-        assert all(m.role == "coding" for m in models)
+            assert len(models) == 2  # Anthropic and OpenAI
+            assert all(isinstance(m, RoleModelEntry) for m in models)
+            assert all(m.role == "coding" for m in models)
 
-        # Check display_name format
-        anthropic_model = next(m for m in models if m.provider == "anthropic")
-        assert "Coding" in anthropic_model.display_name
-        assert "anthropic" in anthropic_model.display_name
-        assert anthropic_model.model_id == "claude-sonnet-4-5-20250929"
+            # Check display_name format: provider/ModelName
+            anthropic_model = next(m for m in models if m.provider == "anthropic")
+            assert anthropic_model.display_name == "anthropic/Claude Sonnet 4.5"
+            assert anthropic_model.model_id == "claude-sonnet-4-5-20250929"
+            assert anthropic_model.context_length == 200000
+            # Check description format: role description - model description
+            assert "Code generation" in anthropic_model.description
+            assert "Best for coding" in anthropic_model.description
 
-    def test_get_role_models_ordering(self, monkeypatch):
-        """Test get_role_models respects provider priority."""
-        for _, config in PROVIDER_CONFIGS.items():
-            monkeypatch.delenv(config.env_var, raising=False)
-        monkeypatch.setenv("OPENAI_API_KEY", "sk-oai")
-        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant")
+    def test_get_role_models_ordering(self):
+        """Test get_role_models sorts by context_length descending."""
+        def mock_fetch_secret(key, default=None, env_path=None):
+            keys = {"ANTHROPIC_API_KEY": "sk-ant", "OPENAI_API_KEY": "sk-oai"}
+            return keys.get(key)
 
-        models = get_role_models("fast")
+        with patch("activecontext.core.llm.discovery.fetch_secret", side_effect=mock_fetch_secret):
+            models = get_role_models("fast")
 
-        # Anthropic should come first (higher priority)
-        assert models[0].provider == "anthropic"
-        assert models[1].provider == "openai"
+            # OpenAI gpt-4.1-mini (1M context) should come first
+            assert models[0].provider == "openai"
+            assert models[0].context_length == 1000000
+            # Anthropic haiku (200K context) comes second
+            assert models[1].provider == "anthropic"
+            assert models[1].context_length == 200000
 
-    def test_get_all_role_models(self, monkeypatch):
+    def test_get_all_role_models(self):
         """Test get_all_role_models returns all roles."""
-        for _, config in PROVIDER_CONFIGS.items():
-            monkeypatch.delenv(config.env_var, raising=False)
-        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant")
+        def mock_fetch_secret(key, default=None, env_path=None):
+            if key == "ANTHROPIC_API_KEY":
+                return "sk-ant"
+            return None
 
-        all_models = get_all_role_models()
+        with patch("activecontext.core.llm.discovery.fetch_secret", side_effect=mock_fetch_secret):
+            all_models = get_all_role_models()
 
-        assert "coding" in all_models
-        assert "reasoning" in all_models
-        assert "fast" in all_models
-        assert len(all_models) == len(DEFAULT_ROLES)
+            assert "coding" in all_models
+            assert "thinking" in all_models
+            assert "fast" in all_models
+            assert len(all_models) == len(DEFAULT_ROLES)
 
-    def test_get_model_for_role(self, monkeypatch):
+    def test_get_model_for_role(self):
         """Test get_model_for_role returns correct model."""
-        for _, config in PROVIDER_CONFIGS.items():
-            monkeypatch.delenv(config.env_var, raising=False)
-        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant")
+        def mock_fetch_secret(key, default=None, env_path=None):
+            if key == "ANTHROPIC_API_KEY":
+                return "sk-ant"
+            return None
 
-        model = get_model_for_role("coding")
-        assert model == "claude-sonnet-4-5-20250929"
+        with patch("activecontext.core.llm.discovery.fetch_secret", side_effect=mock_fetch_secret):
+            model = get_model_for_role("coding")
+            assert model == "claude-sonnet-4-5-20250929"
 
-        model = get_model_for_role("reasoning")
-        assert model == "claude-opus-4-5-20251101"
+            model = get_model_for_role("thinking")
+            assert model == "claude-opus-4-5-20251101"
 
-        model = get_model_for_role("fast")
-        assert model == "claude-haiku-4-5-20251001"
+            model = get_model_for_role("fast")
+            assert model == "claude-haiku-4-5-20251001"
 
-    def test_get_model_for_role_with_provider(self, monkeypatch):
+    def test_get_model_for_role_with_provider(self):
         """Test get_model_for_role with explicit provider."""
-        for _, config in PROVIDER_CONFIGS.items():
-            monkeypatch.delenv(config.env_var, raising=False)
-        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant")
-        monkeypatch.setenv("OPENAI_API_KEY", "sk-oai")
+        def mock_fetch_secret(key, default=None, env_path=None):
+            keys = {"ANTHROPIC_API_KEY": "sk-ant", "OPENAI_API_KEY": "sk-oai"}
+            return keys.get(key)
 
-        # Explicit provider
-        model = get_model_for_role("coding", provider="openai")
-        assert model == "gpt-5.2-codex"
+        with patch("activecontext.core.llm.discovery.fetch_secret", side_effect=mock_fetch_secret):
+            # Explicit provider
+            model = get_model_for_role("coding", provider="openai")
+            assert model == "gpt-5.2-codex"
 
-        model = get_model_for_role("fast", provider="openai")
-        assert model == "gpt-4.1-mini"
+            model = get_model_for_role("fast", provider="openai")
+            assert model == "gpt-4.1-mini"
 
-    def test_get_model_for_role_unavailable_provider(self, monkeypatch):
+    def test_get_model_for_role_unavailable_provider(self):
         """Test get_model_for_role with unavailable provider returns None."""
-        for _, config in PROVIDER_CONFIGS.items():
-            monkeypatch.delenv(config.env_var, raising=False)
-        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant")
+        def mock_fetch_secret(key, default=None, env_path=None):
+            if key == "ANTHROPIC_API_KEY":
+                return "sk-ant"
+            return None
 
-        # OpenAI not available
-        model = get_model_for_role("coding", provider="openai")
-        assert model is None
+        with patch("activecontext.core.llm.discovery.fetch_secret", side_effect=mock_fetch_secret):
+            # OpenAI not available
+            model = get_model_for_role("coding", provider="openai")
+            assert model is None
 
-    def test_get_model_for_role_uses_config_preference(self, monkeypatch):
+    def test_get_model_for_role_uses_config_preference(self):
         """Test get_model_for_role uses saved config preferences."""
-        for _, config in PROVIDER_CONFIGS.items():
-            monkeypatch.delenv(config.env_var, raising=False)
-        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant")
-        monkeypatch.setenv("OPENAI_API_KEY", "sk-oai")
+        def mock_fetch_secret(key, default=None, env_path=None):
+            keys = {"ANTHROPIC_API_KEY": "sk-ant", "OPENAI_API_KEY": "sk-oai"}
+            return keys.get(key)
 
         # Mock config with saved role preference (provider only - model looked up)
         mock_role_provider = Mock()
@@ -303,17 +336,17 @@ class TestRoleBasedSelection:
         mock_config.llm.provider = None
         mock_config.llm.role_providers = [mock_role_provider]
 
-        with patch("activecontext.config.get_config", return_value=mock_config):
-            # Should use saved preference (OpenAI) instead of priority (Anthropic)
-            model = get_model_for_role("coding")
-            assert model == "gpt-5.2-codex"
+        with patch("activecontext.core.llm.discovery.fetch_secret", side_effect=mock_fetch_secret):
+            with patch("activecontext.config.get_config", return_value=mock_config):
+                # Should use saved preference (OpenAI) instead of context-length ordering
+                model = get_model_for_role("coding")
+                assert model == "gpt-5.2-codex"
 
-    def test_get_model_for_role_uses_model_override(self, monkeypatch):
+    def test_get_model_for_role_uses_model_override(self):
         """Test get_model_for_role uses model override when specified."""
-        for _, config in PROVIDER_CONFIGS.items():
-            monkeypatch.delenv(config.env_var, raising=False)
-        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant")
-        monkeypatch.setenv("OPENAI_API_KEY", "sk-oai")
+        def mock_fetch_secret(key, default=None, env_path=None):
+            keys = {"ANTHROPIC_API_KEY": "sk-ant", "OPENAI_API_KEY": "sk-oai"}
+            return keys.get(key)
 
         # Mock config with explicit model override
         mock_role_provider = Mock()
@@ -327,16 +360,18 @@ class TestRoleBasedSelection:
         mock_config.llm.provider = None
         mock_config.llm.role_providers = [mock_role_provider]
 
-        with patch("activecontext.config.get_config", return_value=mock_config):
-            # Should use the custom model override
-            model = get_model_for_role("fast")
-            assert model == "gpt-5-mini-custom"
+        with patch("activecontext.core.llm.discovery.fetch_secret", side_effect=mock_fetch_secret):
+            with patch("activecontext.config.get_config", return_value=mock_config):
+                # Should use the custom model override
+                model = get_model_for_role("fast")
+                assert model == "gpt-5-mini-custom"
 
-    def test_get_default_model_uses_role_from_config(self, monkeypatch):
+    def test_get_default_model_uses_role_from_config(self):
         """Test get_default_model uses role from config."""
-        for _, config in PROVIDER_CONFIGS.items():
-            monkeypatch.delenv(config.env_var, raising=False)
-        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant")
+        def mock_fetch_secret(key, default=None, env_path=None):
+            if key == "ANTHROPIC_API_KEY":
+                return "sk-ant"
+            return None
 
         mock_config = Mock()
         mock_config.llm = Mock()
@@ -344,22 +379,27 @@ class TestRoleBasedSelection:
         mock_config.llm.provider = None
         mock_config.llm.role_providers = []
 
-        with patch("activecontext.config.get_config", return_value=mock_config):
-            model = get_default_model()
-            # coding role for anthropic = sonnet
-            assert model == "claude-sonnet-4-5-20250929"
+        with patch("activecontext.core.llm.discovery.fetch_secret", side_effect=mock_fetch_secret):
+            with patch("activecontext.config.get_config", return_value=mock_config):
+                model = get_default_model()
+                # coding role for anthropic = sonnet
+                assert model == "claude-sonnet-4-5-20250929"
 
-    def test_role_model_entry_display_name(self, monkeypatch):
+    def test_role_model_entry_display_name(self):
         """Test RoleModelEntry display_name format."""
-        for _, config in PROVIDER_CONFIGS.items():
-            monkeypatch.delenv(config.env_var, raising=False)
-        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant")
+        def mock_fetch_secret(key, default=None, env_path=None):
+            if key == "ANTHROPIC_API_KEY":
+                return "sk-ant"
+            return None
 
-        models = get_role_models("fast")
-        entry = models[0]
+        with patch("activecontext.core.llm.discovery.fetch_secret", side_effect=mock_fetch_secret):
+            models = get_role_models("fast")
+            entry = models[0]
 
-        # Format: "Role (provider/ModelName)"
-        assert entry.display_name == "Fast (anthropic/Claude Haiku 4.5)"
+            # Format: "provider/ModelName"
+            assert entry.display_name == "anthropic/Claude Haiku 4.5"
+            assert entry.context_length == 200000
+            assert entry.temperature == 0.0
 
 
 # =============================================================================

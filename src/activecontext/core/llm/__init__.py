@@ -16,9 +16,12 @@ from activecontext.core.llm.provider import LLMProvider, Message, Role
 from activecontext.core.llm.providers import (
     DEFAULT_ROLES,
     PROVIDER_CONFIGS,
-    PROVIDER_PRIORITY,
+    ROLE_CONFIGS,
+    ROLE_DESCRIPTIONS,
     ROLE_MODEL_DEFAULTS,
+    ModelConfig,
     ProviderConfig,
+    RoleConfig,
 )
 
 __all__ = [
@@ -43,6 +46,10 @@ __all__ = [
     # Constants
     "DEFAULT_ROLES",
     "PROVIDER_CONFIGS",
-    "PROVIDER_PRIORITY",
+    "ROLE_CONFIGS",
+    "ROLE_DESCRIPTIONS",
     "ROLE_MODEL_DEFAULTS",
+    # Config types
+    "ModelConfig",
+    "RoleConfig",
 ]

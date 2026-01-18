@@ -3,7 +3,7 @@
 Detects which LLM providers are available by checking for API keys
 in the environment, and provides role-based model selection.
 
-Roles represent use-case categories (coding, reasoning, fast, etc.)
+Roles represent use-case categories (coding, thinking, fast, etc.)
 that map to the best model for each provider.
 """
 
@@ -15,8 +15,9 @@ from activecontext.config.secrets import fetch_secret
 from activecontext.core.llm.providers import (
     DEFAULT_ROLES,
     PROVIDER_CONFIGS,
-    PROVIDER_PRIORITY,
+    ROLE_DESCRIPTIONS,
     ROLE_MODEL_DEFAULTS,
+    ModelConfig,
     ProviderConfig,
 )
 
@@ -28,7 +29,9 @@ class ModelInfo:
     model_id: str
     name: str
     provider: str
+    context_length: int
     description: str | None = None
+    temperature: float | None = None  # None = don't send temperature param
 
 
 @dataclass
@@ -38,7 +41,10 @@ class RoleModelEntry:
     role: str  # "coding", "fast", etc.
     provider: str  # "anthropic", "openai", etc.
     model_id: str  # "claude-sonnet-4-5-20250929"
-    display_name: str  # "Coding (anthropic/claude-sonnet-4.5)"
+    display_name: str  # "anthropic/Claude Sonnet 4.5"
+    context_length: int  # 200000
+    description: str | None = None  # "Code generation... - Best for coding & agents"
+    temperature: float | None = None  # None = don't send temperature param  # "Code generation... - Best for coding & agents"
 
 
 def _get_provider_api_key(config: ProviderConfig) -> str | None:
@@ -53,14 +59,14 @@ def _get_provider_api_key(config: ProviderConfig) -> str | None:
     return fetch_secret(config.env_var)
 
 
-def _get_model_display_name(model_id: str, provider: str) -> str:
-    """Get short display name for a model."""
+def _get_model_config(model_id: str, provider: str) -> ModelConfig | None:
+    """Get ModelConfig for a model ID."""
     if provider in PROVIDER_CONFIGS:
         config = PROVIDER_CONFIGS[provider]
-        for mid, name, _ in config.models:
-            if mid == model_id:
-                return name
-    return model_id
+        for model in config.models:
+            if model.id == model_id:
+                return model
+    return None
 
 
 def get_available_providers() -> list[str]:
@@ -77,13 +83,15 @@ def get_available_models() -> list[ModelInfo]:
     models: list[ModelInfo] = []
     for provider, config in PROVIDER_CONFIGS.items():
         if _get_provider_api_key(config):
-            for model_id, name, description in config.models:
+            for model in config.models:
                 models.append(
                     ModelInfo(
-                        model_id=model_id,
-                        name=name,
+                        model_id=model.id,
+                        name=model.name,
                         provider=provider,
-                        description=description,
+                        context_length=model.context_length,
+                        description=model.description,
+                        temperature=model.temperature,
                     )
                 )
     return models
@@ -94,42 +102,65 @@ def get_provider_config(provider: str) -> ProviderConfig | None:
     return PROVIDER_CONFIGS.get(provider)
 
 
+def _sort_key(entry: RoleModelEntry) -> tuple[int, str]:
+    """Sort key: descending context_length, then ascending display_name."""
+    return (-entry.context_length, entry.display_name)
+
+
 def get_role_models(role: str) -> list[RoleModelEntry]:
     """Get all available models for a role across providers with API keys.
 
     Args:
-        role: The role name (e.g., "coding", "fast", "reasoning")
+        role: The role name (e.g., "coding", "fast", "thinking")
 
     Returns:
         List of RoleModelEntry for each available provider that supports this role.
-        Ordered by provider priority.
+        Ordered by context_length (descending), then display_name (ascending).
 
     Example:
         >>> get_role_models("fast")
-        [RoleModelEntry("fast", "anthropic", "claude-haiku-4-5", "Fast (anthropic/Claude Haiku 4.5)"),
-         RoleModelEntry("fast", "openai", "gpt-4.1-mini", "Fast (openai/GPT-4.1 Mini)")]
+        [RoleModelEntry("fast", "gemini", "gemini/gemini-3-flash", "gemini/Gemini 3 Flash", 1000000, ...),
+         RoleModelEntry("fast", "anthropic", "claude-haiku-4-5", "anthropic/Claude Haiku 4.5", 200000, ...)]
     """
     available_providers = get_available_providers()
     entries: list[RoleModelEntry] = []
 
-    for provider in PROVIDER_PRIORITY:
-        if provider not in available_providers:
+    role_desc = ROLE_DESCRIPTIONS.get(role, "")
+
+    for provider in available_providers:
+        key = (role, provider)
+        if key not in ROLE_MODEL_DEFAULTS:
             continue
 
-        key = (role, provider)
-        if key in ROLE_MODEL_DEFAULTS:
-            model_id = ROLE_MODEL_DEFAULTS[key]
-            model_name = _get_model_display_name(model_id, provider)
-            display_name = f"{role.capitalize()} ({provider}/{model_name})"
-            entries.append(
-                RoleModelEntry(
-                    role=role,
-                    provider=provider,
-                    model_id=model_id,
-                    display_name=display_name,
-                )
-            )
+        model_id = ROLE_MODEL_DEFAULTS[key]
+        model_config = _get_model_config(model_id, provider)
+        if not model_config:
+            continue
 
+        display_name = f"{provider}/{model_config.name}"
+
+        # Build description: role description + model description
+        if role_desc and model_config.description:
+            description = f"{role_desc} - {model_config.description}"
+        elif model_config.description:
+            description = model_config.description
+        else:
+            description = role_desc or None
+
+        entries.append(
+            RoleModelEntry(
+                role=role,
+                provider=provider,
+                model_id=model_id,
+                display_name=display_name,
+                context_length=model_config.context_length,
+                description=description,
+                temperature=model_config.temperature,
+            )
+        )
+
+    # Sort by context_length descending, then display_name ascending
+    entries.sort(key=_sort_key)
     return entries
 
 
@@ -142,7 +173,7 @@ def get_all_role_models() -> dict[str, list[RoleModelEntry]]:
 
     Example:
         >>> get_all_role_models()
-        {"coding": [...], "fast": [...], "reasoning": [...], ...}
+        {"coding": [...], "fast": [...], "thinking": [...], ...}
     """
     result: dict[str, list[RoleModelEntry]] = {}
     for role in DEFAULT_ROLES:
@@ -159,12 +190,12 @@ def get_model_for_role(role: str, provider: str | None = None) -> str | None:
     1. Check config.llm.role_providers for user's saved choice (if no provider specified)
        - If entry has model override, use it directly
        - Otherwise lookup provider in ROLE_MODEL_DEFAULTS
-    2. Use specified provider or first available by priority
-    3. Lookup in ROLE_MODEL_DEFAULTS
+    2. If provider specified, use that provider
+    3. Use first model from get_role_models (sorted by context_length, then name)
 
     Args:
         role: The role name (e.g., "coding", "fast")
-        provider: Optional provider to use. If None, uses priority order.
+        provider: Optional provider to use. If None, uses sorted order.
 
     Returns:
         Model ID string, or None if no model available for this role.
@@ -200,12 +231,10 @@ def get_model_for_role(role: str, provider: str | None = None) -> str | None:
         key = (role, provider)
         return ROLE_MODEL_DEFAULTS.get(key)
 
-    # Find first available provider with this role
-    for p in PROVIDER_PRIORITY:
-        if p in available:
-            key = (role, p)
-            if key in ROLE_MODEL_DEFAULTS:
-                return ROLE_MODEL_DEFAULTS[key]
+    # Use first model from sorted list (highest context length)
+    models = get_role_models(role)
+    if models:
+        return models[0].model_id
 
     return None
 
@@ -215,8 +244,9 @@ def get_default_model() -> str | None:
 
     Selection priority:
     1. config.llm.role + config.llm.provider → get_model_for_role()
-    2. "balanced" role with priority provider
-    3. First model from first available provider
+    2. "coding" role (best for agent tasks)
+    3. "thinking" role (deep reasoning)
+    4. First model from first available provider (sorted by context_length)
 
     Note: Model is always derived from role/provider, not stored directly.
     """
@@ -235,20 +265,31 @@ def get_default_model() -> str | None:
     except ImportError:
         pass  # Config not available, fall through
 
-    # Fall back to "balanced" role
-    model = get_model_for_role("balanced")
+    # Try "coding" role first (best for agent tasks)
+    model = get_model_for_role("coding")
     if model:
         return model
 
-    # Ultimate fallback: first model from first available provider
-    providers = get_available_providers()
-    if not providers:
+    # Try "thinking" role (deep reasoning)
+    model = get_model_for_role("thinking")
+    if model:
+        return model
+
+    # Ultimate fallback: first model from any available provider
+    available = get_available_providers()
+    if not available:
         return None
 
-    for p in PROVIDER_PRIORITY:
-        if p in providers:
-            provider_config = PROVIDER_CONFIGS[p]
-            if provider_config.models:
-                return provider_config.models[0][0]
+    # Collect all models and sort by context_length
+    all_models: list[tuple[int, str, str]] = []  # (context_length, name, model_id)
+    for provider in available:
+        config = PROVIDER_CONFIGS[provider]
+        for model in config.models:
+            all_models.append((model.context_length, model.name, model.id))
+
+    if all_models:
+        # Sort by context_length descending, then name ascending
+        all_models.sort(key=lambda x: (-x[0], x[1]))
+        return all_models[0][2]
 
     return None

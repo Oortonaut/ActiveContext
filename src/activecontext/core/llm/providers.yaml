@@ -1,0 +1,194 @@
+# LLM Provider Configurations
+# Updated January 2026
+
+roles:
+  coding:
+    description: Code generation, debugging, refactoring
+  thinking:
+    description: Deep reasoning, analysis, complex problems
+  writing:
+    description: Content creation, documentation, prose
+  balanced:
+    description: General purpose, versatile
+  fast:
+    description: Quick responses, low latency
+  cheap:
+    description: Cost-efficient, high volume
+
+providers:
+  anthropic:
+    env_var: ANTHROPIC_API_KEY
+    models:
+      - id: claude-opus-4-5-20251101
+        name: Claude Opus 4.5
+        description: Most capable, hybrid reasoning
+        context_length: 200000
+        temperature: 0.0
+      - id: claude-sonnet-4-5-20250929
+        name: Claude Sonnet 4.5
+        description: Best for coding & agents
+        context_length: 200000
+        temperature: 0.0
+      - id: claude-haiku-4-5-20251001
+        name: Claude Haiku 4.5
+        description: Fast, cost-efficient
+        context_length: 200000
+        temperature: 0.0
+    role_models:
+      coding: claude-sonnet-4-5-20250929
+      thinking: claude-opus-4-5-20251101
+      writing: claude-opus-4-5-20251101
+      balanced: claude-sonnet-4-5-20250929
+      fast: claude-haiku-4-5-20251001
+      cheap: claude-haiku-4-5-20251001
+
+  openai:
+    env_var: OPENAI_API_KEY
+    models:
+      - id: gpt-5.2
+        name: GPT-5.2
+        description: Most capable, reasoning
+        context_length: 256000
+        temperature: 0.0
+      - id: gpt-5.2-codex
+        name: GPT-5.2 Codex
+        description: Optimized for agentic coding
+        context_length: 256000
+        # temperature not supported by this model
+      - id: gpt-4.1
+        name: GPT-4.1
+        description: Flagship, 1M context
+        context_length: 1000000
+        temperature: 0.0
+      - id: gpt-4.1-mini
+        name: GPT-4.1 Mini
+        description: Fast and affordable
+        context_length: 1000000
+        temperature: 0.0
+      - id: gpt-4.1-nano
+        name: GPT-4.1 Nano
+        description: Fastest, cheapest
+        context_length: 128000
+        temperature: 0.0
+    role_models:
+      coding: gpt-5.2-codex
+      thinking: gpt-5.2
+      writing: gpt-5.2
+      balanced: gpt-4.1
+      fast: gpt-4.1-mini
+      cheap: gpt-4.1-nano
+
+  groq:
+    env_var: GROQ_API_KEY
+    models:
+      - id: groq/llama-4-maverick-17b-128e-instruct
+        name: Llama 4 Maverick
+        description: Latest multimodal
+        context_length: 131072
+        temperature: 0.0
+      - id: groq/llama-4-scout-17b-16e-instruct
+        name: Llama 4 Scout
+        description: Fast multimodal
+        context_length: 131072
+        temperature: 0.0
+      - id: groq/llama-3.3-70b-versatile
+        name: Llama 3.3 70B
+        description: Versatile, tool use
+        context_length: 131072
+        temperature: 0.0
+    role_models:
+      coding: groq/llama-4-maverick-17b-128e-instruct
+      thinking: groq/llama-4-maverick-17b-128e-instruct
+      writing: groq/llama-4-maverick-17b-128e-instruct
+      balanced: groq/llama-3.3-70b-versatile
+      fast: groq/llama-4-scout-17b-16e-instruct
+      cheap: groq/llama-4-scout-17b-16e-instruct
+
+  deepseek:
+    env_var: DEEPSEEK_API_KEY
+    models:
+      - id: deepseek/deepseek-chat
+        name: DeepSeek V3.2
+        description: General purpose, tool use
+        context_length: 131072
+        temperature: 0.0
+      - id: deepseek/deepseek-reasoner
+        name: DeepSeek R1
+        description: Chain-of-thought reasoning
+        context_length: 131072
+        temperature: 0.0
+    role_models:
+      coding: deepseek/deepseek-chat
+      thinking: deepseek/deepseek-reasoner
+      writing: deepseek/deepseek-chat
+      balanced: deepseek/deepseek-chat
+      fast: deepseek/deepseek-chat
+      cheap: deepseek/deepseek-chat
+
+  mistral:
+    env_var: MISTRAL_API_KEY
+    models:
+      - id: mistral/mistral-large-latest
+        name: Mistral Large 3
+        description: 41B params, 256K context
+        context_length: 262144
+        temperature: 0.0
+      - id: mistral/codestral-latest
+        name: Codestral
+        description: Code completion specialist
+        context_length: 262144
+        temperature: 0.0
+      - id: mistral/magistral-medium-2506
+        name: Magistral Medium
+        description: Reasoning specialist
+        context_length: 262144
+        temperature: 0.0
+    role_models:
+      coding: mistral/codestral-latest
+      thinking: mistral/magistral-medium-2506
+      writing: mistral/mistral-large-latest
+      balanced: mistral/mistral-large-latest
+      fast: mistral/mistral-large-latest
+      cheap: mistral/codestral-latest
+
+  gemini:
+    env_var: GEMINI_API_KEY
+    models:
+      - id: gemini/gemini-3-flash
+        name: Gemini 3 Flash
+        description: Latest multimodal
+        context_length: 1000000
+        temperature: 0.0
+      - id: gemini/gemini-3-pro
+        name: Gemini 3 Pro
+        description: Reasoning-first, agentic
+        context_length: 1000000
+        temperature: 0.0
+      - id: gemini/gemini-2.5-pro
+        name: Gemini 2.5 Pro
+        description: Deep Think, long context
+        context_length: 2000000
+        temperature: 0.0
+    role_models:
+      coding: gemini/gemini-3-pro
+      thinking: gemini/gemini-3-pro
+      writing: gemini/gemini-2.5-pro
+      balanced: gemini/gemini-2.5-pro
+      fast: gemini/gemini-3-flash
+      cheap: gemini/gemini-3-flash
+
+  openrouter:
+    env_var: OPENROUTER_API_KEY
+    models:
+      - id: openrouter/auto
+        name: OpenRouter Auto
+        description: Auto-selects best model
+        context_length: 200000
+        temperature: 0.0
+    role_models:
+      coding: openrouter/auto
+      thinking: openrouter/auto
+      writing: openrouter/auto
+      balanced: openrouter/auto
+      fast: openrouter/auto
+      cheap: openrouter/auto
