@@ -11,10 +11,13 @@ import asyncio
 import time
 import uuid
 from collections.abc import AsyncIterator
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from activecontext.context.graph import ContextGraph
+from activecontext.context.nodes import MessageNode, SessionNode
+from activecontext.context.state import TickFrequency
 from activecontext.core.projection_engine import ProjectionConfig, ProjectionEngine
 from activecontext.logging import get_logger
 from activecontext.session.permissions import ImportGuard, PermissionManager, ShellPermissionManager
@@ -22,6 +25,12 @@ from activecontext.session.protocols import (
     Projection,
     SessionUpdate,
     UpdateKind,
+)
+from activecontext.session.storage import (
+    generate_default_title,
+    load_session_data,
+    save_session,
+    get_session_path,
 )
 from activecontext.session.timeline import Timeline
 
@@ -73,6 +82,8 @@ class Session:
         timeline: Timeline,
         llm: LLMProvider | None = None,
         config: Config | None = None,
+        title: str | None = None,
+        created_at: datetime | None = None,
     ) -> None:
         self._session_id = session_id
         self._cwd = cwd
@@ -84,6 +95,26 @@ class Session:
         self._conversation: list[Message] = []
         self._projection_engine = self._build_projection_engine(config)
         self._show_message_actors = True  # Show actor info by default
+
+        # Session persistence metadata
+        self._title = title or generate_default_title()
+        self._created_at = created_at or datetime.now()
+
+        # Create SessionNode for agent situational awareness
+        self._session_node = SessionNode(
+            node_id="session",  # Fixed ID for easy lookup
+            tokens=500,
+            mode="running",
+            tick_frequency=TickFrequency.turn(),
+            session_start_time=self._created_at.timestamp(),
+        )
+        self._timeline.context_graph.add_node(self._session_node)
+
+        # Track timing for turn statistics
+        self._turn_start_time: float | None = None
+
+        # Register set_title callback with timeline
+        self._timeline.set_title_callback(self.set_title)
 
     @property
     def session_id(self) -> str:
@@ -104,6 +135,154 @@ class Session:
     def set_llm(self, llm: LLMProvider | None) -> None:
         """Set or update the LLM provider."""
         self._llm = llm
+
+    @property
+    def title(self) -> str:
+        """Session title for display in IDE menus."""
+        return self._title
+
+    def set_title(self, title: str) -> None:
+        """Set the session title.
+
+        Args:
+            title: New title for the session.
+        """
+        self._title = title
+
+    @property
+    def created_at(self) -> datetime:
+        """When the session was created."""
+        return self._created_at
+
+    def _add_message(self, message: Message) -> MessageNode:
+        """Add a message to conversation and sync to context graph.
+
+        Creates a MessageNode and adds it to the context graph, enabling:
+        - ID-based referencing in the rendered context
+        - Proper role alternation for LLM compatibility
+
+        Args:
+            message: The Message to add
+
+        Returns:
+            The created MessageNode
+        """
+        # Add to conversation list
+        self._conversation.append(message)
+
+        # Create and add MessageNode to graph
+        msg_node = MessageNode(
+            role=message.role.value,  # Convert Role enum to string
+            content=message.content,
+            actor=message.actor,
+            tokens=500,  # Default token budget for messages
+        )
+        self._timeline.context_graph.add_node(msg_node)
+
+        return msg_node
+
+    def save(self) -> Path:
+        """Save the session to disk.
+
+        Saves to $cwd/.ac/sessions/<session_id>.yaml
+
+        Returns:
+            Path to the saved session file.
+        """
+        # Get timeline statement sources
+        timeline_sources = [stmt.source for stmt in self._timeline.get_statements()]
+
+        return save_session(
+            cwd=self._cwd,
+            session_id=self._session_id,
+            title=self._title,
+            created_at=self._created_at,
+            conversation=self._conversation,
+            timeline_sources=timeline_sources,
+            context_graph=self._timeline.context_graph,
+        )
+
+    @classmethod
+    def from_file(
+        cls,
+        cwd: str,
+        session_id: str,
+        llm: LLMProvider | None = None,
+        config: Config | None = None,
+    ) -> Session | None:
+        """Load a session from disk.
+
+        Args:
+            cwd: Project working directory.
+            session_id: Session identifier.
+            llm: Optional LLM provider.
+            config: Optional config.
+
+        Returns:
+            Loaded Session, or None if file doesn't exist.
+        """
+        from activecontext.core.llm.provider import Message, Role
+
+        session_path = get_session_path(cwd, session_id)
+        data = load_session_data(session_path)
+        if not data:
+            return None
+
+        # Reconstruct the context graph
+        context_graph = ContextGraph.from_dict(data.context_graph)
+
+        # Create timeline with the restored graph
+        timeline = Timeline(
+            session_id=session_id,
+            cwd=cwd,
+            context_graph=context_graph,
+        )
+
+        # Restore timeline statement history (for replay tracking)
+        # Note: We don't re-execute, just record the sources
+        for source in data.timeline:
+            from activecontext.session.protocols import Statement
+            stmt = Statement(
+                statement_id=str(uuid.uuid4()),
+                index=len(timeline._statements),
+                source=source,
+                timestamp=data.created_at.timestamp(),
+            )
+            timeline._statements.append(stmt)
+
+        # Create session
+        session = cls(
+            session_id=session_id,
+            cwd=cwd,
+            timeline=timeline,
+            llm=llm,
+            config=config,
+            title=data.title,
+            created_at=data.created_at,
+        )
+
+        # Restore conversation
+        for msg_data in data.conversation:
+            role_str = msg_data.get("role", "user")
+            role = Role.USER if role_str == "user" else Role.ASSISTANT
+            msg = Message(
+                role=role,
+                content=msg_data.get("content", ""),
+                actor=msg_data.get("actor"),
+            )
+            session._conversation.append(msg)
+
+        # Populate timeline._context_objects from graph (for legacy compatibility)
+        for node in context_graph:
+            timeline._context_objects[node.node_id] = node
+
+        # Link session's SessionNode to the restored graph's session node (if exists)
+        restored_session_node = context_graph.get_node("session")
+        if isinstance(restored_session_node, SessionNode):
+            session._session_node = restored_session_node
+        # If no session node was saved, one was already created in __init__
+
+        return session
 
     def _build_projection_engine(self, config: Config | None) -> ProjectionEngine:
         """Build ProjectionEngine from config or defaults."""
@@ -180,6 +359,7 @@ class Session:
 
         while iteration < max_iterations:
             iteration += 1
+            turn_start = time.time()
 
             # Build projection (contains conversation history and view contents)
             projection = self.get_projection()
@@ -223,11 +403,11 @@ class Session:
                         timestamp=time.time(),
                     )
 
-            # Update conversation history
-            self._conversation.append(
+            # Update conversation history (syncs to context graph)
+            self._add_message(
                 Message(role=Role.USER, content=current_request, actor="user")
             )
-            self._conversation.append(
+            self._add_message(
                 Message(role=Role.ASSISTANT, content=full_response, actor="agent")
             )
 
@@ -259,6 +439,18 @@ class Session:
             tick_updates = await self.tick()
             for update in tick_updates:
                 yield update
+
+            # Record turn statistics in SessionNode
+            turn_duration_ms = (time.time() - turn_start) * 1000
+            tokens_used = len(full_response) // 4  # Rough estimate
+            action_desc = None
+            if code_blocks:
+                action_desc = f"Executed {len(code_blocks)} code block(s)"
+            self._session_node.record_turn(
+                tokens_used=tokens_used,
+                duration_ms=turn_duration_ms,
+                action_description=action_desc,
+            )
 
             # Check if agent called done()
             if self._timeline.is_done():
@@ -343,15 +535,36 @@ class Session:
         """Run the tick phase for context graph nodes.
 
         Tick ordering:
-        1. Apply ready async payloads (TODO)
+        1. Process pending shell results (async completions from background tasks)
         2. Turn ticks for running nodes (calls Recompute → notify_parents cascade)
         3. Periodic ticks based on tick_frequency
         4. Group summaries auto-invalidated via on_child_changed() during cascade
+        5. Check wait conditions and prepare wake prompts
         """
         updates: list[SessionUpdate] = []
         timestamp = time.time()
 
-        # Get running nodes from the context graph
+        # 1. Process pending shell results from background tasks
+        # This applies async results and triggers node change notifications
+        updated_shell_nodes = self._timeline.process_pending_shell_results()
+        for node_id in updated_shell_nodes:
+            node = self._timeline.context_graph.get_node(node_id)
+            if node:
+                updates.append(
+                    SessionUpdate(
+                        kind=UpdateKind.NODE_CHANGED,
+                        session_id=self._session_id,
+                        payload={
+                            "node_id": node_id,
+                            "node_type": node.node_type,
+                            "change": "shell_completed",
+                            "digest": node.GetDigest(),
+                        },
+                        timestamp=timestamp,
+                    )
+                )
+
+        # 2-4. Process running nodes with tick frequencies
         context_graph = self._timeline.context_graph
         running_nodes = context_graph.get_running_nodes()
 
@@ -401,11 +614,29 @@ class Session:
 
         return updates
 
+    def check_wait_condition(self) -> tuple[bool, str | None]:
+        """Check if an active wait condition is satisfied.
+
+        Returns:
+            Tuple of (is_satisfied, prompt_to_inject).
+        """
+        return self._timeline.check_wait_condition()
+
+    def is_waiting(self) -> bool:
+        """Check if session is waiting for a condition."""
+        return self._timeline.is_waiting()
+
+    def clear_wait_condition(self) -> None:
+        """Clear the active wait condition."""
+        self._timeline.clear_wait_condition()
+
     async def cancel(self) -> None:
-        """Cancel the current operation."""
+        """Cancel the current operation and all running shell commands."""
         self._cancelled = True
         if self._current_task and not self._current_task.done():
             self._current_task.cancel()
+        # Also cancel all running shell tasks
+        self._timeline.cancel_all_shells()
 
     def get_projection(self) -> Projection:
         """Build the LLM projection from current session state."""
@@ -550,6 +781,11 @@ class SessionManager:
         import_config = sandbox_config.imports if sandbox_config else None
         import_guard = ImportGuard.from_config(import_config)
 
+        # Create scratchpad manager for work coordination
+        from activecontext.coordination import ScratchpadManager
+
+        scratchpad_manager = ScratchpadManager(cwd)
+
         timeline = Timeline(
             session_id,
             cwd=cwd,
@@ -562,6 +798,7 @@ class SessionManager:
             shell_permission_requester=shell_permission_requester,  # type: ignore[arg-type]
             website_permission_manager=website_permission_manager,
             website_permission_requester=website_permission_requester,  # type: ignore[arg-type]
+            scratchpad_manager=scratchpad_manager,
         )
         session = Session(
             session_id=session_id,
@@ -689,6 +926,11 @@ class SessionManager:
         """Close and clean up a session."""
         if session_id in self._sessions:
             session = self._sessions.pop(session_id)
+
+            # Unregister from work coordination scratchpad
+            if session._timeline._scratchpad_manager:
+                session._timeline._scratchpad_manager.unregister()
+
             await session.cancel()
 
             # Unregister config reload callback

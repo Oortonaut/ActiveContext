@@ -26,6 +26,11 @@ Syntax examples:
     <!-- DAG manipulation -->
     <link child="v" parent="g"/>
     <unlink child="v" parent="g"/>
+
+    <!-- Async wait control -->
+    <wait node="s" wake_prompt="Done!" timeout="30"/>
+    <wait_all nodes="s1,s2" wake_prompt="All done!"/>
+    <wait_any nodes="s1,s2" wake_prompt="First: {node}" cancel_others="true"/>
 """
 
 from __future__ import annotations
@@ -37,7 +42,7 @@ import xml.etree.ElementTree as ET
 CONSTRUCTOR_TAGS = {"view", "group", "topic", "artifact"}
 
 # Tags that are utility functions (no self, no variable binding)
-UTILITY_TAGS = {"ls", "show", "done", "link", "unlink", "shell"}
+UTILITY_TAGS = {"ls", "show", "done", "link", "unlink", "shell", "wait", "wait_all", "wait_any"}
 
 # Map XML attribute names to Python argument names for constructors
 CONSTRUCTOR_ARG_MAP: dict[str, dict[str, str]] = {
@@ -205,6 +210,55 @@ def _utility_to_python(tag: str, attrs: dict[str, str]) -> str:
                 parts.append(f"{k}={_format_value(v)}")
 
         return f"shell({', '.join(parts)})"
+
+    # wait - single node wait
+    if tag == "wait":
+        node = attrs.pop("node", None)
+        if not node:
+            raise ValueError("<wait> requires 'node' attribute")
+
+        parts: list[str] = [node]  # Node is a variable reference, not quoted
+
+        # Add keyword arguments
+        for k, v in attrs.items():
+            if k not in SPECIAL_ATTRS:
+                parts.append(f"{k}={_format_value(v)}")
+
+        return f"wait({', '.join(parts)})"
+
+    # wait_all - wait for multiple nodes
+    if tag == "wait_all":
+        nodes_str = attrs.pop("nodes", None)
+        if not nodes_str:
+            raise ValueError("<wait_all> requires 'nodes' attribute")
+
+        # Parse comma-separated node references (variable names)
+        node_refs = [n.strip() for n in nodes_str.split(",") if n.strip()]
+        parts: list[str] = node_refs  # Node refs are variable names
+
+        # Add keyword arguments
+        for k, v in attrs.items():
+            if k not in SPECIAL_ATTRS:
+                parts.append(f"{k}={_format_value(v)}")
+
+        return f"wait_all({', '.join(parts)})"
+
+    # wait_any - wait for first of multiple nodes
+    if tag == "wait_any":
+        nodes_str = attrs.pop("nodes", None)
+        if not nodes_str:
+            raise ValueError("<wait_any> requires 'nodes' attribute")
+
+        # Parse comma-separated node references (variable names)
+        node_refs = [n.strip() for n in nodes_str.split(",") if n.strip()]
+        parts: list[str] = node_refs  # Node refs are variable names
+
+        # Add keyword arguments
+        for k, v in attrs.items():
+            if k not in SPECIAL_ATTRS:
+                parts.append(f"{k}={_format_value(v)}")
+
+        return f"wait_any({', '.join(parts)})"
 
     # ls, done - all attrs are kwargs
     kwargs = [f"{k}={_format_value(v)}" for k, v in attrs.items() if k not in SPECIAL_ATTRS]

@@ -1457,7 +1457,9 @@ class TestShellTimelineIntegration:
     @pytest.mark.asyncio
     async def test_timeline_blocks_unauthorized_shell(self, temp_cwd: Path) -> None:
         """Test Timeline blocks unauthorized shell commands."""
+        import asyncio
         from activecontext.session.timeline import Timeline
+        from activecontext.context.nodes import ShellNode, ShellStatus
 
         config = SandboxConfig(shell_deny_by_default=True)
         manager = ShellPermissionManager.from_config(config)
@@ -1467,16 +1469,32 @@ class TestShellTimelineIntegration:
             shell_permission_manager=manager,
         )
 
-        result = await timeline.execute_statement('shell("echo", ["hello"])')
+        result = await timeline.execute_statement('s = shell("echo", ["hello"])')
 
         assert result.status.value == "ok"
-        # The shell result should indicate permission denied (exit code 126)
-        assert "error" in result.stdout.lower() or "exit=126" in result.stdout
+        # Shell now returns ShellNode immediately with PENDING status
+        ns = timeline.get_namespace()
+        assert "s" in ns
+        shell_node = ns["s"]
+        assert isinstance(shell_node, ShellNode)
+
+        # Wait briefly for background task to complete
+        await asyncio.sleep(0.1)
+
+        # Process pending results (applies async completions)
+        timeline.process_pending_shell_results()
+
+        # The shell should have been denied (exit code 126)
+        assert shell_node.shell_status == ShellStatus.FAILED
+        assert shell_node.exit_code == 126
+        assert "denied" in shell_node.output.lower()
 
     @pytest.mark.asyncio
     async def test_timeline_allows_authorized_shell(self, temp_cwd: Path) -> None:
         """Test Timeline allows authorized shell commands."""
+        import asyncio
         from activecontext.session.timeline import Timeline
+        from activecontext.context.nodes import ShellNode, ShellStatus
 
         config = SandboxConfig(
             shell_permissions=[
@@ -1491,11 +1509,24 @@ class TestShellTimelineIntegration:
             shell_permission_manager=manager,
         )
 
-        result = await timeline.execute_statement('shell("echo", ["hello"])')
+        result = await timeline.execute_statement('s = shell("echo", ["hello"])')
 
         assert result.status.value == "ok"
-        # Should have actual output (hello) or successful status, not error
-        assert "hello" in result.stdout or "exit=126" not in result.stdout
+        ns = timeline.get_namespace()
+        assert "s" in ns
+        shell_node = ns["s"]
+        assert isinstance(shell_node, ShellNode)
+
+        # Wait for background task to complete
+        await asyncio.sleep(0.5)
+
+        # Process pending results
+        timeline.process_pending_shell_results()
+
+        # Should have completed successfully with output
+        assert shell_node.is_complete
+        assert shell_node.exit_code == 0
+        assert "hello" in shell_node.output
 
     @pytest.mark.asyncio
     async def test_timeline_ls_shell_permissions(self, temp_cwd: Path) -> None:

@@ -44,6 +44,14 @@ class ExecutionStatus(Enum):
     CANCELLED = "cancelled"
 
 
+class WaitMode(Enum):
+    """Mode for wait conditions."""
+
+    SINGLE = "single"  # Wait for a single node
+    ALL = "all"        # Wait for all nodes
+    ANY = "any"        # Wait for any node (first to complete)
+
+
 # -----------------------------------------------------------------------------
 # Data Classes
 # -----------------------------------------------------------------------------
@@ -95,6 +103,48 @@ class ExecutionResult:
     exception: dict[str, Any] | None = None
     state_diff: NamespaceDiff = field(default_factory=NamespaceDiff)
     duration_ms: float = 0.0
+
+
+@dataclass(slots=True)
+class WaitCondition:
+    """Condition that blocks turn progression until satisfied.
+
+    When a wait condition is active, the session enters WAITING_FOR_NODE state.
+    Ticks continue (for time-based updates), but turn-based ticks are paused.
+    The condition is checked each tick, and when satisfied (or timed out),
+    the appropriate prompt is injected and execution resumes.
+
+    Attributes:
+        node_ids: Node IDs to watch for completion
+        mode: SINGLE, ALL, or ANY
+        wake_prompt: Prompt injected when condition is satisfied
+        timeout: Timeout in seconds (None = no timeout)
+        timeout_prompt: Prompt injected on timeout
+        failure_prompt: Prompt injected if any watched node fails
+        started_at: When the wait condition was created (for timeout tracking)
+        cancel_others: For ANY mode, whether to cancel other nodes on first completion
+    """
+
+    node_ids: list[str]
+    mode: WaitMode
+    wake_prompt: str
+    timeout: float | None = None
+    timeout_prompt: str | None = None
+    failure_prompt: str | None = None
+    started_at: float = field(default_factory=lambda: __import__("time").time())
+    cancel_others: bool = False
+
+    def is_timed_out(self) -> bool:
+        """Check if the wait condition has timed out."""
+        if self.timeout is None:
+            return False
+        import time
+        return (time.time() - self.started_at) >= self.timeout
+
+    def elapsed_seconds(self) -> float:
+        """Get elapsed time since wait started."""
+        import time
+        return time.time() - self.started_at
 
 
 @dataclass(slots=True)

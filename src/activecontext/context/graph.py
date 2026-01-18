@@ -250,16 +250,46 @@ class ContextGraph:
         return check(node_id)
 
     def to_dict(self) -> dict[str, Any]:
-        """Serialize graph for persistence."""
+        """Serialize graph for persistence.
+
+        Returns full node data (not just digest) for reconstruction.
+        """
         return {
-            "nodes": {nid: node.GetDigest() for nid, node in self._nodes.items()},
+            "nodes": [node.to_dict() for node in self._nodes.values()],
             "root_ids": list(self._root_ids),
-            "edges": [
-                {"child": nid, "parent": pid}
-                for nid, node in self._nodes.items()
-                for pid in node.parent_ids
-            ],
+            "running_node_ids": list(self._running_nodes),
         }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> ContextGraph:
+        """Deserialize graph from dict.
+
+        Args:
+            data: Dict with "nodes", "root_ids", "running_node_ids"
+
+        Returns:
+            Reconstructed ContextGraph
+        """
+        from activecontext.context.nodes import ContextNode
+
+        graph = cls()
+
+        # Deserialize nodes
+        for node_data in data.get("nodes", []):
+            node = ContextNode.from_dict(node_data)
+            # Add to internal structures without using add_node()
+            # (which would reset parent_ids)
+            node._graph = graph
+            graph._nodes[node.node_id] = node
+            graph._by_type[node.node_type].add(node.node_id)
+
+        # Restore root_ids
+        graph._root_ids = set(data.get("root_ids", []))
+
+        # Restore running_nodes
+        graph._running_nodes = set(data.get("running_node_ids", []))
+
+        return graph
 
     def clear(self) -> None:
         """Remove all nodes from the graph."""

@@ -62,6 +62,30 @@ class ProjectionEngine:
         except ImportError:
             return ProjectionConfig()
 
+
+    def _get_user_display_name(self) -> str:
+        """Get the user's display name from config or environment.
+
+        Resolution order:
+        1. Config file: user.display_name
+        2. Environment: USER (Unix) or USERNAME (Windows)
+        3. Default: "User"
+        """
+        import os
+
+        try:
+            from activecontext.config import get_config
+
+            app_config = get_config()
+            if hasattr(app_config, "user") and app_config.user:
+                if app_config.user.display_name:
+                    return app_config.user.display_name
+        except ImportError:
+            pass
+
+        # Fall back to environment
+        return os.environ.get("USER") or os.environ.get("USERNAME") or "User"
+
     def build(
         self,
         *,
@@ -93,7 +117,19 @@ class ProjectionEngine:
         tree_budget = int(budget * (self.config.views_ratio + self.config.groups_ratio))
 
         # 1. Render conversation history
-        conv_section = self._render_conversation(conversation, conv_budget, show_actors=show_message_actors)
+        # Prefer MessageNodes from graph if available, fall back to legacy conversation list
+        conv_section = None
+        if context_graph:
+            conv_section = self._render_messages(
+                context_graph,
+                conv_budget,
+                user_display_name=self._get_user_display_name(),
+            )
+        if not conv_section and conversation:
+            # Fall back to legacy conversation rendering
+            conv_section = self._render_conversation(
+                conversation, conv_budget, show_actors=show_message_actors
+            )
         if conv_section:
             sections.append(conv_section)
 
@@ -265,6 +301,186 @@ class ProjectionEngine:
             tokens_used=tokens_used,
             state=NodeState.DETAILS,
         )
+
+    def _render_messages(
+        self,
+        graph: ContextGraph,
+        budget: int,
+        user_display_name: str = "User",
+    ) -> ProjectionSection | None:
+        """Render conversation from MessageNodes with role alternation.
+
+        Groups adjacent same-role messages into blocks for proper LLM
+        pretraining compatibility. Each block shows the first message's ID.
+
+        Args:
+            graph: Context graph containing MessageNodes
+            budget: Token budget for conversation
+            user_display_name: Display name for user messages (e.g., "Ace")
+
+        Returns:
+            ProjectionSection with rendered conversation, or None if no messages
+        """
+        from activecontext.context.nodes import MessageNode
+
+        # Get all message nodes sorted by creation time
+        msg_nodes: list[MessageNode] = []
+        for node in graph:
+            if isinstance(node, MessageNode):
+                msg_nodes.append(node)
+
+        if not msg_nodes:
+            return None
+
+        # Sort by creation time
+        msg_nodes.sort(key=lambda n: n.created_at)
+
+        # Group into blocks by effective role
+        blocks: list[tuple[str, list[MessageNode]]] = []  # (role, nodes)
+        for node in msg_nodes:
+            effective_role = node.effective_role  # "USER" or "ASSISTANT"
+            if blocks and blocks[-1][0] == effective_role:
+                blocks[-1][1].append(node)  # Merge into current block
+            else:
+                blocks.append((effective_role, [node]))  # New block
+
+        # Render blocks
+        parts = ["## Conversation\n\n"]
+        tokens_used = 50  # header overhead
+        char_budget = budget * 4
+
+        for role, nodes in blocks:
+            # Get block ID from first node
+            block_id = nodes[0].node_id
+
+            # Get display label
+            label = self._get_block_label(nodes, user_display_name)
+
+            # Render block content
+            block_content = self._render_block_content(nodes, char_budget // len(blocks))
+
+            # Format block with ID and label
+            block_header = f"[msg:{block_id}] **{label}**:\n"
+            entry = block_header + block_content + "\n"
+
+            entry_chars = len(entry)
+            if tokens_used * 4 + entry_chars > char_budget:
+                # Over budget, truncate and note
+                remaining_blocks = len(blocks) - len([b for b in blocks if blocks.index(b) <= blocks.index((role, nodes))])
+                if remaining_blocks > 0:
+                    parts.append(f"[{remaining_blocks} earlier message blocks omitted]\n\n")
+                break
+
+            parts.append(entry)
+            tokens_used += entry_chars // 4
+
+        return ProjectionSection(
+            section_type="conversation",
+            source_id="messages",
+            content="".join(parts),
+            tokens_used=tokens_used,
+            state=NodeState.DETAILS,
+        )
+
+    def _get_block_label(
+        self,
+        nodes: list[ContextNode],
+        user_display_name: str,
+    ) -> str:
+        """Get the display label for a message block.
+
+        Args:
+            nodes: MessageNodes in this block
+            user_display_name: Configured user display name
+
+        Returns:
+            Label like "Ace", "Agent", "Tool Call: grep", etc.
+        """
+        from activecontext.context.nodes import MessageNode
+
+        first_node = nodes[0]
+        if not isinstance(first_node, MessageNode):
+            return "Unknown"
+
+        # User messages use configured display name
+        if first_node.actor == "user":
+            return user_display_name
+
+        # Check for mixed content in block (agent + tools)
+        has_agent = any(
+            isinstance(n, MessageNode) and n.actor == "agent"
+            for n in nodes
+        )
+        has_tools = any(
+            isinstance(n, MessageNode) and n.actor and n.actor.startswith("tool:")
+            for n in nodes
+        )
+
+        # If block has agent prose, label as "Agent"
+        if has_agent:
+            return "Agent"
+
+        # Use first node's display_label
+        return first_node.display_label
+
+    def _render_block_content(
+        self,
+        nodes: list[ContextNode],
+        budget: int,
+    ) -> str:
+        """Render the content of a message block.
+
+        Combines multiple messages (agent prose + tool calls/results)
+        into a single block.
+
+        Args:
+            nodes: MessageNodes in this block
+            budget: Character budget for this block
+
+        Returns:
+            Rendered block content
+        """
+        from activecontext.context.nodes import MessageNode
+
+        parts: list[str] = []
+        chars_used = 0
+
+        for node in nodes:
+            if not isinstance(node, MessageNode):
+                continue
+
+            # Different formatting based on message type
+            if node.role == "tool_call":
+                # Format tool call inline
+                tool_name = node.tool_name or "unknown"
+                if node.tool_args:
+                    args_str = ", ".join(f'{k}="{v}"' for k, v in node.tool_args.items())
+                    content = f"[Tool: {tool_name}] {args_str}\n"
+                else:
+                    content = f"[Tool: {tool_name}]\n"
+            elif node.role == "tool_result":
+                # Format tool result
+                result_content = node.content
+                if len(result_content) > budget // len(nodes):
+                    result_content = result_content[:budget // len(nodes) - 20] + "..."
+                content = f"[Result] {result_content}\n"
+            else:
+                # Regular message content
+                content = node.content
+                if len(content) > budget // len(nodes):
+                    content = content[:budget // len(nodes) - 20] + "..."
+                content = content + "\n"
+
+            if chars_used + len(content) > budget:
+                remaining = len(nodes) - nodes.index(node)
+                if remaining > 1:
+                    parts.append(f"... [{remaining} more items]\n")
+                break
+
+            parts.append(content)
+            chars_used += len(content)
+
+        return "".join(parts)
 
     def _render_views(
         self,

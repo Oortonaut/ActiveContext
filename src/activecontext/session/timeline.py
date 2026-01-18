@@ -25,10 +25,17 @@ from activecontext.context.nodes import (
     ArtifactNode,
     ContextNode,
     GroupNode,
+    LockNode,
+    LockStatus,
+    MarkdownNode,
+    ShellNode,
+    ShellStatus,
     TopicNode,
     ViewNode,
+    WorkNode,
 )
 from activecontext.context.state import NodeState, TickFrequency
+from activecontext.terminal.result import ShellResult
 from activecontext.session.permissions import (
     ImportDenied,
     ImportGuard,
@@ -50,12 +57,15 @@ from activecontext.session.protocols import (
     ExecutionStatus,
     NamespaceDiff,
     Statement,
+    WaitCondition,
+    WaitMode,
 )
 from activecontext.session.xml_parser import is_xml_command, parse_xml_to_python
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from activecontext.coordination.scratchpad import ScratchpadManager
     from activecontext.terminal.protocol import TerminalExecutor
 
     # Type for file permission requester callback:
@@ -117,6 +127,7 @@ class Timeline:
         shell_permission_requester: ShellPermissionRequester | None = None,
         website_permission_manager: WebsitePermissionManager | None = None,
         website_permission_requester: WebsitePermissionRequester | None = None,
+        scratchpad_manager: "ScratchpadManager | None" = None,
     ) -> None:
         self._session_id = session_id
         self._cwd = cwd
@@ -163,6 +174,12 @@ class Timeline:
             terminal_executor = SubprocessTerminalExecutor(default_cwd=cwd)
         self._terminal_executor = terminal_executor
 
+        # Work coordination scratchpad manager (must be set before _setup_namespace)
+        self._scratchpad_manager = scratchpad_manager
+
+        # WorkNode for displaying coordination status (created on first work_on)
+        self._work_node: WorkNode | None = None
+
         # Controlled Python namespace
         self._namespace: dict[str, Any] = {}
         self._setup_namespace()
@@ -177,6 +194,38 @@ class Timeline:
         # Done signal from agent
         self._done_called = False
         self._done_message: str | None = None
+
+        # Callback for setting session title (set by Session after creation)
+        self._set_title_callback: Callable[[str], None] | None = None
+
+        # Pending async shell results (node_id, result) - populated by background tasks
+        # Processed at tick time to trigger node updates and notifications
+        self._pending_shell_results: list[tuple[str, ShellResult]] = []
+
+        # Background tasks for shell execution
+        self._shell_tasks: dict[str, asyncio.Task[None]] = {}
+
+        # Pending async lock results (node_id, status, error_msg) - populated by background tasks
+        self._pending_lock_results: list[tuple[str, LockStatus, str | None]] = []
+
+        # Background tasks for lock acquisition
+        self._lock_tasks: dict[str, asyncio.Task[None]] = {}
+
+        # Active file locks (node_id -> file handle for releasing)
+        self._active_locks: dict[str, Any] = {}
+
+        # Active wait condition (blocks turn until satisfied)
+        self._wait_condition: WaitCondition | None = None
+
+    def set_title_callback(self, callback: Callable[[str], None] | None) -> None:
+        """Set the callback for set_title() DSL function.
+
+        Args:
+            callback: Function to call with new title, or None to disable.
+        """
+        self._set_title_callback = callback
+        # Re-setup namespace to include/exclude set_title
+        self._setup_namespace()
 
     @property
     def cwd(self) -> str:
@@ -216,6 +265,7 @@ class Timeline:
             "group": self._make_group_node,
             "topic": self._make_topic_node,
             "artifact": self._make_artifact_node,
+            "markdown": self._make_markdown_node,
             # DAG manipulation
             "link": self._link,
             "unlink": self._unlink,
@@ -237,7 +287,26 @@ class Timeline:
             "fetch": self._fetch,
             # Agent control
             "done": self._done,
+            # Session title
+            "set_title": self._set_title,
+            # Async wait control
+            "wait": self._wait,
+            "wait_all": self._wait_all,
+            "wait_any": self._wait_any,
+            # File locking
+            "lock_file": self._lock_file,
+            "lock_release": self._lock_release,
         }
+
+        # Add work coordination functions if scratchpad manager is available
+        if self._scratchpad_manager:
+            self._namespace.update({
+                "work_on": self._work_on,
+                "work_check": self._work_check,
+                "work_update": self._work_update,
+                "work_done": self._work_done,
+                "work_list": self._work_list,
+            })
 
     def _ls_permissions(self) -> list[dict[str, Any]]:
         """List current file permissions (read-only inspection).
@@ -473,6 +542,54 @@ class Timeline:
         self._context_objects[node.node_id] = node
         return node
 
+    def _make_markdown_node(
+        self,
+        path: str,
+        *,
+        content: str | None = None,
+        tokens: int = 2000,
+        state: NodeState = NodeState.DETAILS,
+        summary_tokens: int = 100,
+        parent: ContextNode | str | None = None,
+    ) -> MarkdownNode:
+        """Create a MarkdownNode tree from a markdown file.
+
+        Parses the markdown heading hierarchy into a tree of nodes.
+        If the document has <=1 h1 heading, the document root is elided.
+
+        Args:
+            path: File path relative to session cwd
+            content: Markdown content (if None, reads from path)
+            tokens: Token budget for root node
+            state: Rendering state (HIDDEN, COLLAPSED, SUMMARY, DETAILS, ALL)
+            summary_tokens: Tokens for summary (first paragraph)
+            parent: Optional parent node or node ID
+
+        Returns:
+            The root MarkdownNode (children are accessible via child_order)
+        """
+        root, all_nodes = MarkdownNode.from_markdown(
+            path=path,
+            content=content,
+            cwd=self._cwd,
+            summary_tokens=summary_tokens,
+            tokens=tokens,
+            state=state,
+        )
+
+        # Add all nodes to graph
+        for node in all_nodes:
+            self._context_graph.add_node(node)
+            # Legacy compatibility
+            self._context_objects[node.node_id] = node
+
+        # Link root to parent if provided
+        if parent:
+            parent_id = parent.node_id if isinstance(parent, ContextNode) else parent
+            self._context_graph.link(root.node_id, parent_id)
+
+        return root
+
     def _link(
         self,
         child: ContextNode | str,
@@ -575,12 +692,15 @@ class Timeline:
         cwd: str | None = None,
         env: dict[str, str] | None = None,
         timeout: float | None = 30.0,
-    ) -> Any:
-        """Execute a shell command with permission checking.
+        *,
+        tokens: int = 2000,
+        state: NodeState = NodeState.DETAILS,
+    ) -> ShellNode:
+        """Execute a shell command asynchronously, returning a ShellNode.
 
-        Returns a coroutine that must be awaited by execute_statement.
-        If a shell_permission_manager is configured, the command will be
-        checked against the permission rules before execution.
+        Creates a ShellNode in the context graph and starts the subprocess
+        in the background. The node's status updates when the command completes,
+        and change notifications propagate up the DAG at tick time.
 
         Args:
             command: The command to execute (e.g., "pytest", "git").
@@ -588,48 +708,86 @@ class Timeline:
             cwd: Working directory. If None, uses session cwd.
             env: Additional environment variables.
             timeout: Timeout in seconds (default: 30). None for no timeout.
+            tokens: Token budget for rendering output (default: 2000).
+            state: Initial rendering state (default: DETAILS).
 
         Returns:
-            Coroutine that resolves to ShellResult.
+            ShellNode that tracks the command execution.
         """
-        return self._shell_with_permission(
+        # Create the ShellNode
+        node = ShellNode(
             command=command,
-            args=args,
-            cwd=cwd,
-            env=env,
-            timeout=timeout,
+            args=args or [],
+            tokens=tokens,
+            state=state,
         )
 
-    async def _shell_with_permission(
+        # Add to context graph
+        self._context_graph.add_node(node)
+
+        # Also track in legacy context_objects for compatibility
+        self._context_objects[node.node_id] = node
+
+        # Start background execution
+        task = asyncio.create_task(
+            self._shell_background_task(
+                node_id=node.node_id,
+                command=command,
+                args=args,
+                cwd=cwd,
+                env=env,
+                timeout=timeout,
+            )
+        )
+        self._shell_tasks[node.node_id] = task
+
+        return node
+
+    async def _shell_background_task(
         self,
+        node_id: str,
         command: str,
-        args: list[str] | None = None,
-        cwd: str | None = None,
-        env: dict[str, str] | None = None,
-        timeout: float | None = 30.0,
-    ) -> Any:
-        """Execute shell command with permission check and request flow.
+        args: list[str] | None,
+        cwd: str | None,
+        env: dict[str, str] | None,
+        timeout: float | None,
+    ) -> None:
+        """Background task that executes a shell command and stores the result.
 
-        Args:
-            command: The command to execute.
-            args: Optional list of arguments.
-            cwd: Working directory.
-            env: Additional environment variables.
-            timeout: Timeout in seconds.
-
-        Returns:
-            ShellResult from execution, or error result if denied.
+        This runs in the background while the agent continues. When complete,
+        it stores the result in _pending_shell_results for processing at tick.
         """
-        from activecontext.terminal.result import ShellResult
+        # Get the node and mark as running
+        node = self._context_graph.get_node(node_id)
+        if isinstance(node, ShellNode):
+            node.shell_status = ShellStatus.RUNNING
+            node.started_at_exec = time.time()
+
+        result: ShellResult
 
         # Check permission if manager is configured
         if self._shell_permission_manager:
             if not self._shell_permission_manager.check_access(command, args):
                 # Permission denied - try to request
                 if self._shell_permission_requester:
-                    granted, persist = await self._shell_permission_requester(
-                        self._session_id, command, args
-                    )
+                    try:
+                        granted, persist = await self._shell_permission_requester(
+                            self._session_id, command, args
+                        )
+                    except asyncio.CancelledError:
+                        # Cancelled during permission request
+                        full_cmd = f"{command} {' '.join(args or [])}"
+                        result = ShellResult(
+                            command=full_cmd,
+                            exit_code=-1,
+                            output="Cancelled",
+                            truncated=False,
+                            status="cancelled",
+                            signal="SIGTERM",
+                            duration_ms=0,
+                        )
+                        self._pending_shell_results.append((node_id, result))
+                        return
 
                     if granted:
                         if persist:
@@ -646,9 +804,9 @@ class Timeline:
                             # "Allow once" - grant temporary access
                             self._shell_permission_manager.grant_temporary(command, args)
                     else:
-                        # Denied - return error result
+                        # Denied - store error result
                         full_cmd = f"{command} {' '.join(args or [])}"
-                        return ShellResult(
+                        result = ShellResult(
                             command=full_cmd,
                             exit_code=126,  # Permission denied exit code
                             output=f"Shell command denied by sandbox policy: {full_cmd}",
@@ -657,10 +815,12 @@ class Timeline:
                             signal=None,
                             duration_ms=0,
                         )
+                        self._pending_shell_results.append((node_id, result))
+                        return
                 else:
-                    # No requester available - return error result
+                    # No requester available - store error result
                     full_cmd = f"{command} {' '.join(args or [])}"
-                    return ShellResult(
+                    result = ShellResult(
                         command=full_cmd,
                         exit_code=126,
                         output=f"Shell command denied by sandbox policy: {full_cmd}",
@@ -669,15 +829,379 @@ class Timeline:
                         signal=None,
                         duration_ms=0,
                     )
+                    self._pending_shell_results.append((node_id, result))
+                    return
 
         # Permission granted (or no manager) - execute
-        return await self._terminal_executor.execute(
-            command=command,
-            args=args,
-            cwd=cwd,
-            env=env,
+        try:
+            result = await self._terminal_executor.execute(
+                command=command,
+                args=args,
+                cwd=cwd,
+                env=env,
+                timeout=timeout,
+            )
+        except asyncio.CancelledError:
+            full_cmd = f"{command} {' '.join(args or [])}"
+            result = ShellResult(
+                command=full_cmd,
+                exit_code=-1,
+                output="Cancelled",
+                truncated=False,
+                status="cancelled",
+                signal="SIGTERM",
+                duration_ms=0,
+            )
+        except Exception as e:
+            full_cmd = f"{command} {' '.join(args or [])}"
+            result = ShellResult(
+                command=full_cmd,
+                exit_code=-1,
+                output=f"Error: {e}",
+                truncated=False,
+                status="error",
+                signal=None,
+                duration_ms=0,
+            )
+
+        # Store result for processing at tick time
+        self._pending_shell_results.append((node_id, result))
+
+    def process_pending_shell_results(self) -> list[str]:
+        """Process pending shell results and update nodes.
+
+        Called during tick to apply async shell results. This triggers
+        node change notifications that propagate up the DAG.
+
+        Returns:
+            List of node IDs that were updated.
+        """
+        updated_nodes: list[str] = []
+
+        while self._pending_shell_results:
+            node_id, result = self._pending_shell_results.pop(0)
+
+            node = self._context_graph.get_node(node_id)
+            if not isinstance(node, ShellNode):
+                continue
+
+            # Apply the result - this triggers _mark_changed() and notifications
+            if result.status == "timeout":
+                node.set_timeout(result.output, result.duration_ms)
+            elif result.signal:
+                node.set_completed(
+                    exit_code=result.exit_code or -1,
+                    output=result.output,
+                    duration_ms=result.duration_ms,
+                    truncated=result.truncated,
+                    signal=result.signal,
+                )
+            else:
+                node.set_completed(
+                    exit_code=result.exit_code or 0,
+                    output=result.output,
+                    duration_ms=result.duration_ms,
+                    truncated=result.truncated,
+                )
+
+            updated_nodes.append(node_id)
+
+            # Clean up task reference
+            self._shell_tasks.pop(node_id, None)
+
+        return updated_nodes
+
+    def cancel_shell(self, node_id: str) -> bool:
+        """Cancel a running shell command.
+
+        Args:
+            node_id: The ShellNode ID to cancel.
+
+        Returns:
+            True if a task was cancelled, False if not found/already done.
+        """
+        task = self._shell_tasks.get(node_id)
+        if task and not task.done():
+            task.cancel()
+            return True
+        return False
+
+    def cancel_all_shells(self) -> int:
+        """Cancel all running shell commands.
+
+        Returns:
+            Number of tasks cancelled.
+        """
+        cancelled = 0
+        for node_id, task in list(self._shell_tasks.items()):
+            if not task.done():
+                task.cancel()
+                cancelled += 1
+        return cancelled
+
+    # =========================================================================
+    # File locking DSL functions
+    # =========================================================================
+
+    def _lock_file(
+        self,
+        lockfile: str,
+        timeout: float = 30.0,
+        *,
+        tokens: int = 200,
+        state: NodeState = NodeState.COLLAPSED,
+    ) -> LockNode:
+        """Acquire an exclusive file lock asynchronously, returning a LockNode.
+
+        Creates a LockNode in the context graph and starts lock acquisition
+        in the background. The node's status updates when the lock is acquired
+        or times out, and change notifications propagate up the DAG at tick time.
+
+        The lock uses OS-level file locking (fcntl on Unix, msvcrt on Windows).
+        The lockfile is created if it doesn't exist.
+
+        Args:
+            lockfile: Path to the lock file (will be created if needed).
+            timeout: Timeout in seconds for acquisition (default: 30).
+            tokens: Token budget for rendering (default: 200).
+            state: Initial rendering state (default: COLLAPSED).
+
+        Returns:
+            LockNode that tracks the lock status.
+
+        Example:
+            lock = lock_file(".mylock", timeout=10)
+            wait(lock, wake_prompt="Lock acquired, proceeding...")
+        """
+        import os
+
+        # Resolve path relative to cwd
+        if not os.path.isabs(lockfile):
+            lockfile = os.path.join(self._cwd, lockfile)
+
+        # Create the LockNode
+        node = LockNode(
+            lockfile=lockfile,
             timeout=timeout,
+            tokens=tokens,
+            state=state,
         )
+
+        # Add to context graph
+        self._context_graph.add_node(node)
+
+        # Also track in legacy context_objects for compatibility
+        self._context_objects[node.node_id] = node
+
+        # Start background lock acquisition
+        task = asyncio.create_task(
+            self._lock_background_task(
+                node_id=node.node_id,
+                lockfile=lockfile,
+                timeout=timeout,
+            )
+        )
+        self._lock_tasks[node.node_id] = task
+
+        return node
+
+    async def _lock_background_task(
+        self,
+        node_id: str,
+        lockfile: str,
+        timeout: float,
+    ) -> None:
+        """Background task that acquires a file lock with timeout.
+
+        This runs in the background while the agent continues. When complete,
+        it stores the result in _pending_lock_results for processing at tick.
+        """
+        import os
+        import sys
+
+        start_time = time.time()
+        poll_interval = 0.1  # 100ms between lock attempts
+
+        try:
+            # Create the lock file if it doesn't exist
+            Path(lockfile).parent.mkdir(parents=True, exist_ok=True)
+
+            # Open file for locking (create if needed)
+            lock_fd = open(lockfile, "w")
+
+            # Try to acquire lock with timeout
+            while True:
+                elapsed = time.time() - start_time
+                if elapsed >= timeout:
+                    # Timeout - close file and report
+                    lock_fd.close()
+                    self._pending_lock_results.append((node_id, LockStatus.TIMEOUT, None))
+                    return
+
+                try:
+                    # Platform-specific locking
+                    if sys.platform == "win32":
+                        import msvcrt
+                        msvcrt.locking(lock_fd.fileno(), msvcrt.LK_NBLCK, 1)
+                    else:
+                        import fcntl
+                        fcntl.flock(lock_fd.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+                    # Lock acquired - store file handle for later release
+                    self._active_locks[node_id] = lock_fd
+                    self._pending_lock_results.append((node_id, LockStatus.ACQUIRED, None))
+                    return
+
+                except (IOError, OSError):
+                    # Lock held by another process - wait and retry
+                    await asyncio.sleep(poll_interval)
+
+        except asyncio.CancelledError:
+            self._pending_lock_results.append((node_id, LockStatus.ERROR, "Cancelled"))
+        except Exception as e:
+            self._pending_lock_results.append((node_id, LockStatus.ERROR, str(e)))
+
+    def _lock_release(self, lock: LockNode | str) -> bool:
+        """Release a file lock and remove the lock file.
+
+        Args:
+            lock: The LockNode or node_id to release.
+
+        Returns:
+            True if lock was released, False if not found or not held.
+
+        Example:
+            lock_release(lock)  # or lock_release(lock.node_id)
+        """
+        import os
+        import sys
+
+        node_id = lock.node_id if isinstance(lock, LockNode) else lock
+
+        # Get the lock node
+        node = self._context_graph.get_node(node_id)
+        if not isinstance(node, LockNode):
+            return False
+
+        # Check if we hold the lock
+        lock_fd = self._active_locks.get(node_id)
+        if lock_fd is None:
+            return False
+
+        try:
+            # Release the lock
+            if sys.platform == "win32":
+                import msvcrt
+                try:
+                    msvcrt.locking(lock_fd.fileno(), msvcrt.LK_UNLCK, 1)
+                except (IOError, OSError):
+                    pass  # May already be released
+            else:
+                import fcntl
+                try:
+                    fcntl.flock(lock_fd.fileno(), fcntl.LOCK_UN)
+                except (IOError, OSError):
+                    pass  # May already be released
+
+            # Close the file handle
+            lock_fd.close()
+
+            # Remove the lock file
+            try:
+                os.unlink(node.lockfile)
+            except (IOError, OSError):
+                pass  # File may already be removed
+
+            # Update node state
+            node.set_released()
+
+            # Clean up
+            del self._active_locks[node_id]
+
+            # Cancel any pending acquisition task
+            task = self._lock_tasks.pop(node_id, None)
+            if task and not task.done():
+                task.cancel()
+
+            return True
+
+        except Exception:
+            return False
+
+    def process_pending_lock_results(self) -> list[str]:
+        """Process pending lock results and update nodes.
+
+        Called during tick to apply async lock results. This triggers
+        node change notifications that propagate up the DAG.
+
+        Returns:
+            List of node IDs that were updated.
+        """
+        import os
+
+        updated_nodes: list[str] = []
+
+        while self._pending_lock_results:
+            node_id, status, error_msg = self._pending_lock_results.pop(0)
+
+            node = self._context_graph.get_node(node_id)
+            if not isinstance(node, LockNode):
+                continue
+
+            # Apply the result - this triggers _mark_changed() and notifications
+            if status == LockStatus.ACQUIRED:
+                node.set_acquired(os.getpid())
+            elif status == LockStatus.TIMEOUT:
+                node.set_timeout()
+            elif status == LockStatus.ERROR:
+                node.set_error(error_msg or "Unknown error")
+
+            updated_nodes.append(node_id)
+
+            # Clean up task reference
+            self._lock_tasks.pop(node_id, None)
+
+        return updated_nodes
+
+    def cancel_lock(self, node_id: str) -> bool:
+        """Cancel a pending lock acquisition.
+
+        Args:
+            node_id: The LockNode ID to cancel.
+
+        Returns:
+            True if a task was cancelled, False if not found/already done.
+        """
+        task = self._lock_tasks.get(node_id)
+        if task and not task.done():
+            task.cancel()
+            return True
+        return False
+
+    def cancel_all_locks(self) -> int:
+        """Cancel all pending lock acquisitions.
+
+        Returns:
+            Number of tasks cancelled.
+        """
+        cancelled = 0
+        for node_id, task in list(self._lock_tasks.items()):
+            if not task.done():
+                task.cancel()
+                cancelled += 1
+        return cancelled
+
+    def release_all_locks(self) -> int:
+        """Release all held locks.
+
+        Returns:
+            Number of locks released.
+        """
+        released = 0
+        for node_id in list(self._active_locks.keys()):
+            if self._lock_release(node_id):
+                released += 1
+        return released
 
     def _fetch(
         self,
@@ -802,6 +1326,21 @@ class Timeline:
         if message:
             print(message)
 
+    def _set_title(self, title: str) -> None:
+        """Set the session title.
+
+        This updates the session title that appears in IDE menus
+        and conversation history.
+
+        Args:
+            title: New title for the session.
+        """
+        if self._set_title_callback:
+            self._set_title_callback(title)
+            print(f"Session title set to: {title}")
+        else:
+            print("Warning: set_title not available (no session callback registered)")
+
     def is_done(self) -> bool:
         """Check if done() was called."""
         return self._done_called
@@ -814,6 +1353,428 @@ class Timeline:
         """Reset the done signal (call at start of each prompt)."""
         self._done_called = False
         self._done_message = None
+
+    # =========================================================================
+    # Wait condition DSL functions
+    # =========================================================================
+
+    def _wait(
+        self,
+        node: ContextNode | str,
+        *,
+        wake_prompt: str = "Node completed.",
+        timeout: float | None = None,
+        timeout_prompt: str | None = None,
+        failure_prompt: str | None = None,
+    ) -> None:
+        """Wait for a single node to complete.
+
+        Ends the current turn and waits for the specified node (typically a
+        ShellNode) to complete. Ticks continue while waiting. When the node
+        completes, the wake_prompt is injected and the agent turn resumes.
+
+        Args:
+            node: The node to wait for (ContextNode or node_id string).
+            wake_prompt: Prompt injected when node completes. Can use {node}
+                for the completed node.
+            timeout: Optional timeout in seconds.
+            timeout_prompt: Prompt injected if timeout expires.
+            failure_prompt: Prompt injected if node fails.
+        """
+        node_id = node.node_id if isinstance(node, ContextNode) else node
+        self._wait_condition = WaitCondition(
+            node_ids=[node_id],
+            mode=WaitMode.SINGLE,
+            wake_prompt=wake_prompt,
+            timeout=timeout,
+            timeout_prompt=timeout_prompt,
+            failure_prompt=failure_prompt,
+        )
+        # Mark as done-like to end the turn
+        self._done_called = True
+
+    def _wait_all(
+        self,
+        *nodes: ContextNode | str,
+        wake_prompt: str = "All nodes completed.",
+        timeout: float | None = None,
+        timeout_prompt: str | None = None,
+        failure_prompt: str | None = None,
+    ) -> None:
+        """Wait for all specified nodes to complete.
+
+        Ends the current turn and waits for all specified nodes to complete.
+        Ticks continue while waiting. When all nodes complete, the wake_prompt
+        is injected and the agent turn resumes.
+
+        Args:
+            *nodes: Nodes to wait for (ContextNode or node_id strings).
+            wake_prompt: Prompt injected when all complete.
+            timeout: Optional timeout in seconds.
+            timeout_prompt: Prompt injected if timeout expires.
+            failure_prompt: Prompt injected if any node fails.
+        """
+        node_ids = [
+            n.node_id if isinstance(n, ContextNode) else n
+            for n in nodes
+        ]
+        self._wait_condition = WaitCondition(
+            node_ids=node_ids,
+            mode=WaitMode.ALL,
+            wake_prompt=wake_prompt,
+            timeout=timeout,
+            timeout_prompt=timeout_prompt,
+            failure_prompt=failure_prompt,
+        )
+        self._done_called = True
+
+    def _wait_any(
+        self,
+        *nodes: ContextNode | str,
+        wake_prompt: str = "A node completed: {node}",
+        timeout: float | None = None,
+        timeout_prompt: str | None = None,
+        failure_prompt: str | None = None,
+        cancel_others: bool = False,
+    ) -> None:
+        """Wait for any of the specified nodes to complete.
+
+        Ends the current turn and waits for the first node to complete.
+        Ticks continue while waiting. When any node completes, the wake_prompt
+        is injected and the agent turn resumes.
+
+        Args:
+            *nodes: Nodes to wait for (ContextNode or node_id strings).
+            wake_prompt: Prompt injected when first completes. Use {node}
+                for the completed node.
+            timeout: Optional timeout in seconds.
+            timeout_prompt: Prompt injected if timeout expires.
+            failure_prompt: Prompt injected if any node fails.
+            cancel_others: If True, cancel remaining nodes when first completes.
+        """
+        node_ids = [
+            n.node_id if isinstance(n, ContextNode) else n
+            for n in nodes
+        ]
+        self._wait_condition = WaitCondition(
+            node_ids=node_ids,
+            mode=WaitMode.ANY,
+            wake_prompt=wake_prompt,
+            timeout=timeout,
+            timeout_prompt=timeout_prompt,
+            failure_prompt=failure_prompt,
+            cancel_others=cancel_others,
+        )
+        self._done_called = True
+
+    # === Work Coordination DSL Functions ===
+
+    def _work_on(
+        self,
+        intent: str,
+        *files: str,
+        mode: str = "write",
+        dependencies: list[str] | None = None,
+    ) -> WorkNode:
+        """Register intent and files being worked on.
+
+        Creates a WorkNode in the context graph to display coordination status.
+        Also registers with the project-wide scratchpad for cross-agent visibility.
+
+        Args:
+            intent: Human-readable description of work
+            *files: File paths being accessed
+            mode: Access mode for files ("read" or "write")
+            dependencies: Additional files needed (read-only)
+
+        Returns:
+            WorkNode for displaying coordination status
+
+        Example:
+            work_on("Implementing OAuth2", "src/auth/oauth.py", "src/auth/config.py")
+        """
+        from activecontext.coordination.schema import FileAccess
+
+        if not self._scratchpad_manager:
+            raise RuntimeError("Scratchpad manager not configured")
+
+        # Build file access list
+        file_accesses = [FileAccess(path=f, mode=mode) for f in files]
+
+        # Register with scratchpad
+        entry = self._scratchpad_manager.register(
+            session_id=self._session_id,
+            intent=intent,
+            files=file_accesses,
+            dependencies=dependencies,
+        )
+
+        # Check for conflicts
+        all_paths = list(files) + (dependencies or [])
+        conflicts = self._scratchpad_manager.get_conflicts(all_paths, mode)
+
+        # Create or update WorkNode
+        if self._work_node is None:
+            node_id = f"work_{uuid.uuid4().hex[:8]}"
+            self._work_node = WorkNode(
+                node_id=node_id,
+                tokens=200,
+                state=NodeState.DETAILS,
+                intent=entry.intent,
+                work_status=entry.status,
+                files=[f.to_dict() for f in file_accesses],
+                dependencies=dependencies or [],
+                conflicts=[c.to_dict() for c in conflicts],
+                agent_id=entry.id,
+            )
+            self._context_graph.add_node(self._work_node)
+        else:
+            self._work_node.intent = entry.intent
+            self._work_node.work_status = entry.status
+            self._work_node.files = [f.to_dict() for f in file_accesses]
+            self._work_node.dependencies = dependencies or []
+            self._work_node.set_conflicts([c.to_dict() for c in conflicts])
+            self._work_node.agent_id = entry.id
+
+        return self._work_node
+
+    def _work_check(self, *files: str, mode: str = "write") -> list[dict[str, str]]:
+        """Check for conflicts on files before modifying.
+
+        Args:
+            *files: File paths to check
+            mode: Access mode we want ("read" or "write")
+
+        Returns:
+            List of conflicts: [{agent_id, file, their_mode, their_intent}, ...]
+
+        Example:
+            conflicts = work_check("src/auth/utils.py")
+            if conflicts:
+                print(f"Warning: {conflicts[0]['agent_id']} is working on this")
+        """
+        if not self._scratchpad_manager:
+            return []
+
+        conflicts = self._scratchpad_manager.get_conflicts(list(files), mode)
+        return [c.to_dict() for c in conflicts]
+
+    def _work_update(
+        self,
+        intent: str | None = None,
+        files: list[str] | None = None,
+        mode: str = "write",
+        dependencies: list[str] | None = None,
+        status: str | None = None,
+    ) -> WorkNode | None:
+        """Update current work registration.
+
+        Args:
+            intent: New intent description
+            files: New file list (replaces existing)
+            mode: Access mode for new files
+            dependencies: New dependencies
+            status: New status (active/paused/done)
+
+        Returns:
+            Updated WorkNode, or None if not registered
+        """
+        from activecontext.coordination.schema import FileAccess
+
+        if not self._scratchpad_manager:
+            return None
+
+        # Build file access list if provided
+        file_accesses: list[FileAccess] | None = None
+        if files is not None:
+            file_accesses = [FileAccess(path=f, mode=mode) for f in files]
+
+        # Update scratchpad entry
+        entry = self._scratchpad_manager.update(
+            intent=intent,
+            files=file_accesses,
+            dependencies=dependencies,
+            status=status,
+        )
+
+        if entry is None:
+            return None
+
+        # Update WorkNode
+        if self._work_node:
+            if intent is not None:
+                self._work_node.intent = intent
+            if file_accesses is not None:
+                self._work_node.files = [f.to_dict() for f in file_accesses]
+            if dependencies is not None:
+                self._work_node.dependencies = dependencies
+            if status is not None:
+                self._work_node.work_status = status
+
+            # Refresh conflicts
+            all_paths = [f["path"] for f in self._work_node.files]
+            conflicts = self._scratchpad_manager.get_conflicts(all_paths, mode)
+            self._work_node.set_conflicts([c.to_dict() for c in conflicts])
+
+        return self._work_node
+
+    def _work_done(self) -> None:
+        """Mark work as complete and unregister.
+
+        Removes this agent's entry from the scratchpad and hides the WorkNode.
+        """
+        if not self._scratchpad_manager:
+            return
+
+        self._scratchpad_manager.unregister()
+
+        if self._work_node:
+            self._work_node.work_status = "done"
+            self._work_node.state = NodeState.HIDDEN
+
+    def _work_list(self) -> list[dict[str, Any]]:
+        """List all active work entries from all agents.
+
+        Returns:
+            List of work entries with files, intent, status, etc.
+        """
+        if not self._scratchpad_manager:
+            return []
+
+        entries = self._scratchpad_manager.get_all_entries()
+        return [
+            {
+                "agent_id": e.id,
+                "session_id": e.session_id,
+                "intent": e.intent,
+                "status": e.status,
+                "files": [f.to_dict() for f in e.files],
+                "dependencies": e.dependencies,
+                "started_at": e.started_at.isoformat(),
+                "updated_at": e.updated_at.isoformat(),
+            }
+            for e in entries
+        ]
+
+    def is_waiting(self) -> bool:
+        """Check if a wait condition is active."""
+        return self._wait_condition is not None
+
+    def get_wait_condition(self) -> WaitCondition | None:
+        """Get the active wait condition, if any."""
+        return self._wait_condition
+
+    def clear_wait_condition(self) -> None:
+        """Clear the active wait condition (call when condition is satisfied)."""
+        self._wait_condition = None
+
+    def check_wait_condition(self) -> tuple[bool, str | None]:
+        """Check if the active wait condition is satisfied.
+
+        Returns:
+            Tuple of (is_satisfied, prompt_to_inject).
+            If satisfied, the prompt is the appropriate wake/timeout/failure prompt.
+            If not satisfied, returns (False, None).
+        """
+        if not self._wait_condition:
+            return False, None
+
+        condition = self._wait_condition
+
+        # Check timeout first
+        if condition.is_timed_out():
+            prompt = condition.timeout_prompt or f"Wait timed out after {condition.timeout}s"
+            return True, prompt
+
+        # Get nodes - support both ShellNode and LockNode
+        nodes: list[ShellNode | LockNode] = []
+        for node_id in condition.node_ids:
+            node = self._context_graph.get_node(node_id)
+            if isinstance(node, (ShellNode, LockNode)):
+                nodes.append(node)
+
+        if not nodes:
+            # No valid nodes found - treat as satisfied with error
+            return True, "Wait condition has no valid nodes."
+
+        # Check for failures (ShellNode or LockNode)
+        failed_nodes: list[ShellNode | LockNode] = []
+        for n in nodes:
+            if isinstance(n, ShellNode) and n.shell_status == ShellStatus.FAILED:
+                failed_nodes.append(n)
+            elif isinstance(n, LockNode) and n.lock_status in (LockStatus.ERROR, LockStatus.TIMEOUT):
+                failed_nodes.append(n)
+
+        if failed_nodes and condition.failure_prompt:
+            failed = failed_nodes[0]
+            # Build prompt based on node type
+            if isinstance(failed, ShellNode):
+                prompt = condition.failure_prompt.format(
+                    node=failed,
+                    node_id=failed.node_id,
+                    command=failed.full_command,
+                    exit_code=failed.exit_code,
+                    output=failed.output[:500] if failed.output else "",
+                )
+            else:  # LockNode
+                prompt = condition.failure_prompt.format(
+                    node=failed,
+                    node_id=failed.node_id,
+                    lockfile=failed.lockfile,
+                    status=failed.lock_status.value,
+                    error=failed.error_message or "",
+                )
+            return True, prompt
+
+        # Check completion based on mode
+        completed_nodes = [n for n in nodes if n.is_complete]
+
+        if condition.mode == WaitMode.SINGLE or condition.mode == WaitMode.ALL:
+            # Need all nodes to complete
+            if len(completed_nodes) == len(nodes):
+                if len(nodes) == 1:
+                    node = completed_nodes[0]
+                    prompt = self._format_wake_prompt(condition.wake_prompt, node)
+                else:
+                    prompt = condition.wake_prompt
+                return True, prompt
+
+        elif condition.mode == WaitMode.ANY:
+            # Need any node to complete
+            if completed_nodes:
+                first_completed = completed_nodes[0]
+                prompt = self._format_wake_prompt(condition.wake_prompt, first_completed)
+
+                # Cancel others if requested
+                if condition.cancel_others:
+                    for node_id in condition.node_ids:
+                        if node_id != first_completed.node_id:
+                            # Cancel shells or locks
+                            self.cancel_shell(node_id)
+                            self.cancel_lock(node_id)
+
+                return True, prompt
+
+        return False, None
+
+    def _format_wake_prompt(self, template: str, node: ShellNode | LockNode) -> str:
+        """Format a wake prompt template with node-specific attributes."""
+        if isinstance(node, ShellNode):
+            return template.format(
+                node=node,
+                node_id=node.node_id,
+                command=node.full_command,
+                exit_code=node.exit_code,
+                output=node.output[:500] if node.output else "",
+            )
+        else:  # LockNode
+            return template.format(
+                node=node,
+                node_id=node.node_id,
+                lockfile=node.lockfile,
+                status=node.lock_status.value,
+                error=node.error_message or "",
+            )
 
     @property
     def session_id(self) -> str:
@@ -848,7 +1809,9 @@ class Timeline:
             "checkpoint", "restore", "checkpoints", "branch",
             "ls", "show", "ls_permissions", "ls_imports", "ls_shell_permissions",
             "ls_website_permissions",
-            "shell", "fetch", "done",
+            "shell", "fetch", "done", "set_title",
+            "wait", "wait_all", "wait_any",
+            "lock_file", "lock_release",
         }
         return {
             k: v

@@ -147,3 +147,18 @@ class TickFrequency:
 
     def __str__(self) -> str:
         return self.to_string()
+
+    def to_dict(self) -> dict[str, any]:
+        """Serialize to dict for YAML persistence."""
+        result: dict[str, any] = {"mode": self.mode}
+        if self.interval is not None:
+            result["interval"] = self.interval
+        return result
+
+    @staticmethod
+    def from_dict(data: dict[str, any]) -> TickFrequency:
+        """Deserialize from dict."""
+        return TickFrequency(
+            mode=data["mode"],
+            interval=data.get("interval"),
+        )
