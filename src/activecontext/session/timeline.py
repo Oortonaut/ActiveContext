@@ -71,6 +71,7 @@ from activecontext.session.xml_parser import is_xml_command, parse_xml_to_python
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from activecontext.agents.manager import AgentManager
     from activecontext.config.schema import MCPConfig, MCPServerConfig
     from activecontext.coordination.scratchpad import ScratchpadManager
     from activecontext.terminal.protocol import TerminalExecutor
@@ -234,6 +235,10 @@ class Timeline:
         # Current group for automatic node linking (set by Session for tool scoping)
         self._current_group_id: str | None = None
 
+        # Agent manager for multi-agent support (set by AgentManager after spawn)
+        self._agent_manager: "AgentManager | None" = None
+        self._agent_id: str | None = None
+
     def set_title_callback(self, callback: Callable[[str], None] | None) -> None:
         """Set the callback for set_title() DSL function.
 
@@ -335,6 +340,27 @@ class Timeline:
 
         # Inject connected MCP server proxies into namespace
         self._namespace.update(self._mcp_client_manager.generate_namespace_bindings())
+
+    def _setup_agent_namespace(self) -> None:
+        """Add agent functions to namespace when agent manager is available.
+
+        Called by AgentManager after setting _agent_manager.
+        """
+        if self._agent_manager is None:
+            return
+
+        self._namespace.update({
+            "spawn": self._spawn_agent,
+            "send": self._send_message,
+            "recv": self._recv_messages,
+            "wait_message": self._wait_message,
+            "agents": self._list_agents,
+            "agent_status": self._get_agent_status,
+            "pause_agent": self._pause_agent,
+            "resume_agent": self._resume_agent,
+            "terminate_agent": self._terminate_agent,
+            "get_shared_node": self._get_shared_node,
+        })
 
     def _ls_permissions(self) -> list[dict[str, Any]]:
         """List current file permissions (read-only inspection).
@@ -1710,6 +1736,353 @@ class Timeline:
         ]
 
     # =========================================================================
+    # Multi-Agent DSL Functions
+    # =========================================================================
+
+    def _spawn_agent(
+        self,
+        agent_type: str,
+        task: str,
+        **kwargs: Any,
+    ) -> "AgentHandle":
+        """Spawn a new child agent.
+
+        DSL function: spawn(agent_type, task, **kwargs)
+
+        Args:
+            agent_type: Type ID (explorer, summarizer, etc.)
+            task: Task description
+            **kwargs: Additional arguments for session creation
+
+        Returns:
+            AgentHandle for interacting with the spawned agent
+
+        Example:
+            agent = spawn("explorer", task="find auth code")
+            agent.Send("look for OAuth")
+        """
+        if not self._agent_manager:
+            raise RuntimeError("Agent manager not available")
+
+        from activecontext.agents.handle import AgentHandle
+
+        # Spawn synchronously using existing loop
+        import asyncio
+        try:
+            loop = asyncio.get_running_loop()
+            # Create a coroutine and schedule it
+            coro = self._agent_manager.spawn_agent(
+                agent_type=agent_type,
+                task=task,
+                parent_id=self._agent_id,
+                cwd=self._cwd,
+                **kwargs,
+            )
+            # Use run_coroutine_threadsafe if we're not in the main thread
+            # or use ensure_future if we're in an async context
+            future = asyncio.ensure_future(coro)
+            # This won't block properly in sync context, so we need a different approach
+            # For now, we'll raise if called from non-async context
+            return future  # type: ignore  # Will be awaited by exec
+        except RuntimeError:
+            # No running loop - shouldn't happen in normal DSL execution
+            raise RuntimeError("spawn() must be called in async context")
+
+    async def _spawn_agent_async(
+        self,
+        agent_type: str,
+        task: str,
+        **kwargs: Any,
+    ) -> "AgentHandle":
+        """Async version of spawn_agent for internal use."""
+        if not self._agent_manager:
+            raise RuntimeError("Agent manager not available")
+
+        return await self._agent_manager.spawn_agent(
+            agent_type=agent_type,
+            task=task,
+            parent_id=self._agent_id,
+            cwd=self._cwd,
+            **kwargs,
+        )
+
+    def _send_message(
+        self,
+        target: Any,  # AgentHandle or str (agent_id)
+        content: str,
+        *node_refs: ContextNode,
+    ) -> str:
+        """Send a message to another agent.
+
+        DSL function: send(target, content, *node_refs)
+
+        Args:
+            target: AgentHandle or agent ID string
+            content: Message content
+            *node_refs: Nodes to share with the recipient
+
+        Returns:
+            Message ID
+
+        Example:
+            send(agent, "summarize this group", my_group)
+        """
+        if not self._agent_manager:
+            raise RuntimeError("Agent manager not available")
+
+        from activecontext.agents.handle import AgentHandle
+
+        # Resolve target to agent_id
+        if isinstance(target, AgentHandle):
+            recipient = target.agent_id
+        elif isinstance(target, str):
+            recipient = target
+        else:
+            raise TypeError(f"Expected AgentHandle or str, got {type(target)}")
+
+        # Share nodes and collect IDs
+        ref_ids: list[str] = []
+        for node in node_refs:
+            self._agent_manager.share_node(node)
+            ref_ids.append(node.node_id)
+
+        # Get sender ID
+        sender = self._agent_id or "unknown"
+
+        # Send message (sync operation via scratchpad)
+        import asyncio
+        try:
+            loop = asyncio.get_running_loop()
+            coro = self._agent_manager.send_message(
+                sender=sender,
+                recipient=recipient,
+                content=content,
+                node_refs=ref_ids,
+            )
+            return asyncio.ensure_future(coro)  # type: ignore
+        except RuntimeError:
+            raise RuntimeError("send() must be called in async context")
+
+    def _recv_messages(self) -> list[dict[str, Any]]:
+        """Receive pending messages for this agent.
+
+        DSL function: recv()
+
+        Returns:
+            List of message dictionaries with sender, content, node_refs, etc.
+
+        Example:
+            messages = recv()
+            for msg in messages:
+                print(f"From {msg['sender']}: {msg['content']}")
+        """
+        if not self._agent_manager:
+            return []
+
+        if not self._agent_id:
+            return []
+
+        messages = self._agent_manager.get_messages(self._agent_id, status="pending")
+
+        # Mark as read and convert to dicts
+        result: list[dict[str, Any]] = []
+        for msg in messages:
+            self._agent_manager.mark_message_read(msg.id)
+            result.append({
+                "id": msg.id,
+                "sender": msg.sender,
+                "content": msg.content,
+                "node_refs": msg.node_refs,
+                "created_at": msg.created_at.isoformat(),
+                "reply_to": msg.reply_to,
+                "metadata": msg.metadata,
+            })
+
+        return result
+
+    def _wait_message(
+        self,
+        timeout: float | None = None,
+        wake_prompt: str = "You have received a message: {content}",
+        timeout_prompt: str = "Timed out waiting for message",
+    ) -> None:
+        """Wait for an incoming message.
+
+        DSL function: wait_message(timeout=None, wake_prompt="...")
+
+        Sets up a wait condition that blocks the turn until a message arrives.
+
+        Args:
+            timeout: Optional timeout in seconds
+            wake_prompt: Prompt template injected when message arrives
+                        Can use {sender}, {content}, {node_refs}
+            timeout_prompt: Prompt injected on timeout
+        """
+        if not self._agent_manager:
+            raise RuntimeError("Agent manager not available")
+
+        if not self._agent_id:
+            raise RuntimeError("No agent ID set")
+
+        self._wait_condition = WaitCondition(
+            node_ids=[],
+            mode=WaitMode.MESSAGE,
+            wake_prompt=wake_prompt,
+            timeout=timeout,
+            timeout_prompt=timeout_prompt,
+            agent_id=self._agent_id,
+        )
+        self._done_called = True  # End turn to wait
+
+    def _list_agents(self) -> list[dict[str, Any]]:
+        """List all active agents.
+
+        DSL function: agents()
+
+        Returns:
+            List of agent info dictionaries
+        """
+        if not self._agent_manager:
+            return []
+
+        entries = self._agent_manager.list_agents()
+        return [
+            {
+                "id": e.id,
+                "type": e.agent_type,
+                "task": e.task,
+                "state": e.state.value,
+                "parent_id": e.parent_id,
+                "session_id": e.session_id,
+            }
+            for e in entries
+        ]
+
+    def _get_agent_status(self, agent: Any) -> dict[str, Any]:
+        """Get status of a specific agent.
+
+        DSL function: agent_status(agent)
+
+        Args:
+            agent: AgentHandle or agent ID string
+
+        Returns:
+            Agent status dictionary
+        """
+        if not self._agent_manager:
+            return {"error": "Agent manager not available"}
+
+        from activecontext.agents.handle import AgentHandle
+
+        # Resolve agent_id
+        if isinstance(agent, AgentHandle):
+            agent_id = agent.agent_id
+        elif isinstance(agent, str):
+            agent_id = agent
+        else:
+            return {"error": f"Expected AgentHandle or str, got {type(agent)}"}
+
+        entry = self._agent_manager.get_agent(agent_id)
+        if not entry:
+            return {"error": f"Agent {agent_id} not found"}
+
+        return {
+            "id": entry.id,
+            "type": entry.agent_type,
+            "task": entry.task,
+            "state": entry.state.value,
+            "parent_id": entry.parent_id,
+            "session_id": entry.session_id,
+            "created_at": entry.created_at.isoformat(),
+            "updated_at": entry.updated_at.isoformat(),
+        }
+
+    def _pause_agent(self, agent: Any) -> None:
+        """Pause an agent.
+
+        DSL function: pause_agent(agent)
+
+        Args:
+            agent: AgentHandle or agent ID string
+        """
+        if not self._agent_manager:
+            raise RuntimeError("Agent manager not available")
+
+        from activecontext.agents.handle import AgentHandle
+
+        if isinstance(agent, AgentHandle):
+            agent_id = agent.agent_id
+        elif isinstance(agent, str):
+            agent_id = agent
+        else:
+            raise TypeError(f"Expected AgentHandle or str, got {type(agent)}")
+
+        import asyncio
+        asyncio.ensure_future(self._agent_manager.pause_agent(agent_id))
+
+    def _resume_agent(self, agent: Any) -> None:
+        """Resume a paused agent.
+
+        DSL function: resume_agent(agent)
+
+        Args:
+            agent: AgentHandle or agent ID string
+        """
+        if not self._agent_manager:
+            raise RuntimeError("Agent manager not available")
+
+        from activecontext.agents.handle import AgentHandle
+
+        if isinstance(agent, AgentHandle):
+            agent_id = agent.agent_id
+        elif isinstance(agent, str):
+            agent_id = agent
+        else:
+            raise TypeError(f"Expected AgentHandle or str, got {type(agent)}")
+
+        import asyncio
+        asyncio.ensure_future(self._agent_manager.resume_agent(agent_id))
+
+    def _terminate_agent(self, agent: Any) -> None:
+        """Terminate an agent.
+
+        DSL function: terminate_agent(agent)
+
+        Args:
+            agent: AgentHandle or agent ID string
+        """
+        if not self._agent_manager:
+            raise RuntimeError("Agent manager not available")
+
+        from activecontext.agents.handle import AgentHandle
+
+        if isinstance(agent, AgentHandle):
+            agent_id = agent.agent_id
+        elif isinstance(agent, str):
+            agent_id = agent
+        else:
+            raise TypeError(f"Expected AgentHandle or str, got {type(agent)}")
+
+        import asyncio
+        asyncio.ensure_future(self._agent_manager.terminate_agent(agent_id))
+
+    def _get_shared_node(self, node_id: str) -> ContextNode | None:
+        """Get a shared node by ID.
+
+        DSL function: get_shared_node(node_id)
+
+        Args:
+            node_id: Node ID from another agent's message
+
+        Returns:
+            The shared node, or None if not found
+        """
+        if not self._agent_manager:
+            return None
+
+        return self._agent_manager.get_shared_node(node_id)
+
+    # =========================================================================
     # MCP (Model Context Protocol) DSL Functions
     # =========================================================================
 
@@ -1949,6 +2322,39 @@ class Timeline:
 
                 return True, prompt
 
+        elif condition.mode == WaitMode.MESSAGE:
+            # Wait for incoming message
+            if self._agent_manager and condition.agent_id:
+                messages = self._agent_manager.get_messages(
+                    condition.agent_id, status="pending"
+                )
+                if messages:
+                    msg = messages[0]
+                    # Mark as delivered
+                    self._agent_manager.mark_message_delivered(msg.id)
+                    # Format wake prompt with message info
+                    prompt = condition.wake_prompt.format(
+                        sender=msg.sender,
+                        content=msg.content,
+                        node_refs=msg.node_refs,
+                        message_id=msg.id,
+                    )
+                    return True, prompt
+
+        elif condition.mode == WaitMode.AGENT:
+            # Wait for another agent to complete
+            if self._agent_manager and condition.agent_id:
+                from activecontext.agents.schema import AgentState
+
+                entry = self._agent_manager.get_agent(condition.agent_id)
+                if entry and entry.state in (AgentState.DONE, AgentState.TERMINATED):
+                    prompt = condition.wake_prompt.format(
+                        agent_id=entry.id,
+                        state=entry.state.value,
+                        task=entry.task,
+                    )
+                    return True, prompt
+
         return False, None
 
     def _format_wake_prompt(self, template: str, node: ShellNode | LockNode) -> str:
@@ -1998,7 +2404,7 @@ class Timeline:
         # Exclude injected DSL functions and types
         excluded = {
             "NodeState", "TickFrequency",
-            "view", "group", "topic", "artifact",
+            "view", "group", "topic", "artifact", "markdown",
             "link", "unlink",
             "checkpoint", "restore", "checkpoints", "branch",
             "ls", "show", "ls_permissions", "ls_imports", "ls_shell_permissions",
@@ -2006,6 +2412,8 @@ class Timeline:
             "shell", "fetch", "done", "set_title",
             "wait", "wait_all", "wait_any",
             "lock_file", "lock_release",
+            "work_on", "work_check", "work_update", "work_done", "work_list",
+            "mcp_connect", "mcp_disconnect", "mcp_list", "mcp_tools",
         }
         return {
             k: v

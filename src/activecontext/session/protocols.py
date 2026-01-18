@@ -50,6 +50,8 @@ class WaitMode(Enum):
     SINGLE = "single"  # Wait for a single node
     ALL = "all"        # Wait for all nodes
     ANY = "any"        # Wait for any node (first to complete)
+    MESSAGE = "message"  # Wait for incoming message
+    AGENT = "agent"    # Wait for agent to complete        # Wait for any node (first to complete)
 
 
 # -----------------------------------------------------------------------------
@@ -116,13 +118,14 @@ class WaitCondition:
 
     Attributes:
         node_ids: Node IDs to watch for completion
-        mode: SINGLE, ALL, or ANY
+        mode: SINGLE, ALL, ANY, MESSAGE, or AGENT
         wake_prompt: Prompt injected when condition is satisfied
         timeout: Timeout in seconds (None = no timeout)
         timeout_prompt: Prompt injected on timeout
         failure_prompt: Prompt injected if any watched node fails
         started_at: When the wait condition was created (for timeout tracking)
         cancel_others: For ANY mode, whether to cancel other nodes on first completion
+        agent_id: For MESSAGE/AGENT modes, the agent ID to wait for
     """
 
     node_ids: list[str]
@@ -133,6 +136,7 @@ class WaitCondition:
     failure_prompt: str | None = None
     started_at: float = field(default_factory=lambda: __import__("time").time())
     cancel_others: bool = False
+    agent_id: str | None = None  # For MESSAGE/AGENT modes
 
     def is_timed_out(self) -> bool:
         """Check if the wait condition has timed out."""

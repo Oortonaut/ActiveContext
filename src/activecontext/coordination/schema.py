@@ -66,22 +66,37 @@ class WorkEntry:
 
 @dataclass
 class Scratchpad:
-    """The full scratchpad file."""
+    """The full scratchpad file.
 
-    version: int = 1
+    Version history:
+    - v1: Work coordination only (entries)
+    - v2: Multi-agent support (agents, messages)
+    """
+
+    version: int = 2
     entries: list[WorkEntry] = field(default_factory=list)
+    # Multi-agent fields (v2)
+    agents: list["AgentEntry"] = field(default_factory=list)
+    messages: list["AgentMessage"] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "version": self.version,
             "entries": [e.to_dict() for e in self.entries],
+            "agents": [a.to_dict() for a in self.agents],
+            "messages": [m.to_dict() for m in self.messages],
         }
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Scratchpad:
+        # Import here to avoid circular dependency
+        from activecontext.agents.schema import AgentEntry, AgentMessage
+
         return cls(
             version=data.get("version", 1),
             entries=[WorkEntry.from_dict(e) for e in data.get("entries", [])],
+            agents=[AgentEntry.from_dict(a) for a in data.get("agents", [])],
+            messages=[AgentMessage.from_dict(m) for m in data.get("messages", [])],
         )
 
 

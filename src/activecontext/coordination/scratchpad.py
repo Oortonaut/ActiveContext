@@ -19,7 +19,7 @@ from activecontext.coordination.schema import (
 )
 
 if TYPE_CHECKING:
-    pass
+    from activecontext.agents.schema import AgentEntry, AgentMessage, AgentState
 
 
 class ScratchpadManager:
@@ -298,3 +298,243 @@ class ScratchpadManager:
 
         self._atomic_update(modifier)
         return removed_count
+
+    # =========================================================================
+    # Agent Management (v2)
+    # =========================================================================
+
+    def register_agent(
+        self,
+        agent_id: str,
+        session_id: str,
+        agent_type: str,
+        task: str,
+        parent_id: str | None = None,
+    ) -> "AgentEntry":
+        """Register an agent in the scratchpad.
+
+        Args:
+            agent_id: Unique agent ID
+            session_id: Underlying session ID
+            agent_type: Type ID (explorer, summarizer, etc.)
+            task: Task description
+            parent_id: Parent agent ID if spawned by another agent
+
+        Returns:
+            The created entry
+        """
+        from activecontext.agents.schema import AgentEntry, AgentState
+
+        now = datetime.now(timezone.utc)
+        entry = AgentEntry(
+            id=agent_id,
+            session_id=session_id,
+            agent_type=agent_type,
+            task=task,
+            parent_id=parent_id,
+            state=AgentState.SPAWNED,
+            created_at=now,
+            updated_at=now,
+            heartbeat_at=now,
+        )
+
+        def modifier(scratchpad: Scratchpad) -> Scratchpad:
+            # Remove existing entry for this agent
+            scratchpad.agents = [a for a in scratchpad.agents if a.id != agent_id]
+            scratchpad.agents.append(entry)
+            return scratchpad
+
+        self._atomic_update(modifier)
+        return entry
+
+    def update_agent(
+        self,
+        agent_id: str,
+        state: "AgentState | None" = None,
+        task: str | None = None,
+    ) -> "AgentEntry | None":
+        """Update an agent's entry.
+
+        Args:
+            agent_id: Agent ID to update
+            state: New state
+            task: New task description
+
+        Returns:
+            Updated entry, or None if not found
+        """
+        from activecontext.agents.schema import AgentState
+
+        now = datetime.now(timezone.utc)
+        updated_entry: AgentEntry | None = None
+
+        def modifier(scratchpad: Scratchpad) -> Scratchpad:
+            nonlocal updated_entry
+            for entry in scratchpad.agents:
+                if entry.id == agent_id:
+                    if state is not None:
+                        entry.state = state
+                    if task is not None:
+                        entry.task = task
+                    entry.updated_at = now
+                    entry.heartbeat_at = now
+                    updated_entry = entry
+                    break
+            return scratchpad
+
+        self._atomic_update(modifier)
+        return updated_entry
+
+    def agent_heartbeat(self, agent_id: str) -> None:
+        """Update agent heartbeat timestamp."""
+        now = datetime.now(timezone.utc)
+
+        def modifier(scratchpad: Scratchpad) -> Scratchpad:
+            for entry in scratchpad.agents:
+                if entry.id == agent_id:
+                    entry.heartbeat_at = now
+                    break
+            return scratchpad
+
+        self._atomic_update(modifier)
+
+    def unregister_agent(self, agent_id: str) -> None:
+        """Remove an agent's entry."""
+
+        def modifier(scratchpad: Scratchpad) -> Scratchpad:
+            scratchpad.agents = [a for a in scratchpad.agents if a.id != agent_id]
+            # Also clean up messages for this agent
+            scratchpad.messages = [
+                m
+                for m in scratchpad.messages
+                if m.sender != agent_id and m.recipient != agent_id
+            ]
+            return scratchpad
+
+        self._atomic_update(modifier)
+
+    def get_agent(self, agent_id: str) -> "AgentEntry | None":
+        """Get an agent entry by ID."""
+        scratchpad = self._load()
+        for entry in scratchpad.agents:
+            if entry.id == agent_id:
+                return entry
+        return None
+
+    def get_all_agents(self) -> list["AgentEntry"]:
+        """Get all current agent entries."""
+        scratchpad = self._load()
+        return scratchpad.agents
+
+    # =========================================================================
+    # Message Management (v2)
+    # =========================================================================
+
+    def send_message(
+        self,
+        sender: str,
+        recipient: str,
+        content: str,
+        node_refs: list[str] | None = None,
+        reply_to: str | None = None,
+        metadata: dict | None = None,
+    ) -> "AgentMessage":
+        """Send a message between agents.
+
+        Args:
+            sender: Sender agent ID
+            recipient: Recipient agent ID
+            content: Message content
+            node_refs: Node IDs referenced in content
+            reply_to: Message ID this is replying to
+            metadata: Additional metadata
+
+        Returns:
+            The created message
+        """
+        from activecontext.agents.schema import AgentMessage
+
+        now = datetime.now(timezone.utc)
+        message = AgentMessage(
+            id=uuid.uuid4().hex[:12],
+            sender=sender,
+            recipient=recipient,
+            content=content,
+            node_refs=node_refs or [],
+            created_at=now,
+            status="pending",
+            reply_to=reply_to,
+            metadata=metadata or {},
+        )
+
+        def modifier(scratchpad: Scratchpad) -> Scratchpad:
+            scratchpad.messages.append(message)
+            return scratchpad
+
+        self._atomic_update(modifier)
+        return message
+
+    def get_messages(
+        self,
+        recipient: str,
+        status: str | None = "pending",
+    ) -> list["AgentMessage"]:
+        """Get messages for an agent.
+
+        Args:
+            recipient: Recipient agent ID
+            status: Filter by status (None for all)
+
+        Returns:
+            List of matching messages
+        """
+        scratchpad = self._load()
+        messages = [m for m in scratchpad.messages if m.recipient == recipient]
+        if status is not None:
+            messages = [m for m in messages if m.status == status]
+        return messages
+
+    def mark_message_status(self, message_id: str, status: str) -> None:
+        """Update a message's status.
+
+        Args:
+            message_id: Message ID
+            status: New status (pending, delivered, read)
+        """
+        now = datetime.now(timezone.utc)
+
+        def modifier(scratchpad: Scratchpad) -> Scratchpad:
+            for message in scratchpad.messages:
+                if message.id == message_id:
+                    message.status = status
+                    if status in ("delivered", "read") and message.delivered_at is None:
+                        message.delivered_at = now
+                    break
+            return scratchpad
+
+        self._atomic_update(modifier)
+
+    def delete_old_messages(self, max_age: timedelta) -> int:
+        """Delete messages older than max_age.
+
+        Args:
+            max_age: Maximum age for messages
+
+        Returns:
+            Number of messages deleted
+        """
+        now = datetime.now(timezone.utc)
+        threshold = now - max_age
+        deleted_count = 0
+
+        def modifier(scratchpad: Scratchpad) -> Scratchpad:
+            nonlocal deleted_count
+            original_count = len(scratchpad.messages)
+            scratchpad.messages = [
+                m for m in scratchpad.messages if m.created_at > threshold
+            ]
+            deleted_count = original_count - len(scratchpad.messages)
+            return scratchpad
+
+        self._atomic_update(modifier)
+        return deleted_count
