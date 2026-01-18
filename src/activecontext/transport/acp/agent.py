@@ -88,6 +88,7 @@ class ActiveContextAgent:
         self._batch_enabled = True  # Can be disabled via config
         self._flush_interval = 0.05  # 50ms
         self._flush_threshold = 100  # characters
+        self._shutdown_requested = False  # Set by /exit command
         self._load_batch_config()
 
     def _load_modes_from_config(self) -> None:
@@ -751,7 +752,10 @@ class ActiveContextAgent:
         new_llm = LiteLLMProvider(model_id)
         session.set_llm(new_llm)  # type: ignore[arg-type]
         self._sessions_model[session_id] = model_id
+        # Also update global current model so dashboard reflects the change
+        self._current_model_id = model_id
 
+        log.info("Model changed to %s for session %s", model_id, session_id)
         return SetSessionModelResponse()
 
     async def authenticate(
@@ -802,6 +806,19 @@ class ActiveContextAgent:
                         session_id,
                         acp.update_agent_message_text(response),
                     )
+                # Check if shutdown was requested (by /exit command)
+                if self._shutdown_requested:
+                    log.info("Shutdown requested, sending cancel notification")
+                    # Try sending session/cancel notification to client
+                    if self._conn:
+                        try:
+                            cancel = acp.CancelNotification(sessionId=session_id)
+                            # Access underlying connection to send notification
+                            await self._conn._conn.send_notification("session/cancel", cancel)
+                            log.info("Sent session/cancel notification")
+                        except Exception as e:
+                            log.warning("Failed to send cancel: %s", e)
+                    os._exit(0)
                 return acp.PromptResponse(stop_reason="end_turn")
 
         # Process prompt and stream updates
@@ -917,10 +934,15 @@ class ActiveContextAgent:
                 if session_id in self._flush_tasks:
                     self._flush_tasks[session_id].cancel()
                 await self._flush_chunks(session_id)
-            # Clean shutdown
-            await self._manager.close_session(session_id)
-            # Give time for response to be sent, then exit
-            asyncio.get_event_loop().call_later(0.5, lambda: os._exit(0))
+            # Clean shutdown - close all sessions
+            for sid in list(self._sessions_cwd.keys()):
+                try:
+                    await self._manager.close_session(sid)
+                except Exception:
+                    pass
+            
+            # Set shutdown flag - checked by prompt() to raise after response
+            self._shutdown_requested = True
             return True, "Goodbye!"
 
         elif command == "/help":
@@ -958,7 +980,7 @@ class ActiveContextAgent:
         elif command == "/clear":
             session = await self._manager.get_session(session_id)
             if session:
-                session.clear_conversation()
+                session.clear_message_history()
             return True, "Conversation history cleared."
 
         elif command == "/context":

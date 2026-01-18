@@ -209,7 +209,6 @@ llm:
     - role: fast
       provider: openai
       model: gpt-5-mini     # Optional model override
-  temperature: 0.0
   max_tokens: 8192
 
 session:
@@ -400,6 +399,77 @@ wait_any(s1, s2, s3)                # Wait for first
    - DETAILS: Full view with child settings
    - ALL: Everything including diffs, SUMMARY union DETAILS
 6. **Permission boundaries**: File, shell, import, and web access require explicit grants
+
+## Claude Code Permission Matching
+
+The `.claude/settings.local.json` file uses prefix matching with the `:*` pattern. Commands must be phrased consistently to match the allowlist.
+
+### Command Phrasing Guidelines
+
+**✅ DO** - Commands that match the allowlist:
+
+```bash
+# uv commands - use space after command
+uv sync --all-extras
+uv run pytest -xvs
+uv run ruff check src/
+
+# git commands - use space after subcommand
+git status
+git diff --stat
+git log --oneline -5
+
+# Python module execution - use -m flag consistently
+python -m activecontext
+.venv/Scripts/python.exe -m activecontext --help
+
+# Utilities - use command as prefix
+ls -la
+dir /b
+grep -r "pattern"
+cat file.txt
+```
+
+**❌ DON'T** - Commands that will be blocked:
+
+```bash
+# Missing space after command (won't match "git status:*")
+git-status
+
+# Wrong module invocation format (not pre-authorized)
+python activecontext.py
+python3 -m activecontext
+
+# Unapproved git operations
+git push --force
+git reset --hard
+git rebase -i
+
+# Direct python without uv run (unless using -m flag)
+python script.py
+python3 test.py
+```
+
+### Permission Pattern Reference
+
+| Pattern | Matches | Example |
+|---------|---------|---------|
+| `Bash(git status)` | Exact match only | `git status` |
+| `Bash(git status:*)` | With arguments | `git status --short` |
+| `Bash(git diff:*)` | With arguments | `git diff --stat src/` |
+| `Bash(uv run pytest:*)` | Full prefix | `uv run pytest -xvs tests/` |
+| `Bash(timeout:*)` | All timeout commands | `timeout 30 uv run pytest` |
+
+### Why This Matters
+
+Claude Code's permission system uses **prefix matching** on the full command string. When you write:
+- `"Bash(git:*)"` - Matches any command starting with `git` (overly permissive)
+- `"Bash(git diff:*)"` - Matches only `git diff` commands (scoped permission)
+
+Always phrase commands to match your allowlist patterns. If a command fails with a permission error, check:
+1. Does the command start with an allowed prefix?
+2. Is there a space vs. colon mismatch?
+3. Are you using the exact tool path specified (e.g., `uv run` vs. bare `pytest`)?
 
 ## Guidance
 
