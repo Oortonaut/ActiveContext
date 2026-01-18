@@ -16,6 +16,7 @@ class DashboardClient {
 
     async init() {
         // Load initial data
+        await this.loadClient();
         await this.loadLLMStatus();
         await this.loadSessions();
 
@@ -81,6 +82,7 @@ class DashboardClient {
 
         // Load session data
         await Promise.all([
+            this.loadFeatures(),
             this.loadContext(),
             this.loadTimeline(),
             this.loadProjection(),
@@ -149,6 +151,29 @@ class DashboardClient {
             this.renderRenderedContext(data);
         } catch (error) {
             console.error('Failed to load rendered context:', error);
+        }
+    }
+
+    async loadClient() {
+        try {
+            const response = await fetch('/api/client');
+            const data = await response.json();
+            this._clientData = data;
+            this.renderClient(data);
+        } catch (error) {
+            console.error('Failed to load client info:', error);
+        }
+    }
+
+    async loadFeatures() {
+        if (!this.sessionId) return;
+
+        try {
+            const response = await fetch(`/api/sessions/${this.sessionId}/features`);
+            const data = await response.json();
+            this.renderFeatures(data);
+        } catch (error) {
+            console.error('Failed to load session features:', error);
         }
     }
 
@@ -231,6 +256,13 @@ class DashboardClient {
     handleMessage(data) {
         if (data.type === 'init') {
             // Initial state from WebSocket
+            if (data.client) {
+                this._clientData = data.client;
+                this.renderClient(data.client);
+            }
+            if (data.features) {
+                this.renderFeatures(data.features);
+            }
             this.renderContext(data.context);
             this.renderTimeline(data.timeline);
             this.renderProjection(data.projection);
@@ -284,6 +316,105 @@ class DashboardClient {
         }
 
         availableEl.textContent = data.available_providers.join(', ') || 'None';
+    }
+
+    renderClient(data) {
+        const transportEl = document.getElementById('transport-type');
+        const acpInfo = document.getElementById('acp-info');
+        const directInfo = document.getElementById('direct-info');
+
+        if (!transportEl) return;
+
+        transportEl.textContent = data.transport.type.toUpperCase();
+        transportEl.className = `stat-value badge ${data.transport.is_acp ? 'acp' : 'direct'}`;
+
+        if (data.transport.is_acp && data.client) {
+            acpInfo.classList.remove('hidden');
+            directInfo.classList.add('hidden');
+
+            const displayName = data.client.title || data.client.name;
+            document.getElementById('client-name').textContent = displayName;
+            document.getElementById('client-version').textContent = data.client.version;
+            document.getElementById('protocol-version').textContent = `v${data.protocol_version || '?'}`;
+
+            // Render capabilities dynamically
+            this.renderCapabilities(data.client.capabilities);
+        } else {
+            acpInfo.classList.add('hidden');
+            directInfo.classList.remove('hidden');
+        }
+    }
+
+    renderCapabilities(capabilities) {
+        const listEl = document.getElementById('capabilities-list');
+        const countEl = document.getElementById('caps-count');
+        
+        if (!listEl) return;
+        listEl.innerHTML = '';
+
+        if (!capabilities || !Array.isArray(capabilities) || capabilities.length === 0) {
+            listEl.innerHTML = '<div class="muted">No capabilities reported</div>';
+            if (countEl) countEl.textContent = '0';
+            return;
+        }
+
+        if (countEl) countEl.textContent = capabilities.length;
+
+        capabilities.forEach(cap => {
+            const row = document.createElement('div');
+            row.className = 'capability-row';
+            row.title = cap.description || cap.name;
+
+            const icon = document.createElement('span');
+            icon.className = `capability-icon ${cap.enabled ? 'enabled' : 'disabled'}`;
+            icon.textContent = cap.enabled ? '✓' : '✗';
+
+            const label = document.createElement('span');
+            label.className = 'capability-label';
+            label.textContent = cap.label || cap.name;
+
+            // Show extension indicator for _meta capabilities
+            if (cap.name.includes('_meta')) {
+                const extBadge = document.createElement('span');
+                extBadge.className = 'badge small ext';
+                extBadge.textContent = 'ext';
+                label.appendChild(extBadge);
+            }
+
+            // Show value if present (for non-boolean extensions)
+            if (cap.value !== undefined && cap.value !== null) {
+                const valueEl = document.createElement('span');
+                valueEl.className = 'capability-value';
+                valueEl.textContent = typeof cap.value === 'object' 
+                    ? JSON.stringify(cap.value) 
+                    : String(cap.value);
+                row.appendChild(icon);
+                row.appendChild(label);
+                row.appendChild(valueEl);
+            } else {
+                row.appendChild(icon);
+                row.appendChild(label);
+            }
+
+            listEl.appendChild(row);
+        });
+    }
+
+    renderFeatures(data) {
+        const modeEl = document.getElementById('session-mode');
+        const modelEl = document.getElementById('session-model');
+        const cwdEl = document.getElementById('session-cwd');
+
+        if (modeEl) {
+            modeEl.textContent = data.mode || 'default';
+        }
+        if (modelEl) {
+            modelEl.textContent = data.model || 'Not configured';
+        }
+        if (cwdEl) {
+            cwdEl.textContent = data.cwd || '-';
+            cwdEl.title = data.cwd || '';  // Full path on hover
+        }
     }
 
     renderSessionSelector(sessions) {
@@ -604,6 +735,7 @@ class DashboardClient {
     }
 
     clearSessionData() {
+        this.renderFeatures({ mode: null, model: null, cwd: '-' });
         this.renderContext({ views: [], groups: [], topics: [], artifacts: [], messages: [], total: 0 });
         this.renderTimeline({ statements: [], count: 0 });
         this.renderProjection({

@@ -32,7 +32,7 @@ async def test_execute_python() -> None:
         # Execute a simple statement
         result = await session.execute("x = 1 + 1")
         assert result.status.value == "ok"
-        assert "x" in result.state_diff.added
+        assert "x" in result.state_trace.added
 
         # Check namespace
         ns = session.get_namespace()

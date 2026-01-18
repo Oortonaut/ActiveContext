@@ -91,6 +91,10 @@ class ActiveContextAgent:
         self._shutdown_requested = False  # Set by /exit command
         self._load_batch_config()
 
+        # ACP client info (populated during initialize handshake)
+        self._client_info: dict[str, Any] | None = None
+        self._protocol_version: int | None = None
+
     def _load_modes_from_config(self) -> None:
         """Load session modes from config if available."""
         try:
@@ -488,6 +492,68 @@ class ActiveContextAgent:
         **kwargs: Any,
     ) -> acp.InitializeResponse:
         """Handle initialization request from client."""
+        # Store client info for dashboard
+        self._protocol_version = protocol_version
+        self._client_info = {
+            "name": client_info.name if client_info else "unknown",
+            "version": client_info.version if client_info else "unknown",
+            "title": getattr(client_info, "title", None) if client_info else None,
+            "capabilities": None,
+        }
+        if client_capabilities:
+            # Build flat list of all capabilities for dashboard display
+            caps_list: list[dict[str, Any]] = []
+
+            # Terminal capability
+            terminal = getattr(client_capabilities, "terminal", False)
+            caps_list.append({
+                "name": "terminal",
+                "label": "Terminal",
+                "enabled": bool(terminal),
+                "description": "Execute terminal commands",
+            })
+
+            # File system capabilities
+            fs = getattr(client_capabilities, "fs", None)
+            if fs:
+                caps_list.append({
+                    "name": "fs.read_text_file",
+                    "label": "File Read",
+                    "enabled": bool(getattr(fs, "read_text_file", False)),
+                    "description": "Read text files",
+                })
+                caps_list.append({
+                    "name": "fs.write_text_file",
+                    "label": "File Write",
+                    "enabled": bool(getattr(fs, "write_text_file", False)),
+                    "description": "Write text files",
+                })
+                # Include fs._meta extensions
+                fs_meta = getattr(fs, "field_meta", None)
+                if fs_meta:
+                    for key, value in fs_meta.items():
+                        caps_list.append({
+                            "name": f"fs._meta.{key}",
+                            "label": key,
+                            "enabled": bool(value) if isinstance(value, bool) else True,
+                            "value": value if not isinstance(value, bool) else None,
+                            "description": f"Extension: {key}",
+                        })
+
+            # Include top-level _meta extensions
+            meta = getattr(client_capabilities, "field_meta", None)
+            if meta:
+                for key, value in meta.items():
+                    caps_list.append({
+                        "name": f"_meta.{key}",
+                        "label": key,
+                        "enabled": bool(value) if isinstance(value, bool) else True,
+                        "value": value if not isinstance(value, bool) else None,
+                        "description": f"Extension: {key}",
+                    })
+
+            self._client_info["capabilities"] = caps_list
+
         return acp.InitializeResponse(
             protocol_version=acp.PROTOCOL_VERSION,
             agent_info=Implementation(
@@ -503,6 +569,15 @@ class ActiveContextAgent:
                 session_capabilities=SessionCapabilities(),
             ),
         )
+
+    def get_client_info(self) -> tuple[dict[str, Any] | None, int | None]:
+        """Get ACP client information for dashboard.
+
+        Returns:
+            Tuple of (client_info dict, protocol_version).
+            Both are None if initialize() hasn't been called yet.
+        """
+        return self._client_info, self._protocol_version
 
     async def new_session(
         self,
@@ -1030,6 +1105,8 @@ class ActiveContextAgent:
                         get_current_model=lambda: self._current_model_id,
                         sessions_model=self._sessions_model,
                         sessions_mode=self._sessions_mode,
+                        get_client_info=self.get_client_info,
+                        transport_type="acp",
                     )
                     return True, f"Dashboard started at http://127.0.0.1:{port}"
                 except Exception as e:
@@ -1063,6 +1140,8 @@ class ActiveContextAgent:
                             get_current_model=lambda: self._current_model_id,
                             sessions_model=self._sessions_model,
                             sessions_mode=self._sessions_mode,
+                            get_client_info=self.get_client_info,
+                            transport_type="acp",
                         )
                     except Exception as e:
                         return True, f"Failed to start dashboard: {e}"

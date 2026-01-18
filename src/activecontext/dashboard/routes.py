@@ -11,11 +11,13 @@ from fastapi.staticfiles import StaticFiles
 
 from activecontext.dashboard.data import (
     format_session_update,
+    get_client_capabilities_data,
     get_context_data,
-    get_conversation_data,
+    get_message_history_data,
     get_llm_status,
     get_projection_data,
     get_rendered_projection_data,
+    get_session_features_data,
     get_session_summary,
     get_timeline_data,
 )
@@ -140,9 +142,9 @@ def _register_routes(app: FastAPI) -> None:
 
         return get_projection_data(session)
 
-    @app.get("/api/sessions/{session_id}/conversation")
-    async def api_session_conversation(session_id: str) -> dict[str, Any]:
-        """Get conversation messages for a session."""
+    @app.get("/api/sessions/{session_id}/message-history")
+    async def api_session_message_history(session_id: str) -> dict[str, Any]:
+        """Get message history for a session."""
         manager = get_manager()
         if not manager:
             raise HTTPException(status_code=503, detail="Dashboard not initialized")
@@ -151,7 +153,7 @@ def _register_routes(app: FastAPI) -> None:
         if not session:
             raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
 
-        return get_conversation_data(session)
+        return get_message_history_data(session)
 
     @app.get("/api/sessions/{session_id}/rendered")
     async def api_session_rendered(session_id: str) -> dict[str, Any]:
@@ -166,6 +168,26 @@ def _register_routes(app: FastAPI) -> None:
 
         return get_rendered_projection_data(session)
 
+    @app.get("/api/client")
+    async def api_client() -> dict[str, Any]:
+        """Get ACP client capabilities and transport info."""
+        return get_client_capabilities_data()
+
+    @app.get("/api/sessions/{session_id}/features")
+    async def api_session_features(session_id: str) -> dict[str, Any]:
+        """Get session features including mode, model, and permissions."""
+        manager = get_manager()
+        if not manager:
+            raise HTTPException(status_code=503, detail="Dashboard not initialized")
+
+        session = await manager.get_session(session_id)
+        if not session:
+            raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
+
+        model = get_session_model(session_id)
+        mode = get_session_mode(session_id)
+        return get_session_features_data(session, model, mode)
+
     @app.websocket("/ws/{session_id}")
     async def websocket_endpoint(websocket: WebSocket, session_id: str) -> None:
         """WebSocket endpoint for real-time session updates."""
@@ -178,13 +200,17 @@ def _register_routes(app: FastAPI) -> None:
                 session = await manager.get_session(session_id)
                 if session:
                     try:
+                        model = get_session_model(session_id)
+                        mode = get_session_mode(session_id)
                         init_data = {
                             "type": "init",
                             "session_id": session_id,
+                            "client": get_client_capabilities_data(),
+                            "features": get_session_features_data(session, model, mode),
                             "context": get_context_data(session),
                             "timeline": get_timeline_data(session),
                             "projection": get_projection_data(session),
-                            "conversation": get_conversation_data(session),
+                            "message_history": get_message_history_data(session),
                             "rendered": get_rendered_projection_data(session),
                         }
                         await websocket.send_json(init_data)

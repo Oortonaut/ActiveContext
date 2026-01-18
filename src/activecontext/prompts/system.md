@@ -14,7 +14,7 @@ You have access to these functions in your Python environment:
     - COLLAPSED: Title and metadata only
     - SUMMARY: LLM-generated summary
     - DETAILS: Full view with child settings
-    - ALL: Everything including full diffs (default for views)
+    - ALL: Everything including full traces (default for views)
   - `mode`: "paused" or "running" (running updates each turn)
 
 - `group(*members, tokens=500, state=NodeState.SUMMARY, mode="paused", summary=None)` - Create a summary group

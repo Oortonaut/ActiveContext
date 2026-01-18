@@ -16,8 +16,14 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from activecontext.context.graph import ContextGraph
-from activecontext.context.nodes import GroupNode, MessageNode, SessionNode
-from activecontext.context.state import TickFrequency
+from activecontext.context.nodes import (
+    GroupNode,
+    MarkdownNode,
+    MCPManagerNode,
+    MessageNode,
+    SessionNode,
+)
+from activecontext.context.state import NodeState, TickFrequency
 from activecontext.core.projection_engine import ProjectionConfig, ProjectionEngine
 from activecontext.logging import get_logger
 from activecontext.session.permissions import ImportGuard, PermissionManager, ShellPermissionManager
@@ -28,9 +34,9 @@ from activecontext.session.protocols import (
 )
 from activecontext.session.storage import (
     generate_default_title,
+    get_session_path,
     load_session_data,
     save_session,
-    get_session_path,
 )
 from activecontext.session.timeline import Timeline
 
@@ -92,9 +98,8 @@ class Session:
         self._config = config
         self._cancelled = False
         self._current_task: asyncio.Task[Any] | None = None
-        self._conversation: list[Message] = []
+        self._message_history: list[Message] = []
         self._projection_engine = self._build_projection_engine(config)
-        self._show_message_actors = True  # Show actor info by default
 
         # Session persistence metadata
         self._title = title or generate_default_title()
@@ -110,6 +115,19 @@ class Session:
         )
         self._timeline.context_graph.add_node(self._session_node)
 
+        # Create MCPManagerNode singleton for tracking MCP server connections
+        self._mcp_manager_node = MCPManagerNode(
+            node_id="mcp_manager",  # Fixed ID for singleton
+            tokens=300,
+            state=NodeState.SUMMARY,
+            mode="running",
+            tick_frequency=TickFrequency.turn(),
+        )
+        self._timeline.context_graph.add_node(self._mcp_manager_node)
+
+        # Add system prompt as fully expanded MarkdownNode
+        self._add_system_prompt_node()
+
         # Track timing for turn statistics
         self._turn_start_time: float | None = None
 
@@ -119,6 +137,25 @@ class Session:
 
         # Register set_title callback with timeline
         self._timeline.set_title_callback(self.set_title)
+
+    def _add_system_prompt_node(self) -> None:
+        """Add the system prompt as a fully expanded MarkdownNode.
+
+        The system prompt is parsed into a MarkdownNode tree and added
+        to the context graph with state=ALL so it renders fully expanded.
+        """
+        from activecontext.prompts import FULL_SYSTEM_PROMPT
+
+        # Parse system prompt into MarkdownNode tree
+        root, all_nodes = MarkdownNode.from_markdown(
+            path="system_prompt",
+            content=FULL_SYSTEM_PROMPT,
+            state=NodeState.ALL,  # Fully expanded
+        )
+
+        # Add all nodes to context graph
+        for node in all_nodes:
+            self._timeline.context_graph.add_node(node)
 
     @property
     def session_id(self) -> str:
@@ -297,7 +334,7 @@ class Session:
             The created MessageNode
         """
         # Add to conversation list
-        self._conversation.append(message)
+        self._message_history.append(message)
 
         # Create MessageNode
         msg_node = MessageNode(
@@ -328,7 +365,7 @@ class Session:
             session_id=self._session_id,
             title=self._title,
             created_at=self._created_at,
-            conversation=self._conversation,
+            message_history=self._message_history,
             timeline_sources=timeline_sources,
             context_graph=self._timeline.context_graph,
         )
@@ -401,7 +438,7 @@ class Session:
                 content=msg_data.get("content", ""),
                 actor=msg_data.get("actor"),
             )
-            session._conversation.append(msg)
+            session._message_history.append(msg)
 
         # Populate timeline._context_objects from graph (for legacy compatibility)
         for node in context_graph:
@@ -413,6 +450,12 @@ class Session:
             session._session_node = restored_session_node
         # If no session node was saved, one was already created in __init__
 
+        # Link session's MCPManagerNode to the restored graph's node (if exists)
+        restored_mcp_manager = context_graph.get_node("mcp_manager")
+        if isinstance(restored_mcp_manager, MCPManagerNode):
+            session._mcp_manager_node = restored_mcp_manager
+        # If no mcp_manager node was saved, one was already created in __init__
+
         return session
 
     def _build_projection_engine(self, config: Config | None) -> ProjectionEngine:
@@ -421,11 +464,6 @@ class Session:
             proj = config.projection
             projection_config = ProjectionConfig(
                 total_budget=proj.total_budget if proj.total_budget is not None else 8000,
-                conversation_ratio=(
-                    proj.conversation_ratio if proj.conversation_ratio is not None else 0.3
-                ),
-                views_ratio=proj.views_ratio if proj.views_ratio is not None else 0.5,
-                groups_ratio=proj.groups_ratio if proj.groups_ratio is not None else 0.2,
             )
             return ProjectionEngine(projection_config)
         return ProjectionEngine()
@@ -475,32 +513,34 @@ class Session:
 
         Runs an agent loop: LLM responds, code is executed, results feed back
         to LLM until it calls done() or produces no code blocks.
+
+        The LLM only sees the projection - no system prompt. User and assistant
+        messages are added to the context graph and appear in the projection
+        based on their visibility state.
         """
         import os
 
         from activecontext.core.llm.provider import Message, Role
-        from activecontext.core.prompts import SYSTEM_PROMPT, parse_response
+        from activecontext.core.prompts import parse_response
 
         # Reset done signal at start of each prompt
         self._timeline.reset_done()
 
         max_iterations = 10  # Safety limit
         iteration = 0
-        current_request = content
+
+        # Add initial user message to context graph (will appear in projection)
+        self._add_message(
+            Message(role=Role.USER, content=content, actor="user")
+        )
 
         while iteration < max_iterations:
             iteration += 1
             turn_start = time.time()
 
-            # Build projection (contains conversation history and view contents)
+            # Build projection (renders visible nodes from context graph)
             projection = self.get_projection()
-
-            # Build messages: system prompt + projection + current request
             projection_content = projection.render()
-            if projection_content:
-                user_message = f"{projection_content}\n\n## Current Request\n\n{current_request}"
-            else:
-                user_message = current_request
 
             # Debug logging
             if os.environ.get("ACTIVECONTEXT_DEBUG"):
@@ -509,15 +549,10 @@ class Session:
                 log.debug("=== PROJECTION (%d tokens) ===", tokens_est)
                 log.debug("%s", projection_content or "(empty)")
                 log.debug("=== END PROJECTION ===")
-                log.debug(
-                    "Request: %s%s",
-                    current_request[:200],
-                    "..." if len(current_request) > 200 else "",
-                )
 
+            # Send only the projection to the LLM (no system prompt)
             messages = [
-                Message(role=Role.SYSTEM, content=SYSTEM_PROMPT),
-                Message(role=Role.USER, content=user_message),
+                Message(role=Role.USER, content=projection_content or ""),
             ]
 
             # Stream response from LLM
@@ -534,10 +569,7 @@ class Session:
                         timestamp=time.time(),
                     )
 
-            # Update conversation history (syncs to context graph)
-            self._add_message(
-                Message(role=Role.USER, content=current_request, actor="user")
-            )
+            # Add assistant response to context graph and message history
             self._add_message(
                 Message(role=Role.ASSISTANT, content=full_response, actor="agent")
             )
@@ -593,11 +625,14 @@ class Session:
                 log.debug("No code blocks, stopping loop")
                 break
 
-            # Otherwise, loop back with execution results as the next request
+            # Add execution results as a message (will appear in next projection)
             if execution_results:
-                current_request = "Execution results:\n" + "\n".join(execution_results)
+                result_content = "Execution results:\n" + "\n".join(execution_results)
             else:
-                current_request = "Code executed successfully. Continue or respond."
+                result_content = "Code executed successfully."
+            self._add_message(
+                Message(role=Role.USER, content=result_content, actor="system")
+            )
 
     async def _prompt_direct(self, content: str) -> AsyncIterator[SessionUpdate]:
         """Process prompt in direct execution mode (no LLM)."""
@@ -652,10 +687,10 @@ class Session:
                 "stdout": result.stdout,
                 "stderr": result.stderr,
                 "exception": result.exception,
-                "state_diff": {
-                    "added": result.state_diff.added,
-                    "changed": result.state_diff.changed,
-                    "deleted": result.state_diff.deleted,
+                "state_trace": {
+                    "added": result.state_trace.added,
+                    "changed": result.state_trace.changed,
+                    "deleted": result.state_trace.deleted,
                 },
                 "duration_ms": result.duration_ms,
             },
@@ -770,26 +805,19 @@ class Session:
         self._timeline.cancel_all_shells()
 
     def get_projection(self) -> Projection:
-        """Build the LLM projection from current session state."""
+        """Build the LLM projection from current session state.
+
+        Renders visible nodes from the context graph. The agent controls
+        visibility by showing, hiding, expanding, and collapsing nodes.
+        """
         return self._projection_engine.build(
             context_graph=self._timeline.context_graph,
-            context_objects=self._timeline.get_context_objects(),
-            conversation=self._conversation,
             cwd=self._cwd,
-            show_message_actors=self._show_message_actors,
         )
 
-    def show_message_ids(self, show: bool) -> None:
-        """Control whether message actors are shown in conversation rendering.
-
-        Args:
-            show: If True, show actor info like "(user)", "(agent)". If False, hide actors.
-        """
-        self._show_message_actors = show
-
-    def clear_conversation(self) -> None:
+    def clear_message_history(self) -> None:
         """Clear the conversation history."""
-        self._conversation.clear()
+        self._message_history.clear()
 
     def get_context_objects(self) -> dict[str, Any]:
         """Get all tracked context objects (legacy compatibility)."""
@@ -805,14 +833,42 @@ class Session:
         return self._timeline.context_graph
 
     async def _setup_initial_context(self) -> None:
-        """Set up initial context views for a new session.
+        """Set up initial context for a new session.
 
-        Creates an example view of context_guide.md if it exists,
-        demonstrating the view() DSL.
+        Executes startup statements from config, then auto-connects MCP servers.
+        Only runs on NEW session creation, not when loading from file.
+        """
+        from activecontext.config.schema import StartupConfig
+
+        startup_config = (
+            self._config.session.startup
+            if self._config and self._config.session
+            else StartupConfig()
+        )
+
+        # Execute startup statements from config
+        for statement in startup_config.statements:
+            try:
+                await self._timeline.execute_statement(statement)
+            except Exception as e:
+                log.warning(f"Startup statement failed: {statement!r}: {e}")
+
+        # Load default context guide unless skipped
+        if not startup_config.skip_default_context:
+            await self._load_context_guide()
+
+        # Auto-connect to configured MCP servers
+        await self._setup_mcp_autoconnect()
+
+
+
+    async def _load_context_guide(self) -> None:
+        """Load the context guide view if it exists.
+
+        Checks for CONTEXT_GUIDE.md in cwd, then prompts directory.
         """
         from pathlib import Path
 
-        # Check for context guide in cwd first, then prompts directory
         guide_paths = [
             Path(self._cwd) / "CONTEXT_GUIDE.md",
             Path(__file__).parent.parent / "prompts" / "context_guide.md",
@@ -820,11 +876,8 @@ class Session:
 
         for guide_path in guide_paths:
             if guide_path.exists():
-                # Execute the view creation as if the LLM did it
-                # This shows the user the DSL syntax as an example
                 rel_path = guide_path.name
                 try:
-                    # Make path relative to cwd if possible
                     rel_path = str(guide_path.relative_to(self._cwd))
                 except ValueError:
                     rel_path = str(guide_path)
@@ -835,28 +888,41 @@ class Session:
                 await self._timeline.execute_statement(source)
                 break
 
-        # Auto-connect to configured MCP servers
-        await self._setup_mcp_autoconnect()
-
     async def _setup_mcp_autoconnect(self) -> None:
-        """Connect to MCP servers marked as auto_connect in config."""
+        """Connect to MCP servers based on their connect mode.
+
+        - CRITICAL: Must connect, raise error if fails
+        - AUTO: Try on startup, warn if fails
+        - MANUAL: Skip (user connects manually)
+        - NEVER: Skip (disabled)
+        """
         if not self._config or not self._config.mcp:
             return
 
         import logging
 
+        from activecontext.config.schema import MCPConnectMode
+
         _log = logging.getLogger("activecontext.session")
 
         for server_config in self._config.mcp.servers:
-            if server_config.auto_connect:
+            if server_config.connect == MCPConnectMode.NEVER:
+                continue
+
+            if server_config.connect in (MCPConnectMode.CRITICAL, MCPConnectMode.AUTO):
                 try:
                     source = f'mcp_connect("{server_config.name}")'
                     await self._timeline.execute_statement(source)
                     _log.info(f"Auto-connected to MCP server '{server_config.name}'")
                 except Exception as e:
-                    _log.warning(
-                        f"Failed to auto-connect to MCP server '{server_config.name}': {e}"
-                    )
+                    if server_config.connect == MCPConnectMode.CRITICAL:
+                        raise RuntimeError(
+                            f"Critical MCP server '{server_config.name}' failed to connect: {e}"
+                        ) from e
+                    else:
+                        _log.warning(
+                            f"Failed to auto-connect to MCP server '{server_config.name}': {e}"
+                        )
 
 
 class SessionManager:

@@ -26,6 +26,10 @@ _get_current_model: Callable[[], str | None] | None = None
 _sessions_model: dict[str, str] | None = None
 _sessions_mode: dict[str, str] | None = None
 
+# ACP client info (for dashboard display)
+_client_info_getter: Callable[[], tuple[dict[str, Any] | None, int | None]] | None = None
+_transport_type: str = "direct"
+
 
 def get_manager() -> SessionManager | None:
     """Get the shared SessionManager instance."""
@@ -51,6 +55,27 @@ def get_session_mode(session_id: str) -> str | None:
     if _sessions_mode:
         return _sessions_mode.get(session_id)
     return None
+
+
+def get_client_info() -> dict[str, Any] | None:
+    """Get ACP client info dict."""
+    if _client_info_getter:
+        info, _ = _client_info_getter()
+        return info
+    return None
+
+
+def get_protocol_version() -> int | None:
+    """Get ACP protocol version."""
+    if _client_info_getter:
+        _, version = _client_info_getter()
+        return version
+    return None
+
+
+def get_transport_type() -> str:
+    """Get the transport type ('acp' or 'direct')."""
+    return _transport_type
 
 
 def is_dashboard_running() -> bool:
@@ -82,6 +107,8 @@ async def start_dashboard(
     get_current_model: Callable[[], str | None],
     sessions_model: dict[str, str],
     sessions_mode: dict[str, str],
+    get_client_info: Callable[[], tuple[dict[str, Any] | None, int | None]] | None = None,
+    transport_type: str = "direct",
 ) -> None:
     """Start the dashboard web server.
 
@@ -91,9 +118,12 @@ async def start_dashboard(
         get_current_model: Callable to get current model ID
         sessions_model: Dict mapping session_id -> model_id
         sessions_mode: Dict mapping session_id -> mode
+        get_client_info: Callable to get ACP client info (info_dict, protocol_version)
+        transport_type: Transport type, 'acp' or 'direct'
     """
     global _server_task, _server_port, _start_time
     global _manager, _get_current_model, _sessions_model, _sessions_mode
+    global _client_info_getter, _transport_type
 
     if is_dashboard_running():
         raise RuntimeError(f"Dashboard already running on port {_server_port}")
@@ -103,6 +133,8 @@ async def start_dashboard(
     _get_current_model = get_current_model
     _sessions_model = sessions_model
     _sessions_mode = sessions_mode
+    _client_info_getter = get_client_info
+    _transport_type = transport_type
 
     # Import here to avoid circular imports and startup overhead
     import uvicorn
@@ -132,6 +164,7 @@ async def stop_dashboard() -> None:
     """Stop the dashboard web server."""
     global _server_task, _server_port, _start_time
     global _manager, _get_current_model, _sessions_model, _sessions_mode
+    global _client_info_getter, _transport_type
 
     if not _server_task:
         return
@@ -159,6 +192,8 @@ async def stop_dashboard() -> None:
     _get_current_model = None
     _sessions_model = None
     _sessions_mode = None
+    _client_info_getter = None
+    _transport_type = "direct"
 
 
 def get_static_dir() -> Path:

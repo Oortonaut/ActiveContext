@@ -250,14 +250,14 @@ async def test_clear_conversation() -> None:
         # Simulate adding conversation (normally done via prompt)
         from activecontext.core.llm.provider import Message, Role
 
-        internal._conversation.append(Message(role=Role.USER, content="test"))
-        internal._conversation.append(Message(role=Role.ASSISTANT, content="response"))
+        internal._message_history.append(Message(role=Role.USER, content="test"))
+        internal._message_history.append(Message(role=Role.ASSISTANT, content="response"))
 
-        assert len(internal._conversation) == 2
+        assert len(internal._message_history) == 2
 
         # Clear it via public API
-        session.clear_conversation()
-        assert len(internal._conversation) == 0
+        session.clear_message_history()
+        assert len(internal._message_history) == 0
 
 
 @pytest.mark.asyncio

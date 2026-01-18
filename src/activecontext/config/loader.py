@@ -25,12 +25,17 @@ from activecontext.config.schema import (
     ImportConfig,
     LLMConfig,
     LoggingConfig,
+    MCPConfig,
+    MCPConnectMode,
+    MCPServerConfig,
     ProjectionConfig,
     RoleProviderConfig,
     SandboxConfig,
     SessionConfig,
     SessionModeConfig,
     ShellPermissionConfig,
+    StartupConfig,
+    UserConfig,
     WebsitePermissionConfig,
 )
 
@@ -133,18 +138,25 @@ def dict_to_config(data: dict[str, Any]) -> Config:
         for m in modes_data
         if isinstance(m, dict)
     ]
+
+    # Startup config
+    startup_data = session_data.get("startup", {})
+    startup_statements = startup_data.get("statements", [])
+    startup = StartupConfig(
+        statements=[s for s in startup_statements if isinstance(s, str)],
+        skip_default_context=startup_data.get("skip_default_context", False),
+    )
+
     session = SessionConfig(
         modes=modes,
         default_mode=session_data.get("default_mode"),
+        startup=startup,
     )
 
     # Projection config
     proj_data = data.get("projection", {})
     projection = ProjectionConfig(
         total_budget=proj_data.get("total_budget"),
-        conversation_ratio=proj_data.get("conversation_ratio"),
-        views_ratio=proj_data.get("views_ratio"),
-        groups_ratio=proj_data.get("groups_ratio"),
     )
 
     # Logging config
@@ -211,8 +223,44 @@ def dict_to_config(data: dict[str, Any]) -> Config:
         allow_localhost=sandbox_data.get("allow_localhost", False),
     )
 
+    # MCP config
+    mcp_data = data.get("mcp", {})
+    servers_data = mcp_data.get("servers", [])
+    mcp_servers = []
+    for s in servers_data:
+        if not isinstance(s, dict) or not s.get("name"):
+            continue
+
+        # Parse connect mode
+        connect_str = s.get("connect", "manual")
+        connect = MCPConnectMode(connect_str)
+
+        mcp_servers.append(
+            MCPServerConfig(
+                name=s.get("name", ""),
+                command=s.get("command"),
+                args=s.get("args", []),
+                env=s.get("env", {}),
+                url=s.get("url"),
+                headers=s.get("headers", {}),
+                transport=s.get("transport", "stdio"),
+                connect=connect,
+                timeout=s.get("timeout", 30.0),
+            )
+        )
+    mcp = MCPConfig(
+        servers=mcp_servers,
+        allow_dynamic_servers=mcp_data.get("allow_dynamic_servers", True),
+    )
+
+    # User config
+    user_data = data.get("user", {})
+    user = UserConfig(
+        display_name=user_data.get("display_name"),
+    )
+
     # Extra fields for extensibility
-    known_keys = {"llm", "session", "projection", "logging", "sandbox"}
+    known_keys = {"llm", "session", "projection", "logging", "sandbox", "mcp", "user"}
     extra = {k: v for k, v in data.items() if k not in known_keys}
 
     return Config(
@@ -221,6 +269,8 @@ def dict_to_config(data: dict[str, Any]) -> Config:
         projection=projection,
         logging=logging_config,
         sandbox=sandbox,
+        user=user,
+        mcp=mcp,
         extra=extra,
     )
 

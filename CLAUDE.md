@@ -223,16 +223,13 @@ session:
 
 projection:
   total_budget: 16000
-  conversation_ratio: 0.25
-  views_ratio: 0.55
-  groups_ratio: 0.20
 
 logging:
   level: INFO
   file: ~/activecontext.log
 
 user:
-  display_name: Ace         # Shown in conversation rendering
+  display_name: Ace         # Shown in message history
 
 sandbox:
   allow_cwd: true           # Auto-grant read access to cwd
@@ -258,7 +255,7 @@ mcp:
     - name: filesystem
       command: ["npx", "-y", "@modelcontextprotocol/server-filesystem"]
       args: ["/home/user/allowed"]
-      auto_connect: true
+      connect: auto
 ```
 
 ### Configuration API
@@ -397,7 +394,7 @@ wait_any(s1, s2, s3)                # Wait for first
    - COLLAPSED: Metadata only, aim for 50 or fewer tokens of content
    - SUMMARY: Agent-generated summary
    - DETAILS: Full view with child settings
-   - ALL: Everything including diffs, SUMMARY union DETAILS
+   - ALL: Everything including traces, SUMMARY union DETAILS
 6. **Permission boundaries**: File, shell, import, and web access require explicit grants
 
 ## Claude Code Permission Matching

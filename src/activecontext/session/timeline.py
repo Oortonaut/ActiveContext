@@ -63,7 +63,7 @@ from activecontext.session.protocols import (
     EventResponse,
     ExecutionResult,
     ExecutionStatus,
-    NamespaceDiff,
+    NamespaceTrace,
     QueuedEvent,
     Statement,
     WaitCondition,
@@ -114,7 +114,7 @@ class _ExecutionRecord:
     stdout: str
     stderr: str
     exception: dict[str, Any] | None
-    state_diff: NamespaceDiff
+    state_trace: NamespaceTrace
 
 
 class Timeline:
@@ -2418,7 +2418,7 @@ class Timeline:
             # Dynamic HTTP connection
             tools = mcp_connect("remote", url="http://localhost:8000/mcp")
         """
-        from activecontext.config.schema import MCPServerConfig
+        from activecontext.config.schema import MCPConnectMode, MCPServerConfig
 
         # Build config if dynamic
         config: MCPServerConfig | None = None
@@ -2433,6 +2433,16 @@ class Timeline:
             name = config.name
         elif name is None:
             raise ValueError("Must provide 'name' or 'command'/'url'")
+
+        # Check if server is disabled (NEVER mode) when using config from file
+        if config is None and self._mcp_client_manager.config:
+            for server_config in self._mcp_client_manager.config.servers:
+                if server_config.name == name:
+                    if server_config.connect == MCPConnectMode.NEVER:
+                        raise ValueError(
+                            f"MCP server '{name}' is disabled (connect=never)"
+                        )
+                    break
 
         # Connect via MCPClientManager
         connection = await self._mcp_client_manager.connect(name=name, config=config)
@@ -2451,6 +2461,15 @@ class Timeline:
 
         # Update node from connection
         node.update_from_connection(connection)
+
+        # Register with MCPManagerNode
+        from activecontext.context.nodes import MCPManagerNode
+
+        mcp_manager = self._context_graph.get_node("mcp_manager")
+        if mcp_manager and isinstance(mcp_manager, MCPManagerNode):
+            # Link in graph (server as child of manager)
+            self._context_graph.link(node.node_id, mcp_manager.node_id)
+            mcp_manager.register_server(node)
 
         # Update namespace with the server proxy
         bindings = self._mcp_client_manager.generate_namespace_bindings()
@@ -2475,6 +2494,13 @@ class Timeline:
             node.resources = []
             node.prompts = []
             node._mark_changed()
+
+        # Unregister from MCPManagerNode
+        from activecontext.context.nodes import MCPManagerNode
+
+        mcp_manager = self._context_graph.get_node("mcp_manager")
+        if mcp_manager and isinstance(mcp_manager, MCPManagerNode):
+            mcp_manager.unregister_server(name)
 
         # Remove from namespace
         if name in self._namespace:
@@ -2679,12 +2705,12 @@ class Timeline:
     def session_id(self) -> str:
         return self._session_id
 
-    def _capture_namespace_diff(
+    def _capture_namespace_trace(
         self,
         before: dict[str, Any],
         after: dict[str, Any],
-    ) -> NamespaceDiff:
-        """Compute the diff between two namespace snapshots."""
+    ) -> NamespaceTrace:
+        """Compute the trace between two namespace snapshots."""
         before_keys = set(before.keys())
         after_keys = set(after.keys())
 
@@ -2696,7 +2722,7 @@ class Timeline:
             if before[k] is not after[k]:
                 changed[k] = f"{type(before[k]).__name__} -> {type(after[k]).__name__}"
 
-        return NamespaceDiff(added=added, changed=changed, deleted=deleted)
+        return NamespaceTrace(added=added, changed=changed, deleted=deleted)
 
     def _snapshot_namespace(self) -> dict[str, Any]:
         """Create a shallow snapshot of user-defined namespace entries."""
@@ -2763,7 +2789,7 @@ class Timeline:
                         "message": str(e),
                         "traceback": f"Failed to parse XML: {original_source}",
                     },
-                    state_diff=NamespaceDiff(added={}, changed={}, deleted=[]),
+                    state_trace=NamespaceTrace(added={}, changed={}, deleted=[]),
                     duration_ms=0.0,
                 )
 
@@ -2833,7 +2859,7 @@ class Timeline:
                             "message": f"Access denied: {perm_mode} access to '{perm_path}'",
                             "traceback": result.exception.get("traceback", ""),
                         },
-                        state_diff=result.state_diff,
+                        state_trace=result.state_trace,
                         duration_ms=result.duration_ms,
                     )
 
@@ -2887,7 +2913,7 @@ class Timeline:
                             "message": f"Import denied: '{module}' is not in the allowed modules whitelist",
                             "traceback": result.exception.get("traceback", ""),
                         },
-                        state_diff=result.state_diff,
+                        state_trace=result.state_trace,
                         duration_ms=result.duration_ms,
                     )
 
@@ -2961,7 +2987,7 @@ class Timeline:
 
         # Compute namespace diff
         ns_after = self._snapshot_namespace()
-        state_diff = self._capture_namespace_diff(ns_before, ns_after)
+        state_trace = self._capture_namespace_trace(ns_before, ns_after)
 
         # Record execution
         record = _ExecutionRecord(
@@ -2973,7 +2999,7 @@ class Timeline:
             stdout=stdout_val,
             stderr=stderr_val,
             exception=exception_info,
-            state_diff=state_diff,
+            state_trace=state_trace,
         )
         self._executions.setdefault(statement_id, []).append(record)
 
@@ -2984,7 +3010,7 @@ class Timeline:
             stdout=stdout_val,
             stderr=stderr_val,
             exception=exception_info,
-            state_diff=state_diff,
+            state_trace=state_trace,
             duration_ms=(ended_at - started_at) * 1000,
         )
 

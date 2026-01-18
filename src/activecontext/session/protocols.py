@@ -125,7 +125,7 @@ class Statement:
 
 
 @dataclass(slots=True)
-class NamespaceDiff:
+class NamespaceTrace:
     """Changes to the Python namespace after execution."""
 
     added: dict[str, str] = field(default_factory=dict)  # name -> type repr
@@ -143,7 +143,7 @@ class ExecutionResult:
     stdout: str = ""
     stderr: str = ""
     exception: dict[str, Any] | None = None
-    state_diff: NamespaceDiff = field(default_factory=NamespaceDiff)
+    state_trace: NamespaceTrace = field(default_factory=NamespaceTrace)
     duration_ms: float = 0.0
 
 

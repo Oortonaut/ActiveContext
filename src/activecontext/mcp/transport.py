@@ -67,5 +67,21 @@ async def create_transport(
 
         return streamablehttp_client(config.url)
 
+    elif config.transport == "sse":
+        if not config.url:
+            raise ValueError(
+                f"sse transport requires 'url' for server '{config.name}'"
+            )
+
+        from mcp.client.sse import sse_client
+
+        # Expand env vars in headers and filter None values
+        headers = {k: v for k, v in _expand_env_vars(config.headers).items() if v}
+        return sse_client(
+            config.url,
+            headers=headers if headers else None,
+            timeout=config.timeout,
+        )
+
     else:
         raise ValueError(f"Unknown transport: {config.transport}")

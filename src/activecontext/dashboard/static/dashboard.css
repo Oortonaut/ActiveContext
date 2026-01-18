@@ -171,6 +171,110 @@ main {
     padding: 0.1rem 0.4rem;
 }
 
+.badge.acp {
+    background: var(--success);
+    color: #1a1a2e;
+}
+
+.badge.direct {
+    background: var(--conv-color);
+    color: white;
+}
+
+/* Client & Transport Card */
+.acp-info,
+.direct-info {
+    margin-top: 0.5rem;
+}
+
+.hidden {
+    display: none !important;
+}
+
+.muted {
+    color: var(--text-secondary);
+    font-style: italic;
+    font-size: 0.85rem;
+}
+
+.truncate {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 200px;
+}
+
+.capabilities-section {
+    margin-top: 1rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid var(--border);
+}
+
+.capabilities-section h4 {
+    font-size: 0.8rem;
+    font-weight: 500;
+    color: var(--text-secondary);
+    margin-bottom: 0.5rem;
+}
+
+.capabilities-list {
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.capability-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.35rem 0.5rem;
+    font-size: 0.85rem;
+    background: var(--bg-secondary);
+    border-radius: 4px;
+    margin-bottom: 0.25rem;
+}
+
+.capability-row:hover {
+    background: var(--bg-primary);
+}
+
+.capability-icon {
+    width: 1.25em;
+    text-align: center;
+    font-weight: bold;
+    flex-shrink: 0;
+}
+
+.capability-icon.enabled {
+    color: var(--success);
+}
+
+.capability-icon.disabled {
+    color: var(--error);
+}
+
+.capability-label {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.capability-value {
+    font-family: 'SF Mono', Monaco, 'Courier New', monospace;
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    max-width: 150px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.badge.ext {
+    background: var(--groups-color);
+    font-size: 0.6rem;
+    padding: 0.05rem 0.3rem;
+}
+
 /* Progress Bar */
 .progress-container {
     margin-bottom: 1rem;

@@ -17,10 +17,10 @@ class NodeState(Enum):
 
     States control how nodes appear in projections:
     - HIDDEN: Not shown in projection (but still ticked if running)
-    - COLLAPSED: Title and metadata only (size, diff count)
+    - COLLAPSED: Title and metadata only (size, trace count)
     - SUMMARY: LLM-generated summary (default for groups)
     - DETAILS: Full view with child settings (default for views)
-    - ALL: Everything including full diffs
+    - ALL: Everything including full traces
     """
 
     HIDDEN = "hidden"

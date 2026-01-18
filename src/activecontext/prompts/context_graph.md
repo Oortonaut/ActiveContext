@@ -36,7 +36,7 @@ g2 = group(v)  # v is also child of g2
 When a child node changes, it notifies all parents:
 
 1. Child's `version` increments
-2. Child calls `notify_parents(diff)`
+2. Child calls `notify_parents(trace)`
 3. Each parent's `on_child_changed()` is called
 4. Parents propagate upward to their parents
 
@@ -90,7 +90,7 @@ Each turn, the session "ticks":
 1. Process pending shell results
 2. For each running node:
    - Call `Recompute()` if frequency says so
-   - Generate diffs for changes
+   - Generate traces for changes
    - Notify parents
 3. Build projection from roots
 

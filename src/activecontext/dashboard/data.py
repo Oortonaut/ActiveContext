@@ -139,20 +139,14 @@ def get_timeline_data(session: Session) -> dict[str, Any]:
 
 def get_projection_data(session: Session) -> dict[str, Any]:
     """Get token budget and projection section breakdown."""
-    # Get config for ratio information (used in fallback too)
+    # Get config for total_budget (used in fallback too)
     try:
         from activecontext.config import get_config
 
         config = get_config()
-        conversation_ratio = config.projection.conversation_ratio
-        views_ratio = config.projection.views_ratio
-        groups_ratio = config.projection.groups_ratio
-        total_budget = config.projection.total_budget
+        total_budget = config.projection.total_budget or 8000
     except Exception:
-        conversation_ratio = 0.3
-        views_ratio = 0.5
-        groups_ratio = 0.2
-        total_budget = 16000
+        total_budget = 8000
 
     try:
         projection = session.get_projection()
@@ -176,9 +170,6 @@ def get_projection_data(session: Session) -> dict[str, Any]:
             "total_budget": projection.token_budget,
             "total_used": total_used,
             "utilization": total_used / projection.token_budget if projection.token_budget else 0,
-            "conversation_ratio": conversation_ratio,
-            "views_ratio": views_ratio,
-            "groups_ratio": groups_ratio,
             "sections": sections,
         }
     except Exception:
@@ -186,24 +177,21 @@ def get_projection_data(session: Session) -> dict[str, Any]:
             "total_budget": total_budget,
             "total_used": 0,
             "utilization": 0,
-            "conversation_ratio": conversation_ratio,
-            "views_ratio": views_ratio,
-            "groups_ratio": groups_ratio,
             "sections": [],
         }
 
 
-def get_conversation_data(session: Session) -> dict[str, Any]:
+def get_message_history_data(session: Session) -> dict[str, Any]:
     """Get the exact message history for display.
     
-    Returns the full conversation history from session._conversation,
+    Returns the full conversation history from session._message_history,
     which contains the exact messages for replay and debugging.
     This is separate from the rendered conversation sent to the LLM.
     """
     messages: list[dict[str, Any]] = []
     
     try:
-        conversation = getattr(session, "_conversation", [])
+        conversation = getattr(session, "_message_history", [])
         for i, msg in enumerate(conversation):
             try:
                 # Message is typically a dict with role and content
@@ -283,6 +271,42 @@ def get_rendered_projection_data(session: Session) -> dict[str, Any]:
             "sections": [],
             "section_count": 0,
         }
+
+
+def get_client_capabilities_data() -> dict[str, Any]:
+    """Get ACP client capabilities and transport info for dashboard."""
+    from activecontext.dashboard.server import (
+        get_client_info,
+        get_protocol_version,
+        get_transport_type,
+    )
+
+    transport_type = get_transport_type()
+    client_info = get_client_info()
+    protocol_version = get_protocol_version()
+
+    return {
+        "transport": {
+            "type": transport_type,
+            "is_acp": transport_type == "acp",
+        },
+        "protocol_version": protocol_version,
+        "client": client_info,
+    }
+
+
+def get_session_features_data(
+    session: Session,
+    model: str | None = None,
+    mode: str | None = None,
+) -> dict[str, Any]:
+    """Get session features including mode, model, and working directory."""
+    return {
+        "model": model or (session.llm.model if session.llm else None),
+        "mode": mode,
+        "cwd": str(session.cwd),
+        "title": getattr(session, "title", None),
+    }
 
 
 def format_session_update(

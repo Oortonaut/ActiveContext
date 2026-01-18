@@ -293,29 +293,19 @@ class TestSessionAPI:
         assert graph is not None
 
     @pytest.mark.asyncio
-    async def test_show_message_ids(self, test_session):
-        """Test show_message_ids configuration."""
-        # Default value
-        initial = test_session.show_message_ids
-
-        # Should be toggleable
-        test_session.show_message_ids = not initial
-        assert test_session.show_message_ids != initial
-
-    @pytest.mark.asyncio
-    async def test_clear_conversation(self, test_session):
-        """Test clearing conversation history."""
+    async def test_clear_message_history(self, test_session):
+        """Test clearing message history."""
         # Add some messages first
-        test_session._conversation.append(
+        test_session._message_history.append(
             Mock(role=Mock(value="user"), content="Test")
         )
 
-        initial_count = len(test_session._conversation)
+        initial_count = len(test_session._message_history)
         assert initial_count > 0
 
-        test_session.clear_conversation()
+        test_session.clear_message_history()
 
-        assert len(test_session._conversation) == 0
+        assert len(test_session._message_history) == 0
 
     @pytest.mark.asyncio
     async def test_get_projection(self, test_session):
@@ -420,6 +410,8 @@ class TestSessionConfiguration:
         mock_config = Mock()
         mock_config.sandbox = None  # Prevent PermissionManager errors
         mock_config.mcp = None  # Prevent MCP autoconnect errors
+        # Mock session.startup for startup script execution
+        mock_config.session = None
         mock_load_config.return_value = mock_config
 
         manager = SessionManager(default_llm=None)

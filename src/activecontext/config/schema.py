@@ -7,6 +7,7 @@ All fields are optional to support partial configs that merge together.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import Any
 
 
@@ -42,22 +43,41 @@ class SessionModeConfig:
     description: str = ""
 
 
+
+@dataclass
+class StartupConfig:
+    """Configuration for session startup scripts.
+
+    Startup statements are DSL statements executed on NEW session creation only.
+    When loading an existing session, the context graph is restored directly.
+
+    Example config.yaml:
+        session:
+          startup:
+            statements:
+              - 'readme = view("README.md", tokens=2000)'
+              - 'mcp_connect("filesystem")'
+            skip_default_context: false
+    """
+
+    statements: list[str] = field(default_factory=list)  # DSL statements to execute
+    skip_default_context: bool = False  # Skip loading CONTEXT_GUIDE.md
+
+
 @dataclass
 class SessionConfig:
     """Session defaults configuration."""
 
     modes: list[SessionModeConfig] = field(default_factory=list)
     default_mode: str | None = None  # Default: "normal"
+    startup: StartupConfig = field(default_factory=StartupConfig)  # Default: "normal"
 
 
 @dataclass
 class ProjectionConfig:
     """Projection engine configuration."""
 
-    total_budget: int | None = None  # Default: 8000
-    conversation_ratio: float | None = None  # Default: 0.3
-    views_ratio: float | None = None  # Default: 0.5
-    groups_ratio: float | None = None  # Default: 0.2
+    total_budget: int | None = None  # Default: 8000  # Default: 0.4  # Default: 0.2
 
 
 @dataclass
@@ -148,22 +168,39 @@ class UserConfig:
     display_name: str | None = None  # e.g., "Ace"
 
 
+class MCPConnectMode(Enum):
+    """Connection mode for MCP servers.
+
+    - CRITICAL: Must connect successfully on startup, fail session if cannot
+    - AUTO: Auto-connect on startup, warn but continue if fails
+    - MANUAL: Only connect when explicitly called via mcp_connect()
+    - NEVER: Disabled, cannot be connected
+    """
+
+    CRITICAL = "critical"
+    AUTO = "auto"
+    MANUAL = "manual"
+    NEVER = "never"
+
+
 @dataclass
 class MCPServerConfig:
     """Configuration for a single MCP server.
 
-    Supports two transport types:
+    Supports three transport types:
         - stdio: Spawns a subprocess (requires command)
         - streamable-http: Connects to HTTP endpoint (requires url)
+        - sse: Connects to SSE endpoint (requires url)
     """
 
     name: str  # Unique identifier (e.g., "filesystem", "github")
     command: list[str] | None = None  # For stdio: ["npx", "-y", "@mcp/server"]
     args: list[str] = field(default_factory=list)  # Additional command args
     env: dict[str, str] = field(default_factory=dict)  # Environment vars (supports ${VAR})
-    url: str | None = None  # For streamable-http: "http://localhost:8000/mcp"
-    transport: str = "stdio"  # "stdio" or "streamable-http"
-    auto_connect: bool = False  # Connect automatically on session start
+    url: str | None = None  # For streamable-http/sse: "http://localhost:8000/sse"
+    headers: dict[str, str] = field(default_factory=dict)  # HTTP headers for sse/http
+    transport: str = "stdio"  # "stdio", "streamable-http", or "sse"
+    connect: MCPConnectMode = MCPConnectMode.MANUAL  # Connection mode
     timeout: float = 30.0  # Connection timeout in seconds
 
 

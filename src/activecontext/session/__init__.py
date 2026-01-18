@@ -3,7 +3,7 @@
 from activecontext.session.protocols import (
     ExecutionResult,
     ExecutionStatus,
-    NamespaceDiff,
+    NamespaceTrace,
     Projection,
     SessionManagerProtocol,
     SessionProtocol,
@@ -18,7 +18,7 @@ from activecontext.session.timeline import Timeline
 __all__ = [
     "ExecutionResult",
     "ExecutionStatus",
-    "NamespaceDiff",
+    "NamespaceTrace",
     "Projection",
     "Session",
     "SessionManager",

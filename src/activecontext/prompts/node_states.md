@@ -7,10 +7,10 @@ Controls how a node renders in the projection.
 | State | Description | Use Case |
 |-------|-------------|----------|
 | `HIDDEN` | Not rendered at all | Temporary exclusion, completed work |
-| `COLLAPSED` | Metadata only (title, diff count) | Background context, low priority |
+| `COLLAPSED` | Metadata only (title, trace count) | Background context, low priority |
 | `SUMMARY` | LLM-generated summary | Groups, large files |
 | `DETAILS` | Full content with child settings | Active work files |
-| `ALL` | Everything including pending diffs | Debugging, detailed review |
+| `ALL` | Everything including pending traces | Debugging, detailed review |
 
 ```python
 from activecontext import NodeState

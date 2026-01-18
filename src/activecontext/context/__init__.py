@@ -24,7 +24,7 @@ from activecontext.context.nodes import (
     AgentNode,
     ArtifactNode,
     ContextNode,
-    Diff,
+    Trace,
     GroupNode,
     LockNode,
     LockStatus,
@@ -59,7 +59,7 @@ __all__ = [
     "ViewRegistry",
     # Nodes
     "ContextNode",
-    "Diff",
+    "Trace",
     "OnChildChangedHook",
     "ViewNode",
     "GroupNode",

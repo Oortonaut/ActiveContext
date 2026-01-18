@@ -39,6 +39,59 @@
                 </div>
             </section>
 
+            <!-- Client & Transport Card -->
+            <section class="card" id="client-card">
+                <h2>Client & Transport</h2>
+                <div class="card-content">
+                    <div class="stat-row">
+                        <span class="stat-label">Transport:</span>
+                        <span id="transport-type" class="stat-value badge">-</span>
+                    </div>
+                    <div id="acp-info" class="acp-info hidden">
+                        <div class="stat-row">
+                            <span class="stat-label">Client:</span>
+                            <span id="client-name" class="stat-value">-</span>
+                        </div>
+                        <div class="stat-row">
+                            <span class="stat-label">Version:</span>
+                            <span id="client-version" class="stat-value">-</span>
+                        </div>
+                        <div class="stat-row">
+                            <span class="stat-label">Protocol:</span>
+                            <span id="protocol-version" class="stat-value">-</span>
+                        </div>
+                        <div class="capabilities-section">
+                            <h4>Capabilities <span id="caps-count" class="badge small">0</span></h4>
+                            <div id="capabilities-list" class="capabilities-list">
+                                <!-- Capabilities rendered dynamically -->
+                            </div>
+                        </div>
+                    </div>
+                    <div id="direct-info" class="direct-info hidden">
+                        <p class="muted">Direct Python API - no ACP handshake</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Session Features Card -->
+            <section class="card" id="features-card">
+                <h2>Session Features</h2>
+                <div class="card-content">
+                    <div class="stat-row">
+                        <span class="stat-label">Mode:</span>
+                        <span id="session-mode" class="stat-value badge">-</span>
+                    </div>
+                    <div class="stat-row">
+                        <span class="stat-label">Model:</span>
+                        <span id="session-model" class="stat-value">-</span>
+                    </div>
+                    <div class="stat-row">
+                        <span class="stat-label">Working Dir:</span>
+                        <span id="session-cwd" class="stat-value truncate">-</span>
+                    </div>
+                </div>
+            </section>
+
             <!-- Token Budget Card -->
             <section class="card" id="token-card">
                 <h2>Token Budget</h2>

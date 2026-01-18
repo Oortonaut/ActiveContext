@@ -97,21 +97,26 @@ mcp:
     - name: filesystem
       command: ["npx", "-y", "@modelcontextprotocol/server-filesystem"]
       args: ["/home/user/allowed"]
-      auto_connect: true
+      connect: auto
 
     - name: github
       command: ["npx", "-y", "@modelcontextprotocol/server-github"]
       env:
         GITHUB_TOKEN: "${GITHUB_TOKEN}"
+      connect: manual
 
     - name: remote-api
       url: "http://localhost:8000/mcp"
       transport: streamable-http
 ```
 
-- **auto_connect**: Connect automatically on session start
+- **connect**: Connection mode
+  - `critical`: Must connect on startup, fail session if cannot
+  - `auto`: Auto-connect on startup, warn if fails
+  - `manual`: Only connect via `mcp_connect()` (default)
+  - `never`: Disabled, cannot be connected
 - **env**: Environment variables (supports `${VAR}` expansion)
-- **transport**: `stdio` (default) or `streamable-http`
+- **transport**: `stdio` (default), `streamable-http`, or `sse`
 
 ## Common MCP Servers
 

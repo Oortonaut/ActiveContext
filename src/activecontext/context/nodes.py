@@ -51,18 +51,18 @@ if TYPE_CHECKING:
 
 
 @dataclass
-class Diff:
+class Trace:
     """Represents a change between versions."""
 
     node_id: str
     old_version: int
     new_version: int
     description: str
-    content: str | None = None  # Optional diff content
+    content: str | None = None  # Optional trace content
 
 
 # Type alias for hooks
-OnChildChangedHook = Callable[["ContextNode", "ContextNode", Diff | None], None]
+OnChildChangedHook = Callable[["ContextNode", "ContextNode", Trace | None], None]
 
 
 @dataclass
@@ -77,10 +77,10 @@ class ContextNode(ABC):
         state: Rendering state (HIDDEN, COLLAPSED, SUMMARY, DETAILS, ALL)
         mode: "paused" or "running" for tick processing
         tick_frequency: Tick frequency specification (turn, async, never, period)
-        version: Incremented on change for diff detection
+        version: Incremented on change for trace detection
         created_at: Unix timestamp of creation
         updated_at: Unix timestamp of last update
-        pending_diffs: Accumulated diffs until commit
+        pending_traces: Accumulated traces until commit
         tags: Arbitrary metadata
     """
 
@@ -99,8 +99,8 @@ class ContextNode(ABC):
     created_at: float = field(default_factory=time.time)
     updated_at: float = field(default_factory=time.time)
 
-    # Diff accumulation
-    pending_diffs: list[Diff] = field(default_factory=list)
+    # Trace accumulation
+    pending_traces: list[Trace] = field(default_factory=list)
 
     # Metadata
     tags: dict[str, Any] = field(default_factory=dict)
@@ -139,15 +139,15 @@ class ContextNode(ABC):
         """
         self._mark_changed()
 
-    def _mark_changed(self, diff: Diff | None = None) -> None:
+    def _mark_changed(self, trace: Trace | None = None) -> None:
         """Mark this node as changed and notify parents."""
         self.version += 1
         self.updated_at = time.time()
-        if diff:
-            self.pending_diffs.append(diff)
-        self.notify_parents(diff)
+        if trace:
+            self.pending_traces.append(trace)
+        self.notify_parents(trace)
 
-    def notify_parents(self, diff: Diff | None = None) -> None:
+    def notify_parents(self, trace: Trace | None = None) -> None:
         """Notify all parent nodes of a change."""
         if not self._graph:
             return
@@ -155,28 +155,28 @@ class ContextNode(ABC):
         for parent_id in self.parent_ids:
             parent = self._graph.get_node(parent_id)
             if parent:
-                parent.on_child_changed(self, diff)
+                parent.on_child_changed(self, trace)
 
-    def on_child_changed(self, child: ContextNode, diff: Diff | None = None) -> None:
+    def on_child_changed(self, child: ContextNode, trace: Trace | None = None) -> None:
         """Handle notification that a child has changed.
 
         Default implementation propagates upward. GroupNode overrides
-        to invalidate summary and generate diffs.
+        to invalidate summary and generate traces.
         """
         # Call hook if registered
         if self._on_child_changed_hook:
-            self._on_child_changed_hook(self, child, diff)
+            self._on_child_changed_hook(self, child, trace)
 
         # Propagate upward
-        self.notify_parents(diff)
+        self.notify_parents(trace)
 
     def set_on_child_changed_hook(self, hook: OnChildChangedHook | None) -> None:
         """Register a hook for child change notifications."""
         self._on_child_changed_hook = hook
 
-    def clear_pending_diffs(self) -> None:
+    def clear_pending_traces(self) -> None:
         """Clear accumulated diffs (called after projection render)."""
-        self.pending_diffs.clear()
+        self.pending_traces.clear()
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize node to dict for persistence.
@@ -226,6 +226,8 @@ class ContextNode(ABC):
             return WorkNode._from_dict(data)
         elif node_type == "mcp_server":
             return MCPServerNode._from_dict(data)
+        elif node_type == "mcp_manager":
+            return MCPManagerNode._from_dict(data)
         elif node_type == "markdown":
             return MarkdownNode._from_dict(data)
         elif node_type == "agent":
@@ -346,8 +348,8 @@ class ViewNode(ContextNode):
         # COLLAPSED: only show metadata
         if self.state == NodeState.COLLAPSED:
             line_count = len(selected_lines)
-            diff_count = len(self.pending_diffs)
-            return f"[{self.path}: {line_count} lines, {diff_count} pending changes]\n"
+            trace_count = len(self.pending_traces)
+            return f"[{self.path}: {line_count} lines, {trace_count} pending traces]\n"
 
         # Build output with line numbers (for SUMMARY, DETAILS, ALL)
         output_parts: list[str] = []
@@ -371,14 +373,14 @@ class ViewNode(ContextNode):
 
         content = "".join(output_parts)
 
-        # At ALL state, append pending diffs
-        if self.state == NodeState.ALL and self.pending_diffs:
-            diff_section = "\n--- Pending Changes ---\n"
-            for diff in self.pending_diffs:
-                diff_section += f"[v{diff.old_version}→v{diff.new_version}] {diff.description}\n"
-                if diff.content:
-                    diff_section += diff.content + "\n"
-            content += diff_section
+        # At ALL state, append pending traces
+        if self.state == NodeState.ALL and self.pending_traces:
+            trace_section = "\n--- Pending Traces ---\n"
+            for trace in self.pending_traces:
+                trace_section += f"[v{trace.old_version}→v{trace.new_version}] {trace.description}\n"
+                if trace.content:
+                    trace_section += trace.content + "\n"
+            content += trace_section
 
         return content
 
@@ -445,7 +447,7 @@ class GroupNode(ContextNode):
         summary_prompt: Custom prompt for LLM summarization
         cached_summary: Cached LLM-generated summary
         summary_stale: Whether summary needs regeneration
-        last_child_versions: Version tracking for diff detection
+        last_child_versions: Version tracking for trace detection
     """
 
     summary_prompt: str | None = None
@@ -481,8 +483,8 @@ class GroupNode(ContextNode):
         # COLLAPSED: only show metadata
         if self.state == NodeState.COLLAPSED:
             member_count = len(self.children_ids)
-            diff_count = len(self.pending_diffs)
-            return f"[Group: {member_count} members, {diff_count} changes]\n"
+            trace_count = len(self.pending_traces)
+            return f"[Group: {member_count} members, {trace_count} traces]\n"
 
         effective_tokens = tokens or self.tokens
 
@@ -517,38 +519,38 @@ class GroupNode(ContextNode):
                     detail_parts.append(child_content)
                     detail_parts.append("\n")
 
-        # At ALL state, include pending diffs from children
-        if self.state == NodeState.ALL and self.pending_diffs:
-            detail_parts.append("--- Group Changes ---\n")
-            for diff in self.pending_diffs:
-                detail_parts.append(f"[{diff.node_id}] {diff.description}\n")
+        # At ALL state, include pending traces from children
+        if self.state == NodeState.ALL and self.pending_traces:
+            detail_parts.append("--- Group Traces ---\n")
+            for trace in self.pending_traces:
+                detail_parts.append(f"[{trace.node_id}] {trace.description}\n")
 
         return "".join(detail_parts)
 
-    def on_child_changed(self, child: ContextNode, diff: Diff | None = None) -> None:
-        """Handle child change: track version, generate diff, propagate."""
+    def on_child_changed(self, child: ContextNode, trace: Trace | None = None) -> None:
+        """Handle child change: track version, generate trace, propagate."""
         old_version = self.last_child_versions.get(child.node_id, 0)
         new_version = child.version
 
         if new_version != old_version:
-            # Generate diff for this change
-            group_diff = Diff(
+            # Generate trace for this change
+            group_trace = Trace(
                 node_id=child.node_id,
                 old_version=old_version,
                 new_version=new_version,
                 description=f"{child.node_type} '{child.node_id}' changed",
-                content=diff.content if diff else None,
+                content=trace.content if trace else None,
             )
-            self.pending_diffs.append(group_diff)
+            self.pending_traces.append(group_trace)
             self.summary_stale = True
             self.last_child_versions[child.node_id] = new_version
 
         # Call hook if registered
         if self._on_child_changed_hook:
-            self._on_child_changed_hook(self, child, diff)
+            self._on_child_changed_hook(self, child, trace)
 
         # Propagate upward
-        self.notify_parents(diff)
+        self.notify_parents(trace)
 
     def invalidate_summary(self) -> None:
         """Mark summary as needing regeneration."""
@@ -598,7 +600,7 @@ class TopicNode(ContextNode):
 
     Attributes:
         title: Short title for the topic
-        message_indices: Indices into session._conversation
+        message_indices: Indices into session._message_history
         status: "active", "resolved", or "deferred"
     """
 
@@ -741,13 +743,13 @@ class ArtifactNode(ContextNode):
         old_content = self.content
         self.content = content
 
-        diff = Diff(
+        trace = Trace(
             node_id=self.node_id,
             old_version=self.version,
             new_version=self.version + 1,
             description=f"Content updated ({len(old_content)} → {len(content)} chars)",
         )
-        self._mark_changed(diff)
+        self._mark_changed(trace)
         return self
 
     def to_dict(self) -> dict[str, Any]:
@@ -940,14 +942,14 @@ class ShellNode(ContextNode):
         else:
             self.shell_status = ShellStatus.FAILED
 
-        diff = Diff(
+        trace = Trace(
             node_id=self.node_id,
             old_version=self.version,
             new_version=self.version + 1,
             description=f"Shell '{self.command}' {self.shell_status.value} (exit={exit_code})",
             content=output[:500] if output else None,
         )
-        self._mark_changed(diff)
+        self._mark_changed(trace)
         return self
 
     def set_timeout(self, output: str, duration_ms: float) -> ShellNode:
@@ -957,25 +959,25 @@ class ShellNode(ContextNode):
         self.duration_ms = duration_ms
         self.exit_code = -1
 
-        diff = Diff(
+        trace = Trace(
             node_id=self.node_id,
             old_version=self.version,
             new_version=self.version + 1,
             description=f"Shell '{self.command}' timed out after {duration_ms:.0f}ms",
         )
-        self._mark_changed(diff)
+        self._mark_changed(trace)
         return self
 
     def set_cancelled(self) -> ShellNode:
         """Mark as cancelled by user."""
         self.shell_status = ShellStatus.CANCELLED
-        diff = Diff(
+        trace = Trace(
             node_id=self.node_id,
             old_version=self.version,
             new_version=self.version + 1,
             description=f"Shell '{self.command}' cancelled",
         )
-        self._mark_changed(diff)
+        self._mark_changed(trace)
         return self
 
     def to_dict(self) -> dict[str, Any]:
@@ -1129,13 +1131,13 @@ class LockNode(ContextNode):
         self.acquired_at = time.time()
         self.holder_pid = pid
 
-        diff = Diff(
+        trace = Trace(
             node_id=self.node_id,
             old_version=self.version,
             new_version=self.version + 1,
             description=f"Lock '{self.lockfile}' acquired by PID {pid}",
         )
-        self._mark_changed(diff)
+        self._mark_changed(trace)
         return self
 
     def set_timeout(self) -> LockNode:
@@ -1143,26 +1145,26 @@ class LockNode(ContextNode):
         self.lock_status = LockStatus.TIMEOUT
         self.error_message = f"Timed out after {self.timeout}s"
 
-        diff = Diff(
+        trace = Trace(
             node_id=self.node_id,
             old_version=self.version,
             new_version=self.version + 1,
             description=f"Lock '{self.lockfile}' timed out",
         )
-        self._mark_changed(diff)
+        self._mark_changed(trace)
         return self
 
     def set_released(self) -> LockNode:
         """Mark lock as released."""
         self.lock_status = LockStatus.RELEASED
 
-        diff = Diff(
+        trace = Trace(
             node_id=self.node_id,
             old_version=self.version,
             new_version=self.version + 1,
             description=f"Lock '{self.lockfile}' released",
         )
-        self._mark_changed(diff)
+        self._mark_changed(trace)
         return self
 
     def set_error(self, message: str) -> LockNode:
@@ -1170,13 +1172,13 @@ class LockNode(ContextNode):
         self.lock_status = LockStatus.ERROR
         self.error_message = message
 
-        diff = Diff(
+        trace = Trace(
             node_id=self.node_id,
             old_version=self.version,
             new_version=self.version + 1,
             description=f"Lock '{self.lockfile}' error: {message}",
         )
-        self._mark_changed(diff)
+        self._mark_changed(trace)
         return self
 
     def to_dict(self) -> dict[str, Any]:
@@ -1658,13 +1660,13 @@ class MessageNode(ContextNode):
         old_len = len(self.content)
         self.content = content
 
-        diff = Diff(
+        trace = Trace(
             node_id=self.node_id,
             old_version=self.version,
             new_version=self.version + 1,
             description=f"Message content updated ({old_len} → {len(content)} chars)",
         )
-        self._mark_changed(diff)
+        self._mark_changed(trace)
         return self
 
     def to_dict(self) -> dict[str, Any]:
@@ -1804,13 +1806,13 @@ class WorkNode(ContextNode):
         old_count = len(self.conflicts)
         self.conflicts = conflicts
         if len(conflicts) != old_count:
-            diff = Diff(
+            trace = Trace(
                 node_id=self.node_id,
                 old_version=self.version,
                 new_version=self.version + 1,
                 description=f"Work conflicts: {old_count} → {len(conflicts)}",
             )
-            self._mark_changed(diff)
+            self._mark_changed(trace)
         return self
 
     def to_dict(self) -> dict[str, Any]:
@@ -2060,6 +2062,215 @@ class MCPServerNode(ContextNode):
             tools=data.get("tools", []),
             resources=data.get("resources", []),
             prompts=data.get("prompts", []),
+        )
+        return node
+
+
+@dataclass
+class MCPManagerNode(ContextNode):
+    """Singleton manager that tracks all MCP server connections.
+
+    This node aggregates state from all MCPServerNode children and tracks
+    connection state changes, tool changes, and resource changes as traces.
+
+    The manager is created automatically and has a fixed node_id="mcp_manager".
+    Multiple observer nodes can reference it via the context graph.
+
+    Attributes:
+        server_states: Dict mapping server name to last known status
+        tool_counts: Dict mapping server name to tool count
+        resource_counts: Dict mapping server name to resource count
+        connection_events: Recent connection state changes (for rendering)
+
+    Rendering states:
+        - HIDDEN: Not shown in projection
+        - COLLAPSED: "MCP Manager: X servers (Y connected)"
+        - SUMMARY: Server status list
+        - DETAILS: Server status + tool/resource counts
+        - ALL: Full details + recent connection events
+    """
+
+    # Track last known state for diff generation
+    server_states: dict[str, str] = field(default_factory=dict)  # name -> status
+    tool_counts: dict[str, int] = field(default_factory=dict)  # name -> count
+    resource_counts: dict[str, int] = field(default_factory=dict)
+
+    # Recent events for rendering
+    connection_events: list[dict[str, Any]] = field(default_factory=list)
+    max_events: int = 10
+
+    @property
+    def node_type(self) -> str:
+        return "mcp_manager"
+
+    def GetDigest(self) -> dict[str, Any]:
+        """Return metadata digest for this node."""
+        total = len(self.server_states)
+        connected = sum(1 for s in self.server_states.values() if s == "connected")
+        return {
+            "id": self.node_id,
+            "type": self.node_type,
+            "total_servers": total,
+            "connected_servers": connected,
+            "server_states": dict(self.server_states),
+        }
+
+    def Render(self, tokens: int | None = None, cwd: str = ".") -> str:
+        """Render manager state based on node state."""
+        if self.state == NodeState.HIDDEN:
+            return ""
+
+        total = len(self.server_states)
+        connected = sum(1 for s in self.server_states.values() if s == "connected")
+
+        if self.state == NodeState.COLLAPSED:
+            return f"[MCP Manager: {total} servers ({connected} connected)]"
+
+        lines = ["## MCP Manager", ""]
+
+        # SUMMARY: Status list
+        if self.server_states:
+            lines.append("### Server Status")
+            for name, status in sorted(self.server_states.items()):
+                emoji = {
+                    "connected": "[OK]",
+                    "connecting": "[...]",
+                    "error": "[ERR]",
+                    "disconnected": "[--]",
+                }.get(status, "[?]")
+                lines.append(f"- {name} {emoji}")
+        else:
+            lines.append("No MCP servers configured.")
+
+        if self.state in (NodeState.DETAILS, NodeState.ALL):
+            # Add tool/resource counts
+            if self.tool_counts:
+                lines.append("")
+                lines.append("### Capabilities")
+                for name in sorted(self.server_states.keys()):
+                    tools = self.tool_counts.get(name, 0)
+                    resources = self.resource_counts.get(name, 0)
+                    lines.append(f"- {name}: {tools} tools, {resources} resources")
+
+        if self.state == NodeState.ALL and self.connection_events:
+            # Add recent events
+            lines.append("")
+            lines.append("### Recent Events")
+            for event in self.connection_events[-5:]:
+                lines.append(f"- {event.get('time', '?')}: {event.get('message', '?')}")
+
+        return "\n".join(lines)
+
+    def on_child_changed(
+        self, child: "ContextNode", trace: "Trace | None" = None
+    ) -> None:
+        """Handle MCPServerNode changes - track state transitions and generate traces."""
+        if not isinstance(child, MCPServerNode):
+            return
+
+        name = child.server_name
+        old_status = self.server_states.get(name)
+        new_status = child.status
+
+        # Track state change
+        if old_status != new_status:
+            self.server_states[name] = new_status
+
+            # Generate trace for status change
+            event_trace = Trace(
+                node_id=child.node_id,
+                old_version=child.version - 1,
+                new_version=child.version,
+                description=f"MCP '{name}': {old_status or 'new'} -> {new_status}",
+            )
+            self.pending_traces.append(event_trace)
+
+            # Record event
+            import time as time_module
+
+            self.connection_events.append(
+                {
+                    "time": time_module.strftime("%H:%M:%S"),
+                    "server": name,
+                    "message": f"{name}: {old_status or 'new'} -> {new_status}",
+                }
+            )
+            if len(self.connection_events) > self.max_events:
+                self.connection_events.pop(0)
+
+        # Track tool/resource count changes
+        old_tools = self.tool_counts.get(name, 0)
+        new_tools = len(child.tools)
+        if old_tools != new_tools:
+            self.tool_counts[name] = new_tools
+            tool_trace = Trace(
+                node_id=child.node_id,
+                old_version=child.version - 1,
+                new_version=child.version,
+                description=f"MCP '{name}' tools: {old_tools} -> {new_tools}",
+            )
+            self.pending_traces.append(tool_trace)
+
+        old_resources = self.resource_counts.get(name, 0)
+        new_resources = len(child.resources)
+        if old_resources != new_resources:
+            self.resource_counts[name] = new_resources
+
+        self._mark_changed()
+        self.notify_parents(trace)
+
+    def register_server(self, server_node: "MCPServerNode") -> None:
+        """Register a server node as a child of this manager."""
+        self.server_states[server_node.server_name] = server_node.status
+        self.tool_counts[server_node.server_name] = len(server_node.tools)
+        self.resource_counts[server_node.server_name] = len(server_node.resources)
+
+    def unregister_server(self, server_name: str) -> None:
+        """Remove a server from tracking."""
+        self.server_states.pop(server_name, None)
+        self.tool_counts.pop(server_name, None)
+        self.resource_counts.pop(server_name, None)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize for persistence."""
+        d = super().to_dict()
+        d.update(
+            {
+                "server_states": dict(self.server_states),
+                "tool_counts": dict(self.tool_counts),
+                "resource_counts": dict(self.resource_counts),
+                "connection_events": list(self.connection_events),
+                "max_events": self.max_events,
+            }
+        )
+        return d
+
+    @classmethod
+    def _from_dict(cls, d: dict[str, Any]) -> "MCPManagerNode":
+        """Deserialize from dict."""
+        # Parse tick_frequency if present
+        tick_freq = None
+        if d.get("tick_frequency"):
+            tick_freq = TickFrequency.from_dict(d["tick_frequency"])
+
+        node = cls(
+            node_id=d.get("node_id", "mcp_manager"),
+            parent_ids=set(d.get("parent_ids", [])),
+            children_ids=set(d.get("children_ids", [])),
+            tokens=d.get("tokens", 300),
+            state=NodeState(d.get("state", "summary")),
+            mode=d.get("mode", "paused"),
+            tick_frequency=tick_freq,
+            version=d.get("version", 0),
+            created_at=d.get("created_at", 0.0),
+            updated_at=d.get("updated_at", 0.0),
+            pending_traces=[],
+            tags=d.get("tags", {}),
+            server_states=d.get("server_states", {}),
+            tool_counts=d.get("tool_counts", {}),
+            resource_counts=d.get("resource_counts", {}),
+            connection_events=d.get("connection_events", []),
+            max_events=d.get("max_events", 10),
         )
         return node
 

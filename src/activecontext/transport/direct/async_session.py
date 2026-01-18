@@ -120,9 +120,9 @@ class AsyncSession:
         """
         return self._session.get_projection()
 
-    def clear_conversation(self) -> None:
-        """Clear the conversation history."""
-        self._session.clear_conversation()
+    def clear_message_history(self) -> None:
+        """Clear the message history."""
+        self._session.clear_message_history()
 
     def on_update(self, callback: Callable[[SessionUpdate], None]) -> Callable[[], None]:
         """Register a callback for all updates.
