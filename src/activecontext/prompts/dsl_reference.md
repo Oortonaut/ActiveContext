@@ -1,6 +1,48 @@
 # DSL Reference
 
-Functions available in the ActiveContext Timeline namespace.
+Functions and syntax available in the ActiveContext Timeline namespace.
+
+## Code Execution
+
+Execute statements in `python/acrepl` fenced code blocks:
+
+~~~markdown
+```python/acrepl
+v = view("src/main.py", tokens=2000)
+v.SetState(NodeState.SUMMARY)
+```
+~~~
+
+Regular `python` blocks show examples without execution. Only `python/acrepl` blocks run in the REPL.
+
+## Enums and Constants
+
+### NodeState
+
+Controls rendering detail level for context nodes.
+
+```python
+from activecontext import NodeState
+
+NodeState.HIDDEN     # Not shown in projection (but still ticked if running)
+NodeState.COLLAPSED  # Title and metadata only (~50 tokens)
+NodeState.SUMMARY    # LLM-generated summary
+NodeState.DETAILS    # Full view with child settings
+NodeState.ALL        # Everything including full traces
+```
+
+### TickFrequency
+
+Controls when running nodes update their content.
+
+```python
+from activecontext import TickFrequency
+
+TickFrequency.turn()        # Update every turn
+TickFrequency.period(5.0)   # Update every 5 seconds
+TickFrequency.async_()      # Async execution
+TickFrequency.never()       # No automatic updates
+```
 
 ## Context Node Constructors
 
@@ -35,6 +77,37 @@ Create an artifact (code snippet, output, error).
 ```python
 a = artifact("def foo(): pass", artifact_type="code", language="python")
 a = artifact(error_text, artifact_type="error")
+```
+
+## Node Methods
+
+All context nodes support chainable configuration methods.
+
+### Common Methods
+
+```python
+node.SetState(NodeState.SUMMARY)   # Change rendering state
+node.SetTokens(500)                # Change token budget
+node.Run(TickFrequency.turn())     # Start running with frequency
+node.Pause()                       # Stop automatic updates
+node.Refresh()                     # Force immediate update
+```
+
+### ViewNode Methods
+
+```python
+v.SetPos("50:0")      # Jump to line 50
+v.SetEndPos("100:0")  # Set end of region
+v.Scroll(10)          # Scroll down 10 lines
+v.Scroll(-5)          # Scroll up 5 lines
+```
+
+### Method Chaining
+
+Methods return `self` for chaining:
+
+```python
+v = view("src/main.py").SetTokens(2000).SetState(NodeState.ALL).Run(TickFrequency.turn())
 ```
 
 ## DAG Manipulation
@@ -243,3 +316,66 @@ Set the session title.
 ```python
 set_title("Auth Module Refactor")
 ```
+
+## XML Syntax Alternative
+
+You can use XML-style tags instead of Python syntax. Tags are converted to Python before execution.
+
+### Object Creation
+
+```xml
+<!-- name becomes the variable name -->
+<view name="v" path="src/main.py" tokens="3000" state="all"/>
+<group name="g" tokens="500" state="summary">
+    <member ref="v"/>
+</group>
+<topic name="t" title="Feature X" tokens="1000"/>
+<artifact name="a" content="def foo(): pass" artifact_type="code" language="python"/>
+```
+
+### Method Calls
+
+```xml
+<!-- self refers to the variable to call the method on -->
+<SetState self="v" s="collapsed"/>
+<SetTokens self="v" n="500"/>
+<SetPos self="v" pos="50:0"/>
+<Scroll self="v" delta="10"/>
+<Run self="v" freq="turn"/>
+<Pause self="v"/>
+<Refresh self="v"/>
+```
+
+### Shell Execution
+
+```xml
+<shell command="pytest" args="tests/,-v" timeout="60"/>
+<shell command="git" args="status,--short"/>
+```
+
+### DAG Manipulation
+
+```xml
+<link child="v" parent="g"/>
+<unlink child="v" parent="g"/>
+<checkpoint name="before_refactor"/>
+<restore name="before_refactor"/>
+```
+
+### Utility Functions
+
+```xml
+<ls/>
+<show self="v"/>
+<done message="Task complete"/>
+<wait nodes="s1,s2"/>
+```
+
+### MCP Operations
+
+```xml
+<mcp_connect name="filesystem"/>
+<mcp_disconnect name="filesystem"/>
+```
+
+Use whichever syntax you prefer - Python or XML. They are functionally equivalent.
