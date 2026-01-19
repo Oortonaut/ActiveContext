@@ -893,6 +893,11 @@ class ActiveContextAgent:
         try:
             response_text = ""
             async for update in session.prompt(content):
+                # Check if cancelled - break out early
+                if session_id in self._closed_sessions:
+                    log.info("Prompt cancelled for session %s", session_id)
+                    break
+
                 if self._conn:
                     await self._emit_update(session_id, update)
 
@@ -914,7 +919,12 @@ class ActiveContextAgent:
                 acp.update_agent_message_text(f"\n\nError: {e}"),
             )
 
-        # Auto-save session after each prompt
+        # Check if session was cancelled - return cancelled stop reason per ACP spec
+        if session_id in self._closed_sessions:
+            log.info("Returning cancelled for session %s", session_id)
+            return acp.PromptResponse(stop_reason="cancelled")
+
+        # Auto-save session after each prompt (skip for cancelled sessions)
         try:
             session.save()
             log.debug("Auto-saved session %s", session_id)
