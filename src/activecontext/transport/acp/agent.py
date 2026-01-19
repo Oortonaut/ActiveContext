@@ -884,16 +884,7 @@ class ActiveContextAgent:
                     )
                 # Check if shutdown was requested (by /exit command)
                 if self._shutdown_requested:
-                    log.info("Shutdown requested, sending cancel notification")
-                    # Try sending session/cancel notification to client
-                    if self._conn:
-                        try:
-                            cancel = acp.CancelNotification(sessionId=session_id)
-                            # Access underlying connection to send notification
-                            await self._conn._conn.send_notification("session/cancel", cancel)
-                            log.info("Sent session/cancel notification")
-                        except Exception as e:
-                            log.warning("Failed to send cancel: %s", e)
+                    log.info("Shutdown requested, exiting")
                     os._exit(0)
                 return acp.PromptResponse(stop_reason="end_turn")
 
@@ -1054,7 +1045,7 @@ class ActiveContextAgent:
             
             # Set shutdown flag - checked by prompt() to raise after response
             self._shutdown_requested = True
-            return True, "Goodbye!"
+            return True, ""
 
         elif command == "/help":
             return True, (
