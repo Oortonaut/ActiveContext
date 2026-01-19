@@ -394,15 +394,13 @@ class ViewNode(ContextNode):
         end_idx = end_line if end_line else len(lines)
         selected_lines = lines[start_idx:end_idx]
 
-        # COLLAPSED: only show metadata
+        # COLLAPSED: only show header
         if self.state == NodeState.COLLAPSED:
-            line_count = len(selected_lines)
-            trace_count = len(self.pending_traces)
-            return f"[{self.path}: {line_count} lines, {trace_count} pending traces]\n"
+            return self.render_header(cwd=cwd)
 
         # Build output with line numbers (for SUMMARY, DETAILS, ALL)
         output_parts: list[str] = []
-        output_parts.append(f"=== {self.path} (lines {start_line}-{start_idx + len(selected_lines)}) ===\n")
+        output_parts.append(self.render_header(cwd=cwd))
 
         chars_used = len(output_parts[0])
         lines_included = 0
@@ -529,12 +527,14 @@ class GroupNode(ContextNode):
     """Summary facade over child nodes.
 
     Attributes:
+        child_order: Ordered list of child node IDs (document order)
         summary_prompt: Custom prompt for LLM summarization
         cached_summary: Cached LLM-generated summary
         summary_stale: Whether summary needs regeneration
         last_child_versions: Version tracking for trace detection
     """
 
+    child_order: list[str] = field(default_factory=list)  # Ordered children
     summary_prompt: str | None = None
     cached_summary: str | None = None
     summary_stale: bool = True
@@ -549,6 +549,7 @@ class GroupNode(ContextNode):
             "id": self.node_id,
             "type": self.node_type,
             "member_count": len(self.children_ids),
+            "child_order": self.child_order,
             "tokens": self.tokens,
             "state": self.state.value,
             "mode": self.mode,
@@ -557,19 +558,23 @@ class GroupNode(ContextNode):
         }
 
     def Render(self, tokens: int | None = None, cwd: str = ".") -> str:
-        """Render group based on rendering state."""
+        """Render group based on rendering state.
+
+        Uses child_order for deterministic document ordering.
+        """
         # HIDDEN: don't render anything
         if self.state == NodeState.HIDDEN:
             return ""
 
-        if not self.children_ids:
+        # Use child_order for ordering (child_order is authoritative)
+        ordered_children = self.child_order if self.child_order else list(self.children_ids)
+
+        if not ordered_children:
             return "[Empty group]"
 
-        # COLLAPSED: only show metadata
+        # COLLAPSED: only show header
         if self.state == NodeState.COLLAPSED:
-            member_count = len(self.children_ids)
-            trace_count = len(self.pending_traces)
-            return f"[Group: {member_count} members, {trace_count} traces]\n"
+            return self.render_header(cwd=cwd)
 
         effective_tokens = tokens or self.tokens
 
@@ -579,11 +584,11 @@ class GroupNode(ContextNode):
                 return self.cached_summary
 
             # Summary is stale or missing, fall back to rendering children
-            parts: list[str] = [f"=== Group ({len(self.children_ids)} members) [summary stale] ===\n"]
+            parts: list[str] = [self.render_header(cwd=cwd)]
 
-            if self._graph:
-                per_child_tokens = effective_tokens // len(self.children_ids)
-                for child_id in self.children_ids:
+            if self._graph and ordered_children:
+                per_child_tokens = effective_tokens // len(ordered_children)
+                for child_id in ordered_children:
                     child = self._graph.get_node(child_id)
                     if child:
                         child_content = child.Render(tokens=per_child_tokens, cwd=cwd)
@@ -593,11 +598,11 @@ class GroupNode(ContextNode):
             return "".join(parts)
 
         # DETAILS or ALL: render children with their own settings
-        detail_parts: list[str] = [f"=== Group ({len(self.children_ids)} members) ===\n"]
+        detail_parts: list[str] = [self.render_header(cwd=cwd)]
 
-        if self._graph:
-            per_child_tokens = effective_tokens // len(self.children_ids)
-            for child_id in self.children_ids:
+        if self._graph and ordered_children:
+            per_child_tokens = effective_tokens // len(ordered_children)
+            for child_id in ordered_children:
                 child = self._graph.get_node(child_id)
                 if child:
                     child_content = child.Render(tokens=per_child_tokens, cwd=cwd)
@@ -650,8 +655,11 @@ class GroupNode(ContextNode):
         from .headers import TokenInfo
         from activecontext.core.tokens import count_tokens
 
+        # Use child_order for iteration
+        ordered_children = self.child_order if self.child_order else list(self.children_ids)
+
         # Collapsed: member count line
-        collapsed_text = f"[Group: {len(self.children_ids)} members]\n"
+        collapsed_text = f"[Group: {len(ordered_children)} members]\n"
         collapsed_tokens = count_tokens(collapsed_text)
 
         # Summary: cached summary if present
@@ -662,7 +670,7 @@ class GroupNode(ContextNode):
         # Detail: children total (recursive)
         child_total = 0
         if self._graph:
-            for child_id in self.children_ids:
+            for child_id in ordered_children:
                 child = self._graph.get_node(child_id)
                 if child:
                     child_info = child.get_token_breakdown(cwd)
@@ -679,6 +687,7 @@ class GroupNode(ContextNode):
         """Serialize GroupNode to dict."""
         data = super().to_dict()
         data.update({
+            "child_order": self.child_order,
             "summary_prompt": self.summary_prompt,
             "cached_summary": self.cached_summary,
             "summary_stale": self.summary_stale,
@@ -706,6 +715,7 @@ class GroupNode(ContextNode):
             updated_at=data.get("updated_at", time.time()),
             tags=data.get("tags", {}),
             display_sequence=data.get("display_sequence"),
+            child_order=data.get("child_order", []),
             summary_prompt=data.get("summary_prompt"),
             cached_summary=data.get("cached_summary"),
             summary_stale=data.get("summary_stale", True),
@@ -747,7 +757,7 @@ class TopicNode(ContextNode):
 
     def Render(self, tokens: int | None = None, cwd: str = ".") -> str:
         """Render topic header and children."""
-        parts: list[str] = [f"=== Topic: {self.title} ({self.status}) ===\n"]
+        parts: list[str] = [self.render_header(cwd=cwd)]
 
         if self.message_indices:
             parts.append(f"Messages: {self.message_indices[0]}-{self.message_indices[-1]}\n")
@@ -867,10 +877,7 @@ class ArtifactNode(ContextNode):
         char_budget = effective_tokens * 4
 
         # Header
-        header = f"[{self.artifact_type.upper()}"
-        if self.language:
-            header += f": {self.language}"
-        header += "]\n"
+        header = self.render_header(cwd=cwd)
 
         # Truncate content if needed
         content = self.content
@@ -1035,20 +1042,11 @@ class ShellNode(ContextNode):
         effective_tokens = tokens or self.tokens
         char_budget = effective_tokens * 4
 
-        # Build header based on status
-        status_str = self.shell_status.value.upper()
-        if self.shell_status == ShellStatus.RUNNING:
-            elapsed = time.time() - (self.started_at_exec or self.created_at)
-            status_str = f"RUNNING {elapsed:.1f}s"
-        elif self.is_complete:
-            status_str = f"{self.shell_status.value.upper()} exit={self.exit_code}"
-
-        header = f"=== Shell: {self.full_command} [{status_str}] ===\n"
+        header = self.render_header(cwd=cwd)
 
         # COLLAPSED: only show header
         if self.state == NodeState.COLLAPSED:
-            line_count = self.output.count("\n") if self.output else 0
-            return f"[Shell: {self.full_command} - {status_str}, {line_count} lines]\n"
+            return header
 
         # SUMMARY: show header + truncated output
         if self.state == NodeState.SUMMARY:
@@ -1280,19 +1278,11 @@ class LockNode(ContextNode):
         if self.state == NodeState.HIDDEN:
             return ""
 
-        status_str = self.lock_status.value.upper()
-        if self.lock_status == LockStatus.PENDING:
-            elapsed = time.time() - self.created_at
-            status_str = f"PENDING {elapsed:.1f}s"
-        elif self.lock_status == LockStatus.ACQUIRED and self.acquired_at:
-            held_for = time.time() - self.acquired_at
-            status_str = f"ACQUIRED {held_for:.1f}s"
+        header = self.render_header(cwd=cwd)
 
-        # COLLAPSED: minimal info
+        # COLLAPSED: only show header
         if self.state == NodeState.COLLAPSED:
-            return f"[Lock: {self.lockfile} - {status_str}]\n"
-
-        header = f"=== Lock: {self.lockfile} [{status_str}] ===\n"
+            return header
 
         # SUMMARY: show header + basic info
         if self.state == NodeState.SUMMARY:
@@ -1519,11 +1509,13 @@ class SessionNode(ContextNode):
         if self.state == NodeState.HIDDEN:
             return ""
 
-        # COLLAPSED: minimal info
-        if self.state == NodeState.COLLAPSED:
-            return f"[Session: turn {self.turn_count}, {self.total_tokens_consumed:,} tokens]\n"
+        header = self.render_header(cwd=cwd)
 
-        parts: list[str] = ["=== Session Context ===\n"]
+        # COLLAPSED: only show header
+        if self.state == NodeState.COLLAPSED:
+            return header
+
+        parts: list[str] = [header]
 
         # Turn and timing info
         if self.turn_durations_ms:
@@ -1845,9 +1837,9 @@ class MessageNode(ContextNode):
         effective_tokens = tokens or self.tokens
         char_budget = effective_tokens * 4
 
-        # COLLAPSED: metadata only
+        # COLLAPSED: only show header
         if self.state == NodeState.COLLAPSED:
-            return f"[{self.role.upper()}: {len(self.content)} chars]\n"
+            return self.render_header(cwd=cwd)
 
         # Format content based on message type
         if self.role == "tool_call":
@@ -2017,12 +2009,13 @@ class WorkNode(ContextNode):
         if self.state == NodeState.HIDDEN:
             return ""
 
-        # COLLAPSED: minimal info
-        if self.state == NodeState.COLLAPSED:
-            conflict_info = f", {len(self.conflicts)} conflicts" if self.conflicts else ""
-            return f"[Work: {self.intent[:40]}... ({len(self.files)} files{conflict_info})]\n"
+        header = self.render_header(cwd=cwd)
 
-        parts: list[str] = [f"=== Work: {self.intent} [{self.work_status}] ===\n"]
+        # COLLAPSED: only show header
+        if self.state == NodeState.COLLAPSED:
+            return header
+
+        parts: list[str] = [header]
         parts.append(f"Agent: {self.agent_id}\n")
 
         # Show files being worked on
@@ -2195,18 +2188,13 @@ class MCPServerNode(ContextNode):
         if self.state == NodeState.HIDDEN:
             return ""
 
-        status_indicator = {
-            "connected": "[OK]",
-            "connecting": "[...]",
-            "disconnected": "[-]",
-            "error": "[ERR]",
-        }.get(self.status, "[?]")
+        header = self.render_header(cwd=cwd)
 
-        # COLLAPSED: just status line
+        # COLLAPSED: only show header
         if self.state == NodeState.COLLAPSED:
-            return f"MCP: {self.server_name} {status_indicator} ({len(self.tools)} tools)\n"
+            return header
 
-        parts: list[str] = [f"## MCP Server: {self.server_name} {status_indicator}\n\n"]
+        parts: list[str] = [header]
 
         if self.status == "error" and self.error_message:
             parts.append(f"Error: {self.error_message}\n\n")
@@ -2431,13 +2419,12 @@ class MCPManagerNode(ContextNode):
         if self.state == NodeState.HIDDEN:
             return ""
 
-        total = len(self.server_states)
-        connected = sum(1 for s in self.server_states.values() if s == "connected")
+        header = self.render_header(cwd=cwd)
 
         if self.state == NodeState.COLLAPSED:
-            return f"[MCP Manager: {total} servers ({connected} connected)]"
+            return header
 
-        lines = ["## MCP Manager", ""]
+        lines = [header.rstrip()]
 
         # SUMMARY: Status list
         if self.server_states:
@@ -2727,21 +2714,15 @@ class MarkdownNode(ContextNode):
         if self.state == NodeState.HIDDEN:
             return ""
 
-        heading_prefix = "#" * self.level if self.level > 0 else ""
-        heading_line = f"{heading_prefix} {self.heading}".strip() if self.heading else ""
-        content_tokens = self._estimate_tokens(self.content)
+        header = self.render_header(cwd=cwd)
 
-        # COLLAPSED: just heading with token count
+        # COLLAPSED: only show header
         if self.state == NodeState.COLLAPSED:
-            if heading_line:
-                return f"{heading_line} ({content_tokens} tokens)\n"
-            return f"[Document: {content_tokens} tokens]\n"
+            return header
 
-        # SUMMARY: heading + first paragraph
+        # SUMMARY: header + first paragraph
         if self.state == NodeState.SUMMARY:
-            parts: list[str] = []
-            if heading_line:
-                parts.append(heading_line + "\n\n")
+            parts: list[str] = [header]
             summary = self._get_summary()
             if summary:
                 parts.append(summary + "\n")
@@ -2749,9 +2730,7 @@ class MarkdownNode(ContextNode):
 
         # DETAILS: full content, children replaced with collapsed placeholders
         if self.state == NodeState.DETAILS:
-            parts = []
-            if heading_line:
-                parts.append(heading_line + "\n\n")
+            parts = [header]
             if self.content:
                 parts.append(self.content)
                 if not self.content.endswith("\n"):
@@ -2771,9 +2750,7 @@ class MarkdownNode(ContextNode):
 
         # ALL: full content, children render according to their own states
         effective_tokens = tokens or self.tokens
-        parts = []
-        if heading_line:
-            parts.append(heading_line + "\n\n")
+        parts = [header]
         if self.content:
             parts.append(self.content)
             if not self.content.endswith("\n"):
@@ -3066,9 +3043,7 @@ class AgentNode(ContextNode):
         if self.state == NodeState.HIDDEN:
             return ""
 
-        # Header with relation
-        relation_label = self.relation.title()
-        header = f"[{relation_label} Agent: {self.agent_id}]\n"
+        header = self.render_header(cwd=cwd)
 
         # COLLAPSED: just header
         if self.state == NodeState.COLLAPSED:

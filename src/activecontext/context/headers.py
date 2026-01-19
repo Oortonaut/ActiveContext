@@ -123,9 +123,10 @@ def render_header(
         Formatted header string with appropriate heading level
 
     Examples:
-        COLLAPSED: "#### [view.1] main.py:1-50 (tokens: 18/340)\n"
-        SUMMARY:   "### [view.1] main.py:1-50 (tokens: 18+74/340)\n"
-        ALL:       "### [view.1] main.py:1-50 (tokens: 18+74+340)\n"
+        COLLAPSED: "### [view.1] main.py:1-50 (tokens: 18/340)\n"
+        SUMMARY:   "## [view.1] main.py:1-50 (tokens: 18+74/340)\n"
+        DETAILS:   "# [view.1] main.py:1-50 (tokens: 18+74+340)\n"
+        ALL:       "# [view.1] main.py:1-50 (tokens: 18+74+340)\n"
     """
     from .state import NodeState
 
@@ -135,8 +136,12 @@ def render_header(
     token_str = format_token_info(token_info, state)
 
     if state == NodeState.COLLAPSED:
-        # Level 4 heading for collapsed nodes
-        return f"#### [{display_id}] {name} {token_str}\n"
+        # Level 3 heading for collapsed nodes
+        return f"### [{display_id}] {name} {token_str}\n"
 
-    # Level 3 heading for SUMMARY, DETAILS, ALL
-    return f"### [{display_id}] {name} {token_str}\n"
+    if state == NodeState.SUMMARY:
+        # Level 2 heading for summary
+        return f"## [{display_id}] {name} {token_str}\n"
+
+    # Level 1 heading for DETAILS, ALL
+    return f"# [{display_id}] {name} {token_str}\n"

@@ -340,8 +340,8 @@ class TestWorkNode:
             files=[{"path": "src/main.py", "mode": "write"}],
         )
         rendered = node.Render()
-        assert "[Work:" in rendered
-        assert "1 files" in rendered
+        assert "Work:" in rendered  # Display name in new header format
+        assert "(tokens:" in rendered  # New token breakdown format
 
     def test_render_details(self) -> None:
         node = WorkNode(
@@ -355,7 +355,8 @@ class TestWorkNode:
             ],
         )
         rendered = node.Render()
-        assert "=== Work: Test work [active] ===" in rendered
+        assert "Work: Test work [active]" in rendered  # New header format
+        assert "(tokens:" in rendered  # Token breakdown
         assert "Agent: abc12345" in rendered
         assert "[W] src/main.py" in rendered
         assert "[R] src/util.py" in rendered

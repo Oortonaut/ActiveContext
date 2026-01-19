@@ -50,6 +50,7 @@ def create_mock_context_node(
     node.mode = mode
     node.parent_ids = parent_ids or set()
     node.children_ids = children_ids or set()
+    node.child_order = []  # Document ordering for GroupNode
     node._graph = None
 
     # Add GetDigest method

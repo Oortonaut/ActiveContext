@@ -336,7 +336,7 @@ class TestMarkdownRendering:
 
         # Child Node should be collapsed (not showing its content)
         assert "Child Node" in result
-        assert "tokens)" in result  # Collapsed format
+        assert "(tokens:" in result  # Collapsed format with token breakdown
         # Child's full content should NOT appear
         assert "This text belongs to the child" not in result
 

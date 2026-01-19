@@ -105,35 +105,34 @@ class Session:
         self._title = title or generate_default_title()
         self._created_at = created_at or datetime.now()
 
-        # Create SessionNode for agent situational awareness
-        self._session_node = SessionNode(
-            node_id="session",  # Fixed ID for easy lookup
-            tokens=500,
-            mode="running",
-            tick_frequency=TickFrequency.turn(),
-            session_start_time=self._created_at.timestamp(),
-        )
-        self._timeline.context_graph.add_node(self._session_node)
-
-        # Create MCPManagerNode singleton for tracking MCP server connections
-        self._mcp_manager_node = MCPManagerNode(
-            node_id="mcp_manager",  # Fixed ID for singleton
-            tokens=300,
-            state=NodeState.SUMMARY,
-            mode="running",
-            tick_frequency=TickFrequency.turn(),
-        )
-        self._timeline.context_graph.add_node(self._mcp_manager_node)
-
-        # Add system prompt as fully expanded MarkdownNode
-        self._add_system_prompt_node()
-
         # Track timing for turn statistics
         self._turn_start_time: float | None = None
 
         # Context stack for structural containment
         # When non-empty, new nodes are added as children of stack.top
         self._context_stack: list[str] = []
+
+        # Create root Context node for document-ordered rendering
+        # All other nodes become children of this root
+        self._root_context = GroupNode(
+            node_id="context",
+            state=NodeState.ALL,
+            mode="running",
+            tick_frequency=TickFrequency.turn(),
+        )
+        self._timeline.context_graph.add_node(self._root_context)
+        self._timeline.context_graph.set_root("context")
+        self._context_stack.append("context")  # All nodes go inside root
+        self._timeline.set_current_group("context")
+
+        # Add system prompt first (document order: prompts before metadata)
+        self._add_system_prompt_node()
+
+        # SessionNode and MCPManagerNode are created in _create_metadata_nodes()
+        # Called after context guide to maintain document order:
+        # System Prompt -> Guide -> Session -> MCP -> Messages
+        self._session_node: SessionNode | None = None
+        self._mcp_manager_node: MCPManagerNode | None = None
 
         # Register set_title callback with timeline
         self._timeline.set_title_callback(self.set_title)
@@ -143,6 +142,7 @@ class Session:
 
         The system prompt is parsed into a MarkdownNode tree and added
         to the context graph with state=ALL so it renders fully expanded.
+        Links to root context for document ordering.
         """
         from activecontext.prompts import FULL_SYSTEM_PROMPT
 
@@ -156,6 +156,37 @@ class Session:
         # Add all nodes to context graph
         for node in all_nodes:
             self._timeline.context_graph.add_node(node)
+
+        # Link root markdown node to root context for document ordering
+        self._timeline.context_graph.link(root.node_id, "context")
+
+    def _create_metadata_nodes(self) -> None:
+        """Create SessionNode and MCPManagerNode.
+
+        Called after context guide is loaded to maintain document order:
+        System Prompt -> Guide -> Session -> MCP -> Messages
+        """
+        # Create SessionNode for agent situational awareness
+        self._session_node = SessionNode(
+            node_id="session",
+            tokens=500,
+            mode="running",
+            tick_frequency=TickFrequency.turn(),
+            session_start_time=self._created_at.timestamp(),
+        )
+        self._timeline.context_graph.add_node(self._session_node)
+        self._timeline.context_graph.link("session", "context")
+
+        # Create MCPManagerNode singleton for tracking MCP server connections
+        self._mcp_manager_node = MCPManagerNode(
+            node_id="mcp_manager",
+            tokens=300,
+            state=NodeState.SUMMARY,
+            mode="running",
+            tick_frequency=TickFrequency.turn(),
+        )
+        self._timeline.context_graph.add_node(self._mcp_manager_node)
+        self._timeline.context_graph.link("mcp_manager", "context")
 
     @property
     def session_id(self) -> str:
@@ -609,11 +640,12 @@ class Session:
             action_desc = None
             if code_blocks:
                 action_desc = f"Executed {len(code_blocks)} code block(s)"
-            self._session_node.record_turn(
-                tokens_used=tokens_used,
-                duration_ms=turn_duration_ms,
-                action_description=action_desc,
-            )
+            if self._session_node:
+                self._session_node.record_turn(
+                    tokens_used=tokens_used,
+                    duration_ms=turn_duration_ms,
+                    action_description=action_desc,
+                )
 
             # Check if agent called done()
             if self._timeline.is_done():
@@ -857,13 +889,16 @@ class Session:
         if not startup_config.skip_default_context:
             await self._load_context_guide()
 
+        # Create metadata nodes after guide (document order: prompt, guide, session, mcp)
+        self._create_metadata_nodes()
+
         # Auto-connect to configured MCP servers
         await self._setup_mcp_autoconnect()
 
 
 
     async def _load_context_guide(self) -> None:
-        """Load the context guide view if it exists.
+        """Load the context guide as a MarkdownNode if it exists.
 
         Checks for CONTEXT_GUIDE.md in cwd, then prompts directory.
         """
@@ -884,7 +919,7 @@ class Session:
 
                 # Use forward slashes for cross-platform compatibility
                 safe_path = rel_path.replace("\\", "/")
-                source = f'guide = view("{safe_path}", tokens=1500)'
+                source = f'guide = markdown("{safe_path}", tokens=1500, state=NodeState.ALL)'
                 await self._timeline.execute_statement(source)
                 break
 

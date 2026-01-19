@@ -161,8 +161,8 @@ class TestMessageNodeRender:
             state=NodeState.COLLAPSED,
         )
         rendered = node.Render()
-        assert "USER" in rendered
-        assert "13 chars" in rendered
+        assert "User" in rendered  # Title case in new header format
+        assert "(tokens:" in rendered  # New token breakdown format
 
     def test_render_tool_call(self) -> None:
         """Test rendering a tool call message."""

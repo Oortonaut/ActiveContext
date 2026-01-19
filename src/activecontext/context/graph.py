@@ -42,6 +42,9 @@ class ContextGraph:
     # Per-type sequence counters for display IDs (e.g., view.1, message.13)
     _type_counters: dict[str, int] = field(default_factory=lambda: defaultdict(int))
 
+    # Root context node ID for document-ordered rendering
+    _root_context_id: str | None = field(default=None)
+
     def add_node(self, node: ContextNode) -> str:
         """Add a node to the graph.
 
@@ -110,6 +113,8 @@ class ContextGraph:
     def link(self, child_id: str, parent_id: str) -> bool:
         """Link a child node to a parent node.
 
+        Also maintains child_order for ordered rendering if parent has it.
+
         Args:
             child_id: ID of child node
             parent_id: ID of parent node
@@ -131,6 +136,10 @@ class ContextGraph:
         child.parent_ids.add(parent_id)
         parent.children_ids.add(child_id)
 
+        # Maintain child_order for document ordering if parent has it
+        if hasattr(parent, "child_order") and child_id not in parent.child_order:
+            parent.child_order.append(child_id)
+
         # Child is no longer a root
         self._root_ids.discard(child_id)
 
@@ -138,6 +147,8 @@ class ContextGraph:
 
     def unlink(self, child_id: str, parent_id: str) -> bool:
         """Remove link between child and parent.
+
+        Also removes from child_order if parent has it.
 
         Args:
             child_id: ID of child node
@@ -155,6 +166,10 @@ class ContextGraph:
         # Remove link
         child.parent_ids.discard(parent_id)
         parent.children_ids.discard(child_id)
+
+        # Remove from child_order if parent has it
+        if hasattr(parent, "child_order") and child_id in parent.child_order:
+            parent.child_order.remove(child_id)
 
         # If child has no more parents, it becomes a root
         if not child.parent_ids:
@@ -224,6 +239,24 @@ class ContextGraph:
         """Get all root nodes (nodes with no parents)."""
         return [self._nodes[nid] for nid in self._root_ids if nid in self._nodes]
 
+    def get_root(self) -> ContextNode | None:
+        """Get the root context node for document-ordered rendering.
+
+        Returns:
+            The root context GroupNode, or None if not set.
+        """
+        if self._root_context_id and self._root_context_id in self._nodes:
+            return self._nodes[self._root_context_id]
+        return None
+
+    def set_root(self, node_id: str) -> None:
+        """Set the root context node ID.
+
+        Args:
+            node_id: ID of the GroupNode to use as root context.
+        """
+        self._root_context_id = node_id
+
     def get_running_nodes(self) -> list[ContextNode]:
         """Get all nodes with mode='running'."""
         return [self._nodes[nid] for nid in self._running_nodes if nid in self._nodes]
@@ -267,6 +300,7 @@ class ContextGraph:
             "root_ids": list(self._root_ids),
             "running_node_ids": list(self._running_nodes),
             "type_counters": dict(self._type_counters),
+            "root_context_id": self._root_context_id,
         }
 
     @classmethod
@@ -301,6 +335,9 @@ class ContextGraph:
         # Restore running_nodes
         graph._running_nodes = set(data.get("running_node_ids", []))
 
+        # Restore root context ID
+        graph._root_context_id = data.get("root_context_id")
+
         return graph
 
     def clear(self) -> None:
@@ -309,6 +346,7 @@ class ContextGraph:
         self._root_ids.clear()
         self._by_type.clear()
         self._running_nodes.clear()
+        self._root_context_id = None
 
     # -------------------------------------------------------------------------
     # Checkpointing

@@ -120,22 +120,21 @@ async def test_initial_context_and_projection() -> None:
         cwd = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         session = await ctx.create_session(cwd=cwd)
 
-        # Should have initial guide view
+        # Should have initial guide as markdown node
         ns = session.get_namespace()
-        assert "guide" in ns, "Initial guide view should be in namespace"
+        assert "guide" in ns, "Initial guide should be in namespace"
 
         guide = ns["guide"]
         digest = guide.GetDigest()
-        assert digest["type"] == "view"
+        assert digest["type"] == "markdown"
         assert "context_guide.md" in digest["path"]
 
         # Projection should render the guide content
         projection = session.get_projection()
         rendered = projection.render()
 
-        # Should contain file content from the guide
+        # Should contain markdown content from the guide
         assert "view" in rendered.lower() or "View" in rendered
-        assert "===" in rendered  # File header format
 
 
 @pytest.mark.asyncio
