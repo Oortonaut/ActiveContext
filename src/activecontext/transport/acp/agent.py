@@ -90,6 +90,7 @@ class ActiveContextAgent:
         self._flush_interval = 0.05  # 50ms
         self._flush_threshold = 100  # characters
         self._shutdown_requested = False  # Set by /exit command
+        self._closed_sessions: set[str] = set()  # Sessions that have been cancelled/closed
         self._load_batch_config()
 
         # ACP client info (populated during initialize handshake)
@@ -148,8 +149,8 @@ class ActiveContextAgent:
         text = self._chunk_buffers.pop(session_id, "")
         self._flush_tasks.pop(session_id, None)
 
-        if text and self._conn:
-            await self._conn.session_update(
+        if text:
+            await self._send_session_update(
                 session_id,
                 acp.update_agent_message_text(text),
             )
@@ -877,8 +878,8 @@ class ActiveContextAgent:
                 content.strip(), session_id
             )
             if handled:
-                if self._conn and response:
-                    await self._conn.session_update(
+                if response:
+                    await self._send_session_update(
                         session_id,
                         acp.update_agent_message_text(response),
                     )
@@ -907,12 +908,11 @@ class ActiveContextAgent:
             # Log the error but don't crash the agent
             log.error("Error in prompt: %s", e)
             log.error("%s", traceback.format_exc())
-            # Send error message to user
-            if self._conn:
-                await self._conn.session_update(
-                    session_id,
-                    acp.update_agent_message_text(f"\n\nError: {e}"),
-                )
+            # Send error message to user (if session still open)
+            await self._send_session_update(
+                session_id,
+                acp.update_agent_message_text(f"\n\nError: {e}"),
+            )
 
         # Auto-save session after each prompt
         try:
@@ -953,12 +953,23 @@ class ActiveContextAgent:
         return acp.schema.ResumeSessionResponse()
 
     async def cancel(self, session_id: str, **kwargs: Any) -> None:
-        """Cancel the current operation in a session."""
+        """Cancel the current operation in a session.
+        
+        This is called when Rider sends session/cancel, typically when
+        the user cancels or deletes a chat.
+        """
+        log.info("Session cancelled: %s", session_id)
+        
+        # Mark session as closed - we should not send any more messages to it
+        self._closed_sessions.add(session_id)
+        
         # Flush any pending chunks before canceling
         if session_id in self._chunk_buffers:
             if session_id in self._flush_tasks:
                 self._flush_tasks[session_id].cancel()
-            await self._flush_chunks(session_id)
+            # Don't flush to closed session - just discard
+            self._chunk_buffers.pop(session_id, None)
+            self._flush_tasks.pop(session_id, None)
 
         session = await self._manager.get_session(session_id)
         if session:
@@ -969,27 +980,8 @@ class ActiveContextAgent:
         method: str,
         params: dict[str, Any],
     ) -> dict[str, Any]:
-        """Handle extension methods.
-        
-        Log all extension methods to help diagnose IDE-specific behavior.
-        """
-        log.info("Received extension method: %s with params: %s", method, params)
-        
-        # Handle session/delete or session/close if Rider sends it
-        if method in ("session/delete", "session/close"):
-            session_id = params.get("sessionId") or params.get("session_id")
-            if session_id:
-                log.info("Handling %s for session %s", method, session_id)
-                try:
-                    await self._manager.close_session(session_id)
-                    self._sessions_cwd.pop(session_id, None)
-                    self._sessions_mode.pop(session_id, None)
-                    self._sessions_model.pop(session_id, None)
-                    self._cleanup_session_buffers(session_id)
-                except Exception as e:
-                    log.warning("Failed to close session: %s", e)
-            return {}
-        
+        """Handle extension methods."""
+        log.debug("Received extension method: %s", method)
         return {}
 
     async def ext_notification(
@@ -997,25 +989,8 @@ class ActiveContextAgent:
         method: str,
         params: dict[str, Any],
     ) -> None:
-        """Handle extension notifications.
-        
-        Log all extension notifications to help diagnose IDE-specific behavior.
-        """
-        log.info("Received extension notification: %s with params: %s", method, params)
-        
-        # Handle session/delete or session/close notifications
-        if method in ("session/delete", "session/close"):
-            session_id = params.get("sessionId") or params.get("session_id")
-            if session_id:
-                log.info("Handling %s notification for session %s", method, session_id)
-                try:
-                    await self._manager.close_session(session_id)
-                    self._sessions_cwd.pop(session_id, None)
-                    self._sessions_mode.pop(session_id, None)
-                    self._sessions_model.pop(session_id, None)
-                    self._cleanup_session_buffers(session_id)
-                except Exception as e:
-                    log.warning("Failed to close session: %s", e)
+        """Handle extension notifications."""
+        log.debug("Received extension notification: %s", method)
 
     async def _handle_slash_command(
         self, content: str, session_id: str
@@ -1190,11 +1165,14 @@ class ActiveContextAgent:
         # Unknown command - let it pass through to LLM
         return False, ""
 
+    async def _send_session_update(self, session_id: str, update: Any) -> None:
+        """Send a session update, checking if session is still open."""
+        if not self._conn or session_id in self._closed_sessions:
+            return
+        await self._conn.session_update(session_id, update)
+
     async def _emit_update(self, session_id: str, update: Any) -> None:
         """Convert and emit a SessionUpdate as an ACP notification."""
-        if not self._conn:
-            return
-
         # Priority flush: non-RESPONSE_CHUNK updates flush any pending chunks first
         if (
             self._batch_enabled
@@ -1211,7 +1189,7 @@ class ActiveContextAgent:
                 source = update.payload.get("source", "")
                 # Truncate long statements for display
                 display = source[:100] + "..." if len(source) > 100 else source
-                await self._conn.session_update(
+                await self._send_session_update(
                     session_id,
                     acp.update_agent_thought_text(f"Executing: {display}"),
                 )
@@ -1224,14 +1202,14 @@ class ActiveContextAgent:
                 # Emit result as thought
                 if status == "ok":
                     if stdout:
-                        await self._conn.session_update(
+                        await self._send_session_update(
                             session_id,
                             acp.update_agent_thought_text(f"Result: {stdout[:200]}"),
                         )
                 else:
                     # Show error in thought
                     err_msg = exception.get("message", "Unknown error") if exception else "Error"
-                    await self._conn.session_update(
+                    await self._send_session_update(
                         session_id,
                         acp.update_agent_thought_text(f"Error: {err_msg}"),
                     )
@@ -1242,7 +1220,7 @@ class ActiveContextAgent:
                     if self._batch_enabled:
                         await self._buffer_chunk(session_id, text)
                     else:
-                        await self._conn.session_update(
+                        await self._send_session_update(
                             session_id,
                             acp.update_agent_message_text(text),
                         )
@@ -1251,7 +1229,7 @@ class ActiveContextAgent:
                 # Could emit as agent thought
                 handles = update.payload.get("handles", {})
                 if handles:
-                    await self._conn.session_update(
+                    await self._send_session_update(
                         session_id,
                         acp.update_agent_thought_text(
                             f"Context: {len(handles)} handles"
