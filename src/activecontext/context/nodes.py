@@ -2038,7 +2038,7 @@ class MCPServerNode(ContextNode):
         return data
 
     @classmethod
-    def _from_dict(cls, data: dict[str, Any]) -> "MCPServerNode":
+    def _from_dict(cls, data: dict[str, Any]) -> MCPServerNode:
         """Deserialize MCPServerNode from dict."""
         tick_freq = None
         if data.get("tick_frequency"):
@@ -2142,15 +2142,14 @@ class MCPManagerNode(ContextNode):
         else:
             lines.append("No MCP servers configured.")
 
-        if self.state in (NodeState.DETAILS, NodeState.ALL):
+        if self.state in (NodeState.DETAILS, NodeState.ALL) and self.tool_counts:
             # Add tool/resource counts
-            if self.tool_counts:
-                lines.append("")
-                lines.append("### Capabilities")
-                for name in sorted(self.server_states.keys()):
-                    tools = self.tool_counts.get(name, 0)
-                    resources = self.resource_counts.get(name, 0)
-                    lines.append(f"- {name}: {tools} tools, {resources} resources")
+            lines.append("")
+            lines.append("### Capabilities")
+            for name in sorted(self.server_states.keys()):
+                tools = self.tool_counts.get(name, 0)
+                resources = self.resource_counts.get(name, 0)
+                lines.append(f"- {name}: {tools} tools, {resources} resources")
 
         if self.state == NodeState.ALL and self.connection_events:
             # Add recent events
@@ -2162,7 +2161,7 @@ class MCPManagerNode(ContextNode):
         return "\n".join(lines)
 
     def on_child_changed(
-        self, child: "ContextNode", trace: "Trace | None" = None
+        self, child: ContextNode, trace: Trace | None = None
     ) -> None:
         """Handle MCPServerNode changes - track state transitions and generate traces."""
         if not isinstance(child, MCPServerNode):
@@ -2219,7 +2218,7 @@ class MCPManagerNode(ContextNode):
         self._mark_changed()
         self.notify_parents(trace)
 
-    def register_server(self, server_node: "MCPServerNode") -> None:
+    def register_server(self, server_node: MCPServerNode) -> None:
         """Register a server node as a child of this manager."""
         self.server_states[server_node.server_name] = server_node.status
         self.tool_counts[server_node.server_name] = len(server_node.tools)
@@ -2246,7 +2245,7 @@ class MCPManagerNode(ContextNode):
         return d
 
     @classmethod
-    def _from_dict(cls, d: dict[str, Any]) -> "MCPManagerNode":
+    def _from_dict(cls, d: dict[str, Any]) -> MCPManagerNode:
         """Deserialize from dict."""
         # Parse tick_frequency if present
         tick_freq = None
@@ -2712,13 +2711,13 @@ class AgentNode(ContextNode):
 
         return "".join(parts)
 
-    def update_state(self, agent_state: str) -> "AgentNode":
+    def update_state(self, agent_state: str) -> AgentNode:
         """Update the agent's state."""
         self.agent_state = agent_state
         self._mark_changed()
         return self
 
-    def update_message_count(self, count: int) -> "AgentNode":
+    def update_message_count(self, count: int) -> AgentNode:
         """Update pending message count."""
         self.message_count = count
         self._mark_changed()
@@ -2739,7 +2738,7 @@ class AgentNode(ContextNode):
         return data
 
     @classmethod
-    def _from_dict(cls, data: dict[str, Any]) -> "AgentNode":
+    def _from_dict(cls, data: dict[str, Any]) -> AgentNode:
         """Deserialize AgentNode from dict."""
         tick_freq = None
         if data.get("tick_frequency"):
