@@ -7,7 +7,6 @@ Rider, Zed, and other ACP-supporting editors.
 from __future__ import annotations
 
 import asyncio
-import os
 import uuid
 from typing import TYPE_CHECKING, Any
 
@@ -90,7 +89,6 @@ class ActiveContextAgent:
         self._batch_enabled = True  # Can be disabled via config
         self._flush_interval = 0.05  # 50ms
         self._flush_threshold = 100  # characters
-        self._shutdown_requested = False  # Set by /exit command
         self._closed_sessions: set[str] = set()  # Sessions that have been cancelled/closed
         self._active_prompts: dict[str, asyncio.Task[Any]] = {}  # session_id -> prompt task
         self._load_batch_config()
@@ -627,18 +625,14 @@ class ActiveContextAgent:
             # Track current cwd for list_sessions
             self._current_cwd = cwd
 
-            # Create permission requester callbacks bound to this agent
-            permission_requester = self._request_file_permission
-            shell_permission_requester = self._request_shell_permission
-            website_permission_requester = self._request_website_permission
-            import_permission_requester = self._request_import_permission
-
+            # Permission requesters disabled - they can cause hangs if Rider
+            # doesn't respond to the permission request
             session = await self._manager.create_session(
                 cwd=cwd,
-                permission_requester=permission_requester,
-                shell_permission_requester=shell_permission_requester,
-                website_permission_requester=website_permission_requester,
-                import_permission_requester=import_permission_requester,
+                permission_requester=None,
+                shell_permission_requester=None,
+                website_permission_requester=None,
+                import_permission_requester=None,
             )
 
             # Now create ACP terminal executor with the actual session_id
@@ -948,10 +942,6 @@ class ActiveContextAgent:
                         session_id,
                         acp.update_agent_message_text(response),
                     )
-                # Check if shutdown was requested (by /exit command)
-                if self._shutdown_requested:
-                    log.info("Shutdown requested, exiting")
-                    os._exit(0)
                 return acp.PromptResponse(stop_reason="end_turn")
 
         # Process prompt and stream updates
@@ -1160,32 +1150,9 @@ class ActiveContextAgent:
         command = parts[0].lower()
         # args = parts[1] if len(parts) > 1 else ""
 
-        if command == "/exit":
-            log.info("/exit command received, shutting down")
-            # Flush any pending chunks before closing (with timeout)
-            try:
-                await asyncio.wait_for(self._flush_chunks(session_id), timeout=1.0)
-            except asyncio.TimeoutError:
-                log.warning("/exit: flush timed out")
-            except Exception as e:
-                log.warning("/exit: flush error: %s", e)
-
-            # Clean shutdown - close all sessions
-            for sid in list(self._sessions_cwd.keys()):
-                try:
-                    await self._manager.close_session(sid)
-                    self._cleanup_closed_session(sid)
-                except Exception as e:
-                    log.warning("/exit: failed to close session %s: %s", sid, e)
-
-            # Set shutdown flag - checked by prompt() to raise after response
-            self._shutdown_requested = True
-            return True, ""
-
-        elif command == "/help":
+        if command == "/help":
             return True, (
                 "Available commands:\n"
-                "  /exit      - Shutdown the agent\n"
                 "  /help      - Show this help\n"
                 "  /clear     - Clear conversation history\n"
                 "  /context   - Show current context objects\n"
