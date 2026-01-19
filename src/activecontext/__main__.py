@@ -50,10 +50,66 @@ def _setup_parent_death_monitor() -> None:
     """Exit when parent process dies.
 
     This prevents orphan processes when the IDE crashes or is killed.
+    On Windows with venvs, the python.exe is a launcher that spawns the real
+    Python interpreter. When the launcher dies, we need to detect this and exit.
     """
-    # Parent process monitoring disabled - relying on stdio handle monitoring instead.
-    # The connection will close naturally when stdin/stdout are closed.
-    pass
+    import sys
+    import threading
+
+    if sys.platform != "win32":
+        # On Unix, we could use prctl(PR_SET_PDEATHSIG) but it's complex
+        # Rely on stdio handle monitoring instead
+        return
+
+    parent_pid = os.getppid()
+    log.debug("Parent PID: %d, monitoring for exit", parent_pid)
+
+    def monitor_parent() -> None:
+        """Background thread that exits when parent dies."""
+        import time
+
+        try:
+            import ctypes
+            kernel32 = ctypes.windll.kernel32
+            SYNCHRONIZE = 0x00100000
+            INFINITE = 0xFFFFFFFF
+
+            # Open handle to parent process
+            handle = kernel32.OpenProcess(SYNCHRONIZE, False, parent_pid)
+            if not handle:
+                log.warning("Could not open parent process handle, falling back to polling")
+                # Fall back to polling
+                while True:
+                    time.sleep(1.0)
+                    if os.getppid() != parent_pid:
+                        log.info("Parent process changed, exiting")
+                        os._exit(0)
+                return
+
+            try:
+                # Wait for parent to exit
+                result = kernel32.WaitForSingleObject(handle, INFINITE)
+                log.info("Parent process exited (wait result=%d), terminating", result)
+                os._exit(0)
+            finally:
+                kernel32.CloseHandle(handle)
+
+        except Exception as e:
+            log.warning("Parent monitor error: %s, falling back to polling", e)
+            # Fall back to polling
+            while True:
+                time.sleep(1.0)
+                try:
+                    if os.getppid() != parent_pid:
+                        log.info("Parent process changed, exiting")
+                        os._exit(0)
+                except Exception:
+                    os._exit(0)
+
+    # Start monitor thread
+    thread = threading.Thread(target=monitor_parent, daemon=True)
+    thread.start()
+    log.debug("Parent death monitor started")
 
 
 async def _main() -> None:
