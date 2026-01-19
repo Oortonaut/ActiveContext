@@ -48,6 +48,7 @@ def _expand_env_vars() -> None:
 
 async def _main() -> None:
     """Async entry point with proper cleanup."""
+    import asyncio
     import json
 
     from acp.agent.connection import AgentSideConnection
@@ -67,8 +68,15 @@ async def _main() -> None:
             "(set ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY, or DEEPSEEK_API_KEY)"
         )
 
+    # Track last message time for idle timeout
+    import time
+    last_message_time = time.monotonic()
+    IDLE_TIMEOUT = 30.0  # Exit after 30 seconds of no messages
+
     def log_message(event: StreamEvent) -> None:
         """Log all ACP messages for debugging."""
+        nonlocal last_message_time
+        last_message_time = time.monotonic()
         direction = "<<" if event.direction == StreamDirection.INCOMING else ">>"
         method = event.message.get("method", "response")
         msg_id = event.message.get("id", "-")
@@ -122,17 +130,42 @@ async def _main() -> None:
 
     log.info("Ready to accept ACP requests")
 
-    try:
-        await conn.listen()
-    except (BrokenPipeError, ConnectionResetError, EOFError):
-        log.info("Pipe closed (EOF), exiting immediately")
-        os._exit(0)
-    except Exception as e:
-        log.info("Listen ended with: %s, exiting immediately", e)
-        os._exit(0)
+    # Run listen() with an idle timeout watchdog
+    async def watchdog() -> None:
+        """Exit if no messages received for IDLE_TIMEOUT seconds."""
+        while True:
+            await asyncio.sleep(5.0)  # Check every 5 seconds
+            idle_time = time.monotonic() - last_message_time
+            if idle_time > IDLE_TIMEOUT:
+                log.info("Watchdog: idle for %.1fs, exiting", idle_time)
+                os._exit(0)
 
-    # If listen() returned normally (EOF on stdin), exit immediately
-    log.info("Listen returned, exiting immediately")
+    # Start watchdog and listen concurrently
+    listen_task = asyncio.create_task(conn.listen())
+    watchdog_task = asyncio.create_task(watchdog())
+
+    try:
+        # Wait for either to complete
+        done, pending = await asyncio.wait(
+            [listen_task, watchdog_task],
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+
+        # Cancel pending tasks
+        for task in pending:
+            task.cancel()
+
+        # Check results
+        for task in done:
+            try:
+                task.result()
+            except Exception as e:
+                log.info("Task ended with: %s", e)
+
+    except Exception as e:
+        log.info("Wait ended with: %s, exiting", e)
+
+    log.info("Exiting immediately")
     os._exit(0)
 
 
