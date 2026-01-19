@@ -910,10 +910,16 @@ class ActiveContextAgent:
                     if stdout:
                         response_text += f"\n{stdout}"
         except Exception as e:
+            # Check if this exception is due to cancellation - per ACP spec,
+            # we must return cancelled stop reason, not propagate errors
+            if session_id in self._closed_sessions:
+                log.info("Exception during cancelled session %s: %s", session_id, e)
+                return acp.PromptResponse(stop_reason="cancelled")
+
             # Log the error but don't crash the agent
             log.error("Error in prompt: %s", e)
             log.error("%s", traceback.format_exc())
-            # Send error message to user (if session still open)
+            # Send error message to user
             await self._send_session_update(
                 session_id,
                 acp.update_agent_message_text(f"\n\nError: {e}"),
