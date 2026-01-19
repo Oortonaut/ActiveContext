@@ -39,6 +39,9 @@ class ContextGraph:
     _running_nodes: set[str] = field(default_factory=set)
     _checkpoints: dict[str, Checkpoint] = field(default_factory=dict)
 
+    # Per-type sequence counters for display IDs (e.g., view.1, message.13)
+    _type_counters: dict[str, int] = field(default_factory=lambda: defaultdict(int))
+
     def add_node(self, node: ContextNode) -> str:
         """Add a node to the graph.
 
@@ -50,6 +53,11 @@ class ContextGraph:
         """
         # Set graph reference on node
         node._graph = self
+
+        # Assign display sequence if not already set
+        if node.display_sequence is None:
+            self._type_counters[node.node_type] += 1
+            node.display_sequence = self._type_counters[node.node_type]
 
         # Store node
         self._nodes[node.node_id] = node
@@ -258,6 +266,7 @@ class ContextGraph:
             "nodes": [node.to_dict() for node in self._nodes.values()],
             "root_ids": list(self._root_ids),
             "running_node_ids": list(self._running_nodes),
+            "type_counters": dict(self._type_counters),
         }
 
     @classmethod
@@ -265,7 +274,7 @@ class ContextGraph:
         """Deserialize graph from dict.
 
         Args:
-            data: Dict with "nodes", "root_ids", "running_node_ids"
+            data: Dict with "nodes", "root_ids", "running_node_ids", "type_counters"
 
         Returns:
             Reconstructed ContextGraph
@@ -273,6 +282,9 @@ class ContextGraph:
         from activecontext.context.nodes import ContextNode
 
         graph = cls()
+
+        # Restore type counters first (before adding nodes)
+        graph._type_counters = defaultdict(int, data.get("type_counters", {}))
 
         # Deserialize nodes
         for node_data in data.get("nodes", []):

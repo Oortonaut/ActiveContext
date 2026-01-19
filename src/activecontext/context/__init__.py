@@ -11,6 +11,7 @@ Split architecture for multi-agent support:
 """
 
 from activecontext.context.checkpoint import Checkpoint, GroupState
+from activecontext.context.headers import TokenInfo, format_token_info, render_header
 from activecontext.context.content import (
     ContentData,
     ContentRegistry,
@@ -45,6 +46,10 @@ __all__ = [
     # Checkpoint
     "Checkpoint",
     "GroupState",
+    # Headers
+    "TokenInfo",
+    "format_token_info",
+    "render_header",
     # Graph
     "ContextGraph",
     # Content (split architecture)
