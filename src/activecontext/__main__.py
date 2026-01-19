@@ -46,6 +46,83 @@ def _expand_env_vars() -> None:
             log.debug("Expanded env var: %s", key)
 
 
+def _setup_stdin_eof_monitor() -> None:
+    """Exit when stdin is closed (EOF).
+
+    The ACP library's async listen() doesn't always detect stdin EOF promptly
+    on Windows. This monitor uses PeekNamedPipe in a background thread to
+    detect when the client closes the pipe without consuming data.
+    """
+    import sys
+    import threading
+    import time
+
+    if sys.platform != "win32":
+        # On Unix, the async library should handle EOF properly
+        # If not, we can add similar monitoring later
+        return
+
+    def monitor_stdin() -> None:
+        """Background thread that exits when stdin closes."""
+        try:
+            import ctypes
+            from ctypes import wintypes
+
+            kernel32 = ctypes.windll.kernel32
+
+            # Get the stdin handle
+            STD_INPUT_HANDLE = -10
+            stdin_handle = kernel32.GetStdHandle(STD_INPUT_HANDLE)
+
+            if stdin_handle == -1 or stdin_handle == 0:
+                log.warning("Could not get stdin handle for EOF monitor")
+                return
+
+            # PeekNamedPipe can check pipe status without consuming data
+            # Returns 0 if pipe is broken/closed
+            available = wintypes.DWORD()
+            left = wintypes.DWORD()
+
+            while True:
+                time.sleep(0.5)  # Check every 500ms
+
+                # PeekNamedPipe returns 0 if pipe is broken
+                result = kernel32.PeekNamedPipe(
+                    stdin_handle,
+                    None,  # Don't read data
+                    0,  # Buffer size 0
+                    None,  # Bytes read
+                    ctypes.byref(available),
+                    ctypes.byref(left),
+                )
+
+                if result == 0:
+                    # Pipe is broken or closed
+                    error = kernel32.GetLastError()
+                    log.info("Stdin pipe closed (error=%d), exiting", error)
+                    os._exit(0)
+
+        except Exception as e:
+            log.warning("Stdin monitor error: %s, falling back to handle check", e)
+            # Fallback: just check if handle is still valid
+            try:
+                stdin_fd = sys.stdin.fileno()
+                while True:
+                    time.sleep(1.0)
+                    try:
+                        # Try to get file handle info - fails if closed
+                        os.fstat(stdin_fd)
+                    except OSError:
+                        log.info("Stdin handle invalid, exiting")
+                        os._exit(0)
+            except Exception as e2:
+                log.warning("Stdin fallback monitor failed: %s", e2)
+
+    thread = threading.Thread(target=monitor_stdin, daemon=True)
+    thread.start()
+    log.debug("Stdin EOF monitor started")
+
+
 def _setup_parent_death_monitor() -> None:
     """Exit when parent process dies.
 
@@ -231,8 +308,9 @@ def main() -> None:
               model or "none",
               config.projection.total_budget or "default")
 
-    # Ensure we exit when parent dies
-    _setup_parent_death_monitor()
+    # Set up monitors to detect when we should exit
+    _setup_stdin_eof_monitor()  # Detect stdin pipe close
+    _setup_parent_death_monitor()  # Detect parent process death (Windows venv)
 
     try:
         asyncio.run(_main())
