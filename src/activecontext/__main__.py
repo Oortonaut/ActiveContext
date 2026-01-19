@@ -46,76 +46,8 @@ def _expand_env_vars() -> None:
             log.debug("Expanded env var: %s", key)
 
 
-
-def _setup_parent_death_monitor() -> None:
-    """Exit when parent process dies.
-
-    This prevents orphan processes when the IDE crashes or is killed.
-    On Windows with venvs, the python.exe is a launcher that spawns the real
-    Python interpreter. When the launcher dies, we need to detect this and exit.
-    """
-    import sys
-    import threading
-
-    if sys.platform != "win32":
-        # On Unix, we could use prctl(PR_SET_PDEATHSIG) but it's complex
-        # Rely on stdio handle monitoring instead
-        return
-
-    parent_pid = os.getppid()
-    log.debug("Parent PID: %d, monitoring for exit", parent_pid)
-
-    def monitor_parent() -> None:
-        """Background thread that exits when parent dies."""
-        import time
-
-        try:
-            import ctypes
-            kernel32 = ctypes.windll.kernel32
-            SYNCHRONIZE = 0x00100000
-            INFINITE = 0xFFFFFFFF
-
-            # Open handle to parent process
-            handle = kernel32.OpenProcess(SYNCHRONIZE, False, parent_pid)
-            if not handle:
-                log.warning("Could not open parent process handle, falling back to polling")
-                # Fall back to polling
-                while True:
-                    time.sleep(1.0)
-                    if os.getppid() != parent_pid:
-                        log.info("Parent process changed, exiting")
-                        os._exit(0)
-                return
-
-            try:
-                # Wait for parent to exit
-                result = kernel32.WaitForSingleObject(handle, INFINITE)
-                log.info("Parent process exited (wait result=%d), terminating", result)
-                os._exit(0)
-            finally:
-                kernel32.CloseHandle(handle)
-
-        except Exception as e:
-            log.warning("Parent monitor error: %s, falling back to polling", e)
-            # Fall back to polling
-            while True:
-                time.sleep(1.0)
-                try:
-                    if os.getppid() != parent_pid:
-                        log.info("Parent process changed, exiting")
-                        os._exit(0)
-                except Exception:
-                    os._exit(0)
-
-    # Start monitor thread
-    thread = threading.Thread(target=monitor_parent, daemon=True)
-    thread.start()
-    log.debug("Parent death monitor started")
-
-
 async def _main() -> None:
     """Async entry point with proper cleanup."""
-    import asyncio
     import json
 
     from acp.agent.connection import AgentSideConnection
@@ -192,17 +124,16 @@ async def _main() -> None:
 
     try:
         await conn.listen()
-    except (BrokenPipeError, ConnectionResetError):
-        log.info("Pipe closed, shutting down...")
-    finally:
-        # Ensure connection is properly closed with timeout
-        log.info("Connection closed, cleaning up...")
-        try:
-            await asyncio.wait_for(conn.close(), timeout=2.0)
-        except asyncio.TimeoutError:
-            log.warning("Connection close timed out, forcing exit")
-        except Exception as e:
-            log.warning("Error during cleanup: %s", e)
+    except (BrokenPipeError, ConnectionResetError, EOFError):
+        log.info("Pipe closed (EOF), exiting immediately")
+        os._exit(0)
+    except Exception as e:
+        log.info("Listen ended with: %s, exiting immediately", e)
+        os._exit(0)
+
+    # If listen() returned normally (EOF on stdin), exit immediately
+    log.info("Listen returned, exiting immediately")
+    os._exit(0)
 
 
 def main() -> None:
@@ -231,9 +162,6 @@ def main() -> None:
               config.llm.provider or "auto",
               model or "none",
               config.projection.total_budget or "default")
-
-    # Exit when parent process dies (Windows venv launcher issue)
-    _setup_parent_death_monitor()
 
     try:
         asyncio.run(_main())
