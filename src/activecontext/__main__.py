@@ -47,13 +47,8 @@ def _expand_env_vars() -> None:
 
 
 async def _main() -> None:
-    """Async entry point with proper cleanup."""
-    import asyncio
-    import json
-
-    from acp.agent.connection import AgentSideConnection
-    from acp.connection import StreamDirection, StreamEvent
-    from acp.stdio import stdio_streams
+    """Async entry point - use simple acp.run_agent() like the original."""
+    import acp
 
     from activecontext.transport.acp.agent import create_agent
 
@@ -68,105 +63,10 @@ async def _main() -> None:
             "(set ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY, or DEEPSEEK_API_KEY)"
         )
 
-    # Track last message time for idle timeout
-    import time
-    last_message_time = time.monotonic()
-    IDLE_TIMEOUT = 30.0  # Exit after 30 seconds of no messages
-
-    def log_message(event: StreamEvent) -> None:
-        """Log all ACP messages for debugging."""
-        nonlocal last_message_time
-        last_message_time = time.monotonic()
-        direction = "<<" if event.direction == StreamDirection.INCOMING else ">>"
-        method = event.message.get("method", "response")
-        msg_id = event.message.get("id", "-")
-        msg_str = json.dumps(event.message, default=str)
-        msg_len = len(msg_str)
-
-        if method == "response":
-            # Log response details including stop_reason for debugging
-            # Note: ACP uses camelCase "stopReason" in JSON
-            result = event.message.get("result", {})
-            stop_reason = (
-                result.get("stopReason", "unknown")
-                if isinstance(result, dict)
-                else "n/a"
-            )
-            error = event.message.get("error")
-            if error:
-                log.debug("%s response (id=%s) ERROR: %s", direction, msg_id, error)
-            else:
-                log.debug(
-                    "%s response (id=%s) stop_reason=%s len=%d",
-                    direction, msg_id, stop_reason, msg_len
-                )
-        elif method == "session/update":
-            # For session/update, show update type
-            params = event.message.get("params", {})
-            update = params.get("update", {})
-            update_type = update.get("sessionUpdate", "unknown")
-            log.debug(
-                "%s %s (id=%s) type=%s len=%d",
-                direction, method, msg_id, update_type, msg_len
-            )
-        else:
-            # For other messages, show truncated preview
-            preview = msg_str[:200] + "..." if len(msg_str) > 200 else msg_str
-            log.debug("%s %s (id=%s) %s", direction, method, msg_id, preview)
-
-    log.info("Setting up stdio connection...")
-    # Create connection manually so we can clean up properly
-    output_stream, input_stream = await stdio_streams()
-    conn = AgentSideConnection(
-        agent,
-        input_stream,
-        output_stream,
-        listening=False,
-        use_unstable_protocol=True,
-    )
-
-    # Add message observer for logging
-    conn._conn.add_observer(log_message)
-
     log.info("Ready to accept ACP requests")
 
-    # Run listen() with an idle timeout watchdog
-    async def watchdog() -> None:
-        """Exit if no messages received for IDLE_TIMEOUT seconds."""
-        while True:
-            await asyncio.sleep(5.0)  # Check every 5 seconds
-            idle_time = time.monotonic() - last_message_time
-            if idle_time > IDLE_TIMEOUT:
-                log.info("Watchdog: idle for %.1fs, exiting", idle_time)
-                os._exit(0)
-
-    # Start watchdog and listen concurrently
-    listen_task = asyncio.create_task(conn.listen())
-    watchdog_task = asyncio.create_task(watchdog())
-
-    try:
-        # Wait for either to complete
-        done, pending = await asyncio.wait(
-            [listen_task, watchdog_task],
-            return_when=asyncio.FIRST_COMPLETED,
-        )
-
-        # Cancel pending tasks
-        for task in pending:
-            task.cancel()
-
-        # Check results
-        for task in done:
-            try:
-                task.result()
-            except Exception as e:
-                log.info("Task ended with: %s", e)
-
-    except Exception as e:
-        log.info("Wait ended with: %s, exiting", e)
-
-    log.info("Exiting immediately")
-    os._exit(0)
+    # Use simple acp.run_agent() - this is what worked in the original
+    await acp.run_agent(agent, use_unstable_protocol=True)
 
 
 def main() -> None:
