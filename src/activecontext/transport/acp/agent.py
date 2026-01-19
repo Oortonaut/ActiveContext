@@ -86,11 +86,13 @@ class ActiveContextAgent:
         # Nagle-style batching for RESPONSE_CHUNK updates
         self._chunk_buffers: dict[str, str] = {}  # session_id -> accumulated text
         self._flush_tasks: dict[str, asyncio.Task[None]] = {}  # session_id -> flush task
+        self._chunk_lock = asyncio.Lock()  # Protects chunk buffer operations
         self._batch_enabled = True  # Can be disabled via config
         self._flush_interval = 0.05  # 50ms
         self._flush_threshold = 100  # characters
         self._shutdown_requested = False  # Set by /exit command
         self._closed_sessions: set[str] = set()  # Sessions that have been cancelled/closed
+        self._active_prompts: dict[str, asyncio.Task[Any]] = {}  # session_id -> prompt task
         self._load_batch_config()
 
         # ACP client info (populated during initialize handshake)
@@ -145,10 +147,21 @@ class ActiveContextAgent:
     # --- Nagle-style batching for RESPONSE_CHUNK ---
 
     async def _flush_chunks(self, session_id: str) -> None:
-        """Flush accumulated response chunks for a session."""
-        text = self._chunk_buffers.pop(session_id, "")
-        self._flush_tasks.pop(session_id, None)
+        """Flush accumulated response chunks for a session.
 
+        Thread-safe: uses _chunk_lock to prevent races with cancel().
+        """
+        async with self._chunk_lock:
+            # Check if session was closed while waiting for lock
+            if session_id in self._closed_sessions:
+                self._chunk_buffers.pop(session_id, None)
+                self._flush_tasks.pop(session_id, None)
+                return
+
+            text = self._chunk_buffers.pop(session_id, "")
+            self._flush_tasks.pop(session_id, None)
+
+        # Send outside the lock to avoid holding it during I/O
         if text:
             await self._send_session_update(
                 session_id,
@@ -156,34 +169,54 @@ class ActiveContextAgent:
             )
 
     async def _buffer_chunk(self, session_id: str, text: str) -> None:
-        """Buffer a response chunk, flushing if threshold reached."""
-        # Append to buffer
-        self._chunk_buffers[session_id] = self._chunk_buffers.get(session_id, "") + text
+        """Buffer a response chunk, flushing if threshold reached.
+
+        Thread-safe: uses _chunk_lock to prevent races with cancel().
+        """
+        async with self._chunk_lock:
+            # Check if session was closed - discard chunk
+            if session_id in self._closed_sessions:
+                return
+
+            # Append to buffer
+            self._chunk_buffers[session_id] = self._chunk_buffers.get(session_id, "") + text
+            buffer_len = len(self._chunk_buffers[session_id])
 
         # Check size threshold - flush immediately if exceeded
-        if len(self._chunk_buffers[session_id]) >= self._flush_threshold:
-            if session_id in self._flush_tasks:
-                self._flush_tasks[session_id].cancel()
+        if buffer_len >= self._flush_threshold:
+            async with self._chunk_lock:
+                if session_id in self._flush_tasks:
+                    self._flush_tasks[session_id].cancel()
+                    self._flush_tasks.pop(session_id, None)
             await self._flush_chunks(session_id)
             return
 
         # Schedule flush if not already scheduled
-        if session_id not in self._flush_tasks:
-            self._flush_tasks[session_id] = asyncio.create_task(
-                self._delayed_flush(session_id)
-            )
+        async with self._chunk_lock:
+            if session_id not in self._flush_tasks and session_id not in self._closed_sessions:
+                self._flush_tasks[session_id] = asyncio.create_task(
+                    self._delayed_flush(session_id)
+                )
 
     async def _delayed_flush(self, session_id: str) -> None:
         """Flush after delay (Nagle timer)."""
-        await asyncio.sleep(self._flush_interval)
-        await self._flush_chunks(session_id)
+        try:
+            await asyncio.sleep(self._flush_interval)
+            await self._flush_chunks(session_id)
+        except asyncio.CancelledError:
+            # Expected when session is cancelled or threshold flush happens
+            pass
 
-    def _cleanup_session_buffers(self, session_id: str) -> None:
-        """Clean up batching state for a closed session."""
-        self._chunk_buffers.pop(session_id, None)
-        task = self._flush_tasks.pop(session_id, None)
-        if task:
-            task.cancel()
+    async def _cleanup_session_buffers(self, session_id: str) -> None:
+        """Clean up batching state for a closed session.
+
+        Thread-safe: uses _chunk_lock to prevent races with buffer/flush.
+        """
+        async with self._chunk_lock:
+            self._chunk_buffers.pop(session_id, None)
+            task = self._flush_tasks.pop(session_id, None)
+            if task and not task.done():
+                task.cancel()
 
     # --- End batching ---
 
@@ -856,15 +889,47 @@ class ActiveContextAgent:
         2. Processes the prompt through the session
         3. Streams updates back via session_update
         4. Returns the final response
+
+        Per ACP spec, every prompt must have exactly one PromptResponse.
+        If cancelled, returns stop_reason="cancelled".
         """
-        import traceback
+        # Check if session was already cancelled before we start
+        if session_id in self._closed_sessions:
+            log.info("Prompt received for already-cancelled session %s", session_id)
+            return acp.PromptResponse(stop_reason="cancelled")
 
         session = await self._manager.get_session(session_id)
         if not session:
+            log.error("Session not found in manager: %s", session_id)
             raise acp.RequestError(
                 code=-32600,
                 message=f"Session not found: {session_id}",
             )
+
+        # Track this prompt as the active task for this session
+        # (allows cancel() to find and cancel it)
+        current_task = asyncio.current_task()
+        if current_task:
+            self._active_prompts[session_id] = current_task
+
+        try:
+            return await self._process_prompt(session, session_id, prompt)
+        except asyncio.CancelledError:
+            # Task was cancelled by cancel() - this is expected
+            log.info("Prompt task cancelled for session %s", session_id)
+            return acp.PromptResponse(stop_reason="cancelled")
+        finally:
+            # Clean up active prompt tracking
+            self._active_prompts.pop(session_id, None)
+
+    async def _process_prompt(
+        self,
+        session: Session,
+        session_id: str,
+        prompt: list[Any],
+    ) -> acp.PromptResponse:
+        """Internal prompt processing, separated for cleaner cancellation handling."""
+        import traceback
 
         # Extract text from prompt blocks
         content = ""
@@ -909,6 +974,9 @@ class ActiveContextAgent:
                     stdout = update.payload.get("stdout", "")
                     if stdout:
                         response_text += f"\n{stdout}"
+        except asyncio.CancelledError:
+            # Re-raise to be handled by prompt()
+            raise
         except Exception as e:
             # Check if this exception is due to cancellation - per ACP spec,
             # we must return cancelled stop reason, not propagate errors
@@ -970,26 +1038,98 @@ class ActiveContextAgent:
 
     async def cancel(self, session_id: str, **kwargs: Any) -> None:
         """Cancel the current operation in a session.
-        
+
         This is called when Rider sends session/cancel, typically when
         the user cancels or deletes a chat.
-        """
-        log.info("Session cancelled: %s", session_id)
-        
-        # Mark session as closed - we should not send any more messages to it
-        self._closed_sessions.add(session_id)
-        
-        # Flush any pending chunks before canceling
-        if session_id in self._chunk_buffers:
-            if session_id in self._flush_tasks:
-                self._flush_tasks[session_id].cancel()
-            # Don't flush to closed session - just discard
-            self._chunk_buffers.pop(session_id, None)
-            self._flush_tasks.pop(session_id, None)
 
+        Per ACP spec, if there's an active prompt, it must return with
+        stop_reason="cancelled". We track active prompts and cancel them.
+
+        IMPORTANT: This is a notification handler - it must complete quickly
+        and not block waiting for external resources.
+        """
+        log.info("Session cancel received: %s", session_id)
+
+        # Mark session as closed first - prevents new updates from being sent
+        self._closed_sessions.add(session_id)
+        log.debug("Cancel [%s]: marked as closed", session_id)
+
+        # Cancel any active prompt task for this session
+        prompt_task = self._active_prompts.get(session_id)
+        if prompt_task and not prompt_task.done():
+            log.info("Cancelling active prompt task for session %s", session_id)
+            prompt_task.cancel()
+            try:
+                # Wait briefly for task to acknowledge cancellation
+                # Use shield to prevent our wait from being cancelled
+                await asyncio.wait_for(asyncio.shield(prompt_task), timeout=1.0)
+                log.debug("Cancel [%s]: prompt task completed", session_id)
+            except asyncio.CancelledError:
+                log.debug("Cancel [%s]: prompt task acknowledged cancellation", session_id)
+            except asyncio.TimeoutError:
+                log.warning("Cancel [%s]: prompt task did not complete within 1s", session_id)
+            except Exception as e:
+                log.warning("Cancel [%s]: error waiting for prompt task: %s", session_id, e)
+        else:
+            log.debug("Cancel [%s]: no active prompt task", session_id)
+
+        # Clean up chunk buffers with timeout to avoid blocking
+        log.debug("Cancel [%s]: cleaning up chunk buffers", session_id)
+        try:
+            await asyncio.wait_for(self._cleanup_session_buffers(session_id), timeout=1.0)
+            log.debug("Cancel [%s]: chunk buffers cleaned", session_id)
+        except asyncio.TimeoutError:
+            log.warning("Cancel [%s]: chunk buffer cleanup timed out", session_id)
+            # Force cleanup without lock if timeout
+            self._chunk_buffers.pop(session_id, None)
+            task = self._flush_tasks.pop(session_id, None)
+            if task:
+                task.cancel()
+
+        # Cancel the session in the manager
+        log.debug("Cancel [%s]: getting session from manager", session_id)
         session = await self._manager.get_session(session_id)
         if session:
+            log.debug("Cancel [%s]: cancelling session in manager", session_id)
             await session.cancel()
+            log.debug("Cancel [%s]: session cancelled in manager", session_id)
+
+            # Check if cancellation propagated to the task
+            if session._current_task and not session._current_task.done():
+                log.warning(
+                    "Session %s: _current_task still running after cancel() - "
+                    "cancellation may not have propagated",
+                    session_id,
+                )
+        else:
+            log.warning("Session %s not found in manager during cancel", session_id)
+
+        # Clean up session tracking (only for sessions we created, not the main Rider session)
+        # This prevents unbounded growth of _closed_sessions for child agent sessions
+        self._cleanup_closed_session(session_id)
+        log.info("Cancel [%s]: completed", session_id)
+
+    def _cleanup_closed_session(self, session_id: str) -> None:
+        """Clean up tracking state for a fully closed session.
+
+        Called after cancel() completes to remove the session from tracking sets.
+        This is safe because:
+        1. The session is already marked as closed in _closed_sessions
+        2. Any prompt will return cancelled (checked at start of prompt())
+        3. Chunk buffers are cleaned up
+        """
+        # Clean up metadata tracking
+        self._sessions_cwd.pop(session_id, None)
+        self._sessions_model.pop(session_id, None)
+        self._sessions_mode.pop(session_id, None)
+
+        # Remove from closed sessions set to prevent unbounded growth
+        # This is safe because:
+        # - The session is cancelled in the manager
+        # - Any new prompt for this session will get "session not found" error
+        self._closed_sessions.discard(session_id)
+
+        log.debug("Cleaned up session tracking for %s", session_id)
 
     async def ext_method(
         self,
@@ -1022,18 +1162,22 @@ class ActiveContextAgent:
 
         if command == "/exit":
             log.info("/exit command received, shutting down")
-            # Flush any pending chunks before closing
-            if session_id in self._chunk_buffers:
-                if session_id in self._flush_tasks:
-                    self._flush_tasks[session_id].cancel()
-                await self._flush_chunks(session_id)
+            # Flush any pending chunks before closing (with timeout)
+            try:
+                await asyncio.wait_for(self._flush_chunks(session_id), timeout=1.0)
+            except asyncio.TimeoutError:
+                log.warning("/exit: flush timed out")
+            except Exception as e:
+                log.warning("/exit: flush error: %s", e)
+
             # Clean shutdown - close all sessions
             for sid in list(self._sessions_cwd.keys()):
                 try:
                     await self._manager.close_session(sid)
-                except Exception:
-                    pass
-            
+                    self._cleanup_closed_session(sid)
+                except Exception as e:
+                    log.warning("/exit: failed to close session %s: %s", sid, e)
+
             # Set shutdown flag - checked by prompt() to raise after response
             self._shutdown_requested = True
             return True, ""
