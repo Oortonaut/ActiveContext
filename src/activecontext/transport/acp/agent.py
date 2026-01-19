@@ -1027,10 +1027,13 @@ class ActiveContextAgent:
         return acp.schema.ResumeSessionResponse()
 
     async def cancel(self, session_id: str, **kwargs: Any) -> None:
-        """Cancel the current operation in a session.
+        """Cancel the current in-progress prompt in a session.
 
-        This is called when Rider sends session/cancel, typically when
-        the user cancels or deletes a chat.
+        This is called when Rider sends session/cancel to interrupt an
+        ongoing prompt (e.g., user clicks stop button during generation).
+
+        Note: session/cancel is ONLY for cancelling prompts, NOT for session
+        termination. Session teardown happens via process termination.
 
         Per ACP spec, if there's an active prompt, it must return with
         stop_reason="cancelled". We track active prompts and cancel them.
