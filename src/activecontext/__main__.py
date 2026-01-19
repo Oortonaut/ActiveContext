@@ -85,9 +85,26 @@ async def _main() -> None:
         msg_id = event.message.get("id", "-")
         msg_str = json.dumps(event.message, default=str)
         msg_len = len(msg_str)
-        
-        # For session/update, show more detail
-        if method == "session/update":
+
+        if method == "response":
+            # Log response details including stop_reason for debugging
+            # Note: ACP uses camelCase "stopReason" in JSON
+            result = event.message.get("result", {})
+            stop_reason = (
+                result.get("stopReason", "unknown")
+                if isinstance(result, dict)
+                else "n/a"
+            )
+            error = event.message.get("error")
+            if error:
+                log.debug("%s response (id=%s) ERROR: %s", direction, msg_id, error)
+            else:
+                log.debug(
+                    "%s response (id=%s) stop_reason=%s len=%d",
+                    direction, msg_id, stop_reason, msg_len
+                )
+        elif method == "session/update":
+            # For session/update, show update type
             params = event.message.get("params", {})
             update = params.get("update", {})
             update_type = update.get("sessionUpdate", "unknown")
@@ -96,7 +113,9 @@ async def _main() -> None:
                 direction, method, msg_id, update_type, msg_len
             )
         else:
-            log.debug("%s %s (id=%s) len=%d", direction, method, msg_id, msg_len)
+            # For other messages, show truncated preview
+            preview = msg_str[:200] + "..." if len(msg_str) > 200 else msg_str
+            log.debug("%s %s (id=%s) %s", direction, method, msg_id, preview)
 
     log.info("Setting up stdio connection...")
     # Create connection manually so we can clean up properly
