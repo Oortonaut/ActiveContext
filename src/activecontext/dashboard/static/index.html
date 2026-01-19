@@ -60,12 +60,6 @@
                             <span class="stat-label">Protocol:</span>
                             <span id="protocol-version" class="stat-value">-</span>
                         </div>
-                        <div class="capabilities-section">
-                            <h4>Capabilities <span id="caps-count" class="badge small">0</span></h4>
-                            <div id="capabilities-list" class="capabilities-list">
-                                <!-- Capabilities rendered dynamically -->
-                            </div>
-                        </div>
                     </div>
                     <div id="direct-info" class="direct-info hidden">
                         <p class="muted">Direct Python API - no ACP handshake</p>
@@ -88,6 +82,12 @@
                     <div class="stat-row">
                         <span class="stat-label">Working Dir:</span>
                         <span id="session-cwd" class="stat-value truncate">-</span>
+                    </div>
+                    <div class="capabilities-section hidden" id="features-caps-section">
+                        <h4>Client Capabilities <span id="features-caps-count" class="badge small">0</span></h4>
+                        <div id="features-capabilities-list" class="capabilities-list">
+                            <!-- Capabilities rendered dynamically -->
+                        </div>
                     </div>
                 </div>
             </section>
@@ -126,26 +126,8 @@
             <section class="card" id="context-card">
                 <h2>Context Objects <span id="context-count" class="badge">0</span></h2>
                 <div class="card-content">
-                    <div class="context-section">
-                        <h3>Views <span id="views-count" class="badge small">0</span></h3>
-                        <ul id="views-list" class="context-list"></ul>
-                    </div>
-                    <div class="context-section">
-                        <h3>Groups <span id="groups-count" class="badge small">0</span></h3>
-                        <ul id="groups-list" class="context-list"></ul>
-                    </div>
-                    <div class="context-section collapsed">
-                        <h3>Topics <span id="topics-count" class="badge small">0</span></h3>
-                        <ul id="topics-list" class="context-list"></ul>
-                    </div>
-                    <div class="context-section collapsed">
-                        <h3>Artifacts <span id="artifacts-count" class="badge small">0</span></h3>
-                        <ul id="artifacts-list" class="context-list"></ul>
-                    </div>
-                    <div class="context-section collapsed">
-                        <h3>Messages <span id="messages-count" class="badge small">0</span></h3>
-                        <ul id="messages-list" class="context-list"></ul>
-                    </div>
+                    <!-- Sections rendered dynamically by JS -->
+                    <div class="context-empty">No context objects</div>
                 </div>
             </section>
 

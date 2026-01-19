@@ -336,18 +336,15 @@ class DashboardClient {
             document.getElementById('client-name').textContent = displayName;
             document.getElementById('client-version').textContent = data.client.version;
             document.getElementById('protocol-version').textContent = `v${data.protocol_version || '?'}`;
-
-            // Render capabilities dynamically
-            this.renderCapabilities(data.client.capabilities);
         } else {
             acpInfo.classList.add('hidden');
             directInfo.classList.remove('hidden');
         }
     }
 
-    renderCapabilities(capabilities) {
-        const listEl = document.getElementById('capabilities-list');
-        const countEl = document.getElementById('caps-count');
+    renderCapabilitiesTo(capabilities, listId, countId) {
+        const listEl = document.getElementById(listId);
+        const countEl = countId ? document.getElementById(countId) : null;
         
         if (!listEl) return;
         listEl.innerHTML = '';
@@ -415,6 +412,19 @@ class DashboardClient {
             cwdEl.textContent = data.cwd || '-';
             cwdEl.title = data.cwd || '';  // Full path on hover
         }
+
+        // Render client capabilities in features card
+        const capsSection = document.getElementById('features-caps-section');
+        if (data.client && data.client.capabilities) {
+            if (capsSection) capsSection.classList.remove('hidden');
+            this.renderCapabilitiesTo(
+                data.client.capabilities,
+                'features-capabilities-list',
+                'features-caps-count'
+            );
+        } else if (capsSection) {
+            capsSection.classList.add('hidden');
+        }
     }
 
     renderSessionSelector(sessions) {
@@ -439,46 +449,70 @@ class DashboardClient {
 
     renderContext(data) {
         document.getElementById('context-count').textContent = data.total;
-        document.getElementById('views-count').textContent = data.views.length;
-        document.getElementById('groups-count').textContent = data.groups.length;
-        document.getElementById('topics-count').textContent = data.topics.length;
-        document.getElementById('artifacts-count').textContent = data.artifacts.length;
-
-        this.renderContextList('views-list', data.views, 'view');
-        this.renderContextList('groups-list', data.groups, 'group');
-        this.renderContextList('topics-list', data.topics, 'topic');
-        this.renderContextList('artifacts-list', data.artifacts, 'artifact');
-
-        // Render messages if element exists
-        const messagesCount = document.getElementById('messages-count');
-        if (messagesCount && data.messages) {
-            messagesCount.textContent = data.messages.length;
-            this.renderContextList('messages-list', data.messages, 'message');
+        
+        // Get the container for dynamic sections
+        const container = document.getElementById('context-card').querySelector('.card-content');
+        container.innerHTML = '';
+        
+        // Define display order (known types first, then alphabetical for others)
+        const knownOrder = ['view', 'group', 'markdown', 'topic', 'artifact', 'shell', 'mcp_manager', 'session', 'message'];
+        const nodesByType = data.nodes_by_type || {};
+        const types = Object.keys(nodesByType);
+        
+        // Sort: known types in order, then unknown types alphabetically
+        types.sort((a, b) => {
+            const aIdx = knownOrder.indexOf(a);
+            const bIdx = knownOrder.indexOf(b);
+            if (aIdx >= 0 && bIdx >= 0) return aIdx - bIdx;
+            if (aIdx >= 0) return -1;
+            if (bIdx >= 0) return 1;
+            return a.localeCompare(b);
+        });
+        
+        // Render each type dynamically
+        types.forEach(type => {
+            const items = nodesByType[type];
+            const section = document.createElement('div');
+            section.className = 'context-section';
+            
+            // Collapse less common types by default
+            const commonTypes = ['view', 'group', 'markdown'];
+            if (!commonTypes.includes(type)) {
+                section.classList.add('collapsed');
+            }
+            
+            const displayName = this.formatTypeName(type);
+            section.innerHTML = `
+                <h3>${displayName} <span class="badge small">${items.length}</span></h3>
+                <ul class="context-list"></ul>
+            `;
+            
+            const list = section.querySelector('ul');
+            this.renderContextListItems(list, items, type);
+            container.appendChild(section);
+        });
+        
+        // Show empty state if no nodes
+        if (types.length === 0) {
+            container.innerHTML = '<div class="context-empty">No context objects</div>';
         }
     }
+    
+    formatTypeName(type) {
+        // Convert snake_case to Title Case
+        return type.split('_').map(word => 
+            word.charAt(0).toUpperCase() + word.slice(1)
+        ).join(' ');
+    }
 
-    renderContextList(elementId, items, type) {
-        const list = document.getElementById(elementId);
-        if (!list) return;
-
+    renderContextListItems(list, items, type) {
         list.innerHTML = '';
 
         items.forEach(item => {
             const li = document.createElement('li');
 
-            let details = '';
-            if (type === 'view' && item.path) {
-                details = item.path;
-            } else if (type === 'group') {
-                const childCount = item.children_ids ? item.children_ids.length : 0;
-                details = `${childCount} children`;
-            } else if (type === 'topic') {
-                details = item.title || '';
-            } else if (type === 'artifact') {
-                details = item.artifact_type || '';
-            } else if (type === 'message') {
-                details = item.role || '';
-            }
+            // Get details based on type
+            let details = this.getNodeDetails(item, type);
 
             // Show parent indicator if node has parents
             const hasParent = item.parent_ids && item.parent_ids.length > 0;
@@ -492,6 +526,34 @@ class DashboardClient {
             `;
             list.appendChild(li);
         });
+    }
+    
+    getNodeDetails(item, type) {
+        // Type-specific detail extraction
+        switch (type) {
+            case 'view':
+                return item.path || '';
+            case 'group':
+                const childCount = item.children_ids ? item.children_ids.length : 0;
+                return `${childCount} children`;
+            case 'topic':
+                return item.title || '';
+            case 'artifact':
+                return item.artifact_type || '';
+            case 'message':
+                return item.role || '';
+            case 'markdown':
+                return item.path || item.title || '';
+            case 'shell':
+                return item.command || '';
+            case 'session':
+                return item.cwd || '';
+            case 'mcp_manager':
+                return `${item.server_count || 0} servers`;
+            default:
+                // Try common fields
+                return item.path || item.title || item.name || '';
+        }
     }
 
     renderTimeline(data) {

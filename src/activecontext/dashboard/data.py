@@ -49,24 +49,16 @@ def get_session_summary(
 
 
 def get_context_data(session: Session) -> dict[str, Any]:
-    """Get all context objects organized by type with hierarchy info."""
+    """Get all context objects organized by type with hierarchy info.
+    
+    Returns all node types dynamically - no filtering.
+    """
     try:
         graph = session.get_context_graph()
     except Exception:
-        return {
-            "views": [],
-            "groups": [],
-            "topics": [],
-            "artifacts": [],
-            "messages": [],
-            "total": 0,
-        }
+        return {"nodes_by_type": {}, "total": 0}
 
-    views: list[dict[str, Any]] = []
-    groups: list[dict[str, Any]] = []
-    topics: list[dict[str, Any]] = []
-    artifacts: list[dict[str, Any]] = []
-    messages: list[dict[str, Any]] = []
+    nodes_by_type: dict[str, list[dict[str, Any]]] = {}
     total = 0
 
     for node in graph:
@@ -77,31 +69,24 @@ def get_context_data(session: Session) -> dict[str, Any]:
                 obj_type = digest.get("type", "unknown")
 
                 # Add parent/children info for hierarchy visualization
-                digest["parent_ids"] = list(node.parent_ids) if hasattr(node, "parent_ids") else []
-                digest["children_ids"] = list(node.children_ids) if hasattr(node, "children_ids") else []
+                if hasattr(node, "parent_ids"):
+                    digest["parent_ids"] = list(node.parent_ids)
+                else:
+                    digest["parent_ids"] = []
+                if hasattr(node, "children_ids"):
+                    digest["children_ids"] = list(node.children_ids)
+                else:
+                    digest["children_ids"] = []
 
-                if obj_type == "view":
-                    views.append(digest)
-                elif obj_type == "group":
-                    groups.append(digest)
-                elif obj_type == "topic":
-                    topics.append(digest)
-                elif obj_type == "artifact":
-                    artifacts.append(digest)
-                elif obj_type == "message":
-                    messages.append(digest)
+                # Group by type dynamically
+                if obj_type not in nodes_by_type:
+                    nodes_by_type[obj_type] = []
+                nodes_by_type[obj_type].append(digest)
         except Exception:
             # Skip nodes that fail to serialize
             continue
 
-    return {
-        "views": views,
-        "groups": groups,
-        "topics": topics,
-        "artifacts": artifacts,
-        "messages": messages,
-        "total": total,
-    }
+    return {"nodes_by_type": nodes_by_type, "total": total}
 
 
 def get_timeline_data(session: Session) -> dict[str, Any]:
@@ -300,12 +285,30 @@ def get_session_features_data(
     model: str | None = None,
     mode: str | None = None,
 ) -> dict[str, Any]:
-    """Get session features including mode, model, and working directory."""
+    """Get session features including mode, model, working directory, and client capabilities."""
+    from activecontext.dashboard.server import (
+        get_client_info,
+        get_protocol_version,
+        get_transport_type,
+    )
+
+    # Get client/transport info
+    transport_type = get_transport_type()
+    client_info = get_client_info()
+    protocol_version = get_protocol_version()
+
     return {
         "model": model or (session.llm.model if session.llm else None),
         "mode": mode,
         "cwd": str(session.cwd),
         "title": getattr(session, "title", None),
+        # Transport and client info
+        "transport": {
+            "type": transport_type,
+            "is_acp": transport_type == "acp",
+        },
+        "protocol_version": protocol_version,
+        "client": client_info,
     }
 
 
