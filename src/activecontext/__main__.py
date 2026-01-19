@@ -10,9 +10,9 @@ This starts the ACP agent listening on stdin/stdout for JSON-RPC
 messages from an ACP client (Rider, Zed, etc.).
 """
 
+import contextlib
 import os
-import sys
-import threading
+from typing import Any
 
 from activecontext.logging import get_logger, setup_logging
 
@@ -61,6 +61,7 @@ def _setup_parent_death_monitor() -> None:
 async def _main() -> None:
     """Async entry point with proper cleanup."""
     import asyncio
+    import signal
 
     from acp.agent.connection import AgentSideConnection
     from acp.connection import StreamDirection, StreamEvent
@@ -74,7 +75,10 @@ async def _main() -> None:
     if agent._current_model_id:
         log.info("Agent ready, model=%s", agent._current_model_id)
     else:
-        log.warning("Agent ready, no LLM configured (set ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY, or DEEPSEEK_API_KEY)")
+        log.warning(
+            "Agent ready, no LLM configured "
+            "(set ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY, or DEEPSEEK_API_KEY)"
+        )
 
     def log_message(event: StreamEvent) -> None:
         """Log all ACP messages for debugging."""
@@ -96,21 +100,54 @@ async def _main() -> None:
 
     # Add message observer for logging
     conn._conn.add_observer(log_message)
+    
+    # Handle shutdown signals gracefully
+    shutdown_event = asyncio.Event()
+    
+    def handle_shutdown(signum: int, frame: Any) -> None:
+        log.info("Received signal %s, initiating shutdown...", signum)
+        shutdown_event.set()
+    
+    # Register signal handlers (SIGTERM on Unix, SIGBREAK on Windows)
+    with contextlib.suppress(ValueError, OSError):
+        signal.signal(signal.SIGTERM, handle_shutdown)
+    with contextlib.suppress(ValueError, OSError):
+        signal.signal(signal.SIGINT, handle_shutdown)
 
     log.info("Ready to accept ACP requests")
 
+    async def listen_with_shutdown() -> None:
+        """Listen for messages, but exit on shutdown signal."""
+        listen_task = asyncio.create_task(conn.listen())
+        shutdown_task = asyncio.create_task(shutdown_event.wait())
+        
+        done, pending = await asyncio.wait(
+            [listen_task, shutdown_task],
+            return_when=asyncio.FIRST_COMPLETED
+        )
+        
+        # Cancel pending tasks
+        for task in pending:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+
     try:
-        await conn.listen()
+        await listen_with_shutdown()
     finally:
-        # Ensure connection is properly closed
+        # Ensure connection is properly closed with timeout
         log.info("Connection closed, cleaning up...")
-        await conn.close()
+        try:
+            await asyncio.wait_for(conn.close(), timeout=2.0)
+        except asyncio.TimeoutError:
+            log.warning("Connection close timed out, forcing exit")
+        except Exception as e:
+            log.warning("Error during cleanup: %s", e)
 
 
 def main() -> None:
     """Run the ActiveContext ACP agent."""
     import asyncio
-    import re
 
     from activecontext.config import load_config
 

@@ -7,6 +7,7 @@ Rider, Zed, and other ACP-supporting editors.
 from __future__ import annotations
 
 import asyncio
+import os
 import uuid
 from typing import TYPE_CHECKING, Any
 
@@ -977,7 +978,27 @@ class ActiveContextAgent:
         method: str,
         params: dict[str, Any],
     ) -> dict[str, Any]:
-        """Handle extension methods."""
+        """Handle extension methods.
+        
+        Log all extension methods to help diagnose IDE-specific behavior.
+        """
+        log.info("Received extension method: %s with params: %s", method, params)
+        
+        # Handle session/delete or session/close if Rider sends it
+        if method in ("session/delete", "session/close"):
+            session_id = params.get("sessionId") or params.get("session_id")
+            if session_id:
+                log.info("Handling %s for session %s", method, session_id)
+                try:
+                    await self._manager.close_session(session_id)
+                    self._sessions_cwd.pop(session_id, None)
+                    self._sessions_mode.pop(session_id, None)
+                    self._sessions_model.pop(session_id, None)
+                    self._cleanup_session_buffers(session_id)
+                except Exception as e:
+                    log.warning("Failed to close session: %s", e)
+            return {}
+        
         return {}
 
     async def ext_notification(
@@ -985,8 +1006,25 @@ class ActiveContextAgent:
         method: str,
         params: dict[str, Any],
     ) -> None:
-        """Handle extension notifications."""
-        pass
+        """Handle extension notifications.
+        
+        Log all extension notifications to help diagnose IDE-specific behavior.
+        """
+        log.info("Received extension notification: %s with params: %s", method, params)
+        
+        # Handle session/delete or session/close notifications
+        if method in ("session/delete", "session/close"):
+            session_id = params.get("sessionId") or params.get("session_id")
+            if session_id:
+                log.info("Handling %s notification for session %s", method, session_id)
+                try:
+                    await self._manager.close_session(session_id)
+                    self._sessions_cwd.pop(session_id, None)
+                    self._sessions_mode.pop(session_id, None)
+                    self._sessions_model.pop(session_id, None)
+                    self._cleanup_session_buffers(session_id)
+                except Exception as e:
+                    log.warning("Failed to close session: %s", e)
 
     async def _handle_slash_command(
         self, content: str, session_id: str
@@ -996,8 +1034,6 @@ class ActiveContextAgent:
         Returns:
             (handled, response) - handled=True if command was processed
         """
-        import os
-
         parts = content.split(maxsplit=1)
         command = parts[0].lower()
         # args = parts[1] if len(parts) > 1 else ""
