@@ -529,3 +529,264 @@ class TestACPIntegration:
         mock_acp_client.wait_for_terminal_exit.assert_called_once_with("term-123")
         mock_acp_client.terminal_output.assert_called_once_with("term-123")
         mock_acp_client.release_terminal.assert_called_once_with("term-123")
+
+
+# =============================================================================
+# Agent Methods Tests
+# =============================================================================
+
+
+class TestAgentMethods:
+    """Tests for ActiveContextAgent methods."""
+
+    @patch("activecontext.transport.acp.agent.get_default_model", return_value="claude-sonnet-4-20250514")
+    @patch("activecontext.transport.acp.agent.SessionManager")
+    def test_get_available_commands(self, mock_sm, mock_model):
+        """Test _get_available_commands returns slash commands."""
+        from activecontext.transport.acp.agent import ActiveContextAgent
+
+        agent = ActiveContextAgent()
+        commands = agent._get_available_commands()
+
+        assert isinstance(commands, list)
+        assert len(commands) > 0
+
+        # Check expected commands exist
+        command_names = [c.name for c in commands]
+        assert "help" in command_names
+        assert "clear" in command_names
+        assert "context" in command_names
+        assert "title" in command_names
+        assert "dashboard" in command_names
+
+    @patch("activecontext.transport.acp.agent.get_default_model", return_value="claude-sonnet-4-20250514")
+    @patch("activecontext.transport.acp.agent.SessionManager")
+    def test_get_client_info_before_init(self, mock_sm, mock_model):
+        """Test get_client_info returns None before initialize."""
+        from activecontext.transport.acp.agent import ActiveContextAgent
+
+        agent = ActiveContextAgent()
+        client_info, protocol_version = agent.get_client_info()
+
+        assert client_info is None
+        assert protocol_version is None
+
+    @patch("activecontext.transport.acp.agent.get_default_model", return_value="claude-sonnet-4-20250514")
+    @patch("activecontext.transport.acp.agent.SessionManager")
+    @pytest.mark.asyncio
+    async def test_initialize_stores_client_info(self, mock_sm, mock_model):
+        """Test that initialize stores client info."""
+        from activecontext.transport.acp.agent import ActiveContextAgent
+        from acp.schema import Implementation
+
+        agent = ActiveContextAgent()
+
+        client_info = Implementation(name="test-client", version="1.0.0")
+        response = await agent.initialize(
+            protocol_version=1,
+            client_info=client_info,
+        )
+
+        stored_info, stored_version = agent.get_client_info()
+
+        assert stored_version == 1
+        assert stored_info is not None
+        assert stored_info["name"] == "test-client"
+        assert stored_info["version"] == "1.0.0"
+
+    @patch("activecontext.transport.acp.agent.get_default_model", return_value="claude-sonnet-4-20250514")
+    @patch("activecontext.transport.acp.agent.SessionManager")
+    @pytest.mark.asyncio
+    async def test_initialize_response_format(self, mock_sm, mock_model):
+        """Test that initialize returns proper response."""
+        from activecontext.transport.acp.agent import ActiveContextAgent
+        import acp
+
+        agent = ActiveContextAgent()
+
+        response = await agent.initialize(protocol_version=1)
+
+        assert isinstance(response, acp.InitializeResponse)
+        assert response.agent_info.name == "activecontext"
+        assert response.agent_info.version == "0.1.0"
+        assert response.agent_capabilities is not None
+
+    @patch("activecontext.transport.acp.agent.get_default_model", return_value="claude-sonnet-4-20250514")
+    @patch("activecontext.transport.acp.agent.SessionManager")
+    @pytest.mark.asyncio
+    async def test_initialize_with_capabilities(self, mock_sm, mock_model):
+        """Test that initialize handles client capabilities."""
+        from activecontext.transport.acp.agent import ActiveContextAgent
+        from acp.schema import ClientCapabilities, FileSystemCapability
+
+        agent = ActiveContextAgent()
+
+        client_caps = ClientCapabilities(
+            terminal=True,
+            fs=FileSystemCapability(read_text_file=True, write_text_file=False),
+        )
+
+        await agent.initialize(
+            protocol_version=1,
+            client_capabilities=client_caps,
+        )
+
+        stored_info, _ = agent.get_client_info()
+        assert stored_info["capabilities"] is not None
+        caps_list = stored_info["capabilities"]
+
+        # Find terminal capability
+        terminal_cap = next((c for c in caps_list if c["name"] == "terminal"), None)
+        assert terminal_cap is not None
+        assert terminal_cap["enabled"] is True
+
+        # Find fs.read_text_file capability
+        read_cap = next((c for c in caps_list if c["name"] == "fs.read_text_file"), None)
+        assert read_cap is not None
+        assert read_cap["enabled"] is True
+
+        # Find fs.write_text_file capability
+        write_cap = next((c for c in caps_list if c["name"] == "fs.write_text_file"), None)
+        assert write_cap is not None
+        assert write_cap["enabled"] is False
+
+    @patch("activecontext.transport.acp.agent.get_default_model", return_value="claude-sonnet-4-20250514")
+    @patch("activecontext.transport.acp.agent.SessionManager")
+    def test_session_modes_loaded(self, mock_sm, mock_model):
+        """Test that session modes are loaded."""
+        from activecontext.transport.acp.agent import ActiveContextAgent
+
+        agent = ActiveContextAgent()
+
+        assert len(agent._session_modes) > 0
+        assert agent._default_mode_id is not None
+
+
+class TestAgentConfigLoading:
+    """Tests for agent configuration loading."""
+
+    @patch("activecontext.transport.acp.agent.get_default_model", return_value="claude-sonnet-4-20250514")
+    @patch("activecontext.transport.acp.agent.SessionManager")
+    def test_batch_config_defaults(self, mock_sm, mock_model):
+        """Test batch config defaults are set."""
+        from activecontext.transport.acp.agent import ActiveContextAgent
+
+        agent = ActiveContextAgent()
+
+        assert agent._batch_enabled is True
+        assert agent._flush_interval == 0.05
+        assert agent._flush_threshold == 100
+
+    @patch("activecontext.transport.acp.agent.get_default_model", return_value=None)
+    @patch("activecontext.transport.acp.agent.SessionManager")
+    def test_agent_without_llm(self, mock_sm, mock_model):
+        """Test agent initializes without LLM (no API keys)."""
+        from activecontext.transport.acp.agent import ActiveContextAgent
+
+        agent = ActiveContextAgent()
+
+        assert agent._current_model_id is None
+
+    @patch("activecontext.transport.acp.agent.get_default_model", return_value="gpt-4")
+    @patch("activecontext.transport.acp.agent.SessionManager")
+    def test_agent_tracks_model_id(self, mock_sm, mock_model):
+        """Test agent tracks current model ID."""
+        from activecontext.transport.acp.agent import ActiveContextAgent
+
+        agent = ActiveContextAgent()
+
+        assert agent._current_model_id == "gpt-4"
+
+
+class TestAgentSessionModes:
+    """Tests for session mode functionality."""
+
+    @patch("activecontext.transport.acp.agent.get_default_model", return_value="claude-sonnet-4-20250514")
+    @patch("activecontext.transport.acp.agent.SessionManager")
+    def test_default_session_modes_content(self, mock_sm, mock_model):
+        """Test default session modes have expected structure."""
+        from activecontext.transport.acp.agent import DEFAULT_SESSION_MODES
+
+        assert len(DEFAULT_SESSION_MODES) >= 1
+
+        for mode in DEFAULT_SESSION_MODES:
+            assert hasattr(mode, "id")
+            assert hasattr(mode, "name")
+            assert mode.id is not None
+            assert mode.name is not None
+
+    @patch("activecontext.transport.acp.agent.get_default_model", return_value="claude-sonnet-4-20250514")
+    @patch("activecontext.transport.acp.agent.SessionManager")
+    def test_default_mode_id_exists(self, mock_sm, mock_model):
+        """Test default mode ID is valid."""
+        from activecontext.transport.acp.agent import (
+            ActiveContextAgent,
+            DEFAULT_SESSION_MODES,
+        )
+
+        agent = ActiveContextAgent()
+
+        mode_ids = [m.id for m in DEFAULT_SESSION_MODES]
+        assert agent._default_mode_id in mode_ids
+
+
+class TestAgentChunkBuffering:
+    """Tests for Nagle-style chunk buffering."""
+
+    @patch("activecontext.transport.acp.agent.get_default_model", return_value="claude-sonnet-4-20250514")
+    @patch("activecontext.transport.acp.agent.SessionManager")
+    def test_chunk_buffer_initialized(self, mock_sm, mock_model):
+        """Test chunk buffer is initialized as empty dict."""
+        from activecontext.transport.acp.agent import ActiveContextAgent
+
+        agent = ActiveContextAgent()
+
+        assert isinstance(agent._chunk_buffers, dict)
+        assert len(agent._chunk_buffers) == 0
+
+    @patch("activecontext.transport.acp.agent.get_default_model", return_value="claude-sonnet-4-20250514")
+    @patch("activecontext.transport.acp.agent.SessionManager")
+    def test_flush_tasks_initialized(self, mock_sm, mock_model):
+        """Test flush tasks dict is initialized."""
+        from activecontext.transport.acp.agent import ActiveContextAgent
+
+        agent = ActiveContextAgent()
+
+        assert isinstance(agent._flush_tasks, dict)
+        assert len(agent._flush_tasks) == 0
+
+    @patch("activecontext.transport.acp.agent.get_default_model", return_value="claude-sonnet-4-20250514")
+    @patch("activecontext.transport.acp.agent.SessionManager")
+    def test_closed_sessions_tracking(self, mock_sm, mock_model):
+        """Test closed sessions set is initialized."""
+        from activecontext.transport.acp.agent import ActiveContextAgent
+
+        agent = ActiveContextAgent()
+
+        assert isinstance(agent._closed_sessions, set)
+        assert len(agent._closed_sessions) == 0
+
+    @patch("activecontext.transport.acp.agent.get_default_model", return_value="claude-sonnet-4-20250514")
+    @patch("activecontext.transport.acp.agent.SessionManager")
+    def test_active_prompts_tracking(self, mock_sm, mock_model):
+        """Test active prompts dict is initialized."""
+        from activecontext.transport.acp.agent import ActiveContextAgent
+
+        agent = ActiveContextAgent()
+
+        assert isinstance(agent._active_prompts, dict)
+        assert len(agent._active_prompts) == 0
+
+
+class TestCreateAgentFunction:
+    """Tests for the create_agent factory function."""
+
+    def test_create_agent_returns_agent(self):
+        """Test create_agent returns an ActiveContextAgent."""
+        from activecontext.transport.acp.agent import create_agent, ActiveContextAgent
+
+        with patch("activecontext.transport.acp.agent.get_default_model", return_value="claude-sonnet-4-20250514"):
+            with patch("activecontext.transport.acp.agent.SessionManager"):
+                agent = create_agent()
+
+        assert isinstance(agent, ActiveContextAgent)
