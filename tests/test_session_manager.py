@@ -526,3 +526,111 @@ class TestSessionManagerIntegration:
 
         # Projection should be updated
         assert projection2 is not None
+
+
+# =============================================================================
+# Session Persistence Tests
+# =============================================================================
+
+
+class TestSessionPersistence:
+    """Tests for session save/load functionality."""
+
+    @pytest.mark.asyncio
+    async def test_session_save_and_load_roundtrip(self, tmp_path):
+        """Test that a session can be saved and loaded from disk."""
+        # Create a session with a specific cwd
+        cwd = str(tmp_path)
+        sessions_dir = tmp_path / ".ac" / "sessions"
+        sessions_dir.mkdir(parents=True)
+
+        manager = SessionManager()
+        session = await manager.create_session(cwd=cwd)
+        session_id = session.session_id
+
+        # Add some state to the session
+        session._title = "Test Session Title"
+
+        # Save session
+        session.save()
+
+        # Verify file was created
+        session_file = sessions_dir / f"{session_id}.yaml"
+        assert session_file.exists()
+
+        # Load session from disk
+        loaded = Session.from_file(
+            cwd=cwd,
+            session_id=session_id,
+            llm=None,
+        )
+
+        # Verify loaded session matches original
+        assert loaded is not None
+        assert loaded.session_id == session_id
+        assert loaded.title == "Test Session Title"
+
+    @pytest.mark.asyncio
+    async def test_session_from_file_not_found(self, tmp_path):
+        """Test that from_file returns None for non-existent session."""
+        cwd = str(tmp_path)
+        sessions_dir = tmp_path / ".ac" / "sessions"
+        sessions_dir.mkdir(parents=True)
+
+        loaded = Session.from_file(
+            cwd=cwd,
+            session_id="nonexistent-uuid",
+            llm=None,
+        )
+
+        assert loaded is None
+
+    @pytest.mark.asyncio
+    async def test_session_save_creates_directory(self, tmp_path):
+        """Test that save() creates the sessions directory if needed."""
+        cwd = str(tmp_path)
+        sessions_dir = tmp_path / ".ac" / "sessions"
+
+        # Directory should not exist yet
+        assert not sessions_dir.exists()
+
+        manager = SessionManager()
+        session = await manager.create_session(cwd=cwd)
+
+        # Save should create the directory
+        session.save()
+
+        assert sessions_dir.exists()
+        assert (sessions_dir / f"{session.session_id}.yaml").exists()
+
+
+# =============================================================================
+# Rider UUID Detection Tests (Warning-only)
+# =============================================================================
+
+
+class TestRiderUUIDDetection:
+    """Tests for Rider chat UUID detection.
+
+    These tests warn rather than fail because the Rider UUID detection
+    is a workaround that depends on Rider's internal file structure.
+    """
+
+    def test_find_rider_chat_uuid_warns_if_not_found(self):
+        """Test _find_rider_chat_uuid returns None gracefully when Rider not installed."""
+        import warnings
+        from activecontext.transport.acp.agent import _find_rider_chat_uuid
+
+        result = _find_rider_chat_uuid()
+
+        # This should not raise, just return None or a UUID
+        if result is None:
+            warnings.warn(
+                "Rider chat UUID detection unavailable - "
+                "Rider may not be installed or aia-task-history not found",
+                UserWarning,
+            )
+        else:
+            # If we got a result, it should look like a UUID
+            assert len(result) == 36
+            assert result.count("-") == 4
