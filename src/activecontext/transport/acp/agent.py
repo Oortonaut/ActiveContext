@@ -156,6 +156,14 @@ class ActiveContextAgent:
         # Message completion tracking for prompt synchronization
         self._message_complete_events: dict[str, asyncio.Event] = {}
 
+        # ACP update mode configuration
+        # out_of_band_update=True: send updates immediately (async model)
+        # out_of_band_update=False: queue updates between prompts (sync model)
+        self._out_of_band_update = False
+        self._load_acp_config()
+        self._queued_updates: dict[str, list[Any]] = {}  # session_id -> list of updates
+        self._in_prompt: set[str] = set()  # Sessions currently processing a prompt
+
         # ACP client info (populated during initialize handshake)
         self._client_info: dict[str, Any] | None = None
         self._protocol_version: int | None = None
@@ -204,6 +212,20 @@ class ActiveContextAgent:
             pass
         except Exception:
             pass
+
+    def _load_acp_config(self) -> None:
+        """Load ACP transport settings from config."""
+        try:
+            from activecontext.config import get_config
+
+            config = get_config()
+            # Use the new typed ACPConfig
+            self._out_of_band_update = config.acp.out_of_band_update
+            log.debug("ACP out_of_band_update=%s", self._out_of_band_update)
+        except ImportError:
+            pass
+        except Exception as e:
+            log.debug("Failed to load ACP config: %s", e)
 
     # --- Nagle-style batching for RESPONSE_CHUNK ---
 
@@ -973,13 +995,14 @@ class ActiveContextAgent:
         session_id: str,
         **kwargs: Any,
     ) -> acp.PromptResponse:
-        """Handle a prompt request by queuing and waiting for completion.
+        """Handle a prompt request.
 
-        This implements the synchronous prompt model where:
-        1. Message is queued as a MessageNode in user_messages group
-        2. Agent loop processes the message and streams updates
-        3. Response is returned after processing completes
-        4. Updates are sent via session_update notifications during processing
+        Behavior depends on out_of_band_update config:
+        - True (async): Queue message, return immediately, send updates as notifications
+        - False (sync): Queue message, wait for completion, then return
+
+        When out_of_band_update=False, updates that occurred between prompts are
+        flushed at the start of each prompt.
 
         Per ACP spec, every prompt must have exactly one PromptResponse.
         """
@@ -998,65 +1021,81 @@ class ActiveContextAgent:
                 message=f"Session not found: {session_id}",
             )
 
-        # Schedule post-session setup to run AFTER prompt response is sent
-        # (sending notifications before response confuses clients)
-        if session_id not in self._sessions_initialized:
-            self._sessions_initialized.add(session_id)
-            asyncio.create_task(self._post_session_setup(session_id))
-
-        # Extract text from prompt blocks
-        content = ""
-        for block in prompt:
-            if isinstance(block, TextContentBlock) or hasattr(block, "text"):
-                content += block.text
-
-        # Handle slash commands synchronously (they don't go through the queue)
-        if content.strip().startswith("/"):
-            handled, response = await self._handle_slash_command(
-                content.strip(), session_id
-            )
-            if handled:
-                if response:
-                    await self._send_session_update(
-                        session_id,
-                        acp.update_agent_message_text(response),
-                    )
-                return acp.PromptResponse(stop_reason="end_turn")
-
-        # Generate message ID
-        message_id = f"msg_{uuid.uuid4().hex[:8]}"
-
-        # Create completion event BEFORE queueing
-        completion_event = asyncio.Event()
-        self._message_complete_events[message_id] = completion_event
+        # Mark as in-prompt (for update queueing logic)
+        self._in_prompt.add(session_id)
 
         try:
+            # Flush any queued updates from between prompts
+            await self._flush_queued_updates(session_id)
+
+            # Schedule post-session setup to run AFTER prompt response is sent
+            # (sending notifications before response confuses clients)
+            if session_id not in self._sessions_initialized:
+                self._sessions_initialized.add(session_id)
+                asyncio.create_task(self._post_session_setup(session_id))
+
+            # Extract text from prompt blocks
+            content = ""
+            for block in prompt:
+                if isinstance(block, TextContentBlock) or hasattr(block, "text"):
+                    content += block.text
+
+            # Handle slash commands synchronously (they don't go through the queue)
+            if content.strip().startswith("/"):
+                handled, response = await self._handle_slash_command(
+                    content.strip(), session_id
+                )
+                if handled:
+                    if response:
+                        await self._send_session_update(
+                            session_id,
+                            acp.update_agent_message_text(response),
+                        )
+                    return acp.PromptResponse(stop_reason="end_turn")
+
+            # Generate message ID
+            message_id = f"msg_{uuid.uuid4().hex[:8]}"
+
             # Queue the message (wakes agent loop)
             session.queue_user_message(content, message_id)
             log.info("Queued message %s for session %s", message_id, session_id)
 
-            # Wait for message processing to complete (with timeout)
+            # Behavior depends on out_of_band_update mode
+            if self._out_of_band_update:
+                # Async mode: return immediately, processing happens in background
+                return acp.PromptResponse(stop_reason="end_turn")
+
+            # Sync mode: wait for message processing to complete
+            completion_event = asyncio.Event()
+            self._message_complete_events[message_id] = completion_event
+
             try:
-                # Use a reasonable timeout (5 minutes for long LLM responses)
-                await asyncio.wait_for(completion_event.wait(), timeout=300.0)
-                log.info("Message %s completed for session %s", message_id, session_id)
-            except asyncio.TimeoutError:
-                log.warning("Message %s timed out for session %s", message_id, session_id)
-            except asyncio.CancelledError:
-                log.info("Message %s cancelled for session %s", message_id, session_id)
+                # Wait for message processing to complete (with timeout)
+                try:
+                    # Use a reasonable timeout (5 minutes for long LLM responses)
+                    await asyncio.wait_for(completion_event.wait(), timeout=300.0)
+                    log.info("Message %s completed for session %s", message_id, session_id)
+                except asyncio.TimeoutError:
+                    log.warning("Message %s timed out for session %s", message_id, session_id)
+                except asyncio.CancelledError:
+                    log.info("Message %s cancelled for session %s", message_id, session_id)
+                    if session_id in self._closed_sessions:
+                        return acp.PromptResponse(stop_reason="cancelled")
+                    raise
+
+                # Check if session was cancelled during processing
                 if session_id in self._closed_sessions:
                     return acp.PromptResponse(stop_reason="cancelled")
-                raise
 
-            # Check if session was cancelled during processing
-            if session_id in self._closed_sessions:
-                return acp.PromptResponse(stop_reason="cancelled")
+                return acp.PromptResponse(stop_reason="end_turn")
 
-            return acp.PromptResponse(stop_reason="end_turn")
+            finally:
+                # Clean up the completion event
+                self._message_complete_events.pop(message_id, None)
 
         finally:
-            # Clean up the completion event
-            self._message_complete_events.pop(message_id, None)
+            # Clear in-prompt state
+            self._in_prompt.discard(session_id)
 
     async def _process_prompt(
         self,
@@ -1487,8 +1526,54 @@ class ActiveContextAgent:
             ),
         ]
 
+    async def _flush_queued_updates(self, session_id: str) -> None:
+        """Flush any queued updates for a session.
+
+        Called at the start of prompt() to send updates that accumulated
+        between prompts when out_of_band_update=False.
+        """
+        if session_id not in self._queued_updates:
+            return
+
+        queued = self._queued_updates.pop(session_id)
+        if not queued:
+            return
+
+        log.debug("Flushing %d queued updates for session %s", len(queued), session_id)
+        for update in queued:
+            await self._emit_update_internal(session_id, update)
+
+    def _queue_update(self, session_id: str, update: Any) -> None:
+        """Queue an update for later delivery."""
+        if session_id not in self._queued_updates:
+            self._queued_updates[session_id] = []
+        self._queued_updates[session_id].append(update)
+        log.debug("Queued update %s for session %s", update.kind, session_id)
+
     async def _emit_update(self, session_id: str, update: Any) -> None:
-        """Convert and emit a SessionUpdate as an ACP notification."""
+        """Convert and emit a SessionUpdate as an ACP notification.
+
+        When out_of_band_update=False and not in a prompt, queues the update
+        for delivery when the next prompt arrives.
+        """
+        # Check if we should queue this update
+        if not self._out_of_band_update and session_id not in self._in_prompt:
+            self._queue_update(session_id, update)
+            # Still broadcast to dashboard even when queueing
+            from activecontext.dashboard import broadcast_update, is_dashboard_running
+            if is_dashboard_running():
+                await broadcast_update(
+                    session_id,
+                    update.kind.value,
+                    update.payload,
+                    update.timestamp,
+                )
+            return
+
+        await self._emit_update_internal(session_id, update)
+
+    async def _emit_update_internal(self, session_id: str, update: Any) -> None:
+        """Internal method to convert and emit a SessionUpdate as an ACP notification."""
         # Priority flush: non-RESPONSE_CHUNK updates flush any pending chunks first
         if (
             self._batch_enabled

@@ -266,6 +266,23 @@ class MCPConfig:
     allow_dynamic_servers: bool = True  # Allow mcp_connect() with inline config
 
 
+
+@dataclass
+class ACPConfig:
+    """ACP transport configuration.
+
+    Controls behavior of the ACP (Agent-Client Protocol) transport layer.
+
+    Attributes:
+        out_of_band_update: If True, send session updates immediately via
+            notifications (async model). If False, queue updates that occur
+            between prompts and flush them when the next prompt arrives
+            (sync model). Default False for compatibility with clients like
+            Rider that expect responses after PromptResponse.
+    """
+
+    out_of_band_update: bool = False
+
 @dataclass
 class Config:
     """Root configuration object.
@@ -281,6 +298,7 @@ class Config:
     sandbox: SandboxConfig = field(default_factory=SandboxConfig)
     user: UserConfig = field(default_factory=UserConfig)
     mcp: MCPConfig = field(default_factory=MCPConfig)
+    acp: ACPConfig = field(default_factory=ACPConfig)
 
     # Extension point for future config sections
     extra: dict[str, Any] = field(default_factory=dict)
