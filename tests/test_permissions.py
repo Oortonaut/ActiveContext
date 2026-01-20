@@ -435,9 +435,10 @@ class TestTimelineIntegration:
 
         try:
             # Use forward slashes to avoid Windows path escaping issues
+            # Use pathlib.Path.read_text() to ensure file is properly closed
             file_path = (temp_cwd / "allowed.txt").as_posix()
             result = await timeline.execute_statement(
-                f'open("{file_path}", "r").read()'
+                f'__import__("pathlib").Path("{file_path}").read_text()'
             )
 
             assert result.status.value == "ok"
@@ -477,9 +478,10 @@ class TestTimelineIntegration:
 
         try:
             # Use forward slashes to avoid Windows path escaping issues
+            # Use pathlib.Path.read_text() to ensure file is properly closed
             file_path = (temp_cwd / "allowed.txt").as_posix()
             result = await timeline.execute_statement(
-                f'open("{file_path}", "r").read()'
+                f'__import__("pathlib").Path("{file_path}").read_text()'
             )
 
             # Should work without restrictions
@@ -1045,8 +1047,12 @@ class TestPermissionRequestFlow:
         )
 
         try:
+            # Use lambda to ensure file is properly closed while still using open()
+            # (permission checks only wrap open(), not pathlib)
             file_path = (temp_cwd / "protected.txt").as_posix()
-            result = await timeline.execute_statement(f'open("{file_path}", "r").read()')
+            result = await timeline.execute_statement(
+                f'(lambda f: (f.read(), f.close())[0])(open("{file_path}", "r"))'
+            )
 
             assert result.status.value == "ok"
             assert "protected content" in result.stdout
@@ -1075,8 +1081,12 @@ class TestPermissionRequestFlow:
         )
 
         try:
+            # Use lambda to ensure file is properly closed while still using open()
+            # (permission checks only wrap open(), not pathlib)
             file_path = (temp_cwd / "protected.txt").as_posix()
-            result = await timeline.execute_statement(f'open("{file_path}", "r").read()')
+            result = await timeline.execute_statement(
+                f'(lambda f: (f.read(), f.close())[0])(open("{file_path}", "r"))'
+            )
 
             assert result.status.value == "ok"
             assert "protected content" in result.stdout

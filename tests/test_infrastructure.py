@@ -424,8 +424,10 @@ class TestMainEntryPoint:
     @patch("activecontext.config.load_config")
     @patch("activecontext.__main__.setup_logging")
     @patch("activecontext.__main__._expand_env_vars")
+    @patch("sys.stdin")
     def test_main_startup_sequence(
         self,
+        mock_stdin,
         mock_expand,
         mock_setup_log,
         mock_load_config,
@@ -435,6 +437,9 @@ class TestMainEntryPoint:
         from activecontext.__main__ import main
 
         from activecontext.config.schema import LoggingConfig
+
+        # Mock stdin.isatty() to return True, preventing devnull file from being opened
+        mock_stdin.isatty.return_value = True
 
         # Make mock_asyncio_run properly close the coroutine to avoid warning
         def close_coro(coro):
