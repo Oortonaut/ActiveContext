@@ -45,7 +45,7 @@ class MCPConnection:
         """Establish connection to the MCP server."""
         self.status = MCPConnectionStatus.CONNECTING
         try:
-            self._transport_context = create_transport(self.config)
+            self._transport_context = await create_transport(self.config)
             streams = await self._transport_context.__aenter__()
             self._read_stream, self._write_stream = streams[0], streams[1]
 
