@@ -485,6 +485,7 @@ Always phrase commands to match your allowlist patterns. If a command fails with
 ## ACP Protocol Notes
 
 See `docs/acp-protocol.md` for the full protocol specification.
+See `docs/diagrams/*.puml` for PlantUML sequence diagrams.
 
 ### Session Lifecycle
 
