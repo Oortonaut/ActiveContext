@@ -4,7 +4,6 @@
 import shutil
 from pathlib import Path
 
-
 DIRS_TO_REMOVE = [
     "__pycache__",
     ".pytest_cache",

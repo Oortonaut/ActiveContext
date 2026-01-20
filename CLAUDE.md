@@ -496,3 +496,30 @@ Rider logs are at:
 ## Guidance
 
 Ask a lot of questions during planning.
+
+## TODO Management
+
+The project tracks work in `ACE-TODO.md` with prioritized, parallelizable streams.
+
+**Task status markers:**
+- `[In progress]` - Top-level item currently under development
+- `[/]` - Subtask in progress
+- `[x]` - Completed task/subtask
+- `[ ]` - Not started
+
+**When completing work:**
+- Commit ACE-TODO.md when starting work (records task in git history)
+- Mark subtasks as `[/]` when starting, `[x]` when done
+- Remove completely finished tasks (all subtasks done) in the final commit
+- Update the parallelization matrix if dependencies change
+
+**When discovering new work:**
+- Add to appropriate priority tier (P0-P3)
+- Assign to a stream (A/B/C) if parallelizable
+- Include enough detail for another agent to execute
+
+**Priority tiers:**
+- **P0**: Critical path, blocks other work
+- **P1**: Core features, can parallelize
+- **P2**: Important but deferrable
+- **P3**: Tech debt, run alongside anything

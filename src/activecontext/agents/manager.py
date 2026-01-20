@@ -48,8 +48,8 @@ class AgentManager:
 
     def __init__(
         self,
-        session_manager: "SessionManager",
-        scratchpad_manager: "ScratchpadManager",
+        session_manager: SessionManager,
+        scratchpad_manager: ScratchpadManager,
         type_registry: AgentTypeRegistry | None = None,
     ) -> None:
         """Initialize the agent manager.
@@ -65,10 +65,10 @@ class AgentManager:
 
         # Local caches (authoritative source is scratchpad)
         self._agents: dict[str, AgentEntry] = {}
-        self._agent_sessions: dict[str, "Session"] = {}
+        self._agent_sessions: dict[str, Session] = {}
 
         # Shared node registry for cross-agent references
-        self._shared_nodes: dict[str, "ContextNode"] = {}
+        self._shared_nodes: dict[str, ContextNode] = {}
 
     @property
     def type_registry(self) -> AgentTypeRegistry:
@@ -82,7 +82,7 @@ class AgentManager:
         cwd: str | None = None,
         parent_id: str | None = None,
         **kwargs: Any,
-    ) -> "AgentHandle":
+    ) -> AgentHandle:
         """Spawn a new agent.
 
         Creates an underlying Session with the agent type's system prompt.
@@ -156,7 +156,7 @@ class AgentManager:
         # Fall back to scratchpad
         return self._scratchpad_manager.get_agent(agent_id)
 
-    def get_session(self, agent_id: str) -> "Session | None":
+    def get_session(self, agent_id: str) -> Session | None:
         """Get the underlying session for an agent.
 
         Args:
@@ -260,7 +260,7 @@ class AgentManager:
         """
         self._scratchpad_manager.mark_message_status(message_id, "read")
 
-    def share_node(self, node: "ContextNode") -> str:
+    def share_node(self, node: ContextNode) -> str:
         """Register a node in the shared registry.
 
         Args:
@@ -272,7 +272,7 @@ class AgentManager:
         self._shared_nodes[node.node_id] = node
         return node.node_id
 
-    def get_shared_node(self, node_id: str) -> "ContextNode | None":
+    def get_shared_node(self, node_id: str) -> ContextNode | None:
         """Get a shared node by ID.
 
         Args:

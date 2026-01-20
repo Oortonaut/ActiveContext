@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import fnmatch
 import uuid
+from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING
 
 import yaml
 from filelock import FileLock
@@ -351,7 +352,7 @@ class ScratchpadManager:
         agent_type: str,
         task: str,
         parent_id: str | None = None,
-    ) -> "AgentEntry":
+    ) -> AgentEntry:
         """Register an agent in the scratchpad.
 
         Args:
@@ -391,9 +392,9 @@ class ScratchpadManager:
     def update_agent(
         self,
         agent_id: str,
-        state: "AgentState | None" = None,
+        state: AgentState | None = None,
         task: str | None = None,
-    ) -> "AgentEntry | None":
+    ) -> AgentEntry | None:
         """Update an agent's entry.
 
         Args:
@@ -404,7 +405,6 @@ class ScratchpadManager:
         Returns:
             Updated entry, or None if not found
         """
-        from activecontext.agents.schema import AgentState
 
         now = datetime.now(timezone.utc)
         updated_entry: AgentEntry | None = None
@@ -454,7 +454,7 @@ class ScratchpadManager:
 
         self._atomic_update(modifier)
 
-    def get_agent(self, agent_id: str) -> "AgentEntry | None":
+    def get_agent(self, agent_id: str) -> AgentEntry | None:
         """Get an agent entry by ID."""
         scratchpad = self._load()
         for entry in scratchpad.agents:
@@ -462,7 +462,7 @@ class ScratchpadManager:
                 return entry
         return None
 
-    def get_all_agents(self) -> list["AgentEntry"]:
+    def get_all_agents(self) -> list[AgentEntry]:
         """Get all current agent entries."""
         scratchpad = self._load()
         return scratchpad.agents
@@ -479,7 +479,7 @@ class ScratchpadManager:
         node_refs: list[str] | None = None,
         reply_to: str | None = None,
         metadata: dict | None = None,
-    ) -> "AgentMessage":
+    ) -> AgentMessage:
         """Send a message between agents.
 
         Args:
@@ -519,7 +519,7 @@ class ScratchpadManager:
         self,
         recipient: str,
         status: str | None = "pending",
-    ) -> list["AgentMessage"]:
+    ) -> list[AgentMessage]:
         """Get messages for an agent.
 
         Args:

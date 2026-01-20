@@ -12,13 +12,6 @@ Split architecture for multi-agent support:
 
 from activecontext.context.buffer import TextBuffer
 from activecontext.context.checkpoint import Checkpoint, GroupState
-from activecontext.context.markdown_parser import (
-    HeadingSection,
-    MarkdownParser,
-    ParseResult,
-    parse_markdown,
-)
-from activecontext.context.headers import TokenInfo, format_token_info, render_header
 from activecontext.context.content import (
     ContentData,
     ContentRegistry,
@@ -28,11 +21,17 @@ from activecontext.context.content import (
     content_from_shell,
 )
 from activecontext.context.graph import ContextGraph
+from activecontext.context.headers import TokenInfo, format_token_info, render_header
+from activecontext.context.markdown_parser import (
+    HeadingSection,
+    MarkdownParser,
+    ParseResult,
+    parse_markdown,
+)
 from activecontext.context.nodes import (
     AgentNode,
     ArtifactNode,
     ContextNode,
-    Trace,
     GroupNode,
     LockNode,
     LockStatus,
@@ -42,8 +41,9 @@ from activecontext.context.nodes import (
     SessionNode,
     ShellNode,
     ShellStatus,
-    TopicNode,
     TextNode,
+    TopicNode,
+    Trace,
     WorkNode,
 )
 from activecontext.context.view import AgentView, ViewRegistry

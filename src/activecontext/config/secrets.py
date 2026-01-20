@@ -16,7 +16,6 @@ from pathlib import Path
 
 from dotenv import dotenv_values
 
-
 # Default secrets file name
 SECRETS_FILE = ".env.secrets"
 

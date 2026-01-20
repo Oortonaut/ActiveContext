@@ -43,7 +43,7 @@ class TokenInfo:
     is_bytes: bool = False
 
 
-def format_token_info(info: TokenInfo, state: "NodeState") -> str:
+def format_token_info(info: TokenInfo, state: NodeState) -> str:
     """Format token info string based on current visibility state.
 
     The slash `/` separates visible tokens from hidden tokens.
@@ -108,7 +108,7 @@ def format_token_info(info: TokenInfo, state: "NodeState") -> str:
 def render_header(
     display_id: str,
     name: str,
-    state: "NodeState",
+    state: NodeState,
     token_info: TokenInfo,
 ) -> str:
     """Render a uniform header for a context node.

@@ -30,17 +30,14 @@ from activecontext.context.nodes import (
     MCPServerNode,
     ShellNode,
     ShellStatus,
-    TopicNode,
     TextNode,
+    TopicNode,
     WorkNode,
 )
+from activecontext.context.state import NodeState, NotificationLevel, TickFrequency
 from activecontext.mcp import (
     MCPClientManager,
-    MCPPermissionDenied,
-    MCPToolResult,
 )
-from activecontext.context.state import NodeState, NotificationLevel, TickFrequency
-from activecontext.terminal.result import ShellResult
 from activecontext.session.permissions import (
     ImportDenied,
     ImportGuard,
@@ -69,6 +66,7 @@ from activecontext.session.protocols import (
     WaitMode,
 )
 from activecontext.session.xml_parser import is_xml_command, parse_xml_to_python
+from activecontext.terminal.result import ShellResult
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -138,8 +136,8 @@ class Timeline:
         shell_permission_requester: ShellPermissionRequester | None = None,
         website_permission_manager: WebsitePermissionManager | None = None,
         website_permission_requester: WebsitePermissionRequester | None = None,
-        scratchpad_manager: "ScratchpadManager | None" = None,
-        mcp_config: "MCPConfig | None" = None,
+        scratchpad_manager: ScratchpadManager | None = None,
+        mcp_config: MCPConfig | None = None,
     ) -> None:
         self._session_id = session_id
         self._cwd = cwd
@@ -239,7 +237,7 @@ class Timeline:
         self._current_group_id: str | None = None
 
         # Agent manager for multi-agent support (set by AgentManager after spawn)
-        self._agent_manager: "AgentManager | None" = None
+        self._agent_manager: AgentManager | None = None
         self._agent_id: str | None = None
 
         # Event handling system
@@ -248,7 +246,7 @@ class Timeline:
         self._setup_default_event_handlers()
 
         # Text buffer storage for shared line content
-        self._text_buffers: dict[str, "TextBuffer"] = {}
+        self._text_buffers: dict[str, TextBuffer] = {}
 
         # File watcher for detecting external file changes
         from activecontext.watching import FileWatcher
@@ -257,9 +255,9 @@ class Timeline:
             poll_interval=1.0,
         )
         # Callback set by Session when agent loop starts
-        self._on_file_changed: Callable[["FileChangeEvent"], None] | None = None
+        self._on_file_changed: Callable[[FileChangeEvent], None] | None = None
 
-    def configure_file_watcher(self, config: "FileWatchConfig | None") -> None:
+    def configure_file_watcher(self, config: FileWatchConfig | None) -> None:
         """Configure the file watcher from config.
 
         Args:
@@ -1563,7 +1561,6 @@ class Timeline:
         This runs in the background while the agent continues. When complete,
         it stores the result in _pending_lock_results for processing at tick.
         """
-        import os
         import sys
 
         start_time = time.time()
@@ -1599,7 +1596,7 @@ class Timeline:
                     self._pending_lock_results.append((node_id, LockStatus.ACQUIRED, None))
                     return
 
-                except (IOError, OSError):
+                except OSError:
                     # Lock held by another process - wait and retry
                     await asyncio.sleep(poll_interval)
 
@@ -1641,13 +1638,13 @@ class Timeline:
                 import msvcrt
                 try:
                     msvcrt.locking(lock_fd.fileno(), msvcrt.LK_UNLCK, 1)
-                except (IOError, OSError):
+                except OSError:
                     pass  # May already be released
             else:
                 import fcntl
                 try:
                     fcntl.flock(lock_fd.fileno(), fcntl.LOCK_UN)
-                except (IOError, OSError):
+                except OSError:
                     pass  # May already be released
 
             # Close the file handle
@@ -1656,7 +1653,7 @@ class Timeline:
             # Remove the lock file
             try:
                 os.unlink(node.lockfile)
-            except (IOError, OSError):
+            except OSError:
                 pass  # File may already be removed
 
             # Update node state
@@ -1774,7 +1771,7 @@ class Timeline:
         if self._shell_tasks or self._lock_tasks:
             await asyncio.sleep(0)
 
-    async def __aenter__(self) -> "Timeline":
+    async def __aenter__(self) -> Timeline:
         """Async context manager entry."""
         return self
 
@@ -2285,7 +2282,7 @@ class Timeline:
         agent_type: str,
         task: str,
         **kwargs: Any,
-    ) -> "AgentHandle":
+    ) -> AgentHandle:
         """Spawn a new child agent.
 
         DSL function: spawn(agent_type, task, **kwargs)
@@ -2305,7 +2302,6 @@ class Timeline:
         if not self._agent_manager:
             raise RuntimeError("Agent manager not available")
 
-        from activecontext.agents.handle import AgentHandle
 
         # Spawn synchronously using existing loop
         import asyncio
@@ -2334,7 +2330,7 @@ class Timeline:
         agent_type: str,
         task: str,
         **kwargs: Any,
-    ) -> "AgentHandle":
+    ) -> AgentHandle:
         """Async version of spawn_agent for internal use."""
         if not self._agent_manager:
             raise RuntimeError("Agent manager not available")
@@ -2895,9 +2891,7 @@ class Timeline:
         # Check for failures (ShellNode or LockNode)
         failed_nodes: list[ShellNode | LockNode] = []
         for n in nodes:
-            if isinstance(n, ShellNode) and n.shell_status == ShellStatus.FAILED:
-                failed_nodes.append(n)
-            elif isinstance(n, LockNode) and n.lock_status in (LockStatus.ERROR, LockStatus.TIMEOUT):
+            if isinstance(n, ShellNode) and n.shell_status == ShellStatus.FAILED or isinstance(n, LockNode) and n.lock_status in (LockStatus.ERROR, LockStatus.TIMEOUT):
                 failed_nodes.append(n)
 
         if failed_nodes and condition.failure_prompt:

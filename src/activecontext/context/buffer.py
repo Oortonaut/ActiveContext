@@ -29,7 +29,7 @@ class TextBuffer:
     metadata: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
-    def from_file(cls, path: str | Path, cwd: str = ".") -> "TextBuffer":
+    def from_file(cls, path: str | Path, cwd: str = ".") -> TextBuffer:
         """Load a TextBuffer from a file.
 
         Args:
@@ -54,7 +54,7 @@ class TextBuffer:
         )
 
     @classmethod
-    def from_content(cls, content: str, path: str = "") -> "TextBuffer":
+    def from_content(cls, content: str, path: str = "") -> TextBuffer:
         """Create a TextBuffer from string content.
 
         Args:
@@ -118,7 +118,7 @@ class TextBuffer:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "TextBuffer":
+    def from_dict(cls, data: dict[str, Any]) -> TextBuffer:
         """Deserialize from dictionary."""
         return cls(
             buffer_id=data.get("buffer_id", str(uuid.uuid4())[:8]),

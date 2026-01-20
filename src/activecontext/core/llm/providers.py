@@ -48,9 +48,8 @@ def _load_providers_yaml() -> dict[str, Any]:
     """Load providers.yaml from package resources."""
     files = importlib.resources.files("activecontext.core.llm")
     yaml_path = files.joinpath("providers.yaml")
-    with importlib.resources.as_file(yaml_path) as path:
-        with open(path) as f:
-            return yaml.safe_load(f)
+    with importlib.resources.as_file(yaml_path) as path, open(path) as f:
+        return yaml.safe_load(f)
 
 
 def _build_provider_configs() -> dict[str, ProviderConfig]:

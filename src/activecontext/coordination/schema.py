@@ -76,8 +76,8 @@ class Scratchpad:
     version: int = 2
     entries: list[WorkEntry] = field(default_factory=list)
     # Multi-agent fields (v2)
-    agents: list["AgentEntry"] = field(default_factory=list)
-    messages: list["AgentMessage"] = field(default_factory=list)
+    agents: list[AgentEntry] = field(default_factory=list)
+    messages: list[AgentMessage] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {

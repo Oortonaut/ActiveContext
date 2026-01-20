@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Callable, Awaitable
+from typing import TYPE_CHECKING, Any
 
 from mcp import types
 from mcp.client.session import ClientSession
@@ -12,14 +13,14 @@ from mcp.client.session import ClientSession
 from activecontext.mcp.transport import create_transport
 from activecontext.mcp.types import (
     MCPConnectionStatus,
-    MCPToolInfo,
-    MCPResourceInfo,
-    MCPToolResult,
     MCPPromptInfo,
+    MCPResourceInfo,
+    MCPToolInfo,
+    MCPToolResult,
 )
 
 if TYPE_CHECKING:
-    from activecontext.config.schema import MCPServerConfig, MCPConfig
+    from activecontext.config.schema import MCPConfig, MCPServerConfig
 
 _log = logging.getLogger("activecontext.mcp.client")
 
@@ -29,7 +30,7 @@ class MCPConnection:
     """Represents an active MCP server connection."""
 
     name: str
-    config: "MCPServerConfig"
+    config: MCPServerConfig
     session: ClientSession | None = None
     status: MCPConnectionStatus = MCPConnectionStatus.DISCONNECTED
     tools: list[MCPToolInfo] = field(default_factory=list)
@@ -227,7 +228,7 @@ class MCPClientManager:
     """Manages multiple MCP server connections for a session."""
 
     connections: dict[str, MCPConnection] = field(default_factory=dict)
-    config: "MCPConfig | None" = None
+    config: MCPConfig | None = None
     _permission_callback: MCPPermissionCallback | None = None
 
     def set_permission_callback(self, callback: MCPPermissionCallback) -> None:
@@ -237,7 +238,7 @@ class MCPClientManager:
     async def connect(
         self,
         name: str | None = None,
-        config: "MCPServerConfig | None" = None,
+        config: MCPServerConfig | None = None,
     ) -> MCPConnection:
         """Connect to an MCP server by name (from config) or with explicit config.
 

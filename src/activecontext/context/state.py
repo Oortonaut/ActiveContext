@@ -10,7 +10,6 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Optional
 
 
 class NodeState(Enum):
@@ -90,7 +89,7 @@ class TickFrequency:
     """
 
     mode: str  # "turn", "async", "never", "periodic"
-    interval: Optional[float] = None  # For periodic mode
+    interval: float | None = None  # For periodic mode
 
     @staticmethod
     def turn() -> TickFrequency:

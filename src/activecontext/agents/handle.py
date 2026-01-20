@@ -39,7 +39,7 @@ class AgentHandle:
     def __init__(
         self,
         agent_id: str,
-        agent_manager: "AgentManager",
+        agent_manager: AgentManager,
     ) -> None:
         """Initialize the handle.
 
@@ -79,7 +79,7 @@ class AgentHandle:
         entry = self._manager.get_agent(self._agent_id)
         return entry.parent_id if entry else None
 
-    def Send(self, content: str, *node_refs: "ContextNode") -> str:
+    def Send(self, content: str, *node_refs: ContextNode) -> str:
         """Send a message to this agent.
 
         Args:
@@ -126,7 +126,7 @@ class AgentHandle:
                 )
             )
 
-    def Pause(self) -> "AgentHandle":
+    def Pause(self) -> AgentHandle:
         """Pause this agent.
 
         Returns:
@@ -143,7 +143,7 @@ class AgentHandle:
             )
         return self
 
-    def Resume(self) -> "AgentHandle":
+    def Resume(self) -> AgentHandle:
         """Resume this agent.
 
         Returns:
@@ -160,7 +160,7 @@ class AgentHandle:
             )
         return self
 
-    def Terminate(self) -> "AgentHandle":
+    def Terminate(self) -> AgentHandle:
         """Terminate this agent.
 
         Returns:

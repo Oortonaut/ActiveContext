@@ -48,12 +48,6 @@ Today's Goals: Develop ActiveContext with itself
 - [ ] DETAILS state: full method list with signatures and examples
 - [ ] Generate help content dynamically from class metadata/docstrings
 
-#### REPL Enhancements
-- [ ] Add node lookup by name (e.g., `get("my_view")` or `nodes["my_view"]`)
-- [ ] Support fuzzy/partial name matching
-- [ ] Add `remove(node)` DSL function to exclude node from traversal
-- [ ] Removed nodes skip rendering but retain state for potential restoration
-
 ### Stream B: Testing & Quality
 
 #### Notification System Testing
@@ -84,10 +78,47 @@ Today's Goals: Develop ActiveContext with itself
 - [ ] Test state transitions (HIDDEN->COLLAPSED->SUMMARY->DETAILS->ALL)
 - [ ] Test group summarization triggers
 
-#### Test Coverage Update
-- [ ] Run coverage analysis on current test suite
-- [ ] Identify untested code paths
-- [ ] Add tests for critical gaps
+#### Test Coverage Improvement (Audit: 2026-01-20)
+**Current**: 699 tests, 61% coverage (3,156 statements missing)
+
+##### P0 - Critical Gaps (Zero Coverage)
+- [ ] `dashboard/*` (447 stmts) - Decide: test or remove
+- [ ] `clean.py` (31 stmts) - Simple file cleanup utility
+
+##### P0 - Core Engine Coverage
+- [ ] `session/timeline.py` (49%, 540 missing) - Core execution engine
+  - [ ] Statement replay/rollback (`replay_from()`)
+  - [ ] Error handling paths
+  - [ ] Shell execution flows
+  - [ ] Lock management
+- [ ] `transport/acp/agent.py` (21%, 512 missing) - ACP protocol handler
+  - [ ] Session lifecycle (create/prompt/cancel)
+  - [ ] JSON-RPC message handling
+  - [ ] Error recovery paths
+
+##### P1 - Module Coverage
+- [ ] `mcp/client.py` (27%, 131 missing) - MCP client manager
+  - [ ] Server connection lifecycle
+  - [ ] Tool invocation
+  - [ ] Error handling
+- [ ] `mcp/transport.py` (16%, 27 missing) - Transport abstraction
+- [ ] `context/view.py` (31%, 97 missing) - File view node
+- [ ] `agents/handle.py` (30%, 49 missing) - Agent interaction
+- [ ] `agents/manager.py` (31%, 55 missing) - Agent lifecycle
+- [ ] `agents/registry.py` (33%, 28 missing) - Agent type registry
+- [ ] `watching/watcher.py` (49%, 70 missing) - File watching
+- [ ] `context/nodes.py` (65%, 444 missing) - Node types
+  - [ ] ShellNode lifecycle
+  - [ ] MCPServerNode operations
+  - [ ] WorkNode coordination
+  - [ ] AgentNode management
+
+##### Quick Wins (Easy to Add)
+- [ ] `clean.py` - 31 stmts, simple deletion logic
+- [ ] `mcp/transport.py` - 27 stmts, transport abstraction
+- [ ] `agents/registry.py` - 28 stmts, simple registry
+
+**Target**: 80% coverage
 
 ### Stream C: Documentation & Prompts
 
@@ -107,6 +138,16 @@ Today's Goals: Develop ActiveContext with itself
 - [ ] Add test cases for collapsed TextNodes
 - [ ] Add test cases for summarized TextNodes
 - [ ] Verify render_tags output for all node states
+
+### Stream D: Session/REPL
+
+#### Node Lookup
+- [ ] Add node lookup by name (e.g., `get("my_view")` or `nodes["my_view"]`)
+- [ ] Support fuzzy/partial name matching
+
+#### Traversal Control
+- [ ] Add `remove(node)` DSL function to exclude node from traversal
+- [ ] Removed nodes skip rendering but retain state for potential restoration
 
 ---
 
@@ -182,9 +223,10 @@ Today's Goals: Develop ActiveContext with itself
 
 | Stream | Tasks | Can Run With |
 |--------|-------|--------------|
-| **A** | Text insertion, New nodes | B, C |
-| **B** | MCP tests, Node tests, Coverage, Notification tests | A, C |
-| **C** | Prompt cleanup, Markdown fixtures | A, B |
+| **A** | Text insertion, New nodes, Help system | B, C, D |
+| **B** | MCP tests, Node tests, Coverage, Notification tests | A, C, D |
+| **C** | Prompt cleanup, Markdown fixtures, ACP docs | A, B, D |
+| **D** | Node lookup, Traversal control | A, B, C |
 | **Debt** | Code cleanup, Dead code removal | Any (low risk) |
 
 ### Suggested Parallel Execution
@@ -192,5 +234,6 @@ Today's Goals: Develop ActiveContext with itself
 **Agent 1**: Stream A (Node Enhancements)
 **Agent 2**: Stream B (Testing)
 **Agent 3**: Stream C (Documentation)
+**Agent 4**: Stream D (Session/REPL)
 
 P0 (Notifications) is now complete. Notification testing should be prioritized in Stream B.

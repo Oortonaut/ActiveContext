@@ -173,7 +173,7 @@ class MarkdownParser:
 
         return result
 
-    def parse_buffer(self, buffer: "TextBuffer") -> ParseResult:
+    def parse_buffer(self, buffer: TextBuffer) -> ParseResult:
         """Parse a TextBuffer and extract heading sections.
 
         Args:

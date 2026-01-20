@@ -65,12 +65,52 @@ class StartupConfig:
 
 
 @dataclass
+class FileWatchConfig:
+    """File watching configuration.
+
+    Controls how the agent monitors files for external changes.
+    Changes to watched files can wake the agent or be queued for batch processing.
+
+    Example config.yaml:
+        session:
+          file_watch:
+            enabled: true
+            poll_interval: 1.0
+            watch_project: false
+            project_patterns:
+              - "**/*.py"
+              - "**/*.md"
+            ignore_patterns:
+              - "**/__pycache__/**"
+              - "**/.git/**"
+    """
+
+    enabled: bool = True  # Enable file watching
+    poll_interval: float = 1.0  # Seconds between polling cycles
+    watch_project: bool = False  # Watch all files under project root
+    project_patterns: list[str] = field(
+        default_factory=lambda: ["**/*.py", "**/*.md", "**/*.yaml"]
+    )  # Glob patterns for project watching
+    ignore_patterns: list[str] = field(
+        default_factory=lambda: [
+            "**/__pycache__/**",
+            "**/.git/**",
+            "**/node_modules/**",
+            "**/.venv/**",
+            "**/*.pyc",
+        ]
+    )  # Patterns to ignore
+    max_files: int = 1000  # Maximum files to watch (prevents memory issues)
+
+
+@dataclass
 class SessionConfig:
     """Session defaults configuration."""
 
     modes: list[SessionModeConfig] = field(default_factory=list)
     default_mode: str | None = None  # Default: "normal"
-    startup: StartupConfig = field(default_factory=StartupConfig)  # Default: "normal"
+    startup: StartupConfig = field(default_factory=StartupConfig)
+    file_watch: FileWatchConfig = field(default_factory=FileWatchConfig)
 
 
 @dataclass

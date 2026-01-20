@@ -1302,7 +1302,7 @@ class URLTypeValidator:
         try:
             socket.inet_pton(socket.AF_INET, value)
             return True
-        except (socket.error, OSError):
+        except OSError:
             return False
 
     @staticmethod
@@ -1313,7 +1313,7 @@ class URLTypeValidator:
         try:
             socket.inet_pton(socket.AF_INET6, value)
             return True
-        except (socket.error, OSError):
+        except OSError:
             return False
 
     @staticmethod

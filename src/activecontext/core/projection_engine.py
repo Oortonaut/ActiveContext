@@ -96,13 +96,13 @@ class ProjectionEngine:
     def build(
         self,
         *,
-        context_graph: "ContextGraph | None" = None,
+        context_graph: ContextGraph | None = None,
         cwd: str = ".",
         token_budget: int | None = None,
         # Per-agent view support (split architecture)
         agent_id: str | None = None,
-        view_registry: "ViewRegistry | None" = None,
-        content_registry: "ContentRegistry | None" = None,
+        view_registry: ViewRegistry | None = None,
+        content_registry: ContentRegistry | None = None,
     ) -> Projection:
         """Build a projection from current session state.
 
@@ -154,7 +154,7 @@ class ProjectionEngine:
             handles=handles,
         )
 
-    def _collect_render_path(self, graph: "ContextGraph") -> RenderPath:
+    def _collect_render_path(self, graph: ContextGraph) -> RenderPath:
         """Collect the render path through the graph in document order.
 
         Uses the root context node's child_order for deterministic ordering.
@@ -201,8 +201,8 @@ class ProjectionEngine:
 
     def _collect_from_node(
         self,
-        graph: "ContextGraph",
-        node: "ContextNode",
+        graph: ContextGraph,
+        node: ContextNode,
         path: RenderPath,
         seen: set[str],
     ) -> None:
@@ -240,14 +240,14 @@ class ProjectionEngine:
 
     def _render_path(
         self,
-        graph: "ContextGraph",
+        graph: ContextGraph,
         path: RenderPath,
         budget: int,
         cwd: str,
         *,
         agent_id: str | None = None,
-        view_registry: "ViewRegistry | None" = None,
-        content_registry: "ContentRegistry | None" = None,
+        view_registry: ViewRegistry | None = None,
+        content_registry: ContentRegistry | None = None,
     ) -> list[ProjectionSection]:
         """Render the collected path into projection sections.
 
@@ -304,7 +304,7 @@ class ProjectionEngine:
 
     def _render_node(
         self,
-        node: "ContextNode",
+        node: ContextNode,
         budget: int,
         cwd: str,
     ) -> ProjectionSection | None:
@@ -337,9 +337,9 @@ class ProjectionEngine:
 
     def _render_node_with_agent_view(
         self,
-        node: "ContextNode",
+        node: ContextNode,
         agent_view: Any,
-        content_registry: "ContentRegistry | None",
+        content_registry: ContentRegistry | None,
         cwd: str,
     ) -> ProjectionSection:
         """Render a node using agent-specific view settings.
@@ -389,8 +389,8 @@ class ProjectionEngine:
 
     def _render_hidden_placeholder(
         self,
-        node: "ContextNode",
-        content_registry: "ContentRegistry | None",
+        node: ContextNode,
+        content_registry: ContentRegistry | None,
     ) -> str:
         """Render a placeholder for hidden content.
 

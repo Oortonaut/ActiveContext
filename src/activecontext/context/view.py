@@ -73,7 +73,7 @@ class AgentView:
 
     def render(
         self,
-        content: "ContentData",
+        content: ContentData,
         budget: int | None = None,
     ) -> str:
         """Render this view of the content.
@@ -104,7 +104,7 @@ class AgentView:
             # HIDDEN state (legacy) - treat as hidden flag
             return f"[{content.content_type}: {content.token_count} tokens]"
 
-    def _render_collapsed(self, content: "ContentData") -> str:
+    def _render_collapsed(self, content: ContentData) -> str:
         """Render collapsed view - metadata only."""
         info = content.source_info
         type_label = content.content_type.title()
@@ -118,7 +118,7 @@ class AgentView:
         else:
             return f"[{type_label}: {content.token_count} tokens]"
 
-    def _render_summary(self, content: "ContentData", budget: int) -> str:
+    def _render_summary(self, content: ContentData, budget: int) -> str:
         """Render summary view."""
         if content.summary:
             # Truncate if over budget
@@ -131,7 +131,7 @@ class AgentView:
             # No summary yet - show collapsed
             return self._render_collapsed(content) + " [no summary]"
 
-    def _render_details(self, content: "ContentData", budget: int) -> str:
+    def _render_details(self, content: ContentData, budget: int) -> str:
         """Render details view - full content."""
         if content.token_count <= budget:
             return content.raw_content
@@ -142,7 +142,7 @@ class AgentView:
         truncated = content.token_count - budget
         return content.raw_content[:chars] + f"\n... [{truncated} tokens truncated]"
 
-    def _render_all(self, content: "ContentData", budget: int) -> str:
+    def _render_all(self, content: ContentData, budget: int) -> str:
         """Render ALL view - summary + details."""
         parts = []
 
@@ -160,31 +160,31 @@ class AgentView:
         return "\n\n".join(parts)
 
     # Fluent API
-    def SetHidden(self, hidden: bool) -> "AgentView":
+    def SetHidden(self, hidden: bool) -> AgentView:
         """Set hidden flag."""
         self.hidden = hidden
         self.updated_at = time.time()
         return self
 
-    def SetState(self, state: NodeState) -> "AgentView":
+    def SetState(self, state: NodeState) -> AgentView:
         """Set expansion state."""
         self.state = state
         self.updated_at = time.time()
         return self
 
-    def SetTokens(self, tokens: int) -> "AgentView":
+    def SetTokens(self, tokens: int) -> AgentView:
         """Set token budget."""
         self.tokens = tokens
         self.updated_at = time.time()
         return self
 
-    def Run(self) -> "AgentView":
+    def Run(self) -> AgentView:
         """Enable tick processing."""
         self.mode = "running"
         self.updated_at = time.time()
         return self
 
-    def Pause(self) -> "AgentView":
+    def Pause(self) -> AgentView:
         """Disable tick processing."""
         self.mode = "paused"
         self.updated_at = time.time()
@@ -209,7 +209,7 @@ class AgentView:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "AgentView":
+    def from_dict(cls, data: dict[str, Any]) -> AgentView:
         """Deserialize from dictionary."""
         return cls(
             view_id=data["view_id"],
@@ -235,7 +235,7 @@ class ViewRegistry:
     (agent_id, node_id) for backward compatibility.
     """
 
-    def __init__(self, content_registry: "ContentRegistry") -> None:
+    def __init__(self, content_registry: ContentRegistry) -> None:
         """Initialize with a content registry reference.
 
         Args:

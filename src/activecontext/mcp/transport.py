@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from typing import TYPE_CHECKING, Any, AsyncContextManager, Tuple
+from typing import TYPE_CHECKING, Any, AsyncContextManager
 
 if TYPE_CHECKING:
     from activecontext.config.schema import MCPServerConfig
@@ -25,8 +25,8 @@ def _expand_env_vars(env: dict[str, str]) -> dict[str, str]:
 
 
 async def create_transport(
-    config: "MCPServerConfig",
-) -> AsyncContextManager[Tuple[Any, Any, Any]]:
+    config: MCPServerConfig,
+) -> AsyncContextManager[tuple[Any, Any, Any]]:
     """Create appropriate transport based on config.
 
     Args:
