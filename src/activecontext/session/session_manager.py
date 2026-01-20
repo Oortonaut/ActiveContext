@@ -582,6 +582,16 @@ class Session:
             session._mcp_manager_node = restored_mcp_manager
         # If no mcp_manager node was saved, one was already created in __init__
 
+        # Link session's user_messages group to the restored graph's node (if exists)
+        restored_user_messages = context_graph.get_node("user_messages")
+        if isinstance(restored_user_messages, GroupNode):
+            session._user_messages_group = restored_user_messages
+
+        # Link session's alerts group to the restored graph's node (if exists)
+        restored_alerts = context_graph.get_node("alerts")
+        if isinstance(restored_alerts, GroupNode):
+            session._alerts_group = restored_alerts
+
         return session
 
     def _build_projection_engine(self, config: Config | None) -> ProjectionEngine:

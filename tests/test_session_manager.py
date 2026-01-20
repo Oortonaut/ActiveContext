@@ -603,6 +603,49 @@ class TestSessionPersistence:
         assert sessions_dir.exists()
         assert (sessions_dir / f"{session.session_id}.yaml").exists()
 
+    @pytest.mark.asyncio
+    async def test_session_resume_preserves_user_messages_group(self, tmp_path):
+        """Test that resumed sessions can detect pending messages.
+
+        Regression test for bug where _user_messages_group was not restored
+        from the context graph when loading from disk, causing has_pending_messages()
+        to return False even when messages were queued.
+        """
+        cwd = str(tmp_path)
+        sessions_dir = tmp_path / ".ac" / "sessions"
+        sessions_dir.mkdir(parents=True)
+
+        manager = SessionManager()
+        session = await manager.create_session(cwd=cwd)
+        session_id = session.session_id
+
+        # Queue a message (this adds to _user_messages_group)
+        session.queue_user_message("Hello, test message")
+
+        # Verify message is detected before save
+        assert session.has_pending_messages(), "Message should be pending before save"
+
+        # Save session
+        session.save()
+
+        # Load session from disk (simulates IDE restart)
+        loaded = Session.from_file(
+            cwd=cwd,
+            session_id=session_id,
+            llm=None,
+        )
+
+        # The critical test: _user_messages_group must be restored
+        assert loaded is not None
+        assert loaded._user_messages_group is not None, "_user_messages_group should be restored"
+        assert loaded._alerts_group is not None, "_alerts_group should be restored"
+
+        # Verify the group points to the correct node in the graph
+        graph_node = loaded.timeline.context_graph.get_node("user_messages")
+        assert loaded._user_messages_group is graph_node, (
+            "_user_messages_group should reference the restored graph node"
+        )
+
 
 # =============================================================================
 # JetBrains UUID Detection Tests (Warning-only)
