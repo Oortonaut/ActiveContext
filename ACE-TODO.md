@@ -30,11 +30,23 @@ Today's Goals: Develop ActiveContext with itself
 - [ ] Update `display_label` and `effective_role` to use new field name
 - [ ] Add originator to change notification payloads
 
-#### Text Node Insertion
+#### Text Node Manipulation
 - [ ] Add `insert(pos, content)` method to TextNode
 - [ ] Support insertion at line:column positions
+- [ ] Add `add_lines(line_num, lines)` method
+- [ ] Add `remove_lines(start, end)` method
 - [ ] Validate positions against current content boundaries
-- [ ] Emit appropriate notifications on content change
+- [ ] Register file change callback (separate from context notifications)
+- [ ] Track which nodes reference each file path
+- [ ] On file change: filter nodes whose displayed range overlaps the change
+- [ ] Emit context notifications on change-relevant nodes only
+
+#### MarkdownNode Enhancements
+- [ ] Parse markdown list items into their own child nodes
+  - [ ] Support ordered and unordered lists
+  - [ ] Nested list items become nested child nodes
+  - [ ] Individual list items can have independent NodeState
+  - [ ] Rendered output should preserve original markdown appearance (bullets, numbering, indentation)
 
 #### New Node Types
 - [ ] **FileSystemNode**: Directory tree view with filtering, collapse/expand
@@ -138,6 +150,14 @@ Today's Goals: Develop ActiveContext with itself
 - [ ] Add test cases for collapsed TextNodes
 - [ ] Add test cases for summarized TextNodes
 - [ ] Verify render_tags output for all node states
+- [ ] Add test cases for MarkdownNode list item child nodes
+  - [ ] Verify ordered/unordered lists render with original appearance
+  - [ ] Test nested list indentation preservation
+  - [ ] Test individual list item state changes
+- [ ] Demonstrate rendering of all TextNode visibility states
+  - [ ] Use nested lists to show high-density state combinations
+  - [ ] HIDDEN, COLLAPSED, SUMMARY, DETAILS, ALL side-by-side
+  - [ ] Show same content at each state for comparison
 
 ### Stream D: Session/REPL
 
