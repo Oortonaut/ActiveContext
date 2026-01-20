@@ -37,35 +37,37 @@ from activecontext.core.llm import (
 from activecontext.logging import get_logger
 
 
-def _find_rider_chat_uuid() -> str | None:
-    """Find Rider's chat UUID from its task history filesystem.
+def _find_jetbrains_chat_uuid() -> str | None:
+    """Find JetBrains IDE chat UUID from its task history filesystem.
 
-    Rider stores chat history in aia-task-history/*.events files.
+    JetBrains IDEs store chat history in aia-task-history/*.events files.
     The filename is the chat UUID. We find the most recently modified
     one to determine which chat is currently being used.
 
-    This is a workaround for Rider not passing its chat UUID in session/new.
+    This is a workaround for JetBrains IDEs not passing chat UUID in session/new.
     """
     import os
     from pathlib import Path
 
-    # Find Rider's task history directory
+    # Find JetBrains task history directory
     localappdata = os.environ.get("LOCALAPPDATA")
     if not localappdata:
         return None
 
-    # Look for Rider installations (newest first)
     jetbrains_dir = Path(localappdata) / "JetBrains"
     if not jetbrains_dir.exists():
         return None
 
-    rider_dirs = sorted(
-        [d for d in jetbrains_dir.iterdir() if d.name.startswith("Rider")],
-        reverse=True,  # Newest version first
+    # Look for any JetBrains IDE installations (newest first)
+    # Covers Rider, IntelliJ, PyCharm, WebStorm, etc.
+    ide_dirs = sorted(
+        [d for d in jetbrains_dir.iterdir() if d.is_dir()],
+        key=lambda d: d.stat().st_mtime,
+        reverse=True,  # Most recently modified first
     )
 
-    for rider_dir in rider_dirs:
-        history_dir = rider_dir / "aia-task-history"
+    for ide_dir in ide_dirs:
+        history_dir = ide_dir / "aia-task-history"
         if not history_dir.exists():
             continue
 
@@ -83,7 +85,7 @@ def _find_rider_chat_uuid() -> str | None:
 
         # Validate it looks like a UUID
         if len(chat_uuid) == 36 and chat_uuid.count("-") == 4:
-            log.debug("Found Rider chat UUID: %s", chat_uuid)
+            log.debug("Found JetBrains chat UUID: %s", chat_uuid)
             return chat_uuid
 
     return None
@@ -670,41 +672,41 @@ class ActiveContextAgent:
         mcp_servers: list[Any] | None = None,
         **kwargs: Any,
     ) -> acp.NewSessionResponse:
-        """Create a new session, or resume existing one if Rider UUID matches."""
+        """Create a new session, or resume existing one if JetBrains UUID matches."""
         import traceback
 
         try:
             # Track current cwd for list_sessions
             self._current_cwd = cwd
 
-            # Try to find Rider's chat UUID from filesystem
-            # This allows session resumption even though Rider doesn't call session/load
-            rider_uuid = _find_rider_chat_uuid()
+            # Try to find JetBrains IDE chat UUID from filesystem
+            # This allows session resumption even though JetBrains doesn't call session/load
+            jetbrains_uuid = _find_jetbrains_chat_uuid()
             session = None
 
-            if rider_uuid:
+            if jetbrains_uuid:
                 # Check if already in memory (other hosts might not restart agent)
-                existing = await self._manager.get_session(rider_uuid)
+                existing = await self._manager.get_session(jetbrains_uuid)
                 if existing:
-                    log.info("Resuming session %s (in memory)", rider_uuid)
+                    log.info("Resuming session %s (in memory)", jetbrains_uuid)
                     session = existing
                 else:
                     # Try loading from disk
                     loaded = Session.from_file(
                         cwd=cwd,
-                        session_id=rider_uuid,
+                        session_id=jetbrains_uuid,
                         llm=self._manager._default_llm,
                     )
                     if loaded:
-                        log.info("Resuming session %s (from disk)", rider_uuid)
-                        self._manager._sessions[rider_uuid] = loaded
+                        log.info("Resuming session %s (from disk)", jetbrains_uuid)
+                        self._manager._sessions[jetbrains_uuid] = loaded
                         session = loaded
 
             if session is None:
-                # Create new session with Rider's UUID (or generate one)
+                # Create new session with JetBrains UUID (or generate one)
                 session = await self._manager.create_session(
                     cwd=cwd,
-                    session_id=rider_uuid,  # Will generate UUID if None
+                    session_id=jetbrains_uuid,  # Will generate UUID if None
                     permission_requester=None,
                     shell_permission_requester=None,
                     website_permission_requester=None,
@@ -1172,7 +1174,7 @@ class ActiveContextAgent:
         else:
             log.warning("Session %s not found in manager during cancel", session_id)
 
-        # Clean up session tracking (only for sessions we created, not the main Rider session)
+        # Clean up session tracking (only for sessions we created, not the main IDE session)
         # This prevents unbounded growth of _closed_sessions for child agent sessions
         self._cleanup_closed_session(session_id)
         log.info("Cancel [%s]: completed", session_id)

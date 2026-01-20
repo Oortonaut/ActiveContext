@@ -605,29 +605,29 @@ class TestSessionPersistence:
 
 
 # =============================================================================
-# Rider UUID Detection Tests (Warning-only)
+# JetBrains UUID Detection Tests (Warning-only)
 # =============================================================================
 
 
-class TestRiderUUIDDetection:
-    """Tests for Rider chat UUID detection.
+class TestJetBrainsUUIDDetection:
+    """Tests for JetBrains IDE chat UUID detection.
 
-    These tests warn rather than fail because the Rider UUID detection
-    is a workaround that depends on Rider's internal file structure.
+    These tests warn rather than fail because the JetBrains UUID detection
+    is a workaround that depends on JetBrains IDEs' internal file structure.
     """
 
-    def test_find_rider_chat_uuid_warns_if_not_found(self):
-        """Test _find_rider_chat_uuid returns None gracefully when Rider not installed."""
+    def test_find_jetbrains_chat_uuid_warns_if_not_found(self):
+        """Test _find_jetbrains_chat_uuid returns None gracefully when no JetBrains IDE installed."""
         import warnings
-        from activecontext.transport.acp.agent import _find_rider_chat_uuid
+        from activecontext.transport.acp.agent import _find_jetbrains_chat_uuid
 
-        result = _find_rider_chat_uuid()
+        result = _find_jetbrains_chat_uuid()
 
         # This should not raise, just return None or a UUID
         if result is None:
             warnings.warn(
-                "Rider chat UUID detection unavailable - "
-                "Rider may not be installed or aia-task-history not found",
+                "JetBrains chat UUID detection unavailable - "
+                "no JetBrains IDE installed or aia-task-history not found",
                 UserWarning,
             )
         else:
