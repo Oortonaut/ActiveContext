@@ -71,10 +71,12 @@ def setup_logging(config: LoggingConfig | None = None) -> None:
             file_handler.setFormatter(formatter)
             logger.addHandler(file_handler)
         except Exception as e:
-            # Fall back to stderr if file can't be opened
-            print(f"[activecontext] Failed to open log file: {e}", file=sys.stderr)
-            _add_stderr_handler(formatter, log_level)
-    else:
+            # Fall back to stderr if file can't be opened (only if real console)
+            if sys.stderr.isatty():
+                print(f"[activecontext] Failed to open log file: {e}", file=sys.stderr)
+                _add_stderr_handler(formatter, log_level)
+    elif sys.stderr.isatty():
+        # Only log to stderr if it's a real console, not pipes from IDE
         _add_stderr_handler(formatter, log_level)
 
 

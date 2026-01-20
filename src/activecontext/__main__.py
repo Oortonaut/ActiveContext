@@ -11,6 +11,7 @@ messages from an ACP client (Rider, Zed, etc.).
 """
 
 import os
+import sys
 
 from activecontext.logging import get_logger, setup_logging
 
@@ -47,7 +48,7 @@ def _expand_env_vars() -> None:
 
 
 async def _main() -> None:
-    """Async entry point - use simple acp.run_agent() like the original."""
+    """Async entry point."""
     import acp
 
     from activecontext.transport.acp.agent import create_agent
@@ -64,8 +65,6 @@ async def _main() -> None:
         )
 
     log.info("Ready to accept ACP requests")
-
-    # Use simple acp.run_agent() - this is what worked in the original
     await acp.run_agent(agent, use_unstable_protocol=True)
 
 
@@ -75,34 +74,25 @@ def main() -> None:
 
     from activecontext.config import load_config
 
-    # Expand environment variable references like ${VAR_NAME}
-    # This allows acp.json to reference system env vars:
-    #   "env": { "OPENAI_API_KEY": "${OPENAI_API_KEY}" }
+    # When stdin is piped (IDE or echo), silence stderr and root logger
+    # to prevent tracebacks from interfering with ACP protocol
+    if not sys.stdin.isatty():
+        sys.stderr = open(os.devnull, "w")
+        import logging
+        logging.getLogger().addHandler(logging.NullHandler())
+        logging.getLogger().setLevel(logging.CRITICAL + 1)  # Silence everything
+
     _expand_env_vars()
-
-    # Load config before logging so we can use config.logging settings
     config = load_config()
-
-    # Initialize logging with config
     setup_logging(config.logging)
 
-    from activecontext.core.llm.discovery import get_default_model
-
     log.info("Starting ActiveContext ACP agent...")
-    model = get_default_model()
-    log.info("Configuration loaded (role=%s, provider=%s, model=%s, budget=%s)",
-              config.llm.role or "balanced",
-              config.llm.provider or "auto",
-              model or "none",
-              config.projection.total_budget or "default")
-
-    try:
-        asyncio.run(_main())
-    finally:
-        # Ensure process exits even if there are lingering resources
-        log.info("Exiting...")
-        os._exit(0)
+    asyncio.run(_main())
 
 
 if __name__ == "__main__":
+    import multiprocessing as mp
+
+    mp.freeze_support()
+
     main()

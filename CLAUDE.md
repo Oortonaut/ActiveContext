@@ -468,6 +468,31 @@ Always phrase commands to match your allowlist patterns. If a command fails with
 2. Is there a space vs. colon mismatch?
 3. Are you using the exact tool path specified (e.g., `uv run` vs. bare `pytest`)?
 
+## ACP Protocol Notes
+
+### Session Lifecycle
+
+- **`session/cancel`** is ONLY for cancelling in-progress prompts (e.g., user clicks stop during generation). It is NOT for session termination.
+- There is NO ACP message for session/process termination. Shutdown happens via process termination.
+- Every `session/prompt` request MUST receive exactly one `PromptResponse`. If cancelled mid-stream, return `stop_reason="cancelled"`.
+
+### Rider Shutdown Behavior (Windows)
+
+**Known Rider Bug**: When deleting the *active* chat (the one you're currently in), Rider fails to close stdio pipes or terminate the subprocess, causing the agent to hang. This is a Rider bug that has been reported.
+
+**Workaround**: Delete chats from the chat list sidebar instead of while the chat is active. Deleting from the chat list works correctly.
+
+When properly closing a chat (from the list or closing Rider):
+1. Rider closes the stdio pipes
+2. Agent detects EOF and exits
+3. Rider cleans up resources
+
+### Debugging ACP
+
+Rider logs are at:
+- `%LOCALAPPDATA%\JetBrains\Rider2025.3\log\acp\acp.log` - High-level events
+- `%LOCALAPPDATA%\JetBrains\Rider2025.3\log\acp\acp-transport.log` - Raw JSON-RPC messages
+
 ## Guidance
 
 Ask a lot of questions during planning.
