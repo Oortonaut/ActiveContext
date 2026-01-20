@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import TYPE_CHECKING, Any
 
-from activecontext.context.state import NodeState, TickFrequency
+from activecontext.context.state import NodeState, NotificationLevel, TickFrequency
 from activecontext.core.tokens import MediaType, detect_media_type, tokens_to_chars
 
 
@@ -60,6 +60,7 @@ class Trace:
     new_version: int
     description: str
     content: str | None = None  # Optional trace content
+    originator: str | None = None  # Source of the change (node ID, filename, etc.)  # Optional trace content
 
 
 # Type alias for hooks
@@ -106,6 +107,9 @@ class ContextNode(ABC):
     # Metadata
     tags: dict[str, Any] = field(default_factory=dict)
 
+    # Originator: identifies the source of this node (node ID, filename, or arbitrary string)
+    originator: str | None = None
+
     # Display sequence for uniform headers (e.g., text#1, message#13)
     # Assigned by ContextGraph.add_node() using per-type counters
     display_sequence: int | None = field(default=None)
@@ -113,6 +117,11 @@ class ContextNode(ABC):
     # Split architecture: optional reference to shared ContentData
     # When set, nodes can delegate content storage to ContentRegistry
     content_id: str | None = field(default=None)
+
+    # Notification configuration
+    # Controls how changes to this node are communicated to the agent
+    notification_level: NotificationLevel = NotificationLevel.IGNORE
+    is_subscription_point: bool = False  # If True, notifications stop here
 
     # Graph reference (set by ContextGraph.add_node)
     _graph: ContextGraph | None = field(default=None, repr=False)
@@ -193,7 +202,25 @@ class ContextNode(ABC):
         self.updated_at = time.time()
         if trace:
             self.pending_traces.append(trace)
+            # Generate notification if level is not IGNORE
+            if self.notification_level != NotificationLevel.IGNORE:
+                self._emit_notification(trace)
         self.notify_parents(trace)
+
+    def _emit_notification(self, trace: Trace) -> None:
+        """Emit notification - collected by graph's notification system."""
+        if self._graph and hasattr(self._graph, "emit_notification"):
+            header = self._format_notification_header(trace)
+            self._graph.emit_notification(
+                node_id=self.node_id,
+                trace_id=f"{self.node_id}:{trace.new_version}",
+                header=header,
+                level=self.notification_level,
+            )
+
+    def _format_notification_header(self, trace: Trace) -> str:
+        """Format brief notification header. Override in subclasses."""
+        return f"{self.display_id}: {trace.description}"
 
     def notify_parents(self, trace: Trace | None = None) -> None:
         """Notify all parent nodes of a change."""
@@ -244,8 +271,11 @@ class ContextNode(ABC):
             "created_at": self.created_at,
             "updated_at": self.updated_at,
             "tags": self.tags,
+            "originator": self.originator,
             "content_id": self.content_id,
             "display_sequence": self.display_sequence,
+            "notification_level": self.notification_level.value,
+            "is_subscription_point": self.is_subscription_point,
         }
 
     @classmethod
@@ -313,6 +343,15 @@ class ContextNode(ABC):
         self.state = s
         return self
 
+    def SetNotify(self, level: NotificationLevel) -> ContextNode:
+        """Set notification level (fluent API).
+
+        Args:
+            level: NotificationLevel.IGNORE, HOLD, or WAKE
+        """
+        self.notification_level = level
+        return self
+
 
 @dataclass
 class TextNode(ContextNode):
@@ -339,9 +378,12 @@ class TextNode(ContextNode):
     end_line: int | None = None
 
     def __post_init__(self) -> None:
-        """Auto-detect media type from file extension."""
+        """Auto-detect media type from file extension and set originator."""
         if self.path and self.media_type == MediaType.TEXT:
             self.media_type = detect_media_type(self.path)
+        # Auto-populate originator from path if not explicitly set
+        if self.originator is None and self.path:
+            self.originator = self.path
 
     @property
     def node_type(self) -> str:
@@ -515,6 +557,17 @@ class TextNode(ContextNode):
         self.end_pos = end_pos
         return self
 
+    def _format_notification_header(self, trace: Trace) -> str:
+        """Format header with line change info for text nodes."""
+        # Try to parse line changes from trace content if available
+        if trace.content:
+            # Count lines starting with + or - (diff format)
+            added = sum(1 for line in trace.content.split("\n") if line.startswith("+"))
+            removed = sum(1 for line in trace.content.split("\n") if line.startswith("-"))
+            if added or removed:
+                return f"{self.display_id}: ({-removed:+d}/{+added:+d} lines at {self.pos})"
+        return f"{self.display_id}: {trace.description}"
+
     def get_display_name(self) -> str:
         """Return 'path:start-end' format."""
         try:
@@ -588,6 +641,7 @@ class TextNode(ContextNode):
             updated_at=data.get("updated_at", time.time()),
             tags=data.get("tags", {}),
             display_sequence=data.get("display_sequence"),
+            originator=data.get("originator"),
             path=data.get("path", ""),
             pos=data.get("pos", "1:0"),
             end_pos=data.get("end_pos"),
@@ -789,6 +843,7 @@ class GroupNode(ContextNode):
             updated_at=data.get("updated_at", time.time()),
             tags=data.get("tags", {}),
             display_sequence=data.get("display_sequence"),
+            originator=data.get("originator"),
             child_order=data.get("child_order", []),
             summary_prompt=data.get("summary_prompt"),
             cached_summary=data.get("cached_summary"),
@@ -905,6 +960,7 @@ class TopicNode(ContextNode):
             updated_at=data.get("updated_at", time.time()),
             tags=data.get("tags", {}),
             display_sequence=data.get("display_sequence"),
+            originator=data.get("originator"),
             title=data.get("title", ""),
             message_indices=data.get("message_indices", []),
             status=data.get("status", "active"),
@@ -1029,6 +1085,7 @@ class ArtifactNode(ContextNode):
             updated_at=data.get("updated_at", time.time()),
             tags=data.get("tags", {}),
             display_sequence=data.get("display_sequence"),
+            originator=data.get("originator"),
             artifact_type=data.get("artifact_type", "code"),
             content=data.get("content", ""),
             language=data.get("language"),
@@ -1277,6 +1334,7 @@ class ShellNode(ContextNode):
             updated_at=data.get("updated_at", time.time()),
             tags=data.get("tags", {}),
             display_sequence=data.get("display_sequence"),
+            originator=data.get("originator"),
             command=data.get("command", ""),
             args=data.get("args", []),
             shell_status=ShellStatus(data.get("shell_status", "pending")),
@@ -1490,6 +1548,7 @@ class LockNode(ContextNode):
             updated_at=data.get("updated_at", time.time()),
             tags=data.get("tags", {}),
             display_sequence=data.get("display_sequence"),
+            originator=data.get("originator"),
             lockfile=data.get("lockfile", ""),
             lock_status=LockStatus(data.get("lock_status", "pending")),
             timeout=data.get("timeout", 30.0),
@@ -1790,6 +1849,7 @@ class SessionNode(ContextNode):
             updated_at=data.get("updated_at", time.time()),
             tags=data.get("tags", {}),
             display_sequence=data.get("display_sequence"),
+            originator=data.get("originator"),
             token_history=data.get("token_history", []),
             token_min=data.get("token_min", 0),
             token_max=data.get("token_max", 0),
@@ -1824,14 +1884,13 @@ class MessageNode(ContextNode):
     Attributes:
         role: Message role ("user", "assistant", "tool_call", "tool_result")
         content: The message content
-        actor: Who produced this message (e.g., "user", "agent", "tool:grep")
+        originator: (inherited) Who produced this message (e.g., "user", "agent", "tool:grep")
         tool_name: Tool name for tool_call/tool_result messages
         tool_args: Tool arguments (for tool_call messages)
     """
 
     role: str = "user"  # "user", "assistant", "tool_call", "tool_result"
     content: str = ""
-    actor: str | None = None
     tool_name: str | None = None
     tool_args: dict[str, Any] = field(default_factory=dict)
 
@@ -1842,52 +1901,52 @@ class MessageNode(ContextNode):
     @property
     def effective_role(self) -> str:
         """Return the role for LLM alternation (USER or ASSISTANT)."""
-        return "USER" if self.actor == "user" else "ASSISTANT"
+        return "USER" if self.originator == "user" else "ASSISTANT"
 
     @property
     def display_label(self) -> str:
         """Return the human-friendly label for this message.
 
         Mapping:
-        - actor="user" → configured user name (default "User")
-        - actor="agent" → "Agent"
-        - actor="agent:plan" → "Agent (Plan)"
-        - actor="agent:{name}" → "Child: {name}"
-        - actor="tool:{name}" with role=tool_call → "Tool Call: {name}"
-        - actor="tool:{name}" with role=tool_result → "Tool Result"
+        - originator="user" → configured user name (default "User")
+        - originator="agent" → "Agent"
+        - originator="agent:plan" → "Agent (Plan)"
+        - originator="agent:{name}" → "Child: {name}"
+        - originator="tool:{name}" with role=tool_call → "Tool Call: {name}"
+        - originator="tool:{name}" with role=tool_result → "Tool Result"
         """
-        if not self.actor:
+        if not self.originator:
             return "Unknown"
 
-        if self.actor == "user":
+        if self.originator == "user":
             return "User"  # Will be overridden by config at render time
 
-        if self.actor == "agent":
+        if self.originator == "agent":
             return "Agent"
 
-        if self.actor == "agent:plan":
+        if self.originator == "agent:plan":
             return "Agent (Plan)"
 
-        if self.actor.startswith("agent:"):
-            subagent_name = self.actor[6:]  # Remove "agent:" prefix
+        if self.originator.startswith("agent:"):
+            subagent_name = self.originator[6:]  # Remove "agent:" prefix
             return f"Child: {subagent_name}"
 
-        if self.actor.startswith("tool:"):
-            tool_name = self.actor[5:]  # Remove "tool:" prefix
+        if self.originator.startswith("tool:"):
+            tool_name = self.originator[5:]  # Remove "tool:" prefix
             if self.role == "tool_call":
                 return f"Tool Call: {tool_name}"
             elif self.role == "tool_result":
                 return "Tool Result"
             return f"Tool: {tool_name}"
 
-        return self.actor
+        return self.originator
 
     def GetDigest(self) -> dict[str, Any]:
         return {
             "id": self.node_id,
             "type": self.node_type,
             "role": self.role,
-            "actor": self.actor,
+            "originator": self.originator,
             "effective_role": self.effective_role,
             "content_length": len(self.content),
             "tool_name": self.tool_name,
@@ -2000,7 +2059,6 @@ class MessageNode(ContextNode):
         data.update({
             "role": self.role,
             "content": self.content,
-            "actor": self.actor,
             "tool_name": self.tool_name,
             "tool_args": self.tool_args,
         })
@@ -2012,6 +2070,9 @@ class MessageNode(ContextNode):
         tick_freq = None
         if data.get("tick_frequency"):
             tick_freq = TickFrequency.from_dict(data["tick_frequency"])
+
+        # Support legacy "actor" key for backward compatibility
+        originator = data.get("originator") or data.get("actor")
 
         node = cls(
             node_id=data["node_id"],
@@ -2026,9 +2087,9 @@ class MessageNode(ContextNode):
             updated_at=data.get("updated_at", time.time()),
             tags=data.get("tags", {}),
             display_sequence=data.get("display_sequence"),
+            originator=originator,
             role=data.get("role", "user"),
             content=data.get("content", ""),
-            actor=data.get("actor"),
             tool_name=data.get("tool_name"),
             tool_args=data.get("tool_args", {}),
         )
@@ -2198,6 +2259,7 @@ class WorkNode(ContextNode):
             updated_at=data.get("updated_at", time.time()),
             tags=data.get("tags", {}),
             display_sequence=data.get("display_sequence"),
+            originator=data.get("originator"),
             intent=data.get("intent", ""),
             work_status=data.get("work_status", "active"),
             files=data.get("files", []),
@@ -2237,6 +2299,15 @@ class MCPServerNode(ContextNode):
     tools: list[dict[str, Any]] = field(default_factory=list)
     resources: list[dict[str, Any]] = field(default_factory=list)
     prompts: list[dict[str, Any]] = field(default_factory=list)
+
+    # Pending async tool calls: call_id -> (tool_name, started_at)
+    pending_calls: dict[str, tuple[str, float]] = field(default_factory=dict)
+
+    # Callback for firing events when calls complete
+    # Set by Timeline: (event_name, data) -> None
+    _on_result_callback: Callable[[str, dict[str, Any]], None] | None = field(
+        default=None, repr=False, compare=False
+    )
 
     @property
     def node_type(self) -> str:
@@ -2370,6 +2441,70 @@ class MCPServerNode(ContextNode):
         ]
         self._mark_changed()
 
+    def start_call(self, call_id: str, tool_name: str) -> None:
+        """Register a pending async tool call.
+
+        Args:
+            call_id: Unique ID for this call
+            tool_name: Name of the tool being called
+        """
+        self.pending_calls[call_id] = (tool_name, time.time())
+
+    def complete_call(
+        self,
+        call_id: str,
+        result: Any,
+        error: str | None = None,
+    ) -> None:
+        """Complete an async tool call and fire event.
+
+        Args:
+            call_id: ID of the call to complete
+            result: Tool result (if successful)
+            error: Error message (if failed)
+        """
+        call_info = self.pending_calls.pop(call_id, None)
+        if not call_info:
+            return
+
+        tool_name, started_at = call_info
+        duration_ms = (time.time() - started_at) * 1000
+
+        # Mark the node as changed
+        trace = Trace(
+            node_id=self.node_id,
+            old_version=self.version,
+            new_version=self.version + 1,
+            description=f"MCP tool '{tool_name}' completed",
+            content=str(result)[:200] if result else error,
+        )
+        self._mark_changed(trace)
+
+        # Fire event if callback is set
+        if self._on_result_callback:
+            self._on_result_callback("mcp_result", {
+                "call_id": call_id,
+                "server_name": self.server_name,
+                "tool_name": tool_name,
+                "result": result,
+                "error": error,
+                "duration_ms": duration_ms,
+            })
+
+    def get_pending_count(self) -> int:
+        """Get the number of pending async calls."""
+        return len(self.pending_calls)
+
+    def set_on_result_callback(
+        self, callback: Callable[[str, dict[str, Any]], None] | None
+    ) -> None:
+        """Set the callback for MCP result events.
+
+        Args:
+            callback: Function to call with (event_name, data) when a call completes
+        """
+        self._on_result_callback = callback
+
     def get_display_name(self) -> str:
         """Return 'MCP: name [status]' format."""
         return f"MCP: {self.server_name} [{self.status.upper()}]"
@@ -2429,6 +2564,7 @@ class MCPServerNode(ContextNode):
             updated_at=data.get("updated_at", time.time()),
             tags=data.get("tags", {}),
             display_sequence=data.get("display_sequence"),
+            originator=data.get("originator"),
             server_name=data.get("server_name", ""),
             status=data.get("status", "disconnected"),
             error_message=data.get("error_message"),
@@ -2662,6 +2798,7 @@ class MCPManagerNode(ContextNode):
             pending_traces=[],
             tags=d.get("tags", {}),
             display_sequence=d.get("display_sequence"),
+            originator=d.get("originator"),
             server_states=d.get("server_states", {}),
             tool_counts=d.get("tool_counts", {}),
             resource_counts=d.get("resource_counts", {}),
@@ -2811,6 +2948,7 @@ class AgentNode(ContextNode):
             updated_at=data.get("updated_at", time.time()),
             tags=data.get("tags", {}),
             display_sequence=data.get("display_sequence"),
+            originator=data.get("originator"),
             agent_id=data.get("agent_id", ""),
             agent_type=data.get("agent_type", "default"),
             relation=data.get("relation", "self"),

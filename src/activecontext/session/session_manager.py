@@ -119,6 +119,8 @@ class Session:
             mode="running",
             tick_frequency=TickFrequency.turn(),
         )
+        # Root is auto-subscribed to collect all notifications from subtree
+        self._root_context.is_subscription_point = True
         self._timeline.context_graph.add_node(self._root_context)
         self._timeline.context_graph.set_root("context")
         self._context_stack.append("context")  # All nodes go inside root
@@ -136,10 +138,25 @@ class Session:
         # Register set_title callback with timeline
         self._timeline.set_title_callback(self.set_title)
 
+        # Configure file watcher from config
+        if self._config and self._config.session:
+            self._timeline.configure_file_watcher(self._config.session.file_watch)
+
         # Text buffer storage for shared line content
         # Key: buffer_id, Value: TextBuffer instance
         from activecontext.context.buffer import TextBuffer
         self._text_buffers: dict[str, TextBuffer] = {}
+
+        # Event-driven agent loop infrastructure
+        self._wake_event = asyncio.Event()
+        self._running = False
+        self._agent_task: asyncio.Task[Any] | None = None
+
+        # User messages group - created in _create_metadata_nodes
+        self._user_messages_group: GroupNode | None = None
+
+        # Alerts group for notifications - created in _create_metadata_nodes
+        self._alerts_group: GroupNode | None = None
 
     def _add_system_prompt_node(self) -> None:
         """Add the system prompt as a fully expanded TextNode tree.
@@ -188,6 +205,30 @@ class Session:
         )
         self._timeline.context_graph.add_node(self._mcp_manager_node)
         self._timeline.context_graph.link("mcp_manager", "context")
+
+        # Create User Messages group for queued async messages
+        # Document order: System Prompt -> Guide -> Session -> MCP -> User Messages
+        self._user_messages_group = GroupNode(
+            node_id="user_messages",
+            tokens=2000,
+            state=NodeState.DETAILS,  # Visible in projection
+            mode="running",
+            tick_frequency=TickFrequency.turn(),
+        )
+        self._timeline.context_graph.add_node(self._user_messages_group)
+        self._timeline.context_graph.link("user_messages", "context")
+
+        # Create Alerts group for notifications
+        # Notifications from HOLD/WAKE level nodes appear here
+        self._alerts_group = GroupNode(
+            node_id="alerts",
+            tokens=500,
+            state=NodeState.HIDDEN,  # Hidden when empty, DETAILS when has content
+            mode="running",
+            tick_frequency=TickFrequency.turn(),
+        )
+        self._timeline.context_graph.add_node(self._alerts_group)
+        self._timeline.context_graph.link("alerts", "context")
 
     @property
     def session_id(self) -> str:
@@ -371,7 +412,7 @@ class Session:
         tool_call = MessageNode(
             role="tool_call",
             content="",
-            actor=f"tool:{tool_name}",
+            originator=f"tool:{tool_name}",
             tool_name=tool_name,
             tool_args=args or {},
         )
@@ -426,7 +467,7 @@ class Session:
         msg_node = MessageNode(
             role=message.role.value,  # Convert Role enum to string
             content=message.content,
-            actor=message.actor,
+            originator=message.originator,
             tokens=500,  # Default token budget for messages
         )
 
@@ -522,7 +563,8 @@ class Session:
             msg = Message(
                 role=role,
                 content=msg_data.get("content", ""),
-                actor=msg_data.get("actor"),
+                # Support legacy "actor" key for backward compatibility
+                originator=msg_data.get("originator") or msg_data.get("actor"),
             )
             session._message_history.append(msg)
 
@@ -594,6 +636,75 @@ class Session:
             timestamp=time.time(),
         )
 
+    def queue_user_message(self, content: str, message_id: str | None = None) -> MessageNode:
+        """Queue a user message without blocking.
+
+        Creates a MessageNode for the user's message, adds it to the user_messages
+        group, and wakes the agent if idle.
+
+        Args:
+            content: The message content
+            message_id: Optional explicit message ID (auto-generated if not provided)
+
+        Returns:
+            The created MessageNode
+        """
+        if message_id is None:
+            message_id = f"msg_{uuid.uuid4().hex[:8]}"
+
+        msg = MessageNode(
+            node_id=message_id,
+            role="user",
+            content=content,
+            originator="user",
+            state=NodeState.DETAILS,
+            mode="running",
+        )
+
+        # Add to context graph
+        self._timeline.context_graph.add_node(msg)
+
+        # Link to user_messages group if it exists
+        if self._user_messages_group:
+            self._timeline.context_graph.link(message_id, "user_messages")
+
+        # Wake agent if idle
+        self._wake_event.set()
+
+        log.debug(f"Queued user message {message_id}: {content[:50]}...")
+        return msg
+
+    def has_pending_messages(self) -> bool:
+        """Check if there are unprocessed user messages in the queue."""
+        if not self._user_messages_group:
+            return False
+
+        children = self._timeline.context_graph.get_children("user_messages")
+        for child in children:
+            if isinstance(child, MessageNode):
+                # Check if message has been processed (via tags)
+                if not child.tags.get("processed", False):
+                    return True
+        return False
+
+    def get_pending_messages(self) -> list[MessageNode]:
+        """Get all unprocessed user messages."""
+        if not self._user_messages_group:
+            return []
+
+        messages: list[MessageNode] = []
+        children = self._timeline.context_graph.get_children("user_messages")
+        for child in children:
+            if isinstance(child, MessageNode) and not child.tags.get("processed", False):
+                messages.append(child)
+        return messages
+
+    def mark_message_processed(self, message_id: str) -> None:
+        """Mark a message as processed."""
+        node = self._timeline.context_graph.get_node(message_id)
+        if isinstance(node, MessageNode):
+            node.tags["processed"] = True
+
     async def _prompt_with_llm(self, content: str) -> AsyncIterator[SessionUpdate]:
         """Process prompt using the LLM provider.
 
@@ -617,7 +728,7 @@ class Session:
 
         # Add initial user message to context graph (will appear in projection)
         self._add_message(
-            Message(role=Role.USER, content=content, actor="user")
+            Message(role=Role.USER, content=content, originator="user")
         )
 
         while iteration < max_iterations:
@@ -657,7 +768,7 @@ class Session:
 
             # Add assistant response to context graph and message history
             self._add_message(
-                Message(role=Role.ASSISTANT, content=full_response, actor="agent")
+                Message(role=Role.ASSISTANT, content=full_response, originator="agent")
             )
 
             # Parse response and execute code blocks
@@ -718,7 +829,7 @@ class Session:
             else:
                 result_content = "Code executed successfully."
             self._add_message(
-                Message(role=Role.USER, content=result_content, actor="system")
+                Message(role=Role.USER, content=result_content, originator="system")
             )
 
     async def _prompt_direct(self, content: str) -> AsyncIterator[SessionUpdate]:
@@ -817,7 +928,13 @@ class Session:
                     )
                 )
 
-        # 2-4. Process running nodes with tick frequencies
+        # 2. Process pending file changes from file watcher
+        wake_prompts = self._timeline.process_file_changes()
+        if wake_prompts:
+            # Wake the agent loop if any WAKE events fired
+            self._wake_event.set()
+
+        # 3-5. Process running nodes with tick frequencies
         context_graph = self._timeline.context_graph
         running_nodes = context_graph.get_running_nodes()
 
@@ -865,6 +982,28 @@ class Session:
                     )
                 )
 
+        # 6. Process notifications from nodes with HOLD/WAKE levels
+        # Check for WAKE notifications before flush (flush clears the flag)
+        should_wake = context_graph.has_wake_notification()
+        notifications = context_graph.flush_notifications()
+        if notifications:
+            self._update_alerts_group(notifications)
+            updates.append(
+                SessionUpdate(
+                    kind=UpdateKind.NODE_CHANGED,
+                    session_id=self._session_id,
+                    payload={
+                        "node_id": "alerts",
+                        "change": "notifications_updated",
+                        "count": len(notifications),
+                    },
+                    timestamp=timestamp,
+                )
+            )
+
+        if should_wake:
+            self._wake_event.set()
+
         return updates
 
     def check_wait_condition(self) -> tuple[bool, str | None]:
@@ -890,6 +1029,158 @@ class Session:
             self._current_task.cancel()
         # Also cancel all running shell tasks
         self._timeline.cancel_all_shells()
+
+    async def run_agent_loop(self) -> AsyncIterator[SessionUpdate]:
+        """Event-driven agent loop. Idle until wake, process until queue empty.
+
+        This is the main processing loop for the async prompt model. It:
+        1. Waits for a wake signal (message queued, file changed, etc.)
+        2. Processes all pending messages
+        3. Runs tick phase to handle async completions
+        4. Yields SessionUpdate for each significant event
+
+        Yields:
+            SessionUpdate objects for streaming to the transport
+        """
+        self._running = True
+        log.info("Agent loop started for session %s", self._session_id)
+
+        while self._running:
+            # Wait for wake signal
+            try:
+                await self._wake_event.wait()
+            except asyncio.CancelledError:
+                log.info("Agent loop cancelled for session %s", self._session_id)
+                break
+
+            self._wake_event.clear()
+            log.debug("Agent loop woke for session %s", self._session_id)
+
+            # Process all pending work
+            while self._has_pending_work() and self._running:
+                # Process next message
+                async for update in self._process_next_message():
+                    yield update
+
+                # Run tick phase
+                tick_updates = await self.tick()
+                for update in tick_updates:
+                    yield update
+
+        log.info("Agent loop stopped for session %s", self._session_id)
+
+    def _has_pending_work(self) -> bool:
+        """Check if there's work to do."""
+        return (
+            self.has_pending_messages()
+            or self._timeline.has_pending_wake_prompt()
+            or len(self._timeline.get_queued_events()) > 0
+        )
+
+    async def _process_next_message(self) -> AsyncIterator[SessionUpdate]:
+        """Process the next pending user message.
+
+        Gets the oldest unprocessed message, processes it through the LLM,
+        and marks it as processed.
+
+        Yields:
+            SessionUpdate objects for the message processing
+        """
+        messages = self.get_pending_messages()
+        if not messages:
+            return
+
+        # Process oldest message first (FIFO)
+        msg = messages[0]
+        content = msg.content
+        log.debug("Processing message %s: %s", msg.node_id, content[:50])
+
+        # Mark as in-progress
+        msg.tags["processing"] = True
+
+        try:
+            if self._llm:
+                # LLM-powered mode
+                async for update in self._prompt_with_llm(content):
+                    yield update
+            else:
+                # Direct execution mode (fallback)
+                async for update in self._prompt_direct(content):
+                    yield update
+
+            # Mark as processed
+            self.mark_message_processed(msg.node_id)
+            msg.tags.pop("processing", None)
+
+            # Send completion notification
+            yield SessionUpdate(
+                kind=UpdateKind.PROJECTION_READY,
+                session_id=self._session_id,
+                payload={
+                    "message_id": msg.node_id,
+                    "completed": True,
+                    "handles": self.get_projection().handles,
+                },
+                timestamp=time.time(),
+            )
+
+        except asyncio.CancelledError:
+            msg.tags.pop("processing", None)
+            raise
+        except Exception as e:
+            log.error("Error processing message %s: %s", msg.node_id, e)
+            msg.tags.pop("processing", None)
+            msg.tags["error"] = str(e)
+            yield SessionUpdate(
+                kind=UpdateKind.ERROR,
+                session_id=self._session_id,
+                payload={
+                    "message_id": msg.node_id,
+                    "error": str(e),
+                },
+                timestamp=time.time(),
+            )
+
+    def stop_agent_loop(self) -> None:
+        """Stop the agent loop gracefully."""
+        self._running = False
+        self._wake_event.set()  # Wake it so it can exit
+
+    def wake(self) -> None:
+        """Wake the agent loop to process pending work."""
+        self._wake_event.set()
+
+    def _update_alerts_group(self, notifications: list) -> None:
+        """Update Alerts group with new notifications.
+
+        Args:
+            notifications: List of Notification objects to display
+        """
+        from activecontext.context.nodes import ArtifactNode
+
+        if not self._alerts_group:
+            return
+
+        context_graph = self._timeline.context_graph
+
+        # Clear old alert nodes
+        for child in context_graph.get_children(self._alerts_group.node_id):
+            context_graph.remove_node(child.node_id)
+
+        # Add new alert nodes (as ArtifactNodes)
+        for i, notif in enumerate(notifications):
+            alert_node = ArtifactNode(
+                node_id=f"alert_{i}",
+                content=notif.header,
+                artifact_type="notification",
+                state=NodeState.ALL,
+                tags={"level": notif.level, "source": notif.node_id},
+            )
+            context_graph.add_node(alert_node)
+            context_graph.link(alert_node.node_id, self._alerts_group.node_id)
+
+        # Update group visibility based on content
+        self._alerts_group.state = NodeState.DETAILS if notifications else NodeState.HIDDEN
 
     def get_projection(self) -> Projection:
         """Build the LLM projection from current session state.

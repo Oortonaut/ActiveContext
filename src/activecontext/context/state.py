@@ -7,7 +7,8 @@ This module defines:
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import time
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import Optional
 
@@ -31,6 +32,46 @@ class NodeState(Enum):
 
     def __str__(self) -> str:
         return self.value
+
+
+class NotificationLevel(Enum):
+    """Controls notification behavior when a node changes.
+
+    Notification levels determine how changes are communicated to the agent:
+    - IGNORE: Changes propagate via notify_parents(), but no notification message generated
+    - HOLD: Notification queued, delivered at tick boundary
+    - WAKE: Notification queued, delivered at tick boundary, AND agent woken immediately
+    """
+
+    IGNORE = "ignore"
+    HOLD = "hold"
+    WAKE = "wake"
+
+    def __str__(self) -> str:
+        return self.value
+
+
+@dataclass(slots=True)
+class Notification:
+    """A notification about a node change.
+
+    Notifications are generated when nodes with notification_level != IGNORE
+    are changed. They are collected at subscription points and delivered
+    to the agent via the Alerts group.
+
+    Attributes:
+        node_id: Source node that changed
+        trace_id: Unique ID for deduplication (node_id:version)
+        header: Brief description (e.g., "text#3: (-5/+12 lines at 100)")
+        level: NotificationLevel value ("hold" or "wake")
+        timestamp: When the notification was generated
+    """
+
+    node_id: str
+    trace_id: str
+    header: str
+    level: str  # "hold" or "wake" - string to avoid issues with enum serialization
+    timestamp: float = field(default_factory=time.time)
 
 
 @dataclass(frozen=True)

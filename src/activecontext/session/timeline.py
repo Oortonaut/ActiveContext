@@ -39,7 +39,7 @@ from activecontext.mcp import (
     MCPPermissionDenied,
     MCPToolResult,
 )
-from activecontext.context.state import NodeState, TickFrequency
+from activecontext.context.state import NodeState, NotificationLevel, TickFrequency
 from activecontext.terminal.result import ShellResult
 from activecontext.session.permissions import (
     ImportDenied,
@@ -74,9 +74,10 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from activecontext.agents.manager import AgentManager
-    from activecontext.config.schema import MCPConfig, MCPServerConfig
+    from activecontext.config.schema import FileWatchConfig, MCPConfig, MCPServerConfig
     from activecontext.coordination.scratchpad import ScratchpadManager
     from activecontext.terminal.protocol import TerminalExecutor
+    from activecontext.watching import FileChangeEvent
 
     # Type for file permission requester callback:
     # async (session_id, path, mode) -> (granted, persist)
@@ -249,14 +250,31 @@ class Timeline:
         # Text buffer storage for shared line content
         self._text_buffers: dict[str, "TextBuffer"] = {}
 
+        # File watcher for detecting external file changes
+        from activecontext.watching import FileWatcher
+        self._file_watcher = FileWatcher(
+            cwd=Path(cwd),
+            poll_interval=1.0,
+        )
+        # Callback set by Session when agent loop starts
+        self._on_file_changed: Callable[["FileChangeEvent"], None] | None = None
 
-    def _setup_default_event_handlers(self) -> None:
-        """Set up default event handlers for built-in events.
+    def configure_file_watcher(self, config: "FileWatchConfig | None") -> None:
+        """Configure the file watcher from config.
 
-        Currently a no-op stub - event handlers can be registered via
-        register_event_handler() as needed.
+        Args:
+            config: FileWatchConfig from session config, or None to use defaults
         """
-        pass
+        if config is None:
+            return
+
+        if not config.enabled:
+            # Disable file watching - replace with a no-op watcher
+            from activecontext.watching import FileWatcher
+            self._file_watcher = FileWatcher(cwd=Path(self._cwd), poll_interval=float('inf'))
+            return
+
+        self._file_watcher.poll_interval = config.poll_interval
 
     def set_title_callback(self, callback: Callable[[str], None] | None) -> None:
         """Set the callback for set_title() DSL function.
@@ -301,6 +319,7 @@ class Timeline:
             # Type enums for LLM use
             "NodeState": NodeState,
             "TickFrequency": TickFrequency,
+            "NotificationLevel": NotificationLevel,
             # Context node constructors
             "text": self._make_text_node,
             "group": self._make_group_node,
@@ -331,6 +350,8 @@ class Timeline:
             "done": self._done,
             # Session title
             "set_title": self._set_title,
+            # Notification control
+            "notify": self._set_notify,
             # Async wait control
             "wait": self._wait,
             "wait_all": self._wait_all,
@@ -385,6 +406,9 @@ class Timeline:
             "event_response": self._event_response,
             "wait": self._wait_event,
             "EventResponse": EventResponse,
+            # File watching
+            "wait_file_change": self._wait_file_change,
+            "on_file_change": self._on_file_change,
         })
 
     def _setup_default_event_handlers(self) -> None:
@@ -406,6 +430,18 @@ class Timeline:
             event_name="tick",
             response=EventResponse.QUEUE,
             prompt_template="Tick occurred",
+        )
+        # Default: queue file change events
+        self._event_handlers["file_changed"] = EventHandler(
+            event_name="file_changed",
+            response=EventResponse.QUEUE,
+            prompt_template="File changed: {path}",
+        )
+        # Default: wake on MCP async results (agent likely waiting)
+        self._event_handlers["mcp_result"] = EventHandler(
+            event_name="mcp_result",
+            response=EventResponse.WAKE,
+            prompt_template="MCP {tool_name} completed",
         )
 
     def _event_response(
@@ -430,6 +466,70 @@ class Timeline:
             event_name=event_name,
             response=response,
             prompt_template=prompt or f"Event: {event_name}",
+        )
+
+    def _wait_file_change(
+        self,
+        paths: list[str] | str,
+        wake_prompt: str = "File(s) changed: {paths}",
+        timeout: float | None = None,
+    ) -> None:
+        """Wait for specific file changes.
+
+        DSL function: wait_file_change(paths, wake_prompt, timeout)
+
+        Sets up a one-time WAKE handler for file changes on the specified paths.
+        The agent will be woken when any of the files change.
+
+        Args:
+            paths: Path(s) to watch (relative to session cwd)
+            wake_prompt: Prompt template for wake (supports {paths} placeholder)
+            timeout: Optional timeout in seconds
+
+        Example:
+            wait_file_change("src/main.py", wake_prompt="main.py was modified!")
+            wait_file_change(["src/*.py"], timeout=60.0)
+        """
+        if isinstance(paths, str):
+            paths = [paths]
+
+        # Register a one-time WAKE handler for file_changed events
+        # The handler will match any of the specified paths
+        for path in paths:
+            handler_key = f"file_changed:{path}"
+            self._event_handlers[handler_key] = EventHandler(
+                event_name="file_changed",
+                response=EventResponse.WAKE,
+                prompt_template=wake_prompt,
+                once=True,
+            )
+
+        # Signal that we're done for this turn (waiting)
+        self._done_called = True
+
+    def _on_file_change(
+        self,
+        response: str = "queue",
+        prompt: str = "File changed: {path}",
+    ) -> None:
+        """Configure global file change response.
+
+        DSL function: on_file_change(response, prompt)
+
+        Sets the default response for file_changed events.
+
+        Args:
+            response: "wake" to interrupt agent, "queue" to batch
+            prompt: Wake prompt template (supports {path}, {change_type})
+
+        Example:
+            on_file_change(response="wake", prompt="Code changed: {path}")
+            on_file_change(response="queue")  # Default behavior
+        """
+        self._event_handlers["file_changed"] = EventHandler(
+            event_name="file_changed",
+            response=EventResponse.WAKE if response == "wake" else EventResponse.QUEUE,
+            prompt_template=prompt,
         )
 
     def _wait_event(
@@ -537,6 +637,43 @@ class Timeline:
             self._queued_events.append(QueuedEvent(event_name=event_name, data=data))
             return None
 
+    def process_file_changes(self) -> list[str]:
+        """Process pending file changes from the file watcher.
+
+        Checks for file changes, fires events for each, and returns
+        any wake prompts that should be processed.
+
+        Returns:
+            List of wake prompts (empty if no WAKE handlers triggered)
+        """
+        wake_prompts: list[str] = []
+
+        for event in self._file_watcher.check_changes():
+            # Fire the file_changed event
+            wake_prompt = self.fire_event("file_changed", event.to_dict())
+            if wake_prompt:
+                wake_prompts.append(wake_prompt)
+
+            # Update affected TextNodes
+            for node_id in event.node_ids:
+                node = self._context_graph.get_node(node_id)
+                if isinstance(node, TextNode):
+                    # Mark node as needing re-render
+                    from activecontext.context.nodes import Trace
+                    trace = Trace(
+                        node_id=node_id,
+                        old_version=node.version,
+                        new_version=node.version + 1,
+                        description=f"File '{event.path.name}' {event.change_type}",
+                    )
+                    node._mark_changed(trace)
+
+            # Call the session's file change callback if set
+            if self._on_file_changed:
+                self._on_file_changed(event)
+
+        return wake_prompts
+
     def get_queued_events(self, event_name: str | None = None) -> list[QueuedEvent]:
         """Get queued events, optionally filtered by name.
 
@@ -549,6 +686,19 @@ class Timeline:
         if event_name is None:
             return list(self._queued_events)
         return [e for e in self._queued_events if e.event_name == event_name]
+
+    def has_pending_wake_prompt(self) -> bool:
+        """Check if there's a pending wake prompt from the wait system.
+
+        Returns:
+            True if check_wait_condition would return a wake prompt
+        """
+        if self._wait_condition is None:
+            return False
+
+        # Check if wait condition is satisfied (without consuming it)
+        satisfied, _ = self.check_wait_condition()
+        return satisfied
 
     def clear_queued_events(self, event_name: str | None = None) -> int:
         """Clear queued events, optionally filtered by name.
@@ -673,6 +823,9 @@ class Timeline:
         if effective_parent:
             parent_id = effective_parent.node_id if isinstance(effective_parent, ContextNode) else effective_parent
             self._context_graph.link(node.node_id, parent_id)
+
+        # Register with file watcher for external change detection
+        self._file_watcher.register_path(path, node.node_id)
 
         # Legacy compatibility
         self._context_objects[node.node_id] = node
@@ -1757,6 +1910,42 @@ class Timeline:
         if message:
             print(message)
 
+    def _set_notify(
+        self,
+        node: ContextNode | str,
+        level: NotificationLevel | str = NotificationLevel.WAKE,
+    ) -> ContextNode:
+        """Set notification level for a node.
+
+        Controls how changes to this node are communicated to the agent:
+        - IGNORE: Changes propagate but no notification generated (default)
+        - HOLD: Notification queued, delivered at tick boundary
+        - WAKE: Notification queued AND agent woken immediately
+
+        Args:
+            node: Node object or node_id string
+            level: NotificationLevel or string ("ignore", "hold", "wake")
+
+        Returns:
+            The node (for chaining)
+
+        Examples:
+            notify(v, NotificationLevel.WAKE)  # Wake on changes
+            notify(v, "hold")  # Queue notifications
+            v = text("file.py").SetNotify(NotificationLevel.WAKE)  # Fluent API
+        """
+        if isinstance(node, str):
+            resolved = self._context_graph.get_node(node)
+            if not resolved:
+                raise ValueError(f"Node not found: {node}")
+            node = resolved
+
+        if isinstance(level, str):
+            level = NotificationLevel(level)
+
+        node.notification_level = level
+        return node
+
     def _set_title(self, title: str) -> None:
         """Set the session title.
 
@@ -2570,6 +2759,9 @@ class Timeline:
             self._mcp_server_nodes[name] = node
             self._context_graph.add_node(node)
 
+            # Wire up MCP result callback to fire events
+            node.set_on_result_callback(self.fire_event)
+
         # Update node from connection
         node.update_from_connection(connection)
 
@@ -2839,13 +3031,13 @@ class Timeline:
         """Create a shallow snapshot of user-defined namespace entries."""
         # Exclude injected DSL functions and types
         excluded = {
-            "NodeState", "TickFrequency",
+            "NodeState", "TickFrequency", "NotificationLevel",
             "text", "group", "topic", "artifact", "markdown", "view",
             "link", "unlink",
             "checkpoint", "restore", "checkpoints", "branch",
             "ls", "show", "ls_permissions", "ls_imports", "ls_shell_permissions",
             "ls_website_permissions",
-            "shell", "fetch", "done", "set_title",
+            "shell", "fetch", "done", "set_title", "notify",
             "wait", "wait_all", "wait_any",
             "lock_file", "lock_release",
             "work_on", "work_check", "work_update", "work_done", "work_list",
