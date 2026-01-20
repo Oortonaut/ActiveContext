@@ -48,7 +48,7 @@ class MockSession:
         tool_call = MessageNode(
             role="tool_call",
             content="",
-            actor=f"tool:{tool_name}",
+            originator=f"tool:{tool_name}",
             tool_name=tool_name,
             tool_args=args or {},
         )
@@ -130,7 +130,7 @@ class TestAddNodeLinking:
     def test_add_node_at_root(self) -> None:
         """Test adding node at root level (no group)."""
         session = MockSession()
-        node = MessageNode(role="user", content="Hello", actor="user")
+        node = MessageNode(role="user", content="Hello", originator="user")
 
         session.add_node(node)
 
@@ -145,7 +145,7 @@ class TestAddNodeLinking:
         session._timeline.context_graph.add_node(group)
         session.push_group("group1")
 
-        node = MessageNode(role="user", content="Hello", actor="user")
+        node = MessageNode(role="user", content="Hello", originator="user")
         session.add_node(node)
 
         # Node should be child of the group
@@ -159,7 +159,7 @@ class TestAddNodeLinking:
         session._timeline.context_graph.add_node(group)
         session.push_group("group1")
 
-        node1 = MessageNode(role="user", content="First", actor="user")
+        node1 = MessageNode(role="user", content="First", originator="user")
         node2 = TextNode(path="test.py")
 
         session.add_node(node1)
@@ -304,7 +304,7 @@ class TestToolUseDAGStructure:
         session = MockSession()
 
         # Simulate: user asks, agent uses view tool
-        user_msg = MessageNode(role="user", content="Show main.py", actor="user")
+        user_msg = MessageNode(role="user", content="Show main.py", originator="user")
         session.add_node(user_msg)
 
         group_id = session.begin_tool_use("view", {"path": "main.py"})
@@ -314,7 +314,7 @@ class TestToolUseDAGStructure:
 
         session.end_tool_use(summary="Opened main.py")
 
-        agent_msg = MessageNode(role="assistant", content="Here it is", actor="agent")
+        agent_msg = MessageNode(role="assistant", content="Here it is", originator="agent")
         session.add_node(agent_msg)
 
         # Verify structure

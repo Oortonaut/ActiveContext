@@ -23,7 +23,7 @@ class Message:
     Attributes:
         role: The role (system, user, assistant)
         content: The message content
-        actor: Who produced this message. Examples:
+        originator: Who produced this message. Examples:
             - "user" - direct user input
             - "agent" - main agent response
             - "agent:plan" - agent in plan mode
@@ -34,7 +34,7 @@ class Message:
 
     role: Role
     content: str
-    actor: str | None = None
+    originator: str | None = None
 
 
 @dataclass(slots=True)

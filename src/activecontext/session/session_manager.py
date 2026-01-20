@@ -267,7 +267,7 @@ class Session:
     # Text Buffer Management
     # -------------------------------------------------------------------------
 
-    def get_text_buffer(self, buffer_id: str) -> "TextBuffer | None":
+    def get_text_buffer(self, buffer_id: str) -> TextBuffer | None:
         """Get a TextBuffer by ID.
 
         Args:
@@ -276,10 +276,9 @@ class Session:
         Returns:
             TextBuffer if found, None otherwise
         """
-        from activecontext.context.buffer import TextBuffer
         return self._text_buffers.get(buffer_id)
 
-    def add_text_buffer(self, buffer: "TextBuffer") -> str:
+    def add_text_buffer(self, buffer: TextBuffer) -> str:
         """Add a TextBuffer to the session.
 
         Args:
@@ -291,7 +290,7 @@ class Session:
         self._text_buffers[buffer.buffer_id] = buffer
         return buffer.buffer_id
 
-    def get_or_create_text_buffer(self, path: str) -> "TextBuffer":
+    def get_or_create_text_buffer(self, path: str) -> TextBuffer:
         """Get an existing TextBuffer for a path, or create one.
 
         Args:
@@ -313,7 +312,7 @@ class Session:
         return buffer
 
     @property
-    def text_buffers(self) -> dict[str, "TextBuffer"]:
+    def text_buffers(self) -> dict[str, TextBuffer]:
         """All text buffers in the session."""
         return self._text_buffers
 
@@ -563,8 +562,7 @@ class Session:
             msg = Message(
                 role=role,
                 content=msg_data.get("content", ""),
-                # Support legacy "actor" key for backward compatibility
-                originator=msg_data.get("originator") or msg_data.get("actor"),
+                originator=msg_data.get("originator"),
             )
             session._message_history.append(msg)
 

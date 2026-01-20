@@ -20,7 +20,7 @@ def create_mock_message(role: str, content: str, actor: str | None = None) -> Me
         Message instance
     """
     role_enum = Role(role)
-    return Message(role=role_enum, content=content, actor=actor)
+    return Message(role=role_enum, content=content, originator=actor)
 
 
 def create_mock_context_node(

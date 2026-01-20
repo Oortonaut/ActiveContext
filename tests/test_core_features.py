@@ -122,22 +122,22 @@ class TestMessageActor:
 
     def test_message_with_actor(self) -> None:
         """Messages can have an actor field."""
-        msg = Message(role=Role.USER, content="hello", actor="user")
-        assert msg.actor == "user"
+        msg = Message(role=Role.USER, content="hello", originator="user")
+        assert msg.originator == "user"
         assert msg.role == Role.USER
         assert msg.content == "hello"
 
     def test_message_without_actor(self) -> None:
         """Actor field defaults to None."""
         msg = Message(role=Role.ASSISTANT, content="hi")
-        assert msg.actor is None
+        assert msg.originator is None
 
     def test_various_actors(self) -> None:
         """Different actor types."""
         actors = ["user", "agent", "agent:plan", "subagent:explorer", "tool:bash"]
         for actor in actors:
-            msg = Message(role=Role.USER, content="test", actor=actor)
-            assert msg.actor == actor
+            msg = Message(role=Role.USER, content="test", originator=actor)
+            assert msg.originator == actor
 
 
 class TestProjection:

@@ -15,7 +15,6 @@ Session files contain:
 
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -141,8 +140,8 @@ def save_session(
             "role": msg.role.value if hasattr(msg.role, "value") else str(msg.role),
             "content": msg.content,
         }
-        if hasattr(msg, "actor") and msg.actor:
-            msg_dict["actor"] = msg.actor
+        if hasattr(msg, "originator") and msg.originator:
+            msg_dict["originator"] = msg.originator
         msg_data.append(msg_dict)
 
     # Build session data
@@ -192,7 +191,7 @@ def load_session_metadata(session_path: Path) -> SessionMetadata | None:
         return None
 
     try:
-        with open(session_path, "r", encoding="utf-8") as f:
+        with open(session_path, encoding="utf-8") as f:
             # Load full data but only return metadata
             data = yaml.safe_load(f)
 
@@ -221,7 +220,7 @@ def load_session_data(session_path: Path) -> SessionData | None:
         return None
 
     try:
-        with open(session_path, "r", encoding="utf-8") as f:
+        with open(session_path, encoding="utf-8") as f:
             data = yaml.safe_load(f)
 
         return SessionData(

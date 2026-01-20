@@ -627,11 +627,11 @@ class TestProviderProtocol:
 
     def test_message_creation(self):
         """Test Message dataclass creation and immutability."""
-        msg = Message(role=Role.USER, content="Hello", actor="user")
+        msg = Message(role=Role.USER, content="Hello", originator="user")
 
         assert msg.role == Role.USER
         assert msg.content == "Hello"
-        assert msg.actor == "user"
+        assert msg.originator == "user"
 
         # Test immutability (frozen dataclass)
         with pytest.raises(AttributeError):
@@ -641,7 +641,7 @@ class TestProviderProtocol:
         """Test Message with no actor (legacy)."""
         msg = Message(role=Role.ASSISTANT, content="Response")
 
-        assert msg.actor is None
+        assert msg.originator is None
 
     def test_stream_chunk(self):
         """Test StreamChunk dataclass."""
@@ -674,9 +674,9 @@ class TestProviderProtocol:
 
     def test_message_equality(self):
         """Test Message equality comparison."""
-        msg1 = Message(role=Role.USER, content="Test", actor="user")
-        msg2 = Message(role=Role.USER, content="Test", actor="user")
-        msg3 = Message(role=Role.USER, content="Different", actor="user")
+        msg1 = Message(role=Role.USER, content="Test", originator="user")
+        msg2 = Message(role=Role.USER, content="Test", originator="user")
+        msg3 = Message(role=Role.USER, content="Different", originator="user")
 
         assert msg1 == msg2
         assert msg1 != msg3

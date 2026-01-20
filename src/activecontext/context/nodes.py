@@ -167,7 +167,7 @@ class ContextNode(ABC):
         ...
 
     @abstractmethod
-    def get_token_breakdown(self, cwd: str = ".") -> "TokenInfo":
+    def get_token_breakdown(self, cwd: str = ".") -> TokenInfo:
         """Return token counts for different visibility levels.
 
         Returns:
@@ -547,12 +547,12 @@ class TextNode(ContextNode):
 
         return content
 
-    def SetPos(self, pos: str) -> "TextNode":
+    def SetPos(self, pos: str) -> TextNode:
         """Set start position."""
         self.pos = pos
         return self
 
-    def SetEndPos(self, end_pos: str | None) -> "TextNode":
+    def SetEndPos(self, end_pos: str | None) -> TextNode:
         """Set end position."""
         self.end_pos = end_pos
         return self
@@ -584,10 +584,11 @@ class TextNode(ContextNode):
 
         return f"{self.path}:{start_line}"
 
-    def get_token_breakdown(self, cwd: str = ".") -> "TokenInfo":
+    def get_token_breakdown(self, cwd: str = ".") -> TokenInfo:
         """Return token counts for collapsed/summary/detail."""
-        from .headers import TokenInfo
         from activecontext.core.tokens import count_tokens
+
+        from .headers import TokenInfo
 
         # Collapsed: just metadata line
         collapsed_text = f"[{self.path}: lines, pending traces]\n"
@@ -615,7 +616,7 @@ class TextNode(ContextNode):
         return data
 
     @classmethod
-    def _from_dict(cls, data: dict[str, Any]) -> "TextNode":
+    def _from_dict(cls, data: dict[str, Any]) -> TextNode:
         """Deserialize TextNode from dict."""
         tick_freq = None
         if data.get("tick_frequency"):
@@ -778,10 +779,11 @@ class GroupNode(ContextNode):
         """Return 'Group (N members)' format."""
         return f"Group ({len(self.children_ids)} members)"
 
-    def get_token_breakdown(self, cwd: str = ".") -> "TokenInfo":
+    def get_token_breakdown(self, cwd: str = ".") -> TokenInfo:
         """Return token counts for collapsed/summary/detail."""
-        from .headers import TokenInfo
         from activecontext.core.tokens import count_tokens
+
+        from .headers import TokenInfo
 
         # Use child_order for iteration
         ordered_children = self.child_order if self.child_order else list(self.children_ids)
@@ -914,10 +916,11 @@ class TopicNode(ContextNode):
         """Return 'Topic: title' format."""
         return f"Topic: {self.title}"
 
-    def get_token_breakdown(self, cwd: str = ".") -> "TokenInfo":
+    def get_token_breakdown(self, cwd: str = ".") -> TokenInfo:
         """Return token counts for collapsed/summary/detail."""
-        from .headers import TokenInfo
         from activecontext.core.tokens import count_tokens
+
+        from .headers import TokenInfo
 
         # Collapsed: topic metadata
         collapsed_text = f"[Topic: {self.title} [{self.status}]]\n"
@@ -1035,10 +1038,11 @@ class ArtifactNode(ContextNode):
         lang_suffix = f":{self.language}" if self.language else ""
         return f"{self.artifact_type.upper()}{lang_suffix}"
 
-    def get_token_breakdown(self, cwd: str = ".") -> "TokenInfo":
+    def get_token_breakdown(self, cwd: str = ".") -> TokenInfo:
         """Return token counts for collapsed/summary/detail."""
-        from .headers import TokenInfo
         from activecontext.core.tokens import count_tokens
+
+        from .headers import TokenInfo
 
         # Collapsed: artifact metadata
         lang_info = f":{self.language}" if self.language else ""
@@ -1280,10 +1284,11 @@ class ShellNode(ContextNode):
         cmd_display = self.full_command[:40] + "..." if len(self.full_command) > 40 else self.full_command
         return f"Shell: {cmd_display} [{self.shell_status.value.upper()}]"
 
-    def get_token_breakdown(self, cwd: str = ".") -> "TokenInfo":
+    def get_token_breakdown(self, cwd: str = ".") -> TokenInfo:
         """Return token counts for collapsed/summary/detail."""
-        from .headers import TokenInfo
         from activecontext.core.tokens import count_tokens
+
+        from .headers import TokenInfo
 
         # Collapsed: command and status
         collapsed_text = f"[Shell: {self.full_command} [{self.shell_status.value}]]\n"
@@ -1497,10 +1502,11 @@ class LockNode(ContextNode):
         """Return 'Lock: file [STATUS]' format."""
         return f"Lock: {self.lockfile} [{self.lock_status.value.upper()}]"
 
-    def get_token_breakdown(self, cwd: str = ".") -> "TokenInfo":
+    def get_token_breakdown(self, cwd: str = ".") -> TokenInfo:
         """Return token counts for collapsed/summary/detail."""
-        from .headers import TokenInfo
         from activecontext.core.tokens import count_tokens
+
+        from .headers import TokenInfo
 
         # Collapsed: lock info
         collapsed_text = f"[Lock: {self.lockfile} [{self.lock_status.value}]]\n"
@@ -1790,10 +1796,11 @@ class SessionNode(ContextNode):
         """Return 'Session' format."""
         return "Session"
 
-    def get_token_breakdown(self, cwd: str = ".") -> "TokenInfo":
+    def get_token_breakdown(self, cwd: str = ".") -> TokenInfo:
         """Return token counts for collapsed/summary/detail."""
-        from .headers import TokenInfo
         from activecontext.core.tokens import count_tokens
+
+        from .headers import TokenInfo
 
         # Collapsed: session metadata line
         collapsed_text = f"[Session: Turn {self.turn_count} | {self.total_tokens_consumed:,} tokens]\n"
@@ -2035,10 +2042,11 @@ class MessageNode(ContextNode):
         role_display = self.role.replace("_", " ").title()
         return f"{role_display} #{seq}"
 
-    def get_token_breakdown(self, cwd: str = ".") -> "TokenInfo":
+    def get_token_breakdown(self, cwd: str = ".") -> TokenInfo:
         """Return token counts for collapsed/summary/detail."""
-        from .headers import TokenInfo
         from activecontext.core.tokens import count_tokens
+
+        from .headers import TokenInfo
 
         # Collapsed: role and char count
         collapsed_text = f"[{self.role.upper()}: {len(self.content)} chars]\n"
@@ -2071,8 +2079,7 @@ class MessageNode(ContextNode):
         if data.get("tick_frequency"):
             tick_freq = TickFrequency.from_dict(data["tick_frequency"])
 
-        # Support legacy "actor" key for backward compatibility
-        originator = data.get("originator") or data.get("actor")
+        originator = data.get("originator")
 
         node = cls(
             node_id=data["node_id"],
@@ -2208,10 +2215,11 @@ class WorkNode(ContextNode):
         intent_display = self.intent[:30] + "..." if len(self.intent) > 30 else self.intent
         return f"Work: {intent_display} [{self.work_status}]"
 
-    def get_token_breakdown(self, cwd: str = ".") -> "TokenInfo":
+    def get_token_breakdown(self, cwd: str = ".") -> TokenInfo:
         """Return token counts for collapsed/summary/detail."""
-        from .headers import TokenInfo
         from activecontext.core.tokens import count_tokens
+
+        from .headers import TokenInfo
 
         # Collapsed: work metadata
         collapsed_text = f"[Work: {self.intent} [{self.work_status}] {len(self.files)}f {len(self.conflicts)}c]\n"
@@ -2509,10 +2517,11 @@ class MCPServerNode(ContextNode):
         """Return 'MCP: name [status]' format."""
         return f"MCP: {self.server_name} [{self.status.upper()}]"
 
-    def get_token_breakdown(self, cwd: str = ".") -> "TokenInfo":
+    def get_token_breakdown(self, cwd: str = ".") -> TokenInfo:
         """Return token counts for collapsed/summary/detail."""
-        from .headers import TokenInfo
         from activecontext.core.tokens import count_tokens
+
+        from .headers import TokenInfo
 
         # Collapsed: server info
         collapsed_text = f"[MCP: {self.server_name} [{self.status}] {len(self.tools)} tools]\n"
@@ -2742,10 +2751,11 @@ class MCPManagerNode(ContextNode):
         """Return 'MCP Manager' format."""
         return f"MCP Manager ({len(self.server_states)} servers)"
 
-    def get_token_breakdown(self, cwd: str = ".") -> "TokenInfo":
+    def get_token_breakdown(self, cwd: str = ".") -> TokenInfo:
         """Return token counts for collapsed/summary/detail."""
-        from .headers import TokenInfo
         from activecontext.core.tokens import count_tokens
+
+        from .headers import TokenInfo
 
         # Collapsed: server count
         total_tools = sum(self.tool_counts.values())
@@ -2896,10 +2906,11 @@ class AgentNode(ContextNode):
         """Return 'Agent: id [state]' format."""
         return f"Agent: {self.agent_id} [{self.agent_state.upper()}]"
 
-    def get_token_breakdown(self, cwd: str = ".") -> "TokenInfo":
+    def get_token_breakdown(self, cwd: str = ".") -> TokenInfo:
         """Return token counts for collapsed/summary/detail."""
-        from .headers import TokenInfo
         from activecontext.core.tokens import count_tokens
+
+        from .headers import TokenInfo
 
         # Collapsed: agent info
         collapsed_text = f"[Agent: {self.agent_id} [{self.agent_state}] {self.message_count}m]\n"

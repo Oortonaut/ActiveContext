@@ -708,17 +708,17 @@ class DashboardClient {
 
             // Determine display label
             let label = msg.role;
-            if (msg.actor) {
-                if (msg.actor === 'user') {
+            if (msg.originator) {
+                if (msg.originator === 'user') {
                     label = 'User';
-                } else if (msg.actor === 'agent') {
+                } else if (msg.originator === 'agent') {
                     label = 'Agent';
-                } else if (msg.actor.startsWith('tool:')) {
-                    label = msg.actor.substring(5);
-                } else if (msg.actor.startsWith('child:')) {
-                    label = `Child: ${msg.actor.substring(6)}`;
+                } else if (msg.originator.startsWith('tool:')) {
+                    label = msg.originator.substring(5);
+                } else if (msg.originator.startsWith('child:')) {
+                    label = `Child: ${msg.originator.substring(6)}`;
                 } else {
-                    label = msg.actor;
+                    label = msg.originator;
                 }
             } else if (msg.role === 'tool_call') {
                 label = `Tool Call: ${msg.tool_name || 'unknown'}`;

@@ -185,7 +185,7 @@ def get_message_history_data(session: Session) -> dict[str, Any]:
                         "id": f"msg_{i}",
                         "role": msg.get("role", "unknown"),
                         "content": msg.get("content", ""),
-                        "actor": msg.get("actor"),
+                        "originator": msg.get("originator"),
                         "tool_name": msg.get("tool_name"),
                         "tool_args": msg.get("tool_args"),
                     }
@@ -199,7 +199,7 @@ def get_message_history_data(session: Session) -> dict[str, Any]:
                         "id": f"msg_{i}",
                         "role": role or "unknown",
                         "content": getattr(msg, "content", ""),
-                        "actor": getattr(msg, "actor", None),
+                        "originator": getattr(msg, "originator", None),
                         "tool_name": getattr(msg, "tool_name", None),
                         "tool_args": getattr(msg, "tool_args", None),
                     }
