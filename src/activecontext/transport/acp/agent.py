@@ -153,6 +153,9 @@ class ActiveContextAgent:
         self._agent_loop_tasks: dict[str, asyncio.Task[Any]] = {}  # session_id -> loop task
         self._load_batch_config()
 
+        # Message completion tracking for prompt synchronization
+        self._message_complete_events: dict[str, asyncio.Event] = {}
+
         # ACP client info (populated during initialize handshake)
         self._client_info: dict[str, Any] | None = None
         self._protocol_version: int | None = None
@@ -970,13 +973,13 @@ class ActiveContextAgent:
         session_id: str,
         **kwargs: Any,
     ) -> acp.PromptResponse:
-        """Handle a prompt request by queuing it and returning immediately.
+        """Handle a prompt request by queuing and waiting for completion.
 
-        This implements the async prompt model where:
+        This implements the synchronous prompt model where:
         1. Message is queued as a MessageNode in user_messages group
-        2. Response is returned immediately with stop_reason='end_turn'
-        3. Actual processing happens in the background agent loop
-        4. Updates are sent via session_update notifications
+        2. Agent loop processes the message and streams updates
+        3. Response is returned after processing completes
+        4. Updates are sent via session_update notifications during processing
 
         Per ACP spec, every prompt must have exactly one PromptResponse.
         """
@@ -1023,13 +1026,37 @@ class ActiveContextAgent:
         # Generate message ID
         message_id = f"msg_{uuid.uuid4().hex[:8]}"
 
-        # Queue the message (non-blocking)
-        session.queue_user_message(content, message_id)
+        # Create completion event BEFORE queueing
+        completion_event = asyncio.Event()
+        self._message_complete_events[message_id] = completion_event
 
-        log.info("Queued message %s for session %s", message_id, session_id)
+        try:
+            # Queue the message (wakes agent loop)
+            session.queue_user_message(content, message_id)
+            log.info("Queued message %s for session %s", message_id, session_id)
 
-        # Return immediately - processing happens in agent loop
-        return acp.PromptResponse(stop_reason="end_turn")
+            # Wait for message processing to complete (with timeout)
+            try:
+                # Use a reasonable timeout (5 minutes for long LLM responses)
+                await asyncio.wait_for(completion_event.wait(), timeout=300.0)
+                log.info("Message %s completed for session %s", message_id, session_id)
+            except asyncio.TimeoutError:
+                log.warning("Message %s timed out for session %s", message_id, session_id)
+            except asyncio.CancelledError:
+                log.info("Message %s cancelled for session %s", message_id, session_id)
+                if session_id in self._closed_sessions:
+                    return acp.PromptResponse(stop_reason="cancelled")
+                raise
+
+            # Check if session was cancelled during processing
+            if session_id in self._closed_sessions:
+                return acp.PromptResponse(stop_reason="cancelled")
+
+            return acp.PromptResponse(stop_reason="end_turn")
+
+        finally:
+            # Clean up the completion event
+            self._message_complete_events.pop(message_id, None)
 
     async def _process_prompt(
         self,
@@ -1569,8 +1596,14 @@ class ActiveContextAgent:
                     if self._conn:
                         await self._emit_update(session_id, update)
 
-                    # Auto-save after each message completion
+                    # Signal message completion when PROJECTION_READY
                     if update.kind == UpdateKind.PROJECTION_READY:
+                        message_id = update.payload.get("message_id")
+                        if message_id and message_id in self._message_complete_events:
+                            self._message_complete_events[message_id].set()
+                            log.debug("Signaled completion for message %s", message_id)
+
+                        # Auto-save after each message completion
                         try:
                             session.save()
                             log.debug("Auto-saved session %s", session_id)
