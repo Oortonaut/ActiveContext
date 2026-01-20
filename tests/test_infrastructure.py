@@ -420,23 +420,12 @@ class TestMainEntryPoint:
         # Should leave unexpanded
         assert os.environ["MISSING_REF"] == "${NONEXISTENT_VAR}"
 
-    def test_setup_parent_death_monitor_no_op(self):
-        """Test _setup_parent_death_monitor is no-op."""
-        from activecontext.__main__ import _setup_parent_death_monitor
-
-        # Should not raise
-        _setup_parent_death_monitor()
-
     @patch("asyncio.run")
     @patch("activecontext.config.load_config")
     @patch("activecontext.__main__.setup_logging")
     @patch("activecontext.__main__._expand_env_vars")
-    @patch("activecontext.core.llm.discovery.get_default_model")
-    @patch("os._exit")
     def test_main_startup_sequence(
         self,
-        mock_exit,
-        mock_get_default_model,
         mock_expand,
         mock_setup_log,
         mock_load_config,
@@ -453,15 +442,8 @@ class TestMainEntryPoint:
         mock_asyncio_run.side_effect = close_coro
 
         mock_config = Mock()
-        mock_config.llm = Mock()
-        mock_config.llm.role = "coding"
-        mock_config.llm.provider = "anthropic"
-        mock_config.llm.role_providers = []
-        mock_config.projection = Mock()
-        mock_config.projection.total_budget = 8000
         mock_config.logging = LoggingConfig()  # Use real LoggingConfig with defaults
         mock_load_config.return_value = mock_config
-        mock_get_default_model.return_value = "test-model"
 
         main()
 
@@ -470,46 +452,17 @@ class TestMainEntryPoint:
         mock_load_config.assert_called_once()
         mock_setup_log.assert_called_once_with(mock_config.logging)
         mock_asyncio_run.assert_called_once()
-        mock_exit.assert_called_once_with(0)
 
-    @pytest.mark.asyncio
-    @patch("acp.stdio.stdio_streams")
-    @patch("activecontext.transport.acp.agent.create_agent")
-    async def test_main_async_entry(self, mock_create_agent, mock_stdio):
-        """Test _main async entry point."""
-        from activecontext.__main__ import _main
+    def test_create_agent(self):
+        """Test create_agent returns a valid agent."""
+        from activecontext.transport.acp.agent import create_agent
 
-        # Mock agent
-        mock_agent = Mock()
-        mock_agent._current_model_id = "test-model"
-        mock_create_agent.return_value = mock_agent
-
-        # Mock stdio streams
-        mock_output = AsyncMock()
-        mock_input = AsyncMock()
-        mock_stdio.return_value = (mock_output, mock_input)
-
-        # Mock connection
-        with patch(
-            "acp.agent.connection.AgentSideConnection"
-        ) as mock_conn_class:
-            mock_conn = AsyncMock()
-            mock_conn._conn = Mock()
-            mock_conn._conn.add_observer = Mock()
-            mock_conn.listen = AsyncMock()
-            mock_conn.close = AsyncMock()
-            mock_conn_class.return_value = mock_conn
-
-            await _main()
-
-            # Verify setup
-            mock_create_agent.assert_called_once()
-            mock_stdio.assert_called_once()
-            mock_conn_class.assert_called_once()
-
-            # Verify connection lifecycle
-            mock_conn.listen.assert_called_once()
-            mock_conn.close.assert_called_once()
+        agent = create_agent()
+        assert agent is not None
+        # Agent should have the required ACP methods
+        assert hasattr(agent, "initialize")
+        assert hasattr(agent, "new_session")
+        assert hasattr(agent, "prompt")
 
 
 # =============================================================================

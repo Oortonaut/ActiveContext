@@ -46,7 +46,8 @@ Thumbs.db
 *.log
 .env
 .env.secrets
+*.cmd
+nul
 
 .ac/
 .claude/
-.serena/*.cmd

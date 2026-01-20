@@ -35,6 +35,58 @@ from activecontext.core.llm import (
     get_default_model,
 )
 from activecontext.logging import get_logger
+
+
+def _find_rider_chat_uuid() -> str | None:
+    """Find Rider's chat UUID from its task history filesystem.
+
+    Rider stores chat history in aia-task-history/*.events files.
+    The filename is the chat UUID. We find the most recently modified
+    one to determine which chat is currently being used.
+
+    This is a workaround for Rider not passing its chat UUID in session/new.
+    """
+    import os
+    from pathlib import Path
+
+    # Find Rider's task history directory
+    localappdata = os.environ.get("LOCALAPPDATA")
+    if not localappdata:
+        return None
+
+    # Look for Rider installations (newest first)
+    jetbrains_dir = Path(localappdata) / "JetBrains"
+    if not jetbrains_dir.exists():
+        return None
+
+    rider_dirs = sorted(
+        [d for d in jetbrains_dir.iterdir() if d.name.startswith("Rider")],
+        reverse=True,  # Newest version first
+    )
+
+    for rider_dir in rider_dirs:
+        history_dir = rider_dir / "aia-task-history"
+        if not history_dir.exists():
+            continue
+
+        # Find most recently modified .events file
+        events_files = list(history_dir.glob("*.events"))
+        if not events_files:
+            continue
+
+        # Sort by modification time, newest first
+        events_files.sort(key=lambda f: f.stat().st_mtime, reverse=True)
+        newest = events_files[0]
+
+        # Extract UUID from filename (e.g., "dc96b351-e6a6-48a8-8c32-c8458c7bc4b1.events")
+        chat_uuid = newest.stem
+
+        # Validate it looks like a UUID
+        if len(chat_uuid) == 36 and chat_uuid.count("-") == 4:
+            log.debug("Found Rider chat UUID: %s", chat_uuid)
+            return chat_uuid
+
+    return None
 from activecontext.session.protocols import UpdateKind
 from activecontext.session.session_manager import Session, SessionManager
 from activecontext.session.storage import list_sessions as list_sessions_from_disk
@@ -618,42 +670,67 @@ class ActiveContextAgent:
         mcp_servers: list[Any] | None = None,
         **kwargs: Any,
     ) -> acp.NewSessionResponse:
-        """Create a new session."""
+        """Create a new session, or resume existing one if Rider UUID matches."""
         import traceback
 
         try:
             # Track current cwd for list_sessions
             self._current_cwd = cwd
 
-            # Permission requesters disabled - they can cause hangs if Rider
-            # doesn't respond to the permission request
-            session = await self._manager.create_session(
-                cwd=cwd,
-                permission_requester=None,
-                shell_permission_requester=None,
-                website_permission_requester=None,
-                import_permission_requester=None,
-            )
+            # Try to find Rider's chat UUID from filesystem
+            # This allows session resumption even though Rider doesn't call session/load
+            rider_uuid = _find_rider_chat_uuid()
+            session = None
 
-            # Now create ACP terminal executor with the actual session_id
+            if rider_uuid:
+                # Check if already in memory (other hosts might not restart agent)
+                existing = await self._manager.get_session(rider_uuid)
+                if existing:
+                    log.info("Resuming session %s (in memory)", rider_uuid)
+                    session = existing
+                else:
+                    # Try loading from disk
+                    loaded = Session.from_file(
+                        cwd=cwd,
+                        session_id=rider_uuid,
+                        llm=self._manager._default_llm,
+                    )
+                    if loaded:
+                        log.info("Resuming session %s (from disk)", rider_uuid)
+                        self._manager._sessions[rider_uuid] = loaded
+                        session = loaded
+
+            if session is None:
+                # Create new session with Rider's UUID (or generate one)
+                session = await self._manager.create_session(
+                    cwd=cwd,
+                    session_id=rider_uuid,  # Will generate UUID if None
+                    permission_requester=None,
+                    shell_permission_requester=None,
+                    website_permission_requester=None,
+                    import_permission_requester=None,
+                )
+                log.info("Created session %s", session.session_id)
+
+                # Save new session to disk immediately
+                try:
+                    session.save()
+                    log.debug("Saved new session %s to disk", session.session_id)
+                except Exception as e:
+                    log.warning("Failed to save session to disk: %s", e)
+
+            # Set up ACP terminal executor (needed for both new and resumed sessions)
             if self._conn:
                 terminal_executor = ACPTerminalExecutor(
                     client=self._conn,
                     session_id=session.session_id,
                     default_cwd=cwd,
                 )
-                # Update the timeline with the ACP executor
                 session.timeline._terminal_executor = terminal_executor
 
+            # Track session metadata
             self._sessions_cwd[session.session_id] = cwd
             self._sessions_mode[session.session_id] = self._default_mode_id
-
-            # Save session to disk immediately
-            try:
-                session.save()
-                log.debug("Saved new session %s to disk", session.session_id)
-            except Exception as e:
-                log.warning("Failed to save session to disk: %s", e)
 
             # Build available models from environment
             available = get_available_models()
@@ -681,8 +758,6 @@ class ActiveContextAgent:
 
             model_ids = [m.model_id for m in models_state.available_models] if models_state else []
             mode_ids = [m.id for m in modes_state.available_modes]
-            
-            log.info("Created session %s", session.session_id)
             log.info("  Models (%d): %s", len(model_ids), ", ".join(model_ids) if model_ids else "none")
             log.info("  Modes (%d): %s", len(mode_ids), ", ".join(mode_ids))
             
