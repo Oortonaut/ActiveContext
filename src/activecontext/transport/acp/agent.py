@@ -14,6 +14,9 @@ import acp
 from acp import helpers
 from acp.schema import (
     AgentCapabilities,
+    AvailableCommand,
+    AvailableCommandInput,
+    AvailableCommandsUpdate,
     ClientCapabilities,
     Implementation,
     ModelInfo,
@@ -27,6 +30,7 @@ from acp.schema import (
     SetSessionModeResponse,
     TextContentBlock,
     ToolCallUpdate,
+    UnstructuredCommandInput,
 )
 
 from activecontext.core.llm import (
@@ -145,6 +149,8 @@ class ActiveContextAgent:
         self._flush_threshold = 100  # characters
         self._closed_sessions: set[str] = set()  # Sessions that have been cancelled/closed
         self._active_prompts: dict[str, asyncio.Task[Any]] = {}  # session_id -> prompt task
+        self._sessions_initialized: set[str] = set()  # Sessions that received post-setup
+        self._agent_loop_tasks: dict[str, asyncio.Task[Any]] = {}  # session_id -> loop task
         self._load_batch_config()
 
         # ACP client info (populated during initialize handshake)
@@ -762,7 +768,13 @@ class ActiveContextAgent:
             mode_ids = [m.id for m in modes_state.available_modes]
             log.info("  Models (%d): %s", len(model_ids), ", ".join(model_ids) if model_ids else "none")
             log.info("  Modes (%d): %s", len(mode_ids), ", ".join(mode_ids))
-            
+
+            # Note: _post_session_setup is called on first prompt, not here
+            # Sending notifications before the response confuses the client
+
+            # Start the agent loop for async prompt processing
+            await self._start_agent_loop(session)
+
             return acp.NewSessionResponse(
                 session_id=session.session_id,
                 models=models_state,
@@ -799,6 +811,8 @@ class ActiveContextAgent:
             existing = await self._manager.get_session(session_id)
             if existing:
                 log.info("Session %s already loaded", session_id)
+                # Ensure agent loop is running
+                await self._start_agent_loop(existing)
                 return acp.LoadSessionResponse(
                     session_id=session_id,
                     modes=SessionModeState(
@@ -853,6 +867,9 @@ class ActiveContextAgent:
                 )
 
             log.info("Loaded session %s from disk (title: %s)", session_id, session.title)
+
+            # Start the agent loop for async prompt processing
+            await self._start_agent_loop(session)
 
             return acp.LoadSessionResponse(
                 session_id=session_id,
@@ -953,17 +970,18 @@ class ActiveContextAgent:
         session_id: str,
         **kwargs: Any,
     ) -> acp.PromptResponse:
-        """Handle a prompt request.
+        """Handle a prompt request by queuing it and returning immediately.
 
-        This is the main interaction method. It:
-        1. Gets the session
-        2. Processes the prompt through the session
-        3. Streams updates back via session_update
-        4. Returns the final response
+        This implements the async prompt model where:
+        1. Message is queued as a MessageNode in user_messages group
+        2. Response is returned immediately with stop_reason='end_turn'
+        3. Actual processing happens in the background agent loop
+        4. Updates are sent via session_update notifications
 
         Per ACP spec, every prompt must have exactly one PromptResponse.
-        If cancelled, returns stop_reason="cancelled".
         """
+        import uuid
+
         # Check if session was already cancelled before we start
         if session_id in self._closed_sessions:
             log.info("Prompt received for already-cancelled session %s", session_id)
@@ -977,21 +995,41 @@ class ActiveContextAgent:
                 message=f"Session not found: {session_id}",
             )
 
-        # Track this prompt as the active task for this session
-        # (allows cancel() to find and cancel it)
-        current_task = asyncio.current_task()
-        if current_task:
-            self._active_prompts[session_id] = current_task
+        # Schedule post-session setup to run AFTER prompt response is sent
+        # (sending notifications before response confuses clients)
+        if session_id not in self._sessions_initialized:
+            self._sessions_initialized.add(session_id)
+            asyncio.create_task(self._post_session_setup(session_id))
 
-        try:
-            return await self._process_prompt(session, session_id, prompt)
-        except asyncio.CancelledError:
-            # Task was cancelled by cancel() - this is expected
-            log.info("Prompt task cancelled for session %s", session_id)
-            return acp.PromptResponse(stop_reason="cancelled")
-        finally:
-            # Clean up active prompt tracking
-            self._active_prompts.pop(session_id, None)
+        # Extract text from prompt blocks
+        content = ""
+        for block in prompt:
+            if isinstance(block, TextContentBlock) or hasattr(block, "text"):
+                content += block.text
+
+        # Handle slash commands synchronously (they don't go through the queue)
+        if content.strip().startswith("/"):
+            handled, response = await self._handle_slash_command(
+                content.strip(), session_id
+            )
+            if handled:
+                if response:
+                    await self._send_session_update(
+                        session_id,
+                        acp.update_agent_message_text(response),
+                    )
+                return acp.PromptResponse(stop_reason="end_turn")
+
+        # Generate message ID
+        message_id = f"msg_{uuid.uuid4().hex[:8]}"
+
+        # Queue the message (non-blocking)
+        session.queue_user_message(content, message_id)
+
+        log.info("Queued message %s for session %s", message_id, session_id)
+
+        # Return immediately - processing happens in agent loop
+        return acp.PromptResponse(stop_reason="end_turn")
 
     async def _process_prompt(
         self,
@@ -1378,6 +1416,50 @@ class ActiveContextAgent:
             return
         await self._conn.session_update(session_id, update)
 
+    async def _post_session_setup(self, session_id: str) -> None:
+        """Post-session setup hook called after session is created or loaded."""
+        # Small delay to ensure prompt response is sent first
+        await asyncio.sleep(0.1)
+        # Advertise available slash commands to client
+        await self._send_session_update(
+            session_id,
+            AvailableCommandsUpdate(
+                session_update="available_commands_update",
+                available_commands=self._get_available_commands(),
+            ),
+        )
+
+    def _get_available_commands(self) -> list[AvailableCommand]:
+        """Build list of available slash commands for ACP clients."""
+        return [
+            AvailableCommand(
+                name="help",
+                description="Show available commands",
+            ),
+            AvailableCommand(
+                name="clear",
+                description="Clear conversation history",
+            ),
+            AvailableCommand(
+                name="context",
+                description="Show current context objects",
+            ),
+            AvailableCommand(
+                name="title",
+                description="Get or set session title",
+                input=AvailableCommandInput(
+                    root=UnstructuredCommandInput(hint="New title (optional)")
+                ),
+            ),
+            AvailableCommand(
+                name="dashboard",
+                description="Open monitoring dashboard",
+                input=AvailableCommandInput(
+                    root=UnstructuredCommandInput(hint="start|stop|status|open")
+                ),
+            ),
+        ]
+
     async def _emit_update(self, session_id: str, update: Any) -> None:
         """Convert and emit a SessionUpdate as an ACP notification."""
         # Priority flush: non-RESPONSE_CHUNK updates flush any pending chunks first
@@ -1453,6 +1535,73 @@ class ActiveContextAgent:
                 update.payload,
                 update.timestamp,
             )
+
+    async def _start_agent_loop(self, session: Session) -> None:
+        """Start the agent loop for a session.
+
+        The agent loop runs in the background and processes:
+        - Queued user messages
+        - File change events
+        - MCP async results
+        - Other wake events
+
+        Args:
+            session: The session to start the loop for
+        """
+        session_id = session.session_id
+
+        # Don't start if already running
+        if session_id in self._agent_loop_tasks:
+            existing = self._agent_loop_tasks[session_id]
+            if not existing.done():
+                log.debug("Agent loop already running for session %s", session_id)
+                return
+
+        async def _run_loop() -> None:
+            """Wrapper to run the agent loop and emit updates."""
+            try:
+                async for update in session.run_agent_loop():
+                    # Check if session was closed
+                    if session_id in self._closed_sessions:
+                        log.info("Agent loop stopping for closed session %s", session_id)
+                        break
+
+                    if self._conn:
+                        await self._emit_update(session_id, update)
+
+                    # Auto-save after each message completion
+                    if update.kind == UpdateKind.PROJECTION_READY:
+                        try:
+                            session.save()
+                            log.debug("Auto-saved session %s", session_id)
+                        except Exception as e:
+                            log.warning("Failed to auto-save session: %s", e)
+
+            except asyncio.CancelledError:
+                log.info("Agent loop cancelled for session %s", session_id)
+            except Exception as e:
+                log.error("Agent loop error for session %s: %s", session_id, e)
+                import traceback
+                log.error("%s", traceback.format_exc())
+            finally:
+                self._agent_loop_tasks.pop(session_id, None)
+                log.info("Agent loop ended for session %s", session_id)
+
+        # Start the loop as a background task
+        task = asyncio.create_task(_run_loop())
+        self._agent_loop_tasks[session_id] = task
+        log.info("Started agent loop for session %s", session_id)
+
+    def _stop_agent_loop(self, session_id: str) -> None:
+        """Stop the agent loop for a session.
+
+        Args:
+            session_id: The session whose loop to stop
+        """
+        task = self._agent_loop_tasks.get(session_id)
+        if task and not task.done():
+            task.cancel()
+            log.info("Cancelled agent loop for session %s", session_id)
 
 
 def create_agent() -> ActiveContextAgent:

@@ -163,6 +163,71 @@ Run pip install"""
         finally:
             await timeline.close()
 
+    @pytest.mark.asyncio
+    async def test_markdown_nodes_render_with_display_id(self, temp_cwd: Path) -> None:
+        """Test that markdown nodes render headings with {#text#N} annotations."""
+        timeline = Timeline("test-session", cwd=str(temp_cwd))
+
+        try:
+            # Create a markdown file matching the golden fixture
+            md_file = temp_cwd / "test.md"
+            md_content = """# Main Title
+
+Introduction text.
+
+## Section One
+
+Content for section one.
+
+## Section Two
+
+Content for section two.
+"""
+            md_file.write_text(md_content)
+
+            result = await timeline.execute_statement('m = markdown("test.md")')
+            assert result.status.value == "ok"
+
+            ns = timeline.get_namespace()
+            root = ns["m"]
+
+            # Get all nodes in order (root + children sorted by display_sequence)
+            all_nodes = [root]
+            children = []
+            for child_id in root.children_ids:
+                child = timeline._context_objects.get(child_id)
+                if child:
+                    children.append(child)
+            # Sort children by display_sequence for deterministic order
+            children.sort(key=lambda n: n.display_sequence or 0)
+            all_nodes.extend(children)
+
+            # Verify display_id format is text#N
+            for node in all_nodes:
+                assert node.display_id.startswith("text#")
+                num = int(node.display_id.split("#")[1])
+                assert num >= 0
+
+            # Render all nodes and concatenate
+            rendered_parts = []
+            for node in all_nodes:
+                rendered = node.Render(
+                    tokens=500,
+                    cwd=str(temp_cwd),
+                    text_buffers=timeline._text_buffers,
+                )
+                rendered_parts.append(rendered.rstrip())
+
+            full_rendered = "\n\n".join(rendered_parts) + "\n"
+
+            # Compare to golden file
+            golden_path = Path(__file__).parent / "fixtures" / "example_node_golden.md"
+            golden = golden_path.read_text(encoding="utf-8")
+
+            assert full_rendered == golden
+        finally:
+            await timeline.close()
+
 
 class TestLsPermissions:
     """Test ls_permissions() and related permission inspection functions."""

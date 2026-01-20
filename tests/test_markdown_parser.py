@@ -13,6 +13,7 @@ from activecontext.context.markdown_parser import (
     MarkdownParser,
     ParseResult,
     parse_markdown,
+    render_with_tags,
 )
 
 
@@ -444,3 +445,43 @@ class TestFixtureFile:
         actual_titles = [s.title for s in result.sections]
         for expected in expected_titles:
             assert expected in actual_titles, f"Expected heading not found: {expected}"
+
+
+class TestRenderWithTags:
+    """Tests for render_with_tags function."""
+
+    def test_round_trip_golden_file(self) -> None:
+        """Parse example.md, render with tags, compare to golden."""
+        fixtures = Path(__file__).parent / "fixtures"
+        example = (fixtures / "example.md").read_text(encoding="utf-8")
+        golden = (fixtures / "example_golden.md").read_text(encoding="utf-8")
+
+        result = parse_markdown(example)
+        rendered = render_with_tags(example, result)
+
+        assert rendered == golden
+
+    def test_render_tags_format(self) -> None:
+        """Test that render_tags produces correct format."""
+        section = HeadingSection(level=2, title="Test", start_line=10, end_line=25)
+
+        # Without node_id
+        assert section.render_tags(100) == "| line 10..25 of 100"
+
+        # With node_id
+        assert section.render_tags(100, "text#1") == "| line 10..25 of 100 {#text#1}"
+
+    def test_render_heading_format(self) -> None:
+        """Test that render_heading produces correct format."""
+        section = HeadingSection(level=2, title="Features", start_line=10, end_line=25)
+
+        result = section.render_heading(100, "text#0")
+        assert result == "## Features | line 10..25 of 100 {#text#0}"
+
+    def test_render_heading_levels(self) -> None:
+        """Test render_heading with different heading levels."""
+        for level in range(1, 7):
+            section = HeadingSection(level=level, title="Test", start_line=1, end_line=5)
+            result = section.render_heading(10, "test")
+            prefix = "#" * level
+            assert result.startswith(f"{prefix} Test")

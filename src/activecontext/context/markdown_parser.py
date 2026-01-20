@@ -38,6 +38,35 @@ class HeadingSection:
         """Return (start_line, end_line) tuple."""
         return (self.start_line, self.end_line)
 
+    def render_tags(self, total_lines: int = 0, node_id: str = "") -> str:
+        """Return the heading annotation with line range and ID.
+
+        Format: | line START..END of TOTAL {#ID}
+
+        Args:
+            total_lines: Total lines in document (from ParseResult)
+            node_id: Optional node ID (e.g., "text#1")
+
+        Returns:
+            Annotation string like '| line 10..25 of 320 {#text#1}'
+        """
+        id_part = f" {{#{node_id}}}" if node_id else ""
+        return f"| line {self.start_line}..{self.end_line} of {total_lines}{id_part}"
+
+    def render_heading(self, total_lines: int = 0, node_id: str = "") -> str:
+        """Render the heading line with annotation.
+
+        Args:
+            total_lines: Total lines in document
+            node_id: Optional node ID
+
+        Returns:
+            Annotated heading like '## Heading Text | line 10..25 of 320 {#text#1}'
+        """
+        prefix = "#" * self.level
+        tags = self.render_tags(total_lines, node_id)
+        return f"{prefix} {self.title} {tags}"
+
 
 @dataclass
 class ParseResult:
@@ -211,3 +240,26 @@ def parse_markdown(content: str) -> ParseResult:
     """
     parser = MarkdownParser()
     return parser.parse(content)
+
+
+def render_with_tags(content: str, result: ParseResult) -> str:
+    """Render markdown content with heading annotations.
+
+    Replaces each heading line with annotated version including
+    line range and section ID.
+
+    Args:
+        content: Original markdown content
+        result: ParseResult from parsing the content
+
+    Returns:
+        Content with heading lines annotated
+    """
+    lines = content.split("\n")
+
+    for i, section in enumerate(result.sections):
+        line_idx = section.start_line - 1  # 0-indexed
+        node_id = f"text#{i}"
+        lines[line_idx] = section.render_heading(result.total_lines, node_id)
+
+    return "\n".join(lines)
