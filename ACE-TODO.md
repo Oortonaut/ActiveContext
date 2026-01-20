@@ -41,23 +41,36 @@ Today's Goals: Develop ActiveContext with itself
 - [ ] **ClockNode**: Timer/countdown with tick-driven updates (useful for timeouts)
 - [ ] **FunctionDocNode**: Extract and display function signatures + docstrings
 
+#### Node Help System
+- [ ] Add `.help()` method to base ContextNode class
+- [ ] Creates or unhides a help node/panel attached to the calling node
+- [ ] SUMMARY state: brief description and common methods
+- [ ] DETAILS state: full method list with signatures and examples
+- [ ] Generate help content dynamically from class metadata/docstrings
+
+#### REPL Enhancements
+- [ ] Add node lookup by name (e.g., `get("my_view")` or `nodes["my_view"]`)
+- [ ] Support fuzzy/partial name matching
+- [ ] Add `remove(node)` DSL function to exclude node from traversal
+- [ ] Removed nodes skip rendering but retain state for potential restoration
+
 ### Stream B: Testing & Quality
 
 #### Notification System Testing
-- [ ] Unit tests for NotificationLevel enum and Notification dataclass
-- [ ] Test ContextNode._emit_notification() called when level != IGNORE
-- [ ] Test ContextNode._format_notification_header() formatting
-- [ ] Test TextNode header override with line change info
-- [ ] Test ContextGraph.emit_notification() adds to queue
-- [ ] Test deduplication via trace_id (same trace not added twice)
-- [ ] Test ContextGraph.flush_notifications() clears state
-- [ ] Test ContextGraph.has_wake_notification() flag
-- [ ] Test Session Alerts group created and linked to root
-- [ ] Test tick() processes notifications into Alerts group
-- [ ] Test WAKE level triggers _wake_event.set()
-- [ ] Test HOLD level queues until tick boundary
-- [ ] Test notify() DSL function sets level correctly
-- [ ] Test string level conversion ("wake" -> NotificationLevel.WAKE)
+- [x] Unit tests for NotificationLevel enum and Notification dataclass
+- [x] Test ContextNode._emit_notification() called when level != IGNORE
+- [x] Test ContextNode._format_notification_header() formatting
+- [x] Test TextNode header override with line change info
+- [x] Test ContextGraph.emit_notification() adds to queue
+- [x] Test deduplication via trace_id (same trace not added twice)
+- [x] Test ContextGraph.flush_notifications() clears state
+- [x] Test ContextGraph.has_wake_notification() flag
+- [x] Test Session Alerts group created and linked to root
+- [x] Test tick() processes notifications into Alerts group
+- [x] Test WAKE level triggers _wake_event.set()
+- [x] Test HOLD level queues until tick boundary
+- [x] Test notify() DSL function sets level correctly
+- [x] Test string level conversion ("wake" -> NotificationLevel.WAKE)
 
 #### MCP Integration Testing
 - [ ] Test server connection lifecycle (connect/reconnect/disconnect)
