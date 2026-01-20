@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import json
 import logging
+import time
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from activecontext.context.state import NodeState
 from activecontext.dashboard.data import (
     format_session_update,
     get_client_capabilities_data,
@@ -224,16 +227,124 @@ def _register_routes(app: FastAPI) -> None:
             # Keep connection alive and handle incoming messages
             while True:
                 try:
-                    # Wait for messages (pings, etc.)
+                    # Wait for messages (pings, commands, etc.)
                     data = await websocket.receive_text()
                     # Handle ping/pong
                     if data == "ping":
                         await websocket.send_text("pong")
+                    else:
+                        # Try to parse as JSON command
+                        try:
+                            cmd = json.loads(data)
+                            await _handle_websocket_command(websocket, session_id, cmd)
+                        except json.JSONDecodeError:
+                            await websocket.send_json({
+                                "type": "error",
+                                "message": "Invalid JSON",
+                            })
                 except WebSocketDisconnect:
                     break
 
         finally:
             await connection_manager.disconnect(websocket, session_id)
+
+
+async def _handle_websocket_command(
+    websocket: WebSocket,
+    session_id: str,
+    cmd: dict[str, Any],
+) -> None:
+    """Handle incoming WebSocket commands."""
+    cmd_type = cmd.get("type")
+
+    if cmd_type == "set_state":
+        await _handle_set_state(websocket, session_id, cmd)
+    else:
+        await websocket.send_json({
+            "type": "error",
+            "message": f"Unknown command type: {cmd_type}",
+        })
+
+
+async def _handle_set_state(
+    websocket: WebSocket,
+    session_id: str,
+    cmd: dict[str, Any],
+) -> None:
+    """Handle node state change request."""
+    manager = get_manager()
+    if not manager:
+        await websocket.send_json({
+            "type": "error",
+            "message": "Dashboard not initialized",
+        })
+        return
+
+    session = await manager.get_session(session_id)
+    if not session:
+        await websocket.send_json({
+            "type": "error",
+            "message": f"Session not found: {session_id}",
+        })
+        return
+
+    node_id = cmd.get("node_id")
+    new_state_str = cmd.get("state")
+
+    if not node_id or not new_state_str:
+        await websocket.send_json({
+            "type": "error",
+            "message": "Missing node_id or state",
+        })
+        return
+
+    # Validate state
+    try:
+        new_state = NodeState(new_state_str)
+    except ValueError:
+        valid_states = ", ".join(s.value for s in NodeState)
+        await websocket.send_json({
+            "type": "error",
+            "message": f"Invalid state: {new_state_str}. Valid: {valid_states}",
+        })
+        return
+
+    # Get node and apply state change
+    graph = session.get_context_graph()
+    node = graph.get_node(node_id)
+
+    if not node:
+        await websocket.send_json({
+            "type": "error",
+            "message": f"Node not found: {node_id}",
+        })
+        return
+
+    old_state = node.state
+    node.SetState(new_state)
+
+    # Broadcast update to all dashboard clients
+    await broadcast_update(
+        session_id,
+        "node_changed",
+        {
+            "node_id": node_id,
+            "node_type": node.node_type,
+            "change": "state_changed",
+            "old_state": old_state.value,
+            "new_state": new_state.value,
+            "digest": node.GetDigest(),
+        },
+        time.time(),
+    )
+
+    # Confirm to requesting client
+    await websocket.send_json({
+        "type": "state_changed",
+        "node_id": node_id,
+        "old_state": old_state.value,
+        "new_state": new_state.value,
+    })
 
 
 async def broadcast_update(

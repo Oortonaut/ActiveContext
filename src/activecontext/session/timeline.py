@@ -27,7 +27,6 @@ from activecontext.context.nodes import (
     GroupNode,
     LockNode,
     LockStatus,
-    MarkdownNode,
     MCPServerNode,
     ShellNode,
     ShellStatus,

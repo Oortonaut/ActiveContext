@@ -18,7 +18,6 @@ from typing import TYPE_CHECKING, Any
 from activecontext.context.graph import ContextGraph
 from activecontext.context.nodes import (
     GroupNode,
-    MarkdownNode,
     MCPManagerNode,
     MessageNode,
     SessionNode,
@@ -143,26 +142,23 @@ class Session:
         self._text_buffers: dict[str, TextBuffer] = {}
 
     def _add_system_prompt_node(self) -> None:
-        """Add the system prompt as a fully expanded MarkdownNode.
+        """Add the system prompt as a fully expanded TextNode tree.
 
-        The system prompt is parsed into a MarkdownNode tree and added
+        The system prompt is parsed into a TextNode tree and added
         to the context graph with state=ALL so it renders fully expanded.
         Links to root context for document ordering.
         """
         from activecontext.prompts import FULL_SYSTEM_PROMPT
 
-        # Parse system prompt into MarkdownNode tree
-        root, all_nodes = MarkdownNode.from_markdown(
+        # Use timeline's markdown parsing to create TextNode tree
+        root = self._timeline._make_markdown_node(
             path="system_prompt",
             content=FULL_SYSTEM_PROMPT,
+            tokens=2000,
             state=NodeState.ALL,  # Fully expanded
         )
 
-        # Add all nodes to context graph
-        for node in all_nodes:
-            self._timeline.context_graph.add_node(node)
-
-        # Link root markdown node to root context for document ordering
+        # Link root node to root context for document ordering
         self._timeline.context_graph.link(root.node_id, "context")
 
     def _create_metadata_nodes(self) -> None:

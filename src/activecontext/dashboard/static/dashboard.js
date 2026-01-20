@@ -274,7 +274,31 @@ class DashboardClient {
             }
         } else if (data.type === 'update') {
             this.handleUpdate(data);
+        } else if (data.type === 'state_changed') {
+            // State change confirmed - context will be reloaded via node_changed broadcast
+            console.log(`State changed: ${data.node_id} ${data.old_state} -> ${data.new_state}`);
+        } else if (data.type === 'error') {
+            console.error('Server error:', data.message);
         }
+    }
+
+    // Node state control methods
+    setNodeState(nodeId, newState) {
+        if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+            console.error('WebSocket not connected');
+            return;
+        }
+
+        this.ws.send(JSON.stringify({
+            type: 'set_state',
+            node_id: nodeId,
+            state: newState
+        }));
+    }
+
+    toggleNodeHidden(nodeId, currentState) {
+        const newState = currentState === 'hidden' ? 'details' : 'hidden';
+        this.setNodeState(nodeId, newState);
     }
 
     handleUpdate(data) {
@@ -286,6 +310,7 @@ class DashboardClient {
             case 'node_changed':
                 this.loadContext();
                 this.loadConversation();
+                this.loadRendered();
                 break;
             case 'projection_ready':
                 this.loadProjection();
@@ -510,6 +535,14 @@ class DashboardClient {
 
         items.forEach(item => {
             const li = document.createElement('li');
+            const nodeId = item.id || item.node_id;
+            const currentState = item.state || 'details';
+            const isHidden = currentState === 'hidden';
+
+            // Add hidden class for styling
+            if (isHidden) {
+                li.classList.add('node-hidden');
+            }
 
             // Get details based on type
             let details = this.getNodeDetails(item, type);
@@ -518,12 +551,42 @@ class DashboardClient {
             const hasParent = item.parent_ids && item.parent_ids.length > 0;
             const parentInfo = hasParent ? `<span class="node-parent">⤴ ${item.parent_ids[0]}</span>` : '';
 
+            // Eye icon: open eye when visible, closed eye when hidden
+            const eyeIcon = isHidden ? '👁‍🗨' : '👁';
+
+            // For dropdown, show the non-hidden state (default to details if currently hidden)
+            const displayState = isHidden ? 'details' : currentState;
+
             li.innerHTML = `
-                <span class="node-id">${item.id || item.node_id}</span>
-                <span class="node-path">${details}</span>
+                <span class="node-id">${nodeId}</span>
+                <span class="node-path ${isHidden ? 'strikethrough' : ''}">${details}</span>
                 ${parentInfo}
-                <span class="node-state">${item.state || 'details'}</span>
+                <div class="node-controls">
+                    <button class="node-toggle-btn" data-node-id="${nodeId}" data-state="${currentState}" title="Toggle visibility">
+                        ${eyeIcon}
+                    </button>
+                    <select class="node-state-select" data-node-id="${nodeId}" title="Change display state">
+                        <option value="collapsed" ${displayState === 'collapsed' ? 'selected' : ''}>Collapsed</option>
+                        <option value="summary" ${displayState === 'summary' ? 'selected' : ''}>Summary</option>
+                        <option value="details" ${displayState === 'details' ? 'selected' : ''}>Details</option>
+                        <option value="all" ${displayState === 'all' ? 'selected' : ''}>All</option>
+                    </select>
+                </div>
             `;
+
+            // Add event listeners
+            const toggleBtn = li.querySelector('.node-toggle-btn');
+            toggleBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.toggleNodeHidden(nodeId, currentState);
+            });
+
+            const stateSelect = li.querySelector('.node-state-select');
+            stateSelect.addEventListener('change', (e) => {
+                e.stopPropagation();
+                this.setNodeState(nodeId, e.target.value);
+            });
+
             list.appendChild(li);
         });
     }
@@ -725,16 +788,54 @@ class DashboardClient {
             sectionsEl.innerHTML = '';
             data.sections.forEach((section, index) => {
                 const sectionItem = document.createElement('div');
+                const nodeId = section.source_id;
+                const currentState = section.state || 'details';
+                const isHidden = currentState === 'hidden';
+
                 sectionItem.className = 'section-item';
+                if (isHidden) {
+                    sectionItem.classList.add('section-hidden');
+                }
+
+                // Eye icon for toggle
+                const eyeIcon = isHidden ? '👁‍🗨' : '👁';
+
+                // For dropdown, show the non-hidden state (default to details if currently hidden)
+                const displayState = isHidden ? 'details' : currentState;
+
                 sectionItem.innerHTML = `
                     <div class="section-header">
                         <span class="section-type">${section.type}</span>
-                        <span class="section-source">${section.source_id}</span>
+                        <span class="section-source ${isHidden ? 'strikethrough' : ''}">${nodeId}</span>
                         <span class="section-tokens">${section.tokens_used} tokens</span>
-                        <span class="section-state">${section.state}</span>
+                        <div class="section-controls">
+                            <button class="section-toggle-btn" data-node-id="${nodeId}" data-state="${currentState}" title="Toggle visibility">
+                                ${eyeIcon}
+                            </button>
+                            <select class="section-state-select" data-node-id="${nodeId}" title="Change display state">
+                                <option value="collapsed" ${displayState === 'collapsed' ? 'selected' : ''}>Collapsed</option>
+                                <option value="summary" ${displayState === 'summary' ? 'selected' : ''}>Summary</option>
+                                <option value="details" ${displayState === 'details' ? 'selected' : ''}>Details</option>
+                                <option value="all" ${displayState === 'all' ? 'selected' : ''}>All</option>
+                            </select>
+                        </div>
                     </div>
                     <pre class="section-content">${this.escapeHtml(section.content || '')}</pre>
                 `;
+
+                // Add event listeners
+                const toggleBtn = sectionItem.querySelector('.section-toggle-btn');
+                toggleBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    this.toggleNodeHidden(nodeId, currentState);
+                });
+
+                const stateSelect = sectionItem.querySelector('.section-state-select');
+                stateSelect.addEventListener('change', (e) => {
+                    e.stopPropagation();
+                    this.setNodeState(nodeId, e.target.value);
+                });
+
                 sectionsEl.appendChild(sectionItem);
             });
         }

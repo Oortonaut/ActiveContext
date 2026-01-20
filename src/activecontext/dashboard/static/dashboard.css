@@ -398,6 +398,64 @@ main {
     margin-left: 0.3rem;
 }
 
+/* Hidden node styling */
+.context-list li.node-hidden {
+    opacity: 0.5;
+    background: var(--bg-primary);
+}
+
+.context-list li.node-hidden .node-path {
+    color: var(--text-secondary);
+}
+
+.context-list .node-path.strikethrough {
+    text-decoration: line-through;
+}
+
+/* Node controls */
+.node-controls {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin-left: auto;
+    flex-shrink: 0;
+}
+
+.node-toggle-btn {
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    font-size: 0.85rem;
+    padding: 0.15rem 0.3rem;
+    border-radius: 4px;
+    transition: background 0.2s;
+    line-height: 1;
+}
+
+.node-toggle-btn:hover {
+    background: var(--bg-card);
+}
+
+.node-state-select {
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-size: 0.65rem;
+    padding: 0.1rem 0.25rem;
+    cursor: pointer;
+    font-family: inherit;
+}
+
+.node-state-select:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+
+.node-state-select:hover {
+    border-color: var(--accent);
+}
+
 /* Timeline */
 .timeline-list {
     max-height: 400px;
@@ -633,13 +691,61 @@ main {
     color: var(--views-color);
 }
 
-.section-state {
-    font-size: 0.7rem;
-    padding: 0.1rem 0.4rem;
+/* Section controls */
+.section-controls {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin-left: auto;
+    flex-shrink: 0;
+}
+
+.section-toggle-btn {
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    font-size: 0.85rem;
+    padding: 0.15rem 0.3rem;
     border-radius: 4px;
+    transition: background 0.2s;
+    line-height: 1;
+}
+
+.section-toggle-btn:hover {
     background: var(--bg-card);
-    color: var(--text-secondary);
-    text-transform: uppercase;
+}
+
+.section-state-select {
+    background: var(--bg-card);
+    color: var(--text-primary);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-size: 0.65rem;
+    padding: 0.1rem 0.25rem;
+    cursor: pointer;
+    font-family: inherit;
+}
+
+.section-state-select:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+
+.section-state-select:hover {
+    border-color: var(--accent);
+}
+
+/* Hidden section styling */
+.section-item.section-hidden {
+    opacity: 0.5;
+}
+
+.section-item.section-hidden .section-source {
+    text-decoration: line-through;
+}
+
+.section-source.strikethrough {
+    text-decoration: line-through;
 }
 
 .section-content {
