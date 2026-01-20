@@ -6,6 +6,20 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **ActiveContext** is an agent loop architecture where an LLM controls a structured, reversible working context through a Python statement timeline. The agent executes Python statements that manipulate "context objects" (views, groups, shells, MCP connections) with tick-driven updates.
 
+## Working Directory
+
+The cwd is `C:\ActiveContext`. Do not use path prefixes in commands:
+
+```bash
+# ✅ Correct
+git status
+uv run pytest
+
+# ❌ Wrong - unnecessary path
+git -C C:\ActiveContext status
+cd C:\ActiveContext && uv run pytest
+```
+
 ## Development Commands
 
 ```bash
