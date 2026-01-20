@@ -8,7 +8,7 @@ Execute statements in `python/acrepl` fenced code blocks:
 
 ~~~markdown
 ```python/acrepl
-v = view("src/main.py", tokens=2000)
+v = text("src/main.py", tokens=2000)
 v.SetState(NodeState.SUMMARY)
 ```
 ~~~
@@ -46,13 +46,31 @@ TickFrequency.never()       # No automatic updates
 
 ## Context Node Constructors
 
-### `view(path, pos="1:0", end_pos=None, tokens=1000, state=NodeState.DETAILS)`
-Create a view of a file or file region.
+### `text(path, pos="1:0", end_pos=None, tokens=1000, state=NodeState.DETAILS)`
+Create a text view of a file or file region.
 
 ```python
-v = view("src/main.py")                          # Entire file
-v = view("src/main.py", pos="50:0", end_pos="100:0")  # Lines 50-100
-v = view("src/main.py", tokens=500, state=NodeState.SUMMARY)
+v = text("src/main.py")                          # Entire file
+v = text("src/main.py", pos="50:0", end_pos="100:0")  # Lines 50-100
+v = text("src/main.py", tokens=500, state=NodeState.SUMMARY)
+```
+
+### `markdown(path, content=None, tokens=2000, state=NodeState.DETAILS)`
+Parse a markdown file into a tree of TextNodes, where each heading section is a separate node.
+
+```python
+m = markdown("README.md")                        # Parse file
+m = markdown("inline.md", content="# Title\n\nContent")  # Inline content
+```
+
+Returns the root TextNode. Child sections are accessible via `children_ids`.
+
+### `view(media_type, path, tokens=2000, state=NodeState.ALL, **kwargs)`
+Dispatcher that routes to `text()` or `markdown()` based on media type.
+
+```python
+v = view("text", "src/main.py")                  # Same as text()
+m = view("markdown", "docs/README.md")           # Same as markdown()
 ```
 
 ### `group(*members, tokens=500, state=NodeState.SUMMARY, summary=None)`
@@ -93,7 +111,7 @@ node.Pause()                       # Stop automatic updates
 node.Refresh()                     # Force immediate update
 ```
 
-### ViewNode Methods
+### TextNode Methods
 
 ```python
 v.SetPos("50:0")      # Jump to line 50
@@ -107,7 +125,7 @@ v.Scroll(-5)          # Scroll up 5 lines
 Methods return `self` for chaining:
 
 ```python
-v = view("src/main.py").SetTokens(2000).SetState(NodeState.ALL).Run(TickFrequency.turn())
+v = text("src/main.py").SetTokens(2000).SetState(NodeState.ALL).Run(TickFrequency.turn())
 ```
 
 ## DAG Manipulation
@@ -287,7 +305,7 @@ Alias for `wait()`.
 List all context objects in the namespace.
 
 ```python
-handles = ls()  # {"v": ViewNode(...), "g": GroupNode(...)}
+handles = ls()  # {"v": TextNode(...), "g": GroupNode(...)}
 ```
 
 ### `show(node_or_id)`
@@ -325,7 +343,8 @@ You can use XML-style tags instead of Python syntax. Tags are converted to Pytho
 
 ```xml
 <!-- name becomes the variable name -->
-<view name="v" path="src/main.py" tokens="3000" state="all"/>
+<text name="v" path="src/main.py" tokens="3000" state="all"/>
+<markdown name="m" path="README.md" tokens="2000"/>
 <group name="g" tokens="500" state="summary">
     <member ref="v"/>
 </group>

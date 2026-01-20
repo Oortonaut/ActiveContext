@@ -10,7 +10,14 @@ Split architecture for multi-agent support:
 - ViewRegistry: registry for per-agent AgentViews
 """
 
+from activecontext.context.buffer import TextBuffer
 from activecontext.context.checkpoint import Checkpoint, GroupState
+from activecontext.context.markdown_parser import (
+    HeadingSection,
+    MarkdownParser,
+    ParseResult,
+    parse_markdown,
+)
 from activecontext.context.headers import TokenInfo, format_token_info, render_header
 from activecontext.context.content import (
     ContentData,
@@ -37,15 +44,22 @@ from activecontext.context.nodes import (
     ShellNode,
     ShellStatus,
     TopicNode,
-    ViewNode,
+    TextNode,
     WorkNode,
 )
 from activecontext.context.view import AgentView, ViewRegistry
 
 __all__ = [
+    # Buffer
+    "TextBuffer",
     # Checkpoint
     "Checkpoint",
     "GroupState",
+    # Markdown Parser
+    "HeadingSection",
+    "MarkdownParser",
+    "ParseResult",
+    "parse_markdown",
     # Headers
     "TokenInfo",
     "format_token_info",
@@ -66,7 +80,7 @@ __all__ = [
     "ContextNode",
     "Trace",
     "OnChildChangedHook",
-    "ViewNode",
+    "TextNode",
     "GroupNode",
     "TopicNode",
     "ArtifactNode",

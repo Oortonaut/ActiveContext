@@ -137,6 +137,11 @@ class Session:
         # Register set_title callback with timeline
         self._timeline.set_title_callback(self.set_title)
 
+        # Text buffer storage for shared line content
+        # Key: buffer_id, Value: TextBuffer instance
+        from activecontext.context.buffer import TextBuffer
+        self._text_buffers: dict[str, TextBuffer] = {}
+
     def _add_system_prompt_node(self) -> None:
         """Add the system prompt as a fully expanded MarkdownNode.
 
@@ -220,6 +225,60 @@ class Session:
             title: New title for the session.
         """
         self._title = title
+
+    # -------------------------------------------------------------------------
+    # Text Buffer Management
+    # -------------------------------------------------------------------------
+
+    def get_text_buffer(self, buffer_id: str) -> "TextBuffer | None":
+        """Get a TextBuffer by ID.
+
+        Args:
+            buffer_id: The buffer's unique identifier
+
+        Returns:
+            TextBuffer if found, None otherwise
+        """
+        from activecontext.context.buffer import TextBuffer
+        return self._text_buffers.get(buffer_id)
+
+    def add_text_buffer(self, buffer: "TextBuffer") -> str:
+        """Add a TextBuffer to the session.
+
+        Args:
+            buffer: The TextBuffer to add
+
+        Returns:
+            The buffer's ID
+        """
+        self._text_buffers[buffer.buffer_id] = buffer
+        return buffer.buffer_id
+
+    def get_or_create_text_buffer(self, path: str) -> "TextBuffer":
+        """Get an existing TextBuffer for a path, or create one.
+
+        Args:
+            path: File path to load
+
+        Returns:
+            Existing or newly created TextBuffer
+        """
+        from activecontext.context.buffer import TextBuffer
+
+        # Check if we already have a buffer for this path
+        for buffer in self._text_buffers.values():
+            if buffer.path == path:
+                return buffer
+
+        # Create new buffer from file
+        buffer = TextBuffer.from_file(path, cwd=self._cwd)
+        self._text_buffers[buffer.buffer_id] = buffer
+        return buffer
+
+    @property
+    def text_buffers(self) -> dict[str, "TextBuffer"]:
+        """All text buffers in the session."""
+        return self._text_buffers
 
     @property
     def created_at(self) -> datetime:

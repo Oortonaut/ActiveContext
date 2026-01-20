@@ -15,7 +15,7 @@ Controls how a node renders in the projection.
 ```python
 from activecontext import NodeState
 
-v = view("src/main.py", state=NodeState.DETAILS)
+v = text("src/main.py", state=NodeState.DETAILS)
 v.SetState(NodeState.SUMMARY)  # Reduce detail
 v.SetState(NodeState.HIDDEN)   # Hide completely
 ```
@@ -43,7 +43,7 @@ v.Run()                           # Default: turn()
 All context nodes support method chaining:
 
 ```python
-v = view("src/main.py") \
+v = text("src/main.py") \
     .SetState(NodeState.DETAILS) \
     .SetTokens(2000) \
     .Run(TickFrequency.turn())

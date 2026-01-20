@@ -19,22 +19,22 @@ from activecontext.context.nodes import (
     SessionNode,
     ShellNode,
     TopicNode,
-    ViewNode,
+    TextNode,
 )
 from activecontext.context.state import NodeState
 
 
 # =============================================================================
-# ViewNode Serialization Tests
+# TextNode Serialization Tests
 # =============================================================================
 
 
-class TestViewNodeSerialization:
-    """Tests for ViewNode to_dict/from_dict."""
+class TestTextNodeSerialization:
+    """Tests for TextNode to_dict/from_dict."""
 
     def test_to_dict_basic(self):
-        """Test ViewNode serialization to dict."""
-        node = ViewNode(
+        """Test TextNode serialization to dict."""
+        node = TextNode(
             node_id="view1",
             path="src/main.py",
             state=NodeState.DETAILS,
@@ -42,16 +42,16 @@ class TestViewNodeSerialization:
 
         data = node.to_dict()
 
-        assert data["node_type"] == "view"
+        assert data["node_type"] == "text"
         assert data["node_id"] == "view1"
         assert data["path"] == "src/main.py"
         assert data["state"] == "details"
-        # ViewNode doesn't serialize _content - it's loaded from disk
+        # TextNode doesn't serialize _content - it's loaded from disk
 
     def test_from_dict_basic(self):
-        """Test ViewNode deserialization from dict."""
+        """Test TextNode deserialization from dict."""
         data = {
-            "node_type": "view",
+            "node_type": "text",
             "node_id": "view1",
             "path": "src/main.py",
             "state": "details",
@@ -59,15 +59,15 @@ class TestViewNodeSerialization:
             "pos": "1:0",
         }
 
-        node = ViewNode._from_dict(data)
+        node = TextNode._from_dict(data)
 
         assert node.node_id == "view1"
         assert node.path == "src/main.py"
         assert node.state == NodeState.DETAILS
 
     def test_roundtrip(self):
-        """Test ViewNode serialization round-trip."""
-        original = ViewNode(
+        """Test TextNode serialization round-trip."""
+        original = TextNode(
             node_id="view1",
             path="src/main.py",
             state=NodeState.ALL,
@@ -75,7 +75,7 @@ class TestViewNodeSerialization:
         )
 
         data = original.to_dict()
-        restored = ViewNode._from_dict(data)
+        restored = TextNode._from_dict(data)
 
         assert restored.node_id == original.node_id
         assert restored.path == original.path
@@ -83,9 +83,9 @@ class TestViewNodeSerialization:
         assert restored.pos == original.pos
 
     def test_factory_dispatch(self):
-        """Test that ContextNode.from_dict dispatches to ViewNode."""
+        """Test that ContextNode.from_dict dispatches to TextNode."""
         data = {
-            "node_type": "view",
+            "node_type": "text",
             "node_id": "view1",
             "path": "test.py",
             "state": "collapsed",
@@ -93,7 +93,7 @@ class TestViewNodeSerialization:
 
         node = ContextNode.from_dict(data)
 
-        assert isinstance(node, ViewNode)
+        assert isinstance(node, TextNode)
         assert node.node_id == "view1"
 
 
@@ -627,7 +627,7 @@ class TestContextGraphSerialization:
         # Create graph with various node types
         graph = ContextGraph()
 
-        view = ViewNode(node_id="view1", path="main.py", state=NodeState.DETAILS)
+        view = TextNode(node_id="view1", path="main.py", state=NodeState.DETAILS)
         graph.add_node(view)
 
         group = GroupNode(node_id="group1", state=NodeState.SUMMARY, cached_summary="Code files")
@@ -650,7 +650,7 @@ class TestContextGraphSerialization:
         assert "topic1" in restored
 
         # Verify node types
-        assert isinstance(restored.get_node("view1"), ViewNode)
+        assert isinstance(restored.get_node("view1"), TextNode)
         assert isinstance(restored.get_node("group1"), GroupNode)
         assert isinstance(restored.get_node("topic1"), TopicNode)
 

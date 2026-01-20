@@ -3,10 +3,10 @@
 This module provides consistent header formatting for all node types,
 making every node uniquely referenceable by the LLM.
 
-Header Format:
-- COLLAPSED: #### [type.N] name (tokens: visible/hidden)
-- SUMMARY:   ### [type.N] name (tokens: collapsed+summary/hidden)
-- ALL:       ### [type.N] name (tokens: collapsed+summary+detail)
+Header Format (using markdown heading ID syntax):
+- COLLAPSED: ### name {#type#N} (tokens: visible/hidden)
+- SUMMARY:   ## name {#type#N} (tokens: collapsed+summary/hidden)
+- ALL:       # name {#type#N} (tokens: collapsed+summary+detail)
 
 Token Format Rules:
 - `/` separates visible from hidden tokens
@@ -114,19 +114,20 @@ def render_header(
     """Render a uniform header for a context node.
 
     Args:
-        display_id: Short display ID like "view.1" or "message.13"
+        display_id: Short display ID like "text#1" or "message#13"
         name: Human-readable name like "main.py:1-50" or "User #13"
         state: Current rendering state
         token_info: Token breakdown for the node
 
     Returns:
         Formatted header string with appropriate heading level
+        Uses markdown heading ID syntax: {#type#N}
 
     Examples:
-        COLLAPSED: "### [view.1] main.py:1-50 (tokens: 18/340)\n"
-        SUMMARY:   "## [view.1] main.py:1-50 (tokens: 18+74/340)\n"
-        DETAILS:   "# [view.1] main.py:1-50 (tokens: 18+74+340)\n"
-        ALL:       "# [view.1] main.py:1-50 (tokens: 18+74+340)\n"
+        COLLAPSED: "### main.py:1-50 {#text#1} (tokens: 18/340)\n"
+        SUMMARY:   "## main.py:1-50 {#text#1} (tokens: 18+74/340)\n"
+        DETAILS:   "# main.py:1-50 {#text#1} (tokens: 18+74+340)\n"
+        ALL:       "# main.py:1-50 {#text#1} (tokens: 18+74+340)\n"
     """
     from .state import NodeState
 
@@ -137,11 +138,11 @@ def render_header(
 
     if state == NodeState.COLLAPSED:
         # Level 3 heading for collapsed nodes
-        return f"### [{display_id}] {name} {token_str}\n"
+        return f"### {name} {{#{display_id}}} {token_str}\n"
 
     if state == NodeState.SUMMARY:
         # Level 2 heading for summary
-        return f"## [{display_id}] {name} {token_str}\n"
+        return f"## {name} {{#{display_id}}} {token_str}\n"
 
     # Level 1 heading for DETAILS, ALL
-    return f"# [{display_id}] {name} {token_str}\n"
+    return f"# {name} {{#{display_id}}} {token_str}\n"

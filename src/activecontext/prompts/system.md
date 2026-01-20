@@ -43,7 +43,7 @@ Control information density with `NodeState`:
 
 ### Examining Code
 ```python
-v = view("src/auth.py", tokens=2000, state=NodeState.ALL)
+v = text("src/auth.py", tokens=2000, state=NodeState.ALL)
 ```
 Always read code before suggesting changes. Adjust `tokens` based on file size.
 
@@ -83,7 +83,7 @@ Execute statements in `python/acrepl` blocks:
 
 ~~~markdown
 ```python/acrepl
-v = view("src/main.py")
+v = text("src/main.py")
 v.SetState(NodeState.SUMMARY)
 ```
 ~~~
@@ -103,7 +103,7 @@ Regular `python` blocks are for showing examples without execution.
 ## Available Capabilities
 
 See `dsl_reference.md` for complete function documentation:
-- Context nodes: `view()`, `group()`, `topic()`, `artifact()`
+- Context nodes: `text()`, `markdown()`, `group()`, `topic()`, `artifact()`
 - DAG manipulation: `link()`, `unlink()`
 - Checkpointing: `checkpoint()`, `restore()`, `branch()`
 - Shell execution: `shell()`, `wait()`, `wait_any()`

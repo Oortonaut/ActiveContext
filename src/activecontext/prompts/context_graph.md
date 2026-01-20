@@ -27,7 +27,7 @@ The context graph is a Directed Acyclic Graph (DAG) that organizes context nodes
 A node can have multiple parents. This allows the same content to appear in different organizational structures.
 
 ```python
-v = view("src/auth.py")
+v = text("src/auth.py")
 g1 = group(v)  # v is child of g1
 g2 = group(v)  # v is also child of g2
 ```
@@ -64,7 +64,7 @@ Nodes with no parents are "root nodes". The projection engine starts rendering f
 
 ### Adding Nodes
 ```python
-v = view("file.py")           # Creates and adds to graph
+v = text("file.py")           # Creates and adds to graph
 g = group(v)                  # Creates group with v as child
 ```
 

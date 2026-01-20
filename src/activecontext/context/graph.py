@@ -39,7 +39,7 @@ class ContextGraph:
     _running_nodes: set[str] = field(default_factory=set)
     _checkpoints: dict[str, Checkpoint] = field(default_factory=dict)
 
-    # Per-type sequence counters for display IDs (e.g., view.1, message.13)
+    # Per-type sequence counters for display IDs (e.g., text#1, message#13)
     _type_counters: dict[str, int] = field(default_factory=lambda: defaultdict(int))
 
     # Root context node ID for document-ordered rendering

@@ -35,7 +35,7 @@ class TestLsHandles:
             assert len(handles) == 0
 
             # Create some objects
-            await timeline.execute_statement('v = view("test.py")')
+            await timeline.execute_statement('v = text("test.py")')
             await timeline.execute_statement('t = topic("Test Topic")')
 
             # Now ls() should return them
@@ -48,7 +48,7 @@ class TestLsHandles:
 
             # Check structure (GetDigest format)
             types = [h["type"] for h in handles]
-            assert "view" in types
+            assert "text" in types
             assert "topic" in types
         finally:
             await timeline.close()
@@ -97,22 +97,22 @@ class TestSetTitle:
             await timeline.close()
 
 
-class TestMarkdownNode:
-    """Test markdown() function for creating MarkdownNode."""
+class TestMarkdownFunction:
+    """Test markdown() function for creating TextNode tree from markdown."""
 
     @pytest.fixture
     def temp_cwd(self, tmp_path: Path) -> Path:
         return tmp_path
 
     @pytest.mark.asyncio
-    async def test_create_markdown_node_from_file(self, temp_cwd: Path) -> None:
-        """Test creating a markdown node from a file."""
+    async def test_create_markdown_tree_from_file(self, temp_cwd: Path) -> None:
+        """Test creating a markdown tree from a file."""
         timeline = Timeline("test-session", cwd=str(temp_cwd))
 
         try:
             # Create a markdown file
             md_file = temp_cwd / "README.md"
-            md_content = """# Project Overview
+            md_content = """# Project Overtext
 
 ## Features
 
@@ -130,14 +130,20 @@ Run pip install"""
             ns = timeline.get_namespace()
             assert "m" in ns
 
+            # markdown() now returns a TextNode (root of tree)
             digest = ns["m"].GetDigest()
-            assert digest["type"] == "markdown"
+            assert digest["type"] == "text"
+            assert digest["media_type"] == "markdown"
+
+            # Root should have children (the ## sections)
+            root = ns["m"]
+            assert len(root.children_ids) == 2  # Features and Installation
         finally:
             await timeline.close()
 
     @pytest.mark.asyncio
-    async def test_create_markdown_node_with_content(self, temp_cwd: Path) -> None:
-        """Test creating a markdown node with inline content."""
+    async def test_create_markdown_tree_with_content(self, temp_cwd: Path) -> None:
+        """Test creating a markdown tree with inline content."""
         timeline = Timeline("test-session", cwd=str(temp_cwd))
 
         try:
@@ -150,6 +156,10 @@ Run pip install"""
 
             ns = timeline.get_namespace()
             assert "m" in ns
+
+            # Should be a TextNode
+            digest = ns["m"].GetDigest()
+            assert digest["type"] == "text"
         finally:
             await timeline.close()
 
@@ -302,19 +312,19 @@ class TestWaitConditions:
 
 
 class TestShowFunction:
-    """Test show() function for viewing object details."""
+    """Test show() function for texting object details."""
 
     @pytest.fixture
     def temp_cwd(self, tmp_path: Path) -> Path:
         return tmp_path
 
     @pytest.mark.asyncio
-    async def test_show_view_node(self, temp_cwd: Path) -> None:
-        """Test show() returns rendered string about a view node."""
+    async def test_show_text_node(self, temp_cwd: Path) -> None:
+        """Test show() returns rendered string about a text node."""
         timeline = Timeline("test-session", cwd=str(temp_cwd))
 
         try:
-            await timeline.execute_statement('v = view("test.py")')
+            await timeline.execute_statement('v = text("test.py")')
 
             result = await timeline.execute_statement("info = show(v)")
             assert result.status.value == "ok"
@@ -324,7 +334,7 @@ class TestShowFunction:
 
             # show() returns a string representation
             assert isinstance(info, str)
-            assert "view" in info or "test.py" in info
+            assert "text" in info or "test.py" in info
         finally:
             await timeline.close()
 
@@ -400,7 +410,7 @@ class TestNamespaceSnapshot:
 
             # Add user variables
             await timeline.execute_statement("my_var = 42")
-            await timeline.execute_statement('v = view("test.py")')
+            await timeline.execute_statement('v = text("test.py")')
 
             ns = timeline.get_namespace()
             # User variables should be present
@@ -409,7 +419,7 @@ class TestNamespaceSnapshot:
             # Context nodes should be present
             assert "v" in ns
             # DSL functions should NOT be in the snapshot
-            assert "view" not in ns
+            assert "text" not in ns
             assert "group" not in ns
         finally:
             await timeline.close()

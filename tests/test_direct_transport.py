@@ -40,27 +40,27 @@ async def test_execute_python() -> None:
 
 
 @pytest.mark.asyncio
-async def test_view_creation() -> None:
-    """Test view() function in namespace."""
+async def test_text_creation() -> None:
+    """Test text() function in namespace."""
     async with ActiveContext() as ctx:
         session = await ctx.create_session(cwd="/tmp")
 
         # Note: session may have an initial guide view
         initial_count = len(session.get_context_objects())
 
-        # Create a view
-        result = await session.execute('v = view("test.py", tokens=1000)')
+        # Create a text node
+        result = await session.execute('v = text("test.py", tokens=1000)')
         assert result.status.value == "ok"
 
         # Check context objects (should have one more than initial)
         objects = session.get_context_objects()
         assert len(objects) == initial_count + 1
 
-        # Check view properties
+        # Check text node properties
         ns = session.get_namespace()
         v = ns["v"]
         digest = v.GetDigest()
-        assert digest["type"] == "view"
+        assert digest["type"] == "text"
         assert digest["path"] == "test.py"
         assert digest["tokens"] == 1000
 
@@ -95,13 +95,13 @@ async def test_group_creation() -> None:
         # Note: session may have an initial guide view
         initial_count = len(session.get_context_objects())
 
-        # Create views and group them
-        await session.execute('v1 = view("a.py")')
-        await session.execute('v2 = view("b.py")')
+        # Create text nodes and group them
+        await session.execute('v1 = text("a.py")')
+        await session.execute('v2 = text("b.py")')
         await session.execute("g = group(v1, v2, tokens=500)")
 
         objects = session.get_context_objects()
-        assert len(objects) == initial_count + 3  # 2 views + 1 group
+        assert len(objects) == initial_count + 3  # 2 text nodes + 1 group
 
         ns = session.get_namespace()
         g = ns["g"]
@@ -120,13 +120,14 @@ async def test_initial_context_and_projection() -> None:
         cwd = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         session = await ctx.create_session(cwd=cwd)
 
-        # Should have initial guide as markdown node
+        # Should have initial guide as TextNode with markdown media type
         ns = session.get_namespace()
         assert "guide" in ns, "Initial guide should be in namespace"
 
         guide = ns["guide"]
         digest = guide.GetDigest()
-        assert digest["type"] == "markdown"
+        assert digest["type"] == "text"  # TextNode type
+        assert digest["media_type"] == "markdown"  # markdown media type
         assert "context_guide.md" in digest["path"]
 
         # Projection should render the guide content
@@ -134,7 +135,7 @@ async def test_initial_context_and_projection() -> None:
         rendered = projection.render()
 
         # Should contain markdown content from the guide
-        assert "view" in rendered.lower() or "View" in rendered
+        assert "text" in rendered.lower() or "Text" in rendered or "context" in rendered.lower()
 
 
 @pytest.mark.asyncio

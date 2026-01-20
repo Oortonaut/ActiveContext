@@ -2,7 +2,7 @@
 
 This module defines the typed node hierarchy:
 - ContextNode: Base class with common fields and notification
-- ViewNode: File content view
+- TextNode: File content view (text)
 - GroupNode: Summary facade over children
 - TopicNode: Conversation segment
 - ArtifactNode: Code/output artifact
@@ -106,7 +106,7 @@ class ContextNode(ABC):
     # Metadata
     tags: dict[str, Any] = field(default_factory=dict)
 
-    # Display sequence for uniform headers (e.g., view.1, message.13)
+    # Display sequence for uniform headers (e.g., text#1, message#13)
     # Assigned by ContextGraph.add_node() using per-type counters
     display_sequence: int | None = field(default=None)
 
@@ -130,11 +130,11 @@ class ContextNode(ABC):
     def display_id(self) -> str:
         """Return short display ID for uniform headers.
 
-        Format: "{node_type}.{sequence}" e.g., "view.1", "message.13"
+        Format: "{node_type}#{sequence}" e.g., "text#1", "message#13"
         Used by LLM to uniquely reference this node.
         """
         seq = self.display_sequence or 0
-        return f"{self.node_type}.{seq}"
+        return f"{self.node_type}#{seq}"
 
     @abstractmethod
     def GetDigest(self) -> dict[str, Any]:
@@ -151,7 +151,7 @@ class ContextNode(ABC):
         """Return human-readable name for uniform header.
 
         Examples:
-            ViewNode: "main.py:1-50"
+            TextNode: "main.py:1-50"
             MessageNode: "User #13"
             ShellNode: "Shell: pytest [COMPLETED]"
         """
@@ -255,8 +255,8 @@ class ContextNode(ABC):
         This is a factory method that dispatches to the appropriate subclass.
         """
         node_type = data.get("node_type")
-        if node_type == "view":
-            return ViewNode._from_dict(data)
+        if node_type == "text" or node_type == "view":  # "view" for backwards compat
+            return TextNode._from_dict(data)
         elif node_type == "group":
             return GroupNode._from_dict(data)
         elif node_type == "topic":
@@ -316,20 +316,28 @@ class ContextNode(ABC):
 
 
 @dataclass
-class ViewNode(ContextNode):
-    """View of a file or file region.
+class TextNode(ContextNode):
+    """View of a file or file region as text.
 
     Attributes:
         path: File path relative to cwd
         pos: Start position as "line:col" (1-indexed)
         end_pos: End position as "line:col" (None = to end of file)
         media_type: Content media type (auto-detected from file extension)
+        buffer_id: Optional reference to a shared TextBuffer in Session
+        start_line: Start line when using TextBuffer (1-indexed)
+        end_line: End line when using TextBuffer (1-indexed, inclusive)
     """
 
     path: str = ""
     pos: str = "1:0"
     end_pos: str | None = None
     media_type: MediaType = field(default=MediaType.TEXT)
+
+    # TextBuffer reference (optional, for shared line storage)
+    buffer_id: str | None = None
+    start_line: int = 1
+    end_line: int | None = None
 
     def __post_init__(self) -> None:
         """Auto-detect media type from file extension."""
@@ -338,7 +346,7 @@ class ViewNode(ContextNode):
 
     @property
     def node_type(self) -> str:
-        return "view"
+        return "text"
 
     def GetDigest(self) -> dict[str, Any]:
         return {
@@ -354,8 +362,17 @@ class ViewNode(ContextNode):
             "media_type": self.media_type.value,
         }
 
-    def Render(self, tokens: int | None = None, cwd: str = ".") -> str:
-        """Render file content based on rendering state."""
+    def Render(self, tokens: int | None = None, cwd: str = ".", text_buffers: dict[str, Any] | None = None) -> str:
+        """Render file content based on rendering state.
+
+        Args:
+            tokens: Optional token budget override
+            cwd: Working directory for resolving paths
+            text_buffers: Optional dict of buffer_id -> TextBuffer for markdown nodes
+
+        Returns:
+            Rendered content string
+        """
         import os
 
         # HIDDEN: don't render anything
@@ -365,58 +382,116 @@ class ViewNode(ContextNode):
         effective_tokens = tokens or self.tokens
         char_budget = tokens_to_chars(effective_tokens, self.media_type)
 
-        # Parse start position
-        try:
-            start_line = int(self.pos.split(":")[0])
-        except (ValueError, IndexError):
-            start_line = 1
+        # Get lines either from buffer or from file
+        lines: list[str] = []
 
-        # Parse end position
-        end_line: int | None = None
-        if self.end_pos:
+        if self.buffer_id and text_buffers:
+            # Use TextBuffer if available
+            buffer = text_buffers.get(self.buffer_id)
+            if buffer:
+                # Get lines from buffer using start_line/end_line
+                start_idx = max(0, self.start_line - 1)
+                end_idx = self.end_line if self.end_line else len(buffer.lines)
+                lines = buffer.lines[start_idx:end_idx]
+        else:
+            # Fall back to reading from file
+            # Parse start position
             try:
-                end_line = int(self.end_pos.split(":")[0])
+                start_line = int(self.pos.split(":")[0])
             except (ValueError, IndexError):
-                pass
+                start_line = 1
 
-        # Read file
-        file_path = os.path.join(cwd, self.path)
-        try:
-            with open(file_path, encoding="utf-8", errors="replace") as f:
-                lines = f.readlines()
-        except FileNotFoundError:
-            return f"[File not found: {self.path}]"
-        except OSError as e:
-            return f"[Error reading {self.path}: {e}]"
+            # Parse end position
+            end_line: int | None = None
+            if self.end_pos:
+                try:
+                    end_line = int(self.end_pos.split(":")[0])
+                except (ValueError, IndexError):
+                    pass
 
-        # Apply line range
-        start_idx = max(0, start_line - 1)
-        end_idx = end_line if end_line else len(lines)
-        selected_lines = lines[start_idx:end_idx]
+            # Read file
+            file_path = os.path.join(cwd, self.path)
+            try:
+                with open(file_path, encoding="utf-8", errors="replace") as f:
+                    file_lines = f.readlines()
+            except FileNotFoundError:
+                return f"[File not found: {self.path}]"
+            except OSError as e:
+                return f"[Error reading {self.path}: {e}]"
+
+            # Apply line range
+            start_idx = max(0, start_line - 1)
+            end_idx = end_line if end_line else len(file_lines)
+            lines = [l.rstrip("\n\r") for l in file_lines[start_idx:end_idx]]
 
         # COLLAPSED: only show header
         if self.state == NodeState.COLLAPSED:
             return self.render_header(cwd=cwd)
 
-        # Build output with line numbers (for SUMMARY, DETAILS, ALL)
+        # Check if this is a markdown heading section
+        is_markdown_heading = (
+            self.media_type == MediaType.MARKDOWN
+            and "heading" in self.tags
+            and "level" in self.tags
+        )
+
+        # Build output
         output_parts: list[str] = []
-        output_parts.append(self.render_header(cwd=cwd))
 
-        chars_used = len(output_parts[0])
-        lines_included = 0
+        if is_markdown_heading:
+            # Render markdown with heading annotation
+            heading = self.tags["heading"]
+            level = self.tags["level"]
+            prefix = "#" * level
+            # Use start_line for the annotation
+            annotation = f"{{#{self.display_id}}}"
+            output_parts.append(f"{prefix} {heading} {annotation}\n")
 
-        for i, line in enumerate(selected_lines):
-            line_num = start_idx + i + 1
-            formatted = f"{line_num:4d} | {line}"
+            # Render remaining lines (skip the heading line itself)
+            chars_used = len(output_parts[0])
+            for i, line in enumerate(lines):
+                # Skip the first line if it's the heading
+                if i == 0 and line.strip().startswith("#"):
+                    continue
 
-            if chars_used + len(formatted) > char_budget:
-                remaining = len(selected_lines) - lines_included
-                output_parts.append(f"... [{remaining} more lines]\n")
-                break
+                formatted = f"{line}\n"
+                if chars_used + len(formatted) > char_budget:
+                    remaining = len(lines) - i
+                    output_parts.append(f"... [{remaining} more lines]\n")
+                    break
 
-            output_parts.append(formatted)
-            chars_used += len(formatted)
-            lines_included += 1
+                output_parts.append(formatted)
+                chars_used += len(formatted)
+        else:
+            # Regular text rendering with line numbers
+            output_parts.append(self.render_header(cwd=cwd))
+
+            chars_used = len(output_parts[0])
+            lines_included = 0
+
+            # Calculate base line number
+            if self.buffer_id:
+                base_line = self.start_line
+            else:
+                try:
+                    base_line = int(self.pos.split(":")[0])
+                except (ValueError, IndexError):
+                    base_line = 1
+
+            for i, line in enumerate(lines):
+                line_num = base_line + i
+                # Ensure line doesn't have trailing newline for consistent formatting
+                line_content = line.rstrip("\n\r") if isinstance(line, str) else line
+                formatted = f"{line_num:4d} | {line_content}\n"
+
+                if chars_used + len(formatted) > char_budget:
+                    remaining = len(lines) - lines_included
+                    output_parts.append(f"... [{remaining} more lines]\n")
+                    break
+
+                output_parts.append(formatted)
+                chars_used += len(formatted)
+                lines_included += 1
 
         content = "".join(output_parts)
 
@@ -431,12 +506,12 @@ class ViewNode(ContextNode):
 
         return content
 
-    def SetPos(self, pos: str) -> ViewNode:
+    def SetPos(self, pos: str) -> "TextNode":
         """Set start position."""
         self.pos = pos
         return self
 
-    def SetEndPos(self, end_pos: str | None) -> ViewNode:
+    def SetEndPos(self, end_pos: str | None) -> "TextNode":
         """Set end position."""
         self.end_pos = end_pos
         return self
@@ -466,18 +541,18 @@ class ViewNode(ContextNode):
         collapsed_text = f"[{self.path}: lines, pending traces]\n"
         collapsed_tokens = count_tokens(collapsed_text)
 
-        # Summary and Detail are same for ViewNode - file content
+        # Summary and Detail are same for TextNode - file content
         # Estimate based on token budget
         detail_tokens = self.tokens
 
         return TokenInfo(
             collapsed=collapsed_tokens,
-            summary=0,  # ViewNode has no summary state distinct from detail
+            summary=0,  # TextNode has no summary state distinct from detail
             detail=detail_tokens,
         )
 
     def to_dict(self) -> dict[str, Any]:
-        """Serialize ViewNode to dict."""
+        """Serialize TextNode to dict."""
         data = super().to_dict()
         data.update({
             "path": self.path,
@@ -488,8 +563,8 @@ class ViewNode(ContextNode):
         return data
 
     @classmethod
-    def _from_dict(cls, data: dict[str, Any]) -> ViewNode:
-        """Deserialize ViewNode from dict."""
+    def _from_dict(cls, data: dict[str, Any]) -> "TextNode":
+        """Deserialize TextNode from dict."""
         tick_freq = None
         if data.get("tick_frequency"):
             tick_freq = TickFrequency.from_dict(data["tick_frequency"])

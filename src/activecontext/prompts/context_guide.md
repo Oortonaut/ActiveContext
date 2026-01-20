@@ -7,31 +7,31 @@ This guide explains how to use the context system to work with files and code.
 Use ` ```python/acrepl ` blocks for code that will be executed:
 
 ```python/acrepl
-v = view("src/__main__.py", tokens=2000)
+v = text("src/__main__.py", tokens=2000)
 ```
 
 Regular ` ```python ` blocks are for showing examples (not executed).
 
-## Views
+## Text Views
 
-A **view** is a window into a file. The view appears in your context on the next turn, showing the file content with line numbers.
+A **text view** is a window into a file. The view appears in your context on the next turn, showing the file content with line numbers.
 
-### View Parameters
+### Text Parameters
 
 | Parameter | Default    | Description                                      |
 |-----------|------------|--------------------------------------------------|
 | `path`    | required   | File path (relative to session cwd)              |
-| `pos`     | `"0:0"`    | Start position as `"line:col"`                   |
+| `pos`     | `"1:0"`    | Start position as `"line:col"`                   |
 | `tokens`  | `2000`     | Token budget for content                         |
-| `lod`     | `0`        | Level of detail (0=raw, 1=structured, 2=summary) |
+| `state`   | `DETAILS`  | Rendering state (HIDDEN, COLLAPSED, SUMMARY, DETAILS, ALL) |
 | `mode`    | `"paused"` | `"paused"` or `"running"`                        |
 
-### View Methods
+### Text Methods
 
 ```python/acrepl
 v.SetPos("50:0")      # Jump to line 50
 v.SetTokens(500)      # Reduce token budget
-v.SetLod(1)           # Switch to structured view
+v.SetState(NodeState.SUMMARY)  # Switch to summary view
 v.Run()               # Enable auto-updates each turn
 v.Pause()             # Disable auto-updates
 ```
@@ -41,12 +41,22 @@ Methods are chainable:
 v.SetPos("100:0").SetTokens(1000).Run()
 ```
 
+## Markdown Files
+
+For markdown files, use `markdown()` to parse heading structure into a tree of TextNodes:
+
+```python/acrepl
+m = markdown("README.md")  # Parse into heading tree
+```
+
+Each heading section becomes a separate TextNode with its line range.
+
 ## Groups
 
 A **group** summarizes multiple views:
 
 ```python/acrepl
-g = group(v1, v2, v3, tokens=500, lod=2)
+g = group(v1, v2, v3, tokens=500, state=NodeState.SUMMARY)
 ```
 
 Groups are useful for maintaining awareness of related files without consuming too many tokens.
@@ -72,23 +82,23 @@ This signals that you've completed the task. The message is your final response 
 
 ```python/acrepl
 # First, create a view of the main file
-main = view("src/main.py", tokens=3000)
+main = text("src/main.py", tokens=3000)
 
 # On the next turn, you'll see the file content
 # Then you can adjust the view:
 main.SetPos("50:0").SetTokens(1000)
 
 # Create views of related files
-utils = view("src/utils.py", tokens=1000)
-config = view("config.yaml", tokens=500)
+utils = text("src/utils.py", tokens=1000)
+config = text("config.yaml", tokens=500)
 
 # Group them for a summary
-overview = group(main, utils, config, lod=2)
+overview = group(main, utils, config, state=NodeState.SUMMARY)
 ```
 
 ## How Context Works
 
-1. You execute `view("file.py")` - this creates a ViewHandle
+1. You execute `text("file.py")` - this creates a TextNode
 2. On the next prompt, the Projection includes the rendered file content
 3. The LLM sees the file with line numbers in its context
 4. You can adjust views, and changes appear in the next projection

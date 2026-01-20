@@ -124,7 +124,7 @@ async with ActiveContext() as ctx:
     session = await ctx.create_session(cwd=".")
 
     # Execute Python directly
-    await session.execute('v = view("main.py", tokens=2000, state=NodeState.ALL)')
+    await session.execute('v = text("main.py", tokens=2000, state=NodeState.ALL)')
 
     # Or stream updates from a prompt
     async for update in session.prompt("v.SetState(NodeState.SUMMARY)"):
@@ -305,7 +305,7 @@ The context graph supports multiple node types:
 
 | Node Type | Purpose |
 |-----------|---------|
-| `ViewNode` | File or region view with position tracking |
+| `TextNode` | File or region view with position tracking |
 | `GroupNode` | Summary facade over multiple nodes |
 | `TopicNode` | Conversation topic/thread marker |
 | `ArtifactNode` | Code snippets, outputs, errors |
@@ -327,7 +327,7 @@ See `src/activecontext/prompts/dsl_reference.md` for complete documentation.
 from activecontext import NodeState, TickFrequency
 
 # File views
-v = view("main.py", pos="1:0", tokens=2000, state=NodeState.ALL)
+v = text("main.py", pos="1:0", tokens=2000, state=NodeState.ALL)
 v.SetState(NodeState.SUMMARY).SetTokens(500)
 v.Run(TickFrequency.turn())
 

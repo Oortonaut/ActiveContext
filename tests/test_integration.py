@@ -28,8 +28,8 @@ class TestCheckpointRestore:
 
         try:
             # Create some views
-            await timeline.execute_statement('v1 = view("file1.py")')
-            await timeline.execute_statement('v2 = view("file2.py")')
+            await timeline.execute_statement('v1 = text("file1.py")')
+            await timeline.execute_statement('v2 = text("file2.py")')
 
             # Create a group linking them
             await timeline.execute_statement("g = group(v1, v2)")
@@ -84,11 +84,11 @@ class TestCheckpointRestore:
 
         try:
             # Create a view and checkpoint
-            await timeline.execute_statement('v1 = view("original.py")')
+            await timeline.execute_statement('v1 = text("original.py")')
             await timeline.execute_statement('checkpoint("base")')
 
             # Make more changes
-            await timeline.execute_statement('v2 = view("extra.py")')
+            await timeline.execute_statement('v2 = text("extra.py")')
 
             # Create branch (saves current state as new checkpoint)
             result = await timeline.execute_statement('branch("experiment")')
@@ -240,7 +240,7 @@ class TestLinkUnlink:
         try:
             # Create a group and a view
             await timeline.execute_statement("g = group()")
-            await timeline.execute_statement('v = view("test.py")')
+            await timeline.execute_statement('v = text("test.py")')
 
             # Link view to group
             result = await timeline.execute_statement("link(v, g)")
@@ -259,7 +259,7 @@ class TestLinkUnlink:
 
         try:
             # Create linked nodes
-            await timeline.execute_statement('v = view("test.py")')
+            await timeline.execute_statement('v = text("test.py")')
             await timeline.execute_statement("g = group(v)")
 
             ns = timeline.get_namespace()
@@ -354,10 +354,10 @@ class TestSessionLifecycleIntegration:
 
             initial_count = len(session.get_context_objects())
 
-            await session.execute('v1 = view("a.py")')
+            await session.execute('v1 = text("a.py")')
             assert len(session.get_context_objects()) == initial_count + 1
 
-            await session.execute('v2 = view("b.py")')
+            await session.execute('v2 = text("b.py")')
             assert len(session.get_context_objects()) == initial_count + 2
 
             await session.execute("g = group(v1, v2)")
@@ -373,7 +373,7 @@ class TestSessionLifecycleIntegration:
             proj1 = session.get_projection().render()
 
             # Create a view
-            await session.execute('v = view("test.py", tokens=500)')
+            await session.execute('v = text("test.py", tokens=500)')
 
             # Projection should have changed
             proj2 = session.get_projection().render()

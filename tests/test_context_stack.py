@@ -3,7 +3,7 @@
 import pytest
 
 from activecontext.context.graph import ContextGraph
-from activecontext.context.nodes import GroupNode, MessageNode, ViewNode
+from activecontext.context.nodes import GroupNode, MessageNode, TextNode
 from activecontext.session.timeline import Timeline
 
 
@@ -160,7 +160,7 @@ class TestAddNodeLinking:
         session.push_group("group1")
 
         node1 = MessageNode(role="user", content="First", actor="user")
-        node2 = ViewNode(path="test.py")
+        node2 = TextNode(path="test.py")
 
         session.add_node(node1)
         session.add_node(node2)
@@ -220,7 +220,7 @@ class TestBeginEndToolUse:
         session = MockSession()
         group_id = session.begin_tool_use("view")
 
-        view = ViewNode(path="main.py")
+        view = TextNode(path="main.py")
         session.add_node(view)
 
         assert group_id in view.parent_ids
@@ -288,7 +288,7 @@ class TestNestedToolUse:
         inner_id = session.begin_tool_use("view")
 
         # Add a view node while in inner group
-        view = ViewNode(path="found.py")
+        view = TextNode(path="found.py")
         session.add_node(view)
 
         # View should be child of inner, not outer
@@ -309,7 +309,7 @@ class TestToolUseDAGStructure:
 
         group_id = session.begin_tool_use("view", {"path": "main.py"})
 
-        view = ViewNode(path="main.py", tokens=2000)
+        view = TextNode(path="main.py", tokens=2000)
         session.add_node(view)
 
         session.end_tool_use(summary="Opened main.py")

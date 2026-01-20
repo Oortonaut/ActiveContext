@@ -32,7 +32,7 @@ from activecontext.context.nodes import (
     ShellNode,
     ShellStatus,
     TopicNode,
-    ViewNode,
+    TextNode,
     WorkNode,
 )
 from activecontext.mcp import (
@@ -247,6 +247,9 @@ class Timeline:
         self._queued_events: list[QueuedEvent] = []
         self._setup_default_event_handlers()
 
+        # Text buffer storage for shared line content
+        self._text_buffers: dict[str, "TextBuffer"] = {}
+
 
     def _setup_default_event_handlers(self) -> None:
         """Set up default event handlers for built-in events.
@@ -300,11 +303,12 @@ class Timeline:
             "NodeState": NodeState,
             "TickFrequency": TickFrequency,
             # Context node constructors
-            "view": self._make_view_node,
+            "text": self._make_text_node,
             "group": self._make_group_node,
             "topic": self._make_topic_node,
             "artifact": self._make_artifact_node,
             "markdown": self._make_markdown_node,
+            "view": self._make_view,
             # DAG manipulation
             "link": self._link,
             "unlink": self._unlink,
@@ -627,7 +631,7 @@ class Timeline:
             "allow_localhost": False,
         }
 
-    def _make_view_node(
+    def _make_text_node(
         self,
         path: str,
         *,
@@ -636,8 +640,8 @@ class Timeline:
         state: NodeState = NodeState.ALL,
         mode: str = "paused",
         parent: ContextNode | str | None = None,
-    ) -> ViewNode:
-        """Create a ViewNode and add to the context graph.
+    ) -> TextNode:
+        """Create a TextNode and add to the context graph.
 
         Args:
             path: File path relative to session cwd
@@ -648,9 +652,9 @@ class Timeline:
             parent: Optional parent node or node ID (defaults to current_group if set)
 
         Returns:
-            The created ViewNode
+            The created TextNode
         """
-        node = ViewNode(
+        node = TextNode(
             path=path,
             pos=pos,
             tokens=tokens,
@@ -826,38 +830,113 @@ class Timeline:
         content: str | None = None,
         tokens: int = 2000,
         state: NodeState = NodeState.DETAILS,
-        summary_tokens: int = 100,
         parent: ContextNode | str | None = None,
-    ) -> MarkdownNode:
-        """Create a MarkdownNode tree from a markdown file.
+    ) -> TextNode:
+        """Create a tree of TextNodes from a markdown file.
 
-        Parses the markdown heading hierarchy into a tree of nodes.
-        If the document has <=1 h1 heading, the document root is elided.
+        Parses the markdown heading hierarchy into a tree of TextNodes,
+        where each heading section is a separate node with line range references.
 
         Args:
             path: File path relative to session cwd
             content: Markdown content (if None, reads from path)
             tokens: Token budget for root node
             state: Rendering state (HIDDEN, COLLAPSED, SUMMARY, DETAILS, ALL)
-            summary_tokens: Tokens for summary (first paragraph)
             parent: Optional parent node or node ID (defaults to current_group if set)
 
         Returns:
-            The root MarkdownNode (children are accessible via child_order)
+            The root TextNode (children are accessible via children_ids)
         """
-        root, all_nodes = MarkdownNode.from_markdown(
-            path=path,
-            content=content,
-            cwd=self._cwd,
-            summary_tokens=summary_tokens,
-            tokens=tokens,
-            state=state,
-        )
+        import os
+
+        from activecontext.context.buffer import TextBuffer
+        from activecontext.context.markdown_parser import parse_markdown
+        from activecontext.context.nodes import MediaType
+
+        # Get or create text buffer for the file
+        if content is not None:
+            # Create buffer from provided content
+            buffer = TextBuffer(
+                path=path,
+                lines=content.split("\n"),
+            )
+            self._text_buffers[buffer.buffer_id] = buffer
+        else:
+            # Check if we already have a buffer for this path
+            full_path = os.path.join(self._cwd, path)
+            buffer = None
+            for existing in self._text_buffers.values():
+                if existing.path == full_path or existing.path == path:
+                    buffer = existing
+                    break
+
+            if buffer is None:
+                # Create new buffer from file
+                buffer = TextBuffer.from_file(path, cwd=self._cwd)
+                self._text_buffers[buffer.buffer_id] = buffer
+
+        # Parse markdown to get heading sections
+        buffer_content = "\n".join(buffer.lines)
+        result = parse_markdown(buffer_content)
+
+        if not result.sections:
+            # No headings - create single TextNode for entire file
+            node = TextNode(
+                path=path,
+                tokens=tokens,
+                state=state,
+                media_type=MediaType.MARKDOWN,
+                buffer_id=buffer.buffer_id,
+                start_line=1,
+                end_line=len(buffer.lines),
+            )
+            self._context_graph.add_node(node)
+            self._context_objects[node.node_id] = node
+            return node
+
+        # Create TextNode for each heading section
+        all_nodes: list[TextNode] = []
+        section_nodes: dict[int, TextNode] = {}  # section index -> node
+
+        for i, section in enumerate(result.sections):
+            node = TextNode(
+                path=path,
+                tokens=tokens // max(len(result.sections), 1),
+                state=state,
+                media_type=MediaType.MARKDOWN,
+                buffer_id=buffer.buffer_id,
+                start_line=section.start_line,
+                end_line=section.end_line,
+            )
+            # Store heading info in tags for rendering
+            node.tags["heading"] = section.title
+            node.tags["level"] = section.level
+            all_nodes.append(node)
+            section_nodes[i] = node
+
+        # Build hierarchy based on heading levels
+        # Stack: [(node, level)]
+        root = all_nodes[0]
+        stack: list[tuple[TextNode, int]] = [(root, result.sections[0].level)]
+
+        for i in range(1, len(all_nodes)):
+            node = all_nodes[i]
+            level = result.sections[i].level
+
+            # Find parent: pop until we find a node with lower level
+            while len(stack) > 1 and stack[-1][1] >= level:
+                stack.pop()
+
+            parent_node = stack[-1][0]
+            # Link child to parent
+            node.parent_ids.add(parent_node.node_id)
+            parent_node.children_ids.add(node.node_id)
+
+            stack.append((node, level))
 
         # Add all nodes to graph
         for node in all_nodes:
             self._context_graph.add_node(node)
-            # Legacy compatibility
             self._context_objects[node.node_id] = node
 
         # Determine parent: explicit > current_group > none
@@ -871,6 +950,39 @@ class Timeline:
             self._context_graph.link(root.node_id, parent_id)
 
         return root
+
+    def _make_view(
+        self,
+        media_type: str,
+        path: str,
+        *,
+        tokens: int = 2000,
+        state: NodeState = NodeState.ALL,
+        **kwargs: Any,
+    ) -> TextNode:
+        """Dispatcher for creating text views based on media type.
+
+        Routes to text() or markdown() based on the media_type parameter.
+
+        Args:
+            media_type: "text" or "markdown"
+            path: File path relative to session cwd
+            tokens: Token budget for rendering
+            state: Rendering state
+            **kwargs: Additional arguments passed to underlying function
+
+        Returns:
+            TextNode (or root TextNode for markdown)
+
+        Raises:
+            ValueError: If media_type is not recognized
+        """
+        if media_type == "markdown":
+            return self._make_markdown_node(path, tokens=tokens, state=state, **kwargs)
+        elif media_type == "text":
+            return self._make_text_node(path, tokens=tokens, state=state, **kwargs)
+        else:
+            raise ValueError(f"Unknown media_type: {media_type}. Use 'text' or 'markdown'.")
 
     def _link(
         self,
@@ -2729,7 +2841,7 @@ class Timeline:
         # Exclude injected DSL functions and types
         excluded = {
             "NodeState", "TickFrequency",
-            "view", "group", "topic", "artifact", "markdown",
+            "text", "group", "topic", "artifact", "markdown", "view",
             "link", "unlink",
             "checkpoint", "restore", "checkpoints", "branch",
             "ls", "show", "ls_permissions", "ls_imports", "ls_shell_permissions",
