@@ -484,6 +484,8 @@ Always phrase commands to match your allowlist patterns. If a command fails with
 
 ## ACP Protocol Notes
 
+See `docs/acp-protocol.md` for the full protocol specification.
+
 ### Session Lifecycle
 
 - **`session/cancel`** is ONLY for cancelling in-progress prompts (e.g., user clicks stop during generation). It is NOT for session termination.
