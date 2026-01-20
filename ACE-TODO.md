@@ -31,11 +31,11 @@ Today's Goals: Develop ActiveContext with itself
 - [ ] Add originator to change notification payloads
 
 #### Text Node Manipulation
-- [ ] Add `insert(pos, content)` method to TextNode
-- [ ] Support insertion at line:column positions
-- [ ] Add `add_lines(line_num, lines)` method
-- [ ] Add `remove_lines(start, end)` method
-- [ ] Validate positions against current content boundaries
+- [ ] Add `replace_lines(line_no, num_removed, lines)` method to TextNode
+  - 1-based indexing (line 0 also accepted as first line)
+  - EOF marker: -1 (replacing at EOF appends)
+  - `num_removed < 0` removes from line_no to end
+  - `num_removed = 0` inserts without removing
 - [ ] Register file change callback (separate from context notifications)
 - [ ] Track which nodes reference each file path
 - [ ] On file change: filter nodes whose displayed range overlaps the change
