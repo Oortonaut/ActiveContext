@@ -1,0 +1,36 @@
+@startuml ACP_Tool_Call_States
+!theme plain
+
+title ACP Protocol - Tool Call Status Lifecycle
+
+state "pending" as pending : Tool created\nAwaiting permission\nor streaming input
+
+state "in_progress" as progress : Tool executing\nMay send output updates
+
+state "completed" as completed : Execution successful\nResult available
+
+state "failed" as failed : Execution error\nError details provided
+
+[*] --> pending : tool_call_update created
+
+pending --> progress : Permission granted\nor auto-approved
+pending --> failed : Permission denied
+pending --> completed : No execution needed
+
+progress --> completed : Success
+progress --> failed : Error
+
+completed --> [*]
+failed --> [*]
+
+note right of pending
+  Tool call fields:
+  - toolCallId
+  - title
+  - kind (read/edit/delete/execute/...)
+  - status
+  - content (optional)
+  - locations (optional)
+end note
+
+@enduml

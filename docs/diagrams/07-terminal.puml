@@ -1,0 +1,77 @@
+@startuml ACP_Terminal
+!theme plain
+
+title ACP Protocol - Terminal Operations
+
+participant "Agent" as A
+participant "Client" as C
+participant "Shell" as S
+
+== Create Terminal ==
+
+A -> C : terminal/create
+note right
+{
+  "sessionId": "sess_abc123",
+  "command": "pytest",
+  "args": ["-v", "tests/"],
+  "cwd": "/home/user/project",
+  "outputByteLimit": 1048576
+}
+end note
+
+C -> S : spawn process
+activate S
+
+C --> A : CreateTerminalResponse
+note left
+{
+  "terminalId": "term_001"
+}
+end note
+
+note over A, C
+  terminal/create returns immediately
+  Command runs asynchronously
+end note
+
+== Poll Output ==
+
+A -> C : terminal/output
+note right: {"terminalId": "term_001"}
+
+C --> A : TerminalOutputResponse
+note left
+{
+  "output": "test_auth.py::test_login PASSED\n...",
+  "truncated": false
+}
+end note
+
+== Wait for Exit ==
+
+A -> C : terminal/wait_for_exit
+note right: {"terminalId": "term_001"}
+
+S --> C : Process exits
+deactivate S
+
+C --> A : WaitForExitResponse
+note left
+{
+  "exitCode": 0,
+  "signal": null
+}
+end note
+
+== Or Kill ==
+
+A -> C : terminal/kill
+note right: Terminates running command
+
+== Release ==
+
+A -> C : terminal/release
+note right: Free all resources
+
+@enduml

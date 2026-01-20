@@ -1,0 +1,71 @@
+@startuml ACP_Content_Blocks
+!theme plain
+
+title ACP Protocol - Content Block Types
+
+package "User -> Agent (Prompt)" {
+  class TextBlock {
+    type: "text"
+    text: string
+    annotations?: object
+  }
+
+  class ImageBlock {
+    type: "image"
+    mimeType: string
+    data: base64
+    uri?: string
+  }
+
+  class AudioBlock {
+    type: "audio"
+    mimeType: string
+    data: base64
+  }
+
+  class ResourceBlock {
+    type: "resource"
+    resource: EmbeddedResource
+  }
+
+  class ResourceLinkBlock {
+    type: "resource_link"
+    uri: string
+    name: string
+    mimeType?: string
+  }
+}
+
+package "Agent -> User (Response)" {
+  class AgentTextBlock {
+    type: "text"
+    text: string
+  }
+
+  class DiffBlock {
+    type: "diff"
+    path: string
+    oldText: string
+    newText: string
+  }
+
+  class TerminalBlock {
+    type: "terminal"
+    terminalId: string
+  }
+}
+
+note bottom of ImageBlock
+  Requires: promptCapabilities.image
+end note
+
+note bottom of AudioBlock
+  Requires: promptCapabilities.audio
+end note
+
+note bottom of ResourceBlock
+  Requires: promptCapabilities.embeddedContext
+  Preferred for @-mentions
+end note
+
+@enduml

@@ -1,0 +1,71 @@
+@startuml ACP_Initialization
+!theme plain
+
+title ACP Protocol - Initialization Handshake
+
+participant "Client" as C
+participant "Agent Process" as A
+
+C -> C : spawn agent subprocess
+activate A
+
+C -> A : initialize
+note right
+{
+  "jsonrpc": "2.0",
+  "id": 0,
+  "method": "initialize",
+  "params": {
+    "protocolVersion": 1,
+    "clientCapabilities": {
+      "fs": {
+        "readTextFile": true,
+        "writeTextFile": true
+      },
+      "terminal": true
+    },
+    "clientInfo": {
+      "name": "rider",
+      "title": "JetBrains Rider",
+      "version": "2025.3"
+    }
+  }
+}
+end note
+
+A --> C : InitializeResponse
+note left
+{
+  "jsonrpc": "2.0",
+  "id": 0,
+  "result": {
+    "protocolVersion": 1,
+    "agentCapabilities": {
+      "loadSession": true,
+      "promptCapabilities": {
+        "image": true,
+        "audio": false,
+        "embeddedContext": true
+      },
+      "mcpCapabilities": {
+        "http": false,
+        "sse": false
+      }
+    },
+    "agentInfo": {
+      "name": "activecontext",
+      "title": "ActiveContext",
+      "version": "0.1.0"
+    },
+    "authMethods": []
+  }
+}
+end note
+
+note over C, A
+  Protocol version negotiation:
+  - If agent supports requested version, respond with same
+  - Otherwise, respond with latest supported version
+end note
+
+@enduml

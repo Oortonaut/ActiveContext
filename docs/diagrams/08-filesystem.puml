@@ -1,0 +1,56 @@
+@startuml ACP_FileSystem
+!theme plain
+
+title ACP Protocol - File System Operations
+
+participant "Agent" as A
+participant "Client" as C
+participant "Editor Buffer" as E
+
+== Read File ==
+
+A -> C : fs/read_text_file
+note right
+{
+  "sessionId": "sess_abc123",
+  "path": "/home/user/project/src/main.py",
+  "line": 10,
+  "limit": 50
+}
+end note
+
+C -> E : Get content (may be unsaved)
+E --> C : Current buffer state
+
+C --> A : ReadTextFileResponse
+note left
+{
+  "content": "def main():\n    ..."
+}
+end note
+
+== Write File ==
+
+A -> C : fs/write_text_file
+note right
+{
+  "sessionId": "sess_abc123",
+  "path": "/home/user/project/config.json",
+  "content": "{ \"debug\": true }"
+}
+end note
+
+C -> E : Update buffer / create file
+
+C --> A : WriteTextFileResponse
+note left: null (success)
+
+note over A, C
+  Key features:
+  - Access to unsaved editor state
+  - Client tracks modifications
+  - Creates files if missing
+  - All paths must be absolute
+end note
+
+@enduml

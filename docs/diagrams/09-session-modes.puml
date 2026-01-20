@@ -1,0 +1,61 @@
+@startuml ACP_Session_Modes
+!theme plain
+
+title ACP Protocol - Session Mode Switching
+
+participant "Client" as C
+participant "Agent" as A
+participant "LLM" as L
+
+== Mode Advertisement ==
+
+C -> A : session/new(cwd, mcpServers)
+A --> C : NewSessionResponse
+note left
+{
+  "sessionId": "sess_abc123",
+  "modeState": {
+    "currentModeId": "normal",
+    "availableModes": [
+      {"id": "normal", "name": "Normal", "description": "Standard mode"},
+      {"id": "plan", "name": "Plan", "description": "Plan before acting"},
+      {"id": "architect", "name": "Architect", "description": "Design only"}
+    ]
+  }
+}
+end note
+
+== Client-Initiated Switch ==
+
+C -> A : session/set_mode
+note right
+{
+  "sessionId": "sess_abc123",
+  "modeId": "plan"
+}
+end note
+
+A --> C : SetModeResponse
+note left: Mode switched to "plan"
+
+== Agent-Initiated Switch ==
+
+A -> L : Planning complete, request implementation
+L --> A : Call "exit_plan_mode" tool
+
+A -> C : session/update
+note right
+{
+  "sessionUpdate": "current_mode_update",
+  "modeId": "normal"
+}
+end note
+
+note over A, C
+  Common modes:
+  - Ask: Request permission before changes
+  - Plan/Architect: Design without implementing
+  - Code/Normal: Full tool access
+end note
+
+@enduml

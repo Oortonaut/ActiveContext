@@ -1,0 +1,63 @@
+@startuml ACP_Architecture
+!theme plain
+skinparam backgroundColor #FEFEFE
+
+title Agent Client Protocol - Architecture Overview
+
+package "Code Editor / IDE" as IDE {
+  [Chat UI] as chatui
+  [File Editor] as editor
+  [Terminal Emulator] as term_ui
+  [Permission Dialog] as perms
+
+  package "ACP Client" as client {
+    [JSON-RPC Handler] as rpc_handler
+    [Session Manager] as client_session
+    [Capability Manager] as caps
+  }
+}
+
+package "Agent Process" as Agent {
+  [JSON-RPC Processor] as agent_rpc
+  [Session Controller] as session_ctrl
+  [LLM Interface] as llm
+  [Tool Executor] as tools
+  [MCP Client] as mcp
+}
+
+cloud "LLM Provider" as provider {
+  [Claude / GPT / etc.] as model
+}
+
+database "Session Storage" as storage
+
+' User interactions
+chatui --> client_session : user message
+editor --> client_session : file context
+term_ui <-- client_session : terminal output
+perms <-- client_session : permission request
+
+' Client-Agent communication
+rpc_handler <--> agent_rpc : JSON-RPC\nover stdio
+
+' Agent internals
+agent_rpc --> session_ctrl
+session_ctrl --> llm
+session_ctrl --> tools
+tools --> mcp : MCP calls
+llm --> model : API calls
+
+' Persistence
+session_ctrl --> storage : persist sessions
+
+note right of rpc_handler
+  Messages:
+  - initialize
+  - session/new
+  - session/prompt
+  - session/cancel
+  - fs/read_text_file
+  - terminal/create
+end note
+
+@enduml

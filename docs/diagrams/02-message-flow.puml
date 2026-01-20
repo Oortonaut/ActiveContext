@@ -1,0 +1,51 @@
+@startuml ACP_Message_Flow
+!theme plain
+
+title ACP Protocol - Complete Message Flow
+
+participant "Client (IDE)" as C
+participant "Agent" as A
+participant "LLM" as L
+
+== Initialization Phase ==
+C -> A : initialize(protocolVersion, clientCapabilities, clientInfo)
+A --> C : InitializeResponse(protocolVersion, agentCapabilities, agentInfo)
+
+== Session Creation ==
+C -> A : session/new(cwd, mcpServers)
+A --> C : NewSessionResponse(sessionId, models, modes)
+A -> C : session/update(available_commands_update)
+
+== Prompt Turn ==
+C -> A : session/prompt(sessionId, prompt[])
+activate A
+
+A -> L : Submit to LLM
+activate L
+L --> A : Response stream
+deactivate L
+
+loop For each chunk
+  A -> C : session/update(agent_message_text_update)
+end
+
+opt Tool Execution
+  A -> C : session/update(tool_call_update: pending)
+
+  alt Requires Permission
+    A -> C : session/request_permission(toolCall, options)
+    C --> A : PermissionResponse(optionId)
+  end
+
+  A -> C : session/update(tool_call_update: in_progress)
+  A -> C : session/update(tool_call_update: completed)
+end
+
+A --> C : PromptResponse(stop_reason: end_turn)
+deactivate A
+
+== Cancellation ==
+C -> A : session/cancel(sessionId)
+note right: Agent returns stop_reason: cancelled
+
+@enduml

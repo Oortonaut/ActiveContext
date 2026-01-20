@@ -1,0 +1,76 @@
+@startuml ACP_Prompt_Turn
+!theme plain
+
+title ACP Protocol - Prompt Turn Lifecycle
+
+participant "Client" as C
+participant "Agent" as A
+participant "LLM" as L
+
+C -> A : session/prompt
+note right
+{
+  "sessionId": "sess_abc123",
+  "prompt": [
+    {"type": "text", "text": "Fix the bug in auth.py"}
+  ]
+}
+end note
+activate A
+
+A -> L : Submit prompt + context
+activate L
+
+== Response Streaming ==
+
+loop Response tokens
+  L --> A : Token chunk
+  A -> C : session/update
+  note right
+  {
+    "sessionId": "sess_abc123",
+    "sessionUpdate": "agent_message_text_update",
+    "text": "I'll analyze..."
+  }
+  end note
+end
+
+L --> A : Tool call request
+deactivate L
+
+== Tool Execution ==
+
+A -> C : session/update (tool_call_update: pending)
+note right
+{
+  "sessionUpdate": "tool_call_update",
+  "toolCallId": "tc_001",
+  "title": "Reading auth.py",
+  "kind": "read",
+  "status": "pending"
+}
+end note
+
+A -> C : session/request_permission
+C --> A : PermissionResponse(allow_once)
+
+A -> C : session/update (status: in_progress)
+A -> A : Execute tool
+A -> C : session/update (status: completed)
+
+== Continue with LLM ==
+
+A -> L : Tool result
+L --> A : Continue response...
+
+== Completion ==
+
+A --> C : PromptResponse
+note left
+{
+  "stopReason": "end_turn"
+}
+end note
+deactivate A
+
+@enduml

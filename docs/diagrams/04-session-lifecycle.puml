@@ -1,0 +1,40 @@
+@startuml ACP_Session_Lifecycle
+!theme plain
+
+title ACP Protocol - Session Lifecycle
+
+[*] --> Initializing : Agent started
+
+state Initializing {
+  [*] --> AwaitingInit
+  AwaitingInit --> Initialized : initialize()
+}
+
+Initialized --> SessionActive : session/new()
+
+state SessionActive {
+  [*] --> Idle
+
+  Idle --> Processing : session/prompt()
+  Processing --> Streaming : LLM responding
+  Streaming --> Executing : Tool calls
+  Executing --> Streaming : More LLM output
+  Streaming --> Idle : PromptResponse
+
+  Processing --> Cancelled : session/cancel()
+  Streaming --> Cancelled : session/cancel()
+  Executing --> Cancelled : session/cancel()
+  Cancelled --> Idle : stop_reason: cancelled
+}
+
+SessionActive --> SessionActive : session/set_mode()
+SessionActive --> SessionActive : session/set_model()
+
+note right of SessionActive
+  Session persists between prompts
+  Can be resumed via session/load
+end note
+
+SessionActive --> [*] : Process terminated
+
+@enduml

@@ -1,0 +1,47 @@
+@startuml ACP_Permissions
+!theme plain
+
+title ACP Protocol - Permission Request Flow
+
+participant "Client" as C
+participant "Agent" as A
+participant "User" as U
+
+A -> C : session/request_permission
+note right
+{
+  "sessionId": "sess_abc123",
+  "toolCall": {
+    "toolCallId": "tc_001",
+    "title": "Write to config.json",
+    "kind": "edit"
+  },
+  "options": [
+    {"id": "opt1", "kind": "allow_once", "label": "Allow once"},
+    {"id": "opt2", "kind": "allow_always", "label": "Always allow"},
+    {"id": "opt3", "kind": "reject_once", "label": "Deny"},
+    {"id": "opt4", "kind": "reject_always", "label": "Never allow"}
+  ]
+}
+end note
+
+C -> U : Show permission dialog
+U --> C : User clicks "Allow once"
+
+C --> A : PermissionResponse
+note left
+{
+  "optionId": "opt1"
+}
+end note
+
+alt User cancels prompt during permission
+  C --> A : PermissionResponse
+  note left
+  {
+    "outcome": "cancelled"
+  }
+  end note
+end
+
+@enduml

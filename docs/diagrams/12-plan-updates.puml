@@ -1,0 +1,49 @@
+@startuml ACP_Plan_Updates
+!theme plain
+
+title ACP Protocol - Agent Plan Communication
+
+participant "Agent" as A
+participant "Client" as C
+
+A -> C : session/update (plan)
+note right
+{
+  "sessionId": "sess_abc123",
+  "sessionUpdate": "plan",
+  "entries": [
+    {
+      "content": "Read existing auth implementation",
+      "priority": "high",
+      "status": "completed"
+    },
+    {
+      "content": "Identify security vulnerabilities",
+      "priority": "high",
+      "status": "in_progress"
+    },
+    {
+      "content": "Implement OAuth2 flow",
+      "priority": "medium",
+      "status": "pending"
+    },
+    {
+      "content": "Add unit tests",
+      "priority": "low",
+      "status": "pending"
+    }
+  ]
+}
+end note
+
+note over A, C
+  Plan entries have:
+  - content: Human-readable description
+  - priority: high | medium | low
+  - status: pending | in_progress | completed
+
+  Each update replaces entire plan.
+  Plans can evolve during execution.
+end note
+
+@enduml

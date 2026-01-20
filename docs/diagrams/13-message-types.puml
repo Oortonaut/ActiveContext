@@ -1,0 +1,160 @@
+@startuml ACP_Message_Types
+!theme plain
+skinparam classAttributeIconSize 0
+
+title ACP Protocol - Message Types Reference
+
+package "Agent Methods (required)" {
+  class "initialize" as init {
+    protocolVersion: int
+    clientCapabilities: object
+    clientInfo: Implementation
+    --
+    -> InitializeResponse
+  }
+
+  class "session/new" as new {
+    cwd: string
+    mcpServers?: array
+    --
+    -> NewSessionResponse
+  }
+
+  class "session/prompt" as prompt {
+    sessionId: string
+    prompt: ContentBlock[]
+    --
+    -> PromptResponse
+  }
+}
+
+package "Agent Methods (optional)" {
+  class "session/load" as load {
+    sessionId: string
+    cwd: string
+    mcpServers?: array
+    --
+    -> LoadSessionResponse
+  }
+
+  class "session/list" as list {
+    cwd: string
+    cursor?: string
+    --
+    -> ListSessionsResponse
+  }
+
+  class "session/set_mode" as mode {
+    sessionId: string
+    modeId: string
+    --
+    -> SetModeResponse
+  }
+
+  class "session/set_model" as model {
+    sessionId: string
+    modelId: string
+    --
+    -> SetModelResponse
+  }
+}
+
+package "Agent Notifications" {
+  class "session/cancel" as cancel {
+    sessionId: string
+    --
+    (no response)
+  }
+}
+
+package "Client Methods" {
+  class "session/request_permission" as perm {
+    sessionId: string
+    toolCall: object
+    options: PermissionOption[]
+    --
+    -> PermissionResponse
+  }
+
+  class "fs/read_text_file" as read {
+    sessionId: string
+    path: string
+    line?: int
+    limit?: int
+    --
+    -> {content: string}
+  }
+
+  class "fs/write_text_file" as write {
+    sessionId: string
+    path: string
+    content: string
+    --
+    -> null
+  }
+
+  class "terminal/create" as tcreate {
+    sessionId: string
+    command: string
+    args?: string[]
+    cwd?: string
+    --
+    -> {terminalId: string}
+  }
+
+  class "terminal/output" as toutput {
+    terminalId: string
+    --
+    -> {output, truncated, exitStatus?}
+  }
+
+  class "terminal/wait_for_exit" as twait {
+    terminalId: string
+    --
+    -> {exitCode, signal}
+  }
+
+  class "terminal/kill" as tkill {
+    terminalId: string
+    --
+    -> null
+  }
+
+  class "terminal/release" as trelease {
+    terminalId: string
+    --
+    -> null
+  }
+}
+
+package "Session Updates (Notifications)" {
+  class agent_message_text_update {
+    text: string
+  }
+
+  class agent_thought_text_update {
+    text: string
+  }
+
+  class tool_call_update {
+    toolCallId: string
+    title?: string
+    kind?: string
+    status?: string
+    content?: ContentBlock[]
+  }
+
+  class plan {
+    entries: PlanEntry[]
+  }
+
+  class current_mode_update {
+    modeId: string
+  }
+
+  class available_commands_update {
+    commands: AvailableCommand[]
+  }
+}
+
+@enduml
