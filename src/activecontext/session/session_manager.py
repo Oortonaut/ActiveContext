@@ -1189,6 +1189,7 @@ class Session:
         return self._projection_engine.build(
             context_graph=self._timeline.context_graph,
             cwd=self._cwd,
+            text_buffers=self._text_buffers,
         )
 
     def clear_message_history(self) -> None:

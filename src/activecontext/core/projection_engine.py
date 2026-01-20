@@ -99,6 +99,7 @@ class ProjectionEngine:
         context_graph: ContextGraph | None = None,
         cwd: str = ".",
         token_budget: int | None = None,
+        text_buffers: dict[str, Any] | None = None,
         # Per-agent view support (split architecture)
         agent_id: str | None = None,
         view_registry: ViewRegistry | None = None,
@@ -115,6 +116,7 @@ class ProjectionEngine:
             context_graph: ContextGraph (DAG of nodes)
             cwd: Working directory for file access
             token_budget: Override total token budget
+            text_buffers: Dict of buffer_id -> TextBuffer for markdown nodes
             agent_id: Optional agent ID for per-agent view resolution
             view_registry: Optional ViewRegistry for per-agent visibility
             content_registry: Optional ContentRegistry for shared content
@@ -134,6 +136,7 @@ class ProjectionEngine:
                 render_path,
                 budget,
                 cwd,
+                text_buffers=text_buffers,
                 agent_id=agent_id,
                 view_registry=view_registry,
                 content_registry=content_registry,
@@ -245,6 +248,7 @@ class ProjectionEngine:
         budget: int,
         cwd: str,
         *,
+        text_buffers: dict[str, Any] | None = None,
         agent_id: str | None = None,
         view_registry: ViewRegistry | None = None,
         content_registry: ContentRegistry | None = None,
@@ -256,6 +260,7 @@ class ProjectionEngine:
             path: The render path to render
             budget: Token budget for all content
             cwd: Working directory for file access
+            text_buffers: Dict of buffer_id -> TextBuffer for markdown nodes
             agent_id: Optional agent ID for per-agent view resolution
             view_registry: Optional ViewRegistry for per-agent visibility
             content_registry: Optional ContentRegistry for shared content
@@ -290,9 +295,10 @@ class ProjectionEngine:
                     agent_view,
                     content_registry,
                     cwd,
+                    text_buffers=text_buffers,
                 )
             else:
-                section = self._render_node(node, per_node_budget, cwd)
+                section = self._render_node(node, per_node_budget, cwd, text_buffers=text_buffers)
 
             if section:
                 sections.append(section)
@@ -307,6 +313,8 @@ class ProjectionEngine:
         node: ContextNode,
         budget: int,
         cwd: str,
+        *,
+        text_buffers: dict[str, Any] | None = None,
     ) -> ProjectionSection | None:
         """Render a single node using its default settings.
 
@@ -314,6 +322,7 @@ class ProjectionEngine:
             node: The context node to render
             budget: Token budget for this node
             cwd: Working directory for file access
+            text_buffers: Dict of buffer_id -> TextBuffer for markdown nodes
 
         Returns:
             ProjectionSection or None if node should be skipped
@@ -322,7 +331,7 @@ class ProjectionEngine:
         if node.state == NodeState.HIDDEN:
             return None
 
-        content = node.Render(tokens=budget, cwd=cwd)
+        content = node.Render(tokens=budget, cwd=cwd, text_buffers=text_buffers)
         media_type = getattr(node, "media_type", MediaType.TEXT)
         tokens_used = count_tokens(content, media_type)
 
@@ -341,6 +350,8 @@ class ProjectionEngine:
         agent_view: Any,
         content_registry: ContentRegistry | None,
         cwd: str,
+        *,
+        text_buffers: dict[str, Any] | None = None,
     ) -> ProjectionSection:
         """Render a node using agent-specific view settings.
 
@@ -349,6 +360,7 @@ class ProjectionEngine:
             agent_view: AgentView with visibility settings
             content_registry: Optional ContentRegistry for shared content
             cwd: Working directory for file access
+            text_buffers: Dict of buffer_id -> TextBuffer for markdown nodes
 
         Returns:
             ProjectionSection
@@ -367,13 +379,13 @@ class ProjectionEngine:
                 state = agent_view.state
             else:
                 # Content not found, render node normally
-                content = node.Render(tokens=agent_view.tokens, cwd=cwd)
+                content = node.Render(tokens=agent_view.tokens, cwd=cwd, text_buffers=text_buffers)
                 media_type = getattr(node, "media_type", MediaType.TEXT)
                 tokens_used = count_tokens(content, media_type)
                 state = agent_view.state
         else:
             # AgentView without ContentData - use node's Render
-            content = node.Render(tokens=agent_view.tokens, cwd=cwd)
+            content = node.Render(tokens=agent_view.tokens, cwd=cwd, text_buffers=text_buffers)
             media_type = getattr(node, "media_type", MediaType.TEXT)
             tokens_used = count_tokens(content, media_type)
             state = agent_view.state

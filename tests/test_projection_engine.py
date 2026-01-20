@@ -291,8 +291,8 @@ class TestRenderPathRendering:
         running_node = mock_graph.get_node("running1")
         paused_node = mock_graph.get_node("paused_root")
 
-        running_node.Render.assert_called_once_with(tokens=per_node_budget, cwd="/test")
-        paused_node.Render.assert_called_once_with(tokens=per_node_budget, cwd="/test")
+        running_node.Render.assert_called_once_with(tokens=per_node_budget, cwd="/test", text_buffers=None)
+        paused_node.Render.assert_called_once_with(tokens=per_node_budget, cwd="/test", text_buffers=None)
 
     def test_render_path_clears_pending_traces(self, projection_engine, mock_graph):
         """Test that rendering clears pending traces."""

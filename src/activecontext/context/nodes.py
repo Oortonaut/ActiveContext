@@ -151,8 +151,14 @@ class ContextNode(ABC):
         ...
 
     @abstractmethod
-    def Render(self, tokens: int | None = None, cwd: str = ".") -> str:
-        """Render this node's content within token budget."""
+    def Render(self, tokens: int | None = None, cwd: str = ".", text_buffers: dict[str, Any] | None = None) -> str:
+        """Render this node's content within token budget.
+        
+        Args:
+            tokens: Optional token budget override
+            cwd: Working directory for file access
+            text_buffers: Optional dict of buffer_id -> TextBuffer for markdown nodes
+        """
         ...
 
     @abstractmethod
@@ -686,10 +692,18 @@ class GroupNode(ContextNode):
             "summary_stale": self.summary_stale,
         }
 
-    def Render(self, tokens: int | None = None, cwd: str = ".") -> str:
+    def Render(self, tokens: int | None = None, cwd: str = ".", text_buffers: dict[str, Any] | None = None) -> str:
         """Render group based on rendering state.
 
         Uses child_order for deterministic document ordering.
+        
+        Note: For DETAILS/ALL states, only the header is rendered here.
+        The projection engine renders children as separate sections.
+
+        Args:
+            tokens: Optional token budget override
+            cwd: Working directory for file access
+            text_buffers: Optional dict of buffer_id -> TextBuffer for markdown nodes
         """
         # HIDDEN: don't render anything
         if self.state == NodeState.HIDDEN:
@@ -705,46 +719,26 @@ class GroupNode(ContextNode):
         if self.state == NodeState.COLLAPSED:
             return self.render_header(cwd=cwd)
 
-        effective_tokens = tokens or self.tokens
-
-        # SUMMARY: use cached summary if available, otherwise fall back to children
+        # SUMMARY: use cached summary if available, otherwise fall back to header
         if self.state == NodeState.SUMMARY:
             if self.cached_summary and not self.summary_stale:
                 return self.cached_summary
+            
+            # Summary is stale or missing - just show header with summary indicator
+            # Children will be rendered by projection engine if needed
+            return self.render_header(cwd=cwd)
 
-            # Summary is stale or missing, fall back to rendering children
-            parts: list[str] = [self.render_header(cwd=cwd)]
+        # DETAILS or ALL: only show header
+        # Children are rendered as separate sections by the projection engine
+        parts: list[str] = [self.render_header(cwd=cwd)]
 
-            if self._graph and ordered_children:
-                per_child_tokens = effective_tokens // len(ordered_children)
-                for child_id in ordered_children:
-                    child = self._graph.get_node(child_id)
-                    if child:
-                        child_content = child.Render(tokens=per_child_tokens, cwd=cwd)
-                        parts.append(child_content)
-                        parts.append("\n")
-
-            return "".join(parts)
-
-        # DETAILS or ALL: render children with their own settings
-        detail_parts: list[str] = [self.render_header(cwd=cwd)]
-
-        if self._graph and ordered_children:
-            per_child_tokens = effective_tokens // len(ordered_children)
-            for child_id in ordered_children:
-                child = self._graph.get_node(child_id)
-                if child:
-                    child_content = child.Render(tokens=per_child_tokens, cwd=cwd)
-                    detail_parts.append(child_content)
-                    detail_parts.append("\n")
-
-        # At ALL state, include pending traces from children
+        # At ALL state, include pending traces
         if self.state == NodeState.ALL and self.pending_traces:
-            detail_parts.append("--- Group Traces ---\n")
+            parts.append("\n--- Group Traces ---\n")
             for trace in self.pending_traces:
-                detail_parts.append(f"[{trace.node_id}] {trace.description}\n")
+                parts.append(f"[{trace.node_id}] {trace.description}\n")
 
-        return "".join(detail_parts)
+        return "".join(parts)
 
     def on_child_changed(self, child: ContextNode, trace: Trace | None = None) -> None:
         """Handle child change: track version, generate trace, propagate."""
@@ -886,7 +880,7 @@ class TopicNode(ContextNode):
             "version": self.version,
         }
 
-    def Render(self, tokens: int | None = None, cwd: str = ".") -> str:
+    def Render(self, tokens: int | None = None, cwd: str = ".", text_buffers: dict[str, Any] | None = None) -> str:
         """Render topic header and children."""
         parts: list[str] = [self.render_header(cwd=cwd)]
 
@@ -1004,7 +998,7 @@ class ArtifactNode(ContextNode):
             "version": self.version,
         }
 
-    def Render(self, tokens: int | None = None, cwd: str = ".") -> str:
+    def Render(self, tokens: int | None = None, cwd: str = ".", text_buffers: dict[str, Any] | None = None) -> str:
         """Render artifact content."""
         effective_tokens = tokens or self.tokens
         char_budget = effective_tokens * 4
@@ -1168,7 +1162,7 @@ class ShellNode(ContextNode):
             "version": self.version,
         }
 
-    def Render(self, tokens: int | None = None, cwd: str = ".") -> str:
+    def Render(self, tokens: int | None = None, cwd: str = ".", text_buffers: dict[str, Any] | None = None) -> str:
         """Render shell command status and output based on rendering state."""
         # HIDDEN: don't render anything
         if self.state == NodeState.HIDDEN:
@@ -1409,7 +1403,7 @@ class LockNode(ContextNode):
             "version": self.version,
         }
 
-    def Render(self, tokens: int | None = None, cwd: str = ".") -> str:
+    def Render(self, tokens: int | None = None, cwd: str = ".", text_buffers: dict[str, Any] | None = None) -> str:
         """Render lock status based on rendering state."""
         # HIDDEN: don't render anything
         if self.state == NodeState.HIDDEN:
@@ -1642,7 +1636,7 @@ class SessionNode(ContextNode):
             "version": self.version,
         }
 
-    def Render(self, tokens: int | None = None, cwd: str = ".") -> str:
+    def Render(self, tokens: int | None = None, cwd: str = ".", text_buffers: dict[str, Any] | None = None) -> str:
         """Render session statistics for agent awareness."""
         # HIDDEN: don't render anything
         if self.state == NodeState.HIDDEN:
@@ -1963,7 +1957,7 @@ class MessageNode(ContextNode):
             "version": self.version,
         }
 
-    def Render(self, tokens: int | None = None, cwd: str = ".") -> str:
+    def Render(self, tokens: int | None = None, cwd: str = ".", text_buffers: dict[str, Any] | None = None) -> str:
         """Render message content based on rendering state.
 
         Note: This renders a single message. Block merging happens in
@@ -2145,7 +2139,7 @@ class WorkNode(ContextNode):
             "version": self.version,
         }
 
-    def Render(self, tokens: int | None = None, cwd: str = ".") -> str:
+    def Render(self, tokens: int | None = None, cwd: str = ".", text_buffers: dict[str, Any] | None = None) -> str:
         """Render work coordination status."""
         # HIDDEN: don't render anything
         if self.state == NodeState.HIDDEN:
@@ -2336,7 +2330,7 @@ class MCPServerNode(ContextNode):
             "version": self.version,
         }
 
-    def Render(self, tokens: int | None = None, cwd: str = ".") -> str:
+    def Render(self, tokens: int | None = None, cwd: str = ".", text_buffers: dict[str, Any] | None = None) -> str:
         """Render MCP server as tool documentation for the LLM."""
         if self.state == NodeState.HIDDEN:
             return ""
@@ -2633,7 +2627,7 @@ class MCPManagerNode(ContextNode):
             "server_states": dict(self.server_states),
         }
 
-    def Render(self, tokens: int | None = None, cwd: str = ".") -> str:
+    def Render(self, tokens: int | None = None, cwd: str = ".", text_buffers: dict[str, Any] | None = None) -> str:
         """Render manager state based on node state."""
         if self.state == NodeState.HIDDEN:
             return ""
@@ -2866,7 +2860,7 @@ class AgentNode(ContextNode):
             "version": self.version,
         }
 
-    def Render(self, tokens: int | None = None, cwd: str = ".") -> str:
+    def Render(self, tokens: int | None = None, cwd: str = ".", text_buffers: dict[str, Any] | None = None) -> str:
         """Render agent information based on state."""
         if self.state == NodeState.HIDDEN:
             return ""
