@@ -135,7 +135,7 @@ class AgentHandle:
         import asyncio
 
         try:
-            loop = asyncio.get_running_loop()
+            asyncio.get_running_loop()  # Raises RuntimeError if no loop
             asyncio.ensure_future(self._manager.pause_agent(self._agent_id))
         except RuntimeError:
             asyncio.get_event_loop().run_until_complete(
@@ -152,7 +152,7 @@ class AgentHandle:
         import asyncio
 
         try:
-            loop = asyncio.get_running_loop()
+            asyncio.get_running_loop()  # Raises RuntimeError if no loop
             asyncio.ensure_future(self._manager.resume_agent(self._agent_id))
         except RuntimeError:
             asyncio.get_event_loop().run_until_complete(
@@ -169,7 +169,7 @@ class AgentHandle:
         import asyncio
 
         try:
-            loop = asyncio.get_running_loop()
+            asyncio.get_running_loop()  # Raises RuntimeError if no loop
             asyncio.ensure_future(self._manager.terminate_agent(self._agent_id))
         except RuntimeError:
             asyncio.get_event_loop().run_until_complete(

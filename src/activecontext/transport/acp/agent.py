@@ -846,7 +846,6 @@ class ActiveContextAgent:
                     self._sessions_initialized.add(session_id)
                     asyncio.create_task(self._post_session_setup(session_id))
                 return acp.LoadSessionResponse(
-                    session_id=session_id,
                     modes=SessionModeState(
                         available_modes=self._session_modes,
                         current_mode_id=self._sessions_mode.get(session_id, self._default_mode_id),
@@ -909,7 +908,6 @@ class ActiveContextAgent:
                 asyncio.create_task(self._post_session_setup(session_id))
 
             return acp.LoadSessionResponse(
-                session_id=session_id,
                 models=models_state,
                 modes=SessionModeState(
                     available_modes=self._session_modes,

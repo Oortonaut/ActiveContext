@@ -10,6 +10,7 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass, field
 from enum import Enum
+from typing import Any
 
 
 class NodeState(Enum):
@@ -63,6 +64,7 @@ class Notification:
         trace_id: Unique ID for deduplication (node_id:version)
         header: Brief description (e.g., "text_3: (-5/+12 lines at 100)")
         level: NotificationLevel value ("hold" or "wake")
+        originator: Who/what caused the change (node ID, filename, or arbitrary string)
         timestamp: When the notification was generated
     """
 
@@ -70,6 +72,7 @@ class Notification:
     trace_id: str
     header: str
     level: str  # "hold" or "wake" - string to avoid issues with enum serialization
+    originator: str | None = None
     timestamp: float = field(default_factory=time.time)
 
 
@@ -188,15 +191,15 @@ class TickFrequency:
     def __str__(self) -> str:
         return self.to_string()
 
-    def to_dict(self) -> dict[str, any]:
+    def to_dict(self) -> dict[str, Any]:
         """Serialize to dict for YAML persistence."""
-        result: dict[str, any] = {"mode": self.mode}
+        result: dict[str, Any] = {"mode": self.mode}
         if self.interval is not None:
             result["interval"] = self.interval
         return result
 
     @staticmethod
-    def from_dict(data: dict[str, any]) -> TickFrequency:
+    def from_dict(data: dict[str, Any]) -> TickFrequency:
         """Deserialize from dict."""
         return TickFrequency(
             mode=data["mode"],

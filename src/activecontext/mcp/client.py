@@ -80,6 +80,7 @@ class MCPConnection:
                 ]
             except Exception:
                 # Resources are optional
+                _log.debug("Failed to list resources for '%s'", self.name, exc_info=True)
                 self.resources = []
 
             # Discover prompts
@@ -99,6 +100,7 @@ class MCPConnection:
                 ]
             except Exception:
                 # Prompts are optional
+                _log.debug("Failed to list prompts for '%s'", self.name, exc_info=True)
                 self.prompts = []
 
             self.status = MCPConnectionStatus.CONNECTED

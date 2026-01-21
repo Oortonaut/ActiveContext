@@ -25,7 +25,7 @@ from activecontext.context.state import NodeState, NotificationLevel, TickFreque
 
 if TYPE_CHECKING:
     from activecontext.context.graph import LinkedChildOrder
-from activecontext.core.tokens import MediaType, detect_media_type, tokens_to_chars
+from activecontext.core.tokens import MediaType, detect_media_type
 
 
 class ShellStatus(Enum):
@@ -384,6 +384,7 @@ class ContextNode(ABC):
                 trace_id=trace_id,
                 header=header,
                 level=self.notification_level,
+                originator=originator or self.originator,
             )
 
     def _format_notification_header(self, description: str) -> str:

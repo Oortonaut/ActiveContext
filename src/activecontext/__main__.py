@@ -77,7 +77,7 @@ def main() -> None:
     # When stdin is piped (IDE or echo), silence stderr and root logger
     # to prevent tracebacks from interfering with ACP protocol
     if not sys.stdin.isatty():
-        sys.stderr = open(os.devnull, "w")
+        sys.stderr = open(os.devnull, "w")  # noqa: SIM115 - intentionally kept open for process lifetime
         import logging
         logging.getLogger().addHandler(logging.NullHandler())
         logging.getLogger().setLevel(logging.CRITICAL + 1)  # Silence everything

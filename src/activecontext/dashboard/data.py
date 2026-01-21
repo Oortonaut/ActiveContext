@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Any
 
 from activecontext.core.llm.discovery import (
@@ -11,6 +12,8 @@ from activecontext.core.llm.discovery import (
 
 if TYPE_CHECKING:
     from activecontext.session.session_manager import Session
+
+_log = logging.getLogger(__name__)
 
 
 def get_llm_status(current_model: str | None) -> dict[str, Any]:
@@ -56,6 +59,7 @@ def get_context_data(session: Session) -> dict[str, Any]:
     try:
         graph = session.get_context_graph()
     except Exception:
+        _log.debug("Failed to get context graph", exc_info=True)
         return {"nodes_by_type": {}, "total": 0}
 
     nodes_by_type: dict[str, list[dict[str, Any]]] = {}
@@ -83,7 +87,7 @@ def get_context_data(session: Session) -> dict[str, Any]:
                     nodes_by_type[obj_type] = []
                 nodes_by_type[obj_type].append(digest)
         except Exception:
-            # Skip nodes that fail to serialize
+            _log.debug("Failed to serialize node", exc_info=True)
             continue
 
     return {"nodes_by_type": nodes_by_type, "total": total}
@@ -115,10 +119,12 @@ def get_timeline_data(session: Session) -> dict[str, Any]:
                     "has_error": latest.exception is not None if latest else False,
                 })
             except Exception:
+                _log.debug("Failed to process statement", exc_info=True)
                 continue
 
         return {"statements": statement_list, "count": len(statement_list)}
     except Exception:
+        _log.debug("Failed to get timeline data", exc_info=True)
         return {"statements": [], "count": 0}
 
 
@@ -140,6 +146,7 @@ def get_projection_data(session: Session) -> dict[str, Any]:
                 })
                 total_used += section.tokens_used
             except Exception:
+                _log.debug("Failed to process projection section", exc_info=True)
                 continue
 
         return {
@@ -147,6 +154,7 @@ def get_projection_data(session: Session) -> dict[str, Any]:
             "sections": sections,
         }
     except Exception:
+        _log.debug("Failed to get projection data", exc_info=True)
         return {
             "total_used": 0,
             "sections": [],
@@ -192,9 +200,10 @@ def get_message_history_data(session: Session) -> dict[str, Any]:
                     }
                 messages.append(msg_data)
             except Exception:
+                _log.debug("Failed to process message", exc_info=True)
                 continue
     except Exception:
-        pass
+        _log.debug("Failed to get message history", exc_info=True)
     
     return {"messages": messages, "count": len(messages)}
 
@@ -222,6 +231,7 @@ def get_rendered_projection_data(session: Session) -> dict[str, Any]:
                     "state": section.state.name.lower() if section.state else "details",
                 })
             except Exception:
+                _log.debug("Failed to process rendered section", exc_info=True)
                 continue
 
         # Count total tokens
