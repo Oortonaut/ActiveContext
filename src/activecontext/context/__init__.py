@@ -43,7 +43,7 @@ from activecontext.context.nodes import (
     ShellStatus,
     TextNode,
     TopicNode,
-    Trace,
+    TraceNode,
     WorkNode,
 )
 from activecontext.context.view import AgentView, ViewRegistry
@@ -77,7 +77,7 @@ __all__ = [
     "ViewRegistry",
     # Nodes
     "ContextNode",
-    "Trace",
+    "TraceNode",
     "OnChildChangedHook",
     "TextNode",
     "GroupNode",

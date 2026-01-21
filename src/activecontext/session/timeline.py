@@ -658,14 +658,9 @@ class Timeline:
                 node = self._context_graph.get_node(node_id)
                 if isinstance(node, TextNode):
                     # Mark node as needing re-render
-                    from activecontext.context.nodes import Trace
-                    trace = Trace(
-                        node_id=node_id,
-                        old_version=node.version,
-                        new_version=node.version + 1,
+                    node._mark_changed(
                         description=f"File '{event.path.name}' {event.change_type}",
                     )
-                    node._mark_changed(trace)
 
             # Call the session's file change callback if set
             if self._on_file_changed:

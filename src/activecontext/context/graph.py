@@ -271,6 +271,29 @@ class ContextGraph:
         """Get all nodes of a specific type."""
         return [self._nodes[nid] for nid in self._by_type.get(node_type, set()) if nid in self._nodes]
 
+    def get_traces_for_node(self, node_id: str) -> list[ContextNode]:
+        """Get all TraceNode children for a given node.
+
+        Args:
+            node_id: The node to get traces for
+
+        Returns:
+            List of TraceNode children, sorted by version (newest first)
+        """
+        node = self._nodes.get(node_id)
+        if not node:
+            return []
+
+        traces = []
+        for child_id in node.children_ids:
+            child = self._nodes.get(child_id)
+            if child and child.node_type == "trace":
+                traces.append(child)
+
+        # Sort by new_version descending (newest first)
+        traces.sort(key=lambda t: getattr(t, "new_version", 0), reverse=True)
+        return traces
+
     # -------------------------------------------------------------------------
     # Notification System
     # -------------------------------------------------------------------------

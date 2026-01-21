@@ -303,9 +303,6 @@ class ProjectionEngine:
             if section:
                 sections.append(section)
 
-                # Clear pending traces after rendering
-                node.clear_pending_traces()
-
         return sections
 
     def _render_node(

@@ -190,7 +190,7 @@ class ContextNode(ABC):
         Default implementation just bumps version and notifies parents.
         Subclasses should override to implement actual recomputation.
         """
-        self._mark_changed()
+        self._mark_changed(description="Recomputed")
 
     def _mark_changed(
         self,
@@ -377,22 +377,31 @@ class ContextNode(ABC):
         Args:
             freq: Tick frequency (defaults to turn() if not specified)
         """
+        old_mode = self.mode
         self.mode = "running"
         self.tick_frequency = freq or TickFrequency.turn()
         if self._graph:
             self._graph._running_nodes.add(self.node_id)
+        if old_mode != "running":
+            self._mark_changed(description=f"Mode: {old_mode} → running")
         return self
 
     def Pause(self) -> ContextNode:
         """Disable tick recomputation."""
+        old_mode = self.mode
         self.mode = "paused"
         if self._graph:
             self._graph._running_nodes.discard(self.node_id)
+        if old_mode != "paused":
+            self._mark_changed(description=f"Mode: {old_mode} → paused")
         return self
 
     def SetTokens(self, n: int) -> ContextNode:
         """Set token budget."""
+        old_tokens = self.tokens
         self.tokens = n
+        if old_tokens != n:
+            self._mark_changed(description=f"Tokens: {old_tokens} → {n}")
         return self
 
     def SetState(self, s: NodeState) -> ContextNode:
@@ -414,7 +423,10 @@ class ContextNode(ABC):
         Args:
             level: NotificationLevel.IGNORE, HOLD, or WAKE
         """
+        old_level = self.notification_level
         self.notification_level = level
+        if old_level != level:
+            self._mark_changed(description=f"Notify: {old_level.value} → {level.value}")
         return self
 
 
@@ -605,12 +617,20 @@ class TextNode(ContextNode):
 
     def SetPos(self, pos: str) -> TextNode:
         """Set start position."""
+        old_pos = self.pos
         self.pos = pos
+        if old_pos != pos:
+            self._mark_changed(description=f"Position: {old_pos} → {pos}")
         return self
 
     def SetEndPos(self, end_pos: str | None) -> TextNode:
         """Set end position."""
+        old_end = self.end_pos
         self.end_pos = end_pos
+        if old_end != end_pos:
+            old_str = old_end or "end"
+            new_str = end_pos or "end"
+            self._mark_changed(description=f"EndPos: {old_str} → {new_str}")
         return self
 
     def _format_notification_header(self, description: str) -> str:
@@ -928,8 +948,10 @@ class TopicNode(ContextNode):
 
     def set_status(self, status: str) -> TopicNode:
         """Set topic status."""
+        old_status = self.status
         self.status = status
-        self._mark_changed()
+        if old_status != status:
+            self._mark_changed(description=f"Topic status: {old_status} → {status}")
         return self
 
     def get_display_name(self) -> str:
@@ -1229,9 +1251,10 @@ class ShellNode(ContextNode):
 
     def set_running(self) -> ShellNode:
         """Mark as running (called when subprocess starts)."""
+        old_status = self.shell_status
         self.shell_status = ShellStatus.RUNNING
         self.started_at_exec = time.time()
-        self._mark_changed()
+        self._mark_changed(description=f"Shell: {old_status.value} → running")
         return self
 
     def set_completed(
@@ -1721,7 +1744,10 @@ class SessionNode(ContextNode):
             if len(self.recent_actions) > self.history_depth:
                 self.recent_actions = self.recent_actions[-self.history_depth :]
 
-        self._mark_changed()
+        desc = f"Turn {self.turn_count}: {tokens_used} tokens"
+        if action_description:
+            desc += f" - {action_description[:50]}"
+        self._mark_changed(description=desc)
         return self
 
     def record_statement(self) -> SessionNode:
@@ -2163,14 +2189,18 @@ class WorkNode(ContextNode):
 
     def set_intent(self, intent: str) -> WorkNode:
         """Update work intent."""
+        old_intent = self.intent
         self.intent = intent
-        self._mark_changed()
+        if old_intent != intent:
+            self._mark_changed(description=f"Intent: {old_intent[:30]}... → {intent[:30]}...")
         return self
 
     def set_files(self, files: list[dict[str, str]]) -> WorkNode:
         """Update files being worked on."""
+        old_count = len(self.files)
         self.files = files
-        self._mark_changed()
+        if old_count != len(files):
+            self._mark_changed(description=f"Files: {old_count} → {len(files)}")
         return self
 
     def set_conflicts(self, conflicts: list[dict[str, str]]) -> WorkNode:
@@ -2420,7 +2450,9 @@ class MCPServerNode(ContextNode):
             }
             for p in connection.prompts
         ]
-        self._mark_changed()
+        self._mark_changed(
+            description=f"MCP {self.server_name}: {self.status}, {len(self.tools)} tools"
+        )
 
     def start_call(self, call_id: str, tool_name: str) -> None:
         """Register a pending async tool call.
@@ -2846,14 +2878,18 @@ class AgentNode(ContextNode):
 
     def update_state(self, agent_state: str) -> AgentNode:
         """Update the agent's state."""
+        old_state = self.agent_state
         self.agent_state = agent_state
-        self._mark_changed()
+        if old_state != agent_state:
+            self._mark_changed(description=f"Agent state: {old_state} → {agent_state}")
         return self
 
     def update_message_count(self, count: int) -> AgentNode:
         """Update pending message count."""
+        old_count = self.message_count
         self.message_count = count
-        self._mark_changed()
+        if old_count != count:
+            self._mark_changed(description=f"Messages: {old_count} → {count}")
         return self
 
     def get_display_name(self) -> str:
