@@ -142,10 +142,12 @@ class ContextGraph:
         child.parent_ids.add(parent_id)
         parent.children_ids.add(child_id)
 
-        # Maintain child_order for document ordering if parent has it
-        # BUT: Don't add trace nodes - they're metadata, not primary content
-        if hasattr(parent, "child_order") and child_id not in parent.child_order:
-            if child.node_type != "trace":
+        # Maintain child_order for document ordering (lazily initialized)
+        # Trace nodes are metadata, not primary content - skip them
+        if child.node_type != "trace":
+            if parent.child_order is None:
+                parent.child_order = []
+            if child_id not in parent.child_order:
                 parent.child_order.append(child_id)
 
         # Child is no longer a root
@@ -175,8 +177,8 @@ class ContextGraph:
         child.parent_ids.discard(parent_id)
         parent.children_ids.discard(child_id)
 
-        # Remove from child_order if parent has it
-        if hasattr(parent, "child_order") and child_id in parent.child_order:
+        # Remove from child_order if present
+        if parent.child_order and child_id in parent.child_order:
             parent.child_order.remove(child_id)
 
         # If child has no more parents, it becomes a root
@@ -509,8 +511,8 @@ class ContextGraph:
         for node in self._nodes.values():
             node.parent_ids.clear()
             node.children_ids.clear()
-            # Clear child_order for GroupNodes to prevent stale entries
-            if hasattr(node, "child_order"):
+            # Clear child_order to prevent stale entries (if initialized)
+            if node.child_order is not None:
                 node.child_order.clear()
         self._root_ids.clear()
 

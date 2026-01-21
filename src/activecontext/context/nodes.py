@@ -79,6 +79,10 @@ class ContextNode(ABC):
     parent_ids: set[str] = field(default_factory=set)
     children_ids: set[str] = field(default_factory=set)
 
+    # Ordered children for projection rendering (lazily initialized by graph.link())
+    # None = no children linked yet, [] = has/had children
+    child_order: list[str] | None = field(default=None, repr=False)
+
     # Rendering configuration
     tokens: int = 1000
     state: NodeState = NodeState.DETAILS
@@ -322,6 +326,7 @@ class ContextNode(ABC):
             "node_id": self.node_id,
             "parent_ids": list(self.parent_ids),
             "children_ids": list(self.children_ids),
+            "child_order": self.child_order,
             "tokens": self.tokens,
             "state": self.state.value,
             "mode": self.mode,
@@ -738,7 +743,6 @@ class GroupNode(ContextNode):
         last_child_versions: Version tracking for trace detection
     """
 
-    child_order: list[str] = field(default_factory=list)  # Ordered children
     summary_prompt: str | None = None
     cached_summary: str | None = None
     summary_stale: bool = True
@@ -863,7 +867,6 @@ class GroupNode(ContextNode):
         """Serialize GroupNode to dict."""
         data = super().to_dict()
         data.update({
-            "child_order": self.child_order,
             "summary_prompt": self.summary_prompt,
             "cached_summary": self.cached_summary,
             "summary_stale": self.summary_stale,
@@ -882,6 +885,7 @@ class GroupNode(ContextNode):
             node_id=data["node_id"],
             parent_ids=set(data.get("parent_ids", [])),
             children_ids=set(data.get("children_ids", [])),
+            child_order=data.get("child_order"),
             tokens=data.get("tokens", 500),
             state=NodeState(data.get("state", "summary")),
             mode=data.get("mode", "paused"),
@@ -892,7 +896,6 @@ class GroupNode(ContextNode):
             tags=data.get("tags", {}),
             display_sequence=data.get("display_sequence"),
             originator=data.get("originator"),
-            child_order=data.get("child_order", []),
             summary_prompt=data.get("summary_prompt"),
             cached_summary=data.get("cached_summary"),
             summary_stale=data.get("summary_stale", True),
@@ -2329,9 +2332,6 @@ class MCPServerNode(ContextNode):
     # Tool child nodes: tool_name -> node_id
     _tool_nodes: dict[str, str] = field(default_factory=dict, repr=False)
 
-    # Ordered list of child node IDs for projection rendering
-    child_order: list[str] = field(default_factory=list)
-
     @property
     def node_type(self) -> str:
         return "mcp_server"
@@ -2654,7 +2654,6 @@ class MCPServerNode(ContextNode):
             "resources": self.resources,
             "prompts": self.prompts,
             "_tool_nodes": self._tool_nodes,
-            "child_order": self.child_order,
         })
         return data
 
@@ -2669,6 +2668,7 @@ class MCPServerNode(ContextNode):
             node_id=data["node_id"],
             parent_ids=set(data.get("parent_ids", [])),
             children_ids=set(data.get("children_ids", [])),
+            child_order=data.get("child_order"),
             tokens=data.get("tokens", 1000),
             state=NodeState(data.get("state", "details")),
             mode=data.get("mode", "paused"),
@@ -2686,7 +2686,6 @@ class MCPServerNode(ContextNode):
             resources=data.get("resources", []),
             prompts=data.get("prompts", []),
             _tool_nodes=data.get("_tool_nodes", {}),
-            child_order=data.get("child_order", []),
         )
         return node
 
