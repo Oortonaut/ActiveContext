@@ -435,6 +435,28 @@ class ContextNode(ABC):
         """
         self._on_child_changed_hook = hook
 
+    def add_child(self, child: ContextNode, *, after: str | None = None) -> bool:
+        """Add a child node to this node.
+
+        Delegates to graph.link() for proper cycle detection and root tracking.
+        Both nodes must be in a graph.
+
+        Args:
+            child: The child node to add.
+            after: If provided, insert in child_order immediately after this node_id.
+                   If None, append to end.
+
+        Returns:
+            True if child was added, False if would create cycle.
+
+        Raises:
+            RuntimeError: If this node is not in a graph.
+        """
+        if not self._graph:
+            raise RuntimeError(f"Cannot add_child: node {self.node_id} is not in a graph")
+
+        return self._graph.link(child.node_id, self.node_id, after=after)
+
     def to_dict(self) -> dict[str, Any]:
         """Serialize node to dict for persistence.
 
@@ -701,13 +723,24 @@ class TextNode(ContextNode):
         output_parts: list[str] = []
 
         if is_markdown_heading:
-            # Render markdown with heading annotation
+            # Render markdown with heading annotation and state info
+            from .headers import TokenInfo, format_token_info
+
             heading = self.tags["heading"]
             level = self.tags["level"]
             prefix = "#" * level
-            # Use start_line for the annotation
-            annotation = f"{{#{self.display_id}}}"
-            output_parts.append(f"{prefix} {heading} {annotation}\n")
+
+            # Build state brief: "all ignore" or "details hold"
+            brief = self.state.value
+            if self.notification_level.value != "ignore":
+                brief = f"{brief} {self.notification_level.value}"
+
+            # Get token info
+            token_breakdown = self.get_token_breakdown(cwd)
+            token_str = format_token_info(token_breakdown, self.state)
+
+            # Format: ## Heading {#text_1} all ignore (tokens: ...)
+            output_parts.append(f"{prefix} {heading} {{#{self.display_id}}} {brief} {token_str}\n")
 
             # Render remaining lines (skip the heading line itself)
             chars_used = len(output_parts[0])

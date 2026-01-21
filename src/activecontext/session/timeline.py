@@ -1081,6 +1081,10 @@ class Timeline:
             all_nodes.append(node)
             section_nodes[i] = node
 
+        # Add all nodes to graph first
+        for node in all_nodes:
+            self._context_graph.add_node(node)
+
         # Build hierarchy based on heading levels
         # Stack: [(node, level)]
         root = all_nodes[0]
@@ -1095,15 +1099,10 @@ class Timeline:
                 stack.pop()
 
             parent_node = stack[-1][0]
-            # Link child to parent
-            node.parent_ids.add(parent_node.node_id)
-            parent_node.children_ids.add(node.node_id)
+            # Link child to parent (nodes are in graph, so this uses graph.link)
+            parent_node.add_child(node)
 
             stack.append((node, level))
-
-        # Add all nodes to graph
-        for node in all_nodes:
-            self._context_graph.add_node(node)
 
         # Determine parent: explicit > current_group > none
         effective_parent = parent

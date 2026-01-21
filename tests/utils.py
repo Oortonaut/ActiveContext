@@ -50,8 +50,16 @@ def create_mock_context_node(
     node.mode = mode
     node.parent_ids = parent_ids or set()
     node.children_ids = children_ids or set()
-    node.child_order = []  # Document ordering for GroupNode
+    node.child_order = None  # Lazily initialized like real nodes
     node._graph = None
+
+    # Add add_child method that mimics real ContextNode behavior
+    def add_child(child, *, after=None):
+        if not node._graph:
+            raise RuntimeError(f"Cannot add_child: node {node.node_id} is not in a graph")
+        return node._graph.link(child.node_id, node.node_id, after=after)
+
+    node.add_child = add_child
 
     # Add GetDigest method
     node.GetDigest = Mock(

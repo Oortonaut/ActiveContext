@@ -239,7 +239,7 @@ class ContextGraph:
     def link(self, child_id: str, parent_id: str, *, after: str | None = None) -> bool:
         """Link a child node to a parent node.
 
-        Also maintains child_order for ordered rendering.
+        Handles cycle detection, root tracking, and child_order maintenance.
 
         Args:
             child_id: ID of child node
@@ -260,11 +260,11 @@ class ContextGraph:
         if self._is_descendant(parent_id, child_id):
             return False
 
-        # Create link
+        # Create the link
         child.parent_ids.add(parent_id)
         parent.children_ids.add(child_id)
 
-        # Maintain child_order for document ordering (lazily initialized)
+        # Maintain child_order for document ordering
         if parent.child_order is None:
             parent.child_order = LinkedChildOrder()
 
