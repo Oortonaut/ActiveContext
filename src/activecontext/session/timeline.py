@@ -118,7 +118,7 @@ class _ExecutionRecord:
 
 
 
-class LazyNodeNamespace(dict):
+class LazyNodeNamespace(dict[str, Any]):
     """Dict subclass that falls back to graph lookup for node display IDs.
 
     Allows direct access to nodes by display_id (e.g., text_1, group_2)
@@ -1027,7 +1027,7 @@ class Timeline:
 
         from activecontext.context.buffer import TextBuffer
         from activecontext.context.markdown_parser import parse_markdown
-        from activecontext.context.nodes import MediaType
+        from activecontext.core.tokens import MediaType
 
         # Resolve path prefixes (e.g., @prompts/) to content via callback
         if content is None and self._path_resolver is not None:
@@ -1057,6 +1057,9 @@ class Timeline:
                 # Create new buffer from file
                 buffer = TextBuffer.from_file(path, cwd=self._cwd)
                 self._text_buffers[buffer.buffer_id] = buffer
+
+        # At this point buffer is guaranteed to be non-None
+        assert buffer is not None
 
         # Parse markdown to get heading sections
         buffer_content = "\n".join(buffer.lines)
@@ -2780,7 +2783,8 @@ class Timeline:
             self._context_graph.add_node(node)
 
             # Wire up MCP result callback to fire events
-            node.set_on_result_callback(self.fire_event)
+            # Use lambda to match expected signature (returns None)
+            node.set_on_result_callback(lambda name, data: (self.fire_event(name, data), None)[1])
 
         # Update node from connection
         node.update_from_connection(connection)
