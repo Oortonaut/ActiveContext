@@ -62,6 +62,10 @@ Today's Goals: Develop ActiveContext with itself
 - [ ] DETAILS state: full method list with signatures and examples
 - [ ] Generate help content dynamically from class metadata/docstrings
 
+#### MCP Node Enhancements
+- [ ] Show individual tool details as child nodes of MCPServerNode
+- [ ] Each tool node displays name, description, and parameter schema
+
 ### Stream B: Testing & Quality
 
 #### Notification System Testing
