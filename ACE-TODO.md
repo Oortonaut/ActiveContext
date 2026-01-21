@@ -49,13 +49,13 @@ _(none)_
 
 ### Stream A: Node Enhancements
 
-#### Originator Field Migration [In progress]
-- [ ] Move `actor` field from MessageNode to base ContextNode class
-- [ ] Rename field to `originator` (arbitrary string reference)
-- [ ] Support node ID, filename, or arbitrary text as originator value
-- [ ] Update MessageNode to use inherited `originator` instead of `actor`
-- [ ] Update `display_label` and `effective_role` to use new field name
-- [ ] Add originator to change notification payloads
+#### Originator Field Migration [Completed]
+- [x] Move `actor` field from MessageNode to base ContextNode class
+- [x] Rename field to `originator` (arbitrary string reference)
+- [x] Support node ID, filename, or arbitrary text as originator value
+- [x] Update MessageNode to use inherited `originator` instead of `actor`
+- [x] Update `display_label` and `effective_role` to use new field name
+- [x] Add originator to change notification payloads
 
 #### Text Node Manipulation
 - [ ] Add `replace_lines(line_no, num_removed, lines)` method to TextNode
@@ -155,7 +155,8 @@ _(none)_
 - [ ] Add `remove(node)` DSL function to exclude node from traversal
 - [ ] Removed nodes skip rendering but retain state for potential restoration
 
-#### Cross-Platform Path Roots
+#### Cross-Platform Path Roots [In progress]
+- [x] Implement `@prompts/` prefix for bundled reference prompts
 - [ ] Register path roots automatically (`~`, `$HOME`, `%USERPROFILE%`, `{home}`, `$CWD`, `{PROJECT}`, etc.)
 - [ ] Normalize paths so agent doesn't need to know which OS it's on
 

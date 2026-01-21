@@ -44,6 +44,19 @@ class SessionModeConfig:
 
 
 
+
+# Package default startup statements - load reference prompts as independent trees
+# Note: context_guide is handled separately by _load_context_guide() which supports
+# project-specific overrides via CONTEXT_GUIDE.md in cwd
+PACKAGE_DEFAULT_STARTUP: list[str] = [
+    'markdown("@prompts/dsl_reference.md", tokens=2000, state=NodeState.ALL)',
+    'markdown("@prompts/node_states.md", tokens=500, state=NodeState.ALL)',
+    'markdown("@prompts/context_graph.md", tokens=500, state=NodeState.ALL)',
+    'markdown("@prompts/work_coordination.md", tokens=500, state=NodeState.ALL)',
+    'markdown("@prompts/mcp.md", tokens=500, state=NodeState.ALL)',
+]
+
+
 @dataclass
 class StartupConfig:
     """Configuration for session startup scripts.
@@ -51,17 +64,25 @@ class StartupConfig:
     Startup statements are DSL statements executed on NEW session creation only.
     When loading an existing session, the context graph is restored directly.
 
+    Three-tier execution model:
+    1. If `statements` is non-empty, those replace the package defaults
+    2. If `statements` is empty, PACKAGE_DEFAULT_STARTUP is used
+    3. `additional` statements always execute last (additive)
+
     Example config.yaml:
         session:
           startup:
-            statements:
-              - 'readme = view("README.md", tokens=2000)'
-              - 'mcp_connect("filesystem")'
+            statements:  # Replaces package defaults if set
+              - 'ref = group("Reference")'
+              - 'markdown("@prompts/dsl_reference.md", parent=ref)'
+            additional:  # Always executes after base statements
+              - 'my_guide = markdown("./my-guide.md")'
             skip_default_context: false
     """
 
-    statements: list[str] = field(default_factory=list)  # DSL statements to execute
-    skip_default_context: bool = False  # Skip loading CONTEXT_GUIDE.md
+    statements: list[str] = field(default_factory=list)  # Replaces defaults if set
+    additional: list[str] = field(default_factory=list)  # Always executes last
+    skip_default_context: bool = False  # Skip loading CONTEXT_GUIDE.md  # Skip loading CONTEXT_GUIDE.md
 
 
 @dataclass

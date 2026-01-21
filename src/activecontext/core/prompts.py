@@ -6,13 +6,13 @@ import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from activecontext.prompts import FULL_SYSTEM_PROMPT, SYSTEM_PROMPT
+from activecontext.prompts import SYSTEM_PROMPT
 
 if TYPE_CHECKING:
     from activecontext.session.protocols import Projection
 
 # Re-export for backward compatibility
-__all__ = ["SYSTEM_PROMPT", "FULL_SYSTEM_PROMPT", "ParsedResponse", "parse_response", "build_user_message"]
+__all__ = ["SYSTEM_PROMPT", "ParsedResponse", "parse_response", "build_user_message"]
 
 
 @dataclass

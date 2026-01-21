@@ -71,8 +71,10 @@ from activecontext.terminal.result import ShellResult
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from activecontext.agents.handle import AgentHandle
     from activecontext.agents.manager import AgentManager
     from activecontext.config.schema import FileWatchConfig, MCPConfig, MCPServerConfig
+    from activecontext.context.buffer import TextBuffer
     from activecontext.coordination.scratchpad import ScratchpadManager
     from activecontext.terminal.protocol import TerminalExecutor
     from activecontext.watching import FileChangeEvent
@@ -287,6 +289,10 @@ class Timeline:
         )
         # Callback set by Session when agent loop starts
         self._on_file_changed: Callable[[FileChangeEvent], None] | None = None
+
+        # Path resolver callback for @prompts/ and other prefixes (set by Session)
+        # Returns (resolved_path, content_or_none)
+        self._path_resolver: Callable[[str], tuple[str, str | None]] | None = None
 
     def configure_file_watcher(self, config: FileWatchConfig | None) -> None:
         """Configure the file watcher from config.
@@ -991,6 +997,8 @@ class Timeline:
 
         return node
 
+
+
     def _make_markdown_node(
         self,
         path: str,
@@ -1020,6 +1028,13 @@ class Timeline:
         from activecontext.context.buffer import TextBuffer
         from activecontext.context.markdown_parser import parse_markdown
         from activecontext.context.nodes import MediaType
+
+        # Resolve path prefixes (e.g., @prompts/) to content via callback
+        if content is None and self._path_resolver is not None:
+            resolved_path, resolved_content = self._path_resolver(path)
+            if resolved_content is not None:
+                path = resolved_path
+                content = resolved_content
 
         # Get or create text buffer for the file
         if content is not None:

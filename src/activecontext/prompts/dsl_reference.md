@@ -119,6 +119,32 @@ a = artifact("def foo(): pass", artifact_type="code", language="python")
 a = artifact(error_text, artifact_type="error")
 ```
 
+## Path Prefixes
+
+Path arguments in node constructors support special prefixes:
+
+### `@prompts/` - Bundled Reference Prompts
+
+Access bundled reference documentation from the ActiveContext package:
+
+```python
+m = markdown("@prompts/dsl_reference.md")      # DSL function reference
+m = markdown("@prompts/node_states.md")        # NodeState documentation
+m = markdown("@prompts/context_graph.md")      # DAG manipulation guide
+m = markdown("@prompts/work_coordination.md")  # Multi-agent coordination
+m = markdown("@prompts/mcp.md")                # MCP usage guide
+```
+
+Available prompts:
+- `dsl_reference.md` - This reference document
+- `node_states.md` - NodeState enum documentation
+- `context_graph.md` - DAG manipulation guide
+- `work_coordination.md` - Multi-agent coordination guide
+- `mcp.md` - MCP server integration guide
+- `context_guide.md` - Context management guide
+
+These paths are automatically resolved to the bundled package content, regardless of the session's working directory.
+
 ## Node Methods
 
 All context nodes support chainable configuration methods.

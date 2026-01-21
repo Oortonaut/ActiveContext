@@ -22,25 +22,17 @@ def list_prompts() -> list[str]:
     ]
 
 
-# Load all prompts in logical order for building combined system context
+# Base system prompt (loaded as hardcoded first node in context graph)
 SYSTEM_PROMPT = load_prompt("system")
+
+# Individual prompts are available for direct use if needed
+# Most are now loaded via PACKAGE_DEFAULT_STARTUP in config.schema
 CONTEXT_GUIDE = load_prompt("context_guide")
 DSL_REFERENCE = load_prompt("dsl_reference")
 NODE_STATES = load_prompt("node_states")
 CONTEXT_GRAPH = load_prompt("context_graph")
 WORK_COORDINATION = load_prompt("work_coordination")
 MCP_REFERENCE = load_prompt("mcp")
-
-# Combined prompt with all reference material
-FULL_SYSTEM_PROMPT = "\n\n---\n\n".join([
-    SYSTEM_PROMPT,
-    CONTEXT_GUIDE,
-    DSL_REFERENCE,
-    NODE_STATES,
-    CONTEXT_GRAPH,
-    WORK_COORDINATION,
-    MCP_REFERENCE,
-])
 
 __all__ = [
     "load_prompt",
@@ -52,5 +44,4 @@ __all__ = [
     "CONTEXT_GRAPH",
     "WORK_COORDINATION",
     "MCP_REFERENCE",
-    "FULL_SYSTEM_PROMPT",
 ]

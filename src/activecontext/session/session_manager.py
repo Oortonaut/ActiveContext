@@ -47,6 +47,7 @@ if TYPE_CHECKING:
     from typing import Any
 
     from activecontext.config.schema import Config
+    from activecontext.context.buffer import TextBuffer
     from activecontext.core.llm.provider import LLMProvider, Message
     from activecontext.terminal.protocol import TerminalExecutor
 
@@ -166,6 +167,9 @@ class Session:
         # Register set_title callback with timeline
         self._timeline.set_title_callback(self.set_title)
 
+        # Register path resolver callback with timeline for @prompts/ etc.
+        self._timeline._path_resolver = self.resolve_path
+
         # Configure file watcher from config
         if self._config and self._config.session:
             self._timeline.configure_file_watcher(self._config.session.file_watch)
@@ -187,15 +191,17 @@ class Session:
         The system prompt is parsed into a TextNode tree and added
         to the context graph with state=ALL so it renders fully expanded.
         Links to root context for document ordering.
+
+        Note: Only the base system prompt is loaded here. Reference prompts
+        (dsl_reference, node_states, etc.) are loaded via startup statements.
         """
-        from activecontext.prompts import FULL_SYSTEM_PROMPT
+        from activecontext.prompts import SYSTEM_PROMPT
 
         # Use timeline's markdown parsing to create TextNode tree
-        # FULL_SYSTEM_PROMPT is ~6300 tokens with 117 sections, needs enough budget
         root = self._timeline._make_markdown_node(
             path="system_prompt",
-            content=FULL_SYSTEM_PROMPT,
-            tokens=8000,  # Enough for ~6300 token prompt with margin
+            content=SYSTEM_PROMPT,
+            tokens=2000,  # Base system prompt is smaller than full combined prompt
             state=NodeState.ALL,  # Fully expanded
         )
 
@@ -205,32 +211,47 @@ class Session:
     def _restore_system_prompt_buffer(self) -> None:
         """Restore text buffer for system prompt nodes after session load.
 
-        System prompt content comes from FULL_SYSTEM_PROMPT constant, not from
+        System prompt content comes from SYSTEM_PROMPT constant, not from
         a file. After restoring from disk, the TextNodes exist but their buffer
         reference is lost. This method recreates the buffer and re-links the nodes.
+
+        Also handles @prompts/ paths which are resolved via resolve_path().
         """
         from activecontext.context.buffer import TextBuffer
-        from activecontext.prompts import FULL_SYSTEM_PROMPT
+        from activecontext.prompts import SYSTEM_PROMPT
 
-        # Find all system_prompt TextNodes
-        system_prompt_nodes: list[TextNode] = []
+        # Track paths we need to restore (path -> nodes using that path)
+        paths_to_restore: dict[str, list[TextNode]] = {}
+
         for node in self._timeline.context_graph:
-            if isinstance(node, TextNode) and node.path == "system_prompt":
-                system_prompt_nodes.append(node)
+            if isinstance(node, TextNode):
+                if node.path == "system_prompt":
+                    paths_to_restore.setdefault("system_prompt", []).append(node)
+                elif node.path.startswith("@prompts/"):
+                    paths_to_restore.setdefault(node.path, []).append(node)
 
-        if not system_prompt_nodes:
-            return
+        # Restore system_prompt buffer
+        if "system_prompt" in paths_to_restore:
+            buffer = TextBuffer(
+                path="system_prompt",
+                lines=SYSTEM_PROMPT.split("\n"),
+            )
+            self._text_buffers[buffer.buffer_id] = buffer
+            for node in paths_to_restore["system_prompt"]:
+                node.buffer_id = buffer.buffer_id
 
-        # Create buffer from system prompt content
-        buffer = TextBuffer(
-            path="system_prompt",
-            lines=FULL_SYSTEM_PROMPT.split("\n"),
-        )
-        self._text_buffers[buffer.buffer_id] = buffer
-
-        # Re-link each node to the buffer
-        for node in system_prompt_nodes:
-            node.buffer_id = buffer.buffer_id
+        # Restore @prompts/ buffers using resolve_path
+        for path, nodes in paths_to_restore.items():
+            if path.startswith("@prompts/"):
+                resolved_path, content = self.resolve_path(path)
+                if content is not None:
+                    buffer = TextBuffer(
+                        path=resolved_path,
+                        lines=content.split("\n"),
+                    )
+                    self._text_buffers[buffer.buffer_id] = buffer
+                    for node in nodes:
+                        node.buffer_id = buffer.buffer_id
             # Note: start_line/end_line should be preserved from saved node
             # If they're default values (1/None), the node renders the whole buffer
 
@@ -318,6 +339,32 @@ class Session:
             title: New title for the session.
         """
         self._title = title
+
+    def resolve_path(self, path: str) -> tuple[str, str | None]:
+        """Resolve path prefixes to actual paths or content.
+
+        Supports special path prefixes:
+        - @prompts/: Bundled reference prompts (e.g., @prompts/dsl_reference.md)
+
+        Args:
+            path: File path, possibly with a prefix
+
+        Returns:
+            Tuple of (resolved_path, content_or_none):
+            - For @prompts/: returns (name, prompt_content)
+            - For regular paths: returns (path, None)
+        """
+        if path.startswith("@prompts/"):
+            # Extract prompt name: "@prompts/dsl_reference.md" -> "dsl_reference"
+            name = path[9:]  # Remove "@prompts/"
+            if name.endswith(".md"):
+                name = name[:-3]  # Remove ".md"
+            from activecontext.prompts import load_prompt
+
+            content = load_prompt(name)
+            return (f"@prompts/{name}", content)
+        # Future: @home/, @project/, etc.
+        return (path, None)
 
     # -------------------------------------------------------------------------
     # Text Buffer Management
@@ -1270,10 +1317,14 @@ class Session:
     async def _setup_initial_context(self) -> None:
         """Set up initial context for a new session.
 
-        Executes startup statements from config, then auto-connects MCP servers.
+        Three-tier startup execution:
+        1. Base statements: user's `statements` if set, else PACKAGE_DEFAULT_STARTUP
+        2. Additional statements: user's `additional` always executes last
+        3. Context guide: loaded unless skip_default_context is True
+
         Only runs on NEW session creation, not when loading from file.
         """
-        from activecontext.config.schema import StartupConfig
+        from activecontext.config.schema import PACKAGE_DEFAULT_STARTUP, StartupConfig
 
         startup_config = (
             self._config.session.startup
@@ -1281,18 +1332,32 @@ class Session:
             else StartupConfig()
         )
 
-        # Execute startup statements from config
-        for statement in startup_config.statements:
+        # Determine base statements: project override or package defaults
+        base_statements = (
+            startup_config.statements
+            if startup_config.statements
+            else PACKAGE_DEFAULT_STARTUP
+        )
+
+        # Execute base statements
+        for statement in base_statements:
             try:
                 await self._timeline.execute_statement(statement)
             except Exception as e:
                 log.warning(f"Startup statement failed: {statement!r}: {e}")
 
-        # Load default context guide unless skipped
+        # Execute user additions last (always additive)
+        for statement in startup_config.additional:
+            try:
+                await self._timeline.execute_statement(statement)
+            except Exception as e:
+                log.warning(f"Additional startup statement failed: {statement!r}: {e}")
+
+        # Load context guide (project-specific or bundled) unless skipped
         if not startup_config.skip_default_context:
             await self._load_context_guide()
 
-        # Create metadata nodes after guide (document order: prompt, guide, session, mcp)
+        # Create metadata nodes after prompts (document order: prompt, guide, session, mcp)
         self._create_metadata_nodes()
 
         # Auto-connect to configured MCP servers

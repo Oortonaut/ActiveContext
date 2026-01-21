@@ -142,8 +142,10 @@ def dict_to_config(data: dict[str, Any]) -> Config:
     # Startup config
     startup_data = session_data.get("startup", {})
     startup_statements = startup_data.get("statements", [])
+    startup_additional = startup_data.get("additional", [])
     startup = StartupConfig(
         statements=[s for s in startup_statements if isinstance(s, str)],
+        additional=[s for s in startup_additional if isinstance(s, str)],
         skip_default_context=startup_data.get("skip_default_context", False),
     )
 
