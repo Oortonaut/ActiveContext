@@ -28,6 +28,8 @@ Controls when a running node recomputes.
 |-----------|-------------|
 | `TickFrequency.turn()` | Recompute every turn (default) |
 | `TickFrequency.seconds(n)` | Recompute every n seconds |
+| `TickFrequency.async_()` | Async execution |
+| `TickFrequency.never()` | No automatic updates |
 | `TickFrequency.idle()` | Only recompute when explicitly triggered |
 
 ```python
@@ -35,6 +37,7 @@ from activecontext import TickFrequency
 
 v.Run(TickFrequency.turn())       # Update every turn
 v.Run(TickFrequency.seconds(30))  # Update every 30 seconds
+v.Run(TickFrequency.async_())     # Async execution
 v.Run()                           # Default: turn()
 ```
 
@@ -60,7 +63,7 @@ v.Pause()  # Stop automatic updates
 | `.Run(freq=None)` | Enable tick updates |
 | `.Pause()` | Disable tick updates |
 
-### ViewNode Additional Methods
+### TextNode Additional Methods
 
 | Method | Description |
 |--------|-------------|

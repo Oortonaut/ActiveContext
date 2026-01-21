@@ -36,7 +36,7 @@ g2 = group(v)  # v is also child of g2
 When a child node changes, it notifies all parents:
 
 1. Child's `version` increments
-2. Child calls `notify_parents(trace)`
+2. Child calls `notify_parents(description)`
 3. Each parent's `on_child_changed()` is called
 4. Parents propagate upward to their parents
 
@@ -52,13 +52,18 @@ Nodes with no parents are "root nodes". The projection engine starts rendering f
 
 | Type | Purpose | Typical State |
 |------|---------|---------------|
-| `ViewNode` | File content | DETAILS |
+| `TextNode` | File content | DETAILS |
 | `GroupNode` | Summary of children | SUMMARY |
 | `TopicNode` | Conversation segment | DETAILS |
 | `ArtifactNode` | Code/output/error | DETAILS |
 | `ShellNode` | Command execution | DETAILS |
 | `SessionNode` | Session metadata | COLLAPSED |
 | `WorkNode` | Work coordination | DETAILS |
+| `MessageNode` | Conversation message | DETAILS |
+| `LockNode` | File lock for coordination | COLLAPSED |
+| `MCPServerNode` | MCP server connection | DETAILS |
+| `MCPToolNode` | MCP tool definition | COLLAPSED |
+| `MarkdownNode` | Parsed markdown structure | DETAILS |
 
 ## Manipulation
 

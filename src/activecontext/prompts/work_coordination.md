@@ -79,6 +79,17 @@ entries:
     heartbeat_at: "2026-01-17T10:35:00Z"
 ```
 
+## Dependencies
+
+Entries can declare dependencies on other work entries:
+
+```python
+# Register work that depends on another agent's work
+work_on("Adding OAuth refresh", "src/auth/refresh.py", dependencies=["a1b2c3d4"])
+```
+
+Dependencies are entry IDs of other work that must complete first. This is advisory - the system warns if you start work before dependencies complete.
+
 ## Stale Entry Cleanup
 
 - Entries without heartbeat for 5 minutes are automatically removed
