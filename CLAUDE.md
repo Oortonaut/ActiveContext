@@ -8,12 +8,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Working Directory
 
-The cwd is `C:\ActiveContext`. Do not use path prefixes in commands:
+The cwd is `C:\ActiveContext`. Do not use path prefixes in commands.
+
+Prefer Bash to MCPs for simple file operations:
+- `ls`, `dir` for listing files
+- `cat`, `head`, `tail` for reading files
+- `mkdir`, `rm` for file management
 
 ```bash
 # ✅ Correct
 git status
 uv run pytest
+ls src/
 
 # ❌ Wrong - unnecessary path
 git -C C:\ActiveContext status

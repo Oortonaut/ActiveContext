@@ -201,6 +201,11 @@ Today's Goals: Develop ActiveContext with itself
 - [ ] Check for race conditions in shared state
 - [ ] Test dashboard behavior with multiple agents running simultaneously
 
+### Async Agent Loop Extension
+- [ ] Expose extension API for async agent loop
+- [ ] Message queueing instead of prompt/response pattern
+- [ ] Out of band status updates
+
 ### Subagent Testing
 - [ ] Test spawn/pause/terminate lifecycle
 - [ ] Test message passing between parent and child
