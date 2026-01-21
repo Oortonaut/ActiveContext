@@ -179,6 +179,10 @@ class ProjectionEngine:
     ) -> None:
         """Recursively collect nodes in document order.
 
+        Always recurses into children regardless of parent state - each node's
+        own state controls its rendering. This ensures complete token information
+        is available for the agent to understand expansion costs.
+
         Args:
             graph: The context graph
             node: Current node to process
@@ -195,12 +199,8 @@ class ProjectionEngine:
         if not node.parent_ids:
             path.root_ids.add(node.node_id)
 
-        # For COLLAPSED/SUMMARY, don't recurse into children
-        # (the node will render its own summary)
-        if node.state in (NodeState.COLLAPSED, NodeState.SUMMARY):
-            return
-
-        # For DETAILS/ALL, recurse into children in document order
+        # Always recurse into children in document order
+        # Each child's own state controls its rendering
         child_order = getattr(node, "child_order", None)
         if child_order:
             for child_id in child_order:

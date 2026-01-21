@@ -120,8 +120,8 @@ class TestCollectRenderPath:
         assert "r2" in path.node_ids
         assert "c1" in path.node_ids  # Included via parent's DETAILS state
 
-    def test_collect_render_path_collapsed_no_recurse(self, projection_engine):
-        """Test that COLLAPSED parents don't recurse into children."""
+    def test_collect_render_path_collapsed_still_recurses(self, projection_engine):
+        """Test that COLLAPSED parents still recurse into children for token counting."""
         graph = ContextGraph()
 
         root = create_mock_context_node("root", "view")
@@ -134,9 +134,10 @@ class TestCollectRenderPath:
 
         path = projection_engine._collect_render_path(graph)
 
-        # Only root is in path - no recursion due to COLLAPSED state
+        # Both root and child are collected - children always collected
+        # for complete token information (expansion cost visibility)
         assert "root" in path.node_ids
-        assert "child" not in path.node_ids
+        assert "child" in path.node_ids
         assert "root" in path.root_ids
 
     def test_collect_render_path_excludes_hidden(self, projection_engine):
