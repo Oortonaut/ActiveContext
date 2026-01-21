@@ -2329,6 +2329,9 @@ class MCPServerNode(ContextNode):
     # Tool child nodes: tool_name -> node_id
     _tool_nodes: dict[str, str] = field(default_factory=dict, repr=False)
 
+    # Ordered list of child node IDs for projection rendering
+    child_order: list[str] = field(default_factory=list)
+
     @property
     def node_type(self) -> str:
         return "mcp_server"
@@ -2651,6 +2654,7 @@ class MCPServerNode(ContextNode):
             "resources": self.resources,
             "prompts": self.prompts,
             "_tool_nodes": self._tool_nodes,
+            "child_order": self.child_order,
         })
         return data
 
@@ -2682,6 +2686,7 @@ class MCPServerNode(ContextNode):
             resources=data.get("resources", []),
             prompts=data.get("prompts", []),
             _tool_nodes=data.get("_tool_nodes", {}),
+            child_order=data.get("child_order", []),
         )
         return node
 

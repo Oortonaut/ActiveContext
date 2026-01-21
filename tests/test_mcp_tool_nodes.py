@@ -472,3 +472,32 @@ class TestMCPToolNodeIntegration:
         """Test MCPToolNode.get_display_name() format."""
         node = MCPToolNode(tool_name="read_file", server_name="filesystem")
         assert node.get_display_name() == "filesystem.read_file"
+
+    def test_child_order_populated_on_link(
+        self, context_graph, mcp_server_node, mock_connection
+    ):
+        """Test that tool nodes are added to child_order for projection rendering."""
+        mcp_server_node.update_from_connection(mock_connection)
+
+        # child_order should be populated by graph.link()
+        assert len(mcp_server_node.child_order) == 2
+        # All tool node IDs should be in child_order
+        for node_id in mcp_server_node._tool_nodes.values():
+            assert node_id in mcp_server_node.child_order
+
+    def test_projection_includes_tool_nodes(
+        self, context_graph, mcp_server_node, mock_connection
+    ):
+        """Test that projection engine includes tool nodes in render path."""
+        from activecontext.core.projection_engine import ProjectionEngine
+
+        mcp_server_node.update_from_connection(mock_connection)
+        mcp_server_node.state = NodeState.DETAILS  # DETAILS/ALL render children
+
+        engine = ProjectionEngine()
+        projection = engine.build(context_graph=context_graph, cwd=".")
+
+        # Tool node content should appear in projection
+        rendered = projection.render()
+        assert "read_file" in rendered
+        assert "write_file" in rendered
