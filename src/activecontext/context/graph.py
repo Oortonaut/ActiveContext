@@ -509,6 +509,9 @@ class ContextGraph:
         for node in self._nodes.values():
             node.parent_ids.clear()
             node.children_ids.clear()
+            # Clear child_order for GroupNodes to prevent stale entries
+            if hasattr(node, "child_order"):
+                node.child_order.clear()
         self._root_ids.clear()
 
         # Restore edges from checkpoint
