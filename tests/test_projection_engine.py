@@ -294,15 +294,6 @@ class TestRenderPathRendering:
         running_node.Render.assert_called_once_with(tokens=per_node_budget, cwd="/test", text_buffers=None)
         paused_node.Render.assert_called_once_with(tokens=per_node_budget, cwd="/test", text_buffers=None)
 
-    def test_render_path_clears_pending_traces(self, projection_engine, mock_graph):
-        """Test that rendering clears pending traces."""
-        path = projection_engine._collect_render_path(mock_graph)
-        projection_engine._render_path(mock_graph, path, budget=1000, cwd=".")
-
-        for node in mock_graph:
-            if hasattr(node, "clear_pending_traces"):
-                node.clear_pending_traces.assert_called_once()
-
     def test_render_empty_path_returns_empty_sections(self, projection_engine):
         """Test rendering empty path returns no sections."""
         graph = ContextGraph()

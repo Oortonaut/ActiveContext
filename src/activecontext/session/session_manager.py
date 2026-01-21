@@ -21,6 +21,7 @@ from activecontext.context.nodes import (
     MCPManagerNode,
     MessageNode,
     SessionNode,
+    TextNode,
 )
 from activecontext.context.state import NodeState, TickFrequency
 from activecontext.core.projection_engine import ProjectionConfig, ProjectionEngine
@@ -111,28 +112,50 @@ class Session:
         # When non-empty, new nodes are added as children of stack.top
         self._context_stack: list[str] = []
 
-        # Create root Context node for document-ordered rendering
-        # All other nodes become children of this root
-        self._root_context = GroupNode(
-            node_id="context",
-            state=NodeState.ALL,
-            mode="running",
-            tick_frequency=TickFrequency.turn(),
-        )
-        # Root is auto-subscribed to collect all notifications from subtree
-        self._root_context.is_subscription_point = True
-        self._timeline.context_graph.add_node(self._root_context)
-        self._timeline.context_graph.set_root("context")
-        self._context_stack.append("context")  # All nodes go inside root
-        self._timeline.set_current_group("context")
-
         # Text buffer storage - Session owns this, timeline references it
         from activecontext.context.buffer import TextBuffer
         self._text_buffers: dict[str, TextBuffer] = {}
         self._timeline._text_buffers = self._text_buffers
 
-        # Add system prompt first (document order: prompts before metadata)
-        self._add_system_prompt_node()
+        # Check if we're restoring from a saved session (context graph already has nodes)
+        existing_context = self._timeline.context_graph.get_node("context")
+        is_restore = existing_context is not None
+
+        if is_restore:
+            # Restoring: use the existing root context node
+            if isinstance(existing_context, GroupNode):
+                self._root_context = existing_context
+            else:
+                # Shouldn't happen, but create fresh if somehow wrong type
+                self._root_context = GroupNode(
+                    node_id="context",
+                    state=NodeState.ALL,
+                    mode="running",
+                    tick_frequency=TickFrequency.turn(),
+                )
+                self._root_context.is_subscription_point = True
+                self._timeline.context_graph.add_node(self._root_context)
+                self._timeline.context_graph.set_root("context")
+        else:
+            # Fresh session: create root Context node for document-ordered rendering
+            # All other nodes become children of this root
+            self._root_context = GroupNode(
+                node_id="context",
+                state=NodeState.ALL,
+                mode="running",
+                tick_frequency=TickFrequency.turn(),
+            )
+            # Root is auto-subscribed to collect all notifications from subtree
+            self._root_context.is_subscription_point = True
+            self._timeline.context_graph.add_node(self._root_context)
+            self._timeline.context_graph.set_root("context")
+
+        self._context_stack.append("context")  # All nodes go inside root
+        self._timeline.set_current_group("context")
+
+        # Add system prompt only for fresh sessions (restored sessions have it)
+        if not is_restore:
+            self._add_system_prompt_node()
 
         # SessionNode and MCPManagerNode are created in _create_metadata_nodes()
         # Called after context guide to maintain document order:
@@ -177,6 +200,38 @@ class Session:
 
         # Link root node to root context for document ordering
         self._timeline.context_graph.link(root.node_id, "context")
+
+    def _restore_system_prompt_buffer(self) -> None:
+        """Restore text buffer for system prompt nodes after session load.
+
+        System prompt content comes from FULL_SYSTEM_PROMPT constant, not from
+        a file. After restoring from disk, the TextNodes exist but their buffer
+        reference is lost. This method recreates the buffer and re-links the nodes.
+        """
+        from activecontext.context.buffer import TextBuffer
+        from activecontext.prompts import FULL_SYSTEM_PROMPT
+
+        # Find all system_prompt TextNodes
+        system_prompt_nodes: list[TextNode] = []
+        for node in self._timeline.context_graph:
+            if isinstance(node, TextNode) and node.path == "system_prompt":
+                system_prompt_nodes.append(node)
+
+        if not system_prompt_nodes:
+            return
+
+        # Create buffer from system prompt content
+        buffer = TextBuffer(
+            path="system_prompt",
+            lines=FULL_SYSTEM_PROMPT.split("\n"),
+        )
+        self._text_buffers[buffer.buffer_id] = buffer
+
+        # Re-link each node to the buffer
+        for node in system_prompt_nodes:
+            node.buffer_id = buffer.buffer_id
+            # Note: start_line/end_line should be preserved from saved node
+            # If they're default values (1/None), the node renders the whole buffer
 
     def _create_metadata_nodes(self) -> None:
         """Create SessionNode and MCPManagerNode.
@@ -591,6 +646,9 @@ class Session:
         restored_alerts = context_graph.get_node("alerts")
         if isinstance(restored_alerts, GroupNode):
             session._alerts_group = restored_alerts
+
+        # Restore text buffers for virtual content (system prompts)
+        session._restore_system_prompt_buffer()
 
         return session
 

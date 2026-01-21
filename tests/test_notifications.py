@@ -20,7 +20,7 @@ from activecontext.context.nodes import (
     ContextNode,
     GroupNode,
     TextNode,
-    Trace,
+    TraceNode,
 )
 from activecontext.context.state import Notification, NotificationLevel
 
@@ -118,8 +118,7 @@ class TestContextNodeNotification:
         node = TextNode(path="test.py", notification_level=NotificationLevel.IGNORE)
         graph.add_node(node)
 
-        trace = Trace(node_id=node.node_id, old_version=0, new_version=1, description="test")
-        node._mark_changed(trace)
+        node._mark_changed(description="test")
 
         # No notifications should be emitted
         assert len(graph._pending_notifications) == 0
@@ -130,8 +129,7 @@ class TestContextNodeNotification:
         node = TextNode(path="test.py", notification_level=NotificationLevel.HOLD)
         graph.add_node(node)
 
-        trace = Trace(node_id=node.node_id, old_version=0, new_version=1, description="test change")
-        node._mark_changed(trace)
+        node._mark_changed(description="test change")
 
         assert len(graph._pending_notifications) == 1
         notif = graph._pending_notifications[0]
@@ -144,8 +142,7 @@ class TestContextNodeNotification:
         node = TextNode(path="test.py", notification_level=NotificationLevel.WAKE)
         graph.add_node(node)
 
-        trace = Trace(node_id=node.node_id, old_version=0, new_version=1, description="test change")
-        node._mark_changed(trace)
+        node._mark_changed(description="test change")
 
         assert len(graph._pending_notifications) == 1
         assert graph.has_wake_notification() is True
@@ -156,39 +153,28 @@ class TestContextNodeNotification:
         """Test default header formatting."""
         node = ArtifactNode(content="test", artifact_type="code")
         node.display_sequence = 5
-        trace = Trace(node_id=node.node_id, old_version=0, new_version=1, description="content updated")
 
-        header = node._format_notification_header(trace)
+        header = node._format_notification_header("content updated")
         assert header == "artifact#5: content updated"
 
     def test_format_notification_header_textnode(self) -> None:
-        """Test TextNode header formatting with line changes."""
+        """Test TextNode header formatting with position info."""
         node = TextNode(path="test.py", pos="10:0")
         node.display_sequence = 3
 
-        # Trace with diff-like content
-        trace = Trace(
-            node_id=node.node_id,
-            old_version=0,
-            new_version=1,
-            description="file modified",
-            content="+line1\n+line2\n-removed\n+added",
-        )
-
-        header = node._format_notification_header(trace)
-        # Should show line changes: 3 added, 1 removed
+        header = node._format_notification_header("file modified")
+        # Should show position info
         assert "text#3" in header
-        assert "+3" in header or "3" in header  # Added lines
-        assert "-1" in header or "1" in header  # Removed lines
+        assert "10:0" in header
 
     def test_format_notification_header_textnode_no_diff(self) -> None:
-        """Test TextNode header without diff content falls back to description."""
+        """Test TextNode header with description."""
         node = TextNode(path="test.py", pos="1:0")
         node.display_sequence = 1
-        trace = Trace(node_id=node.node_id, old_version=0, new_version=1, description="reloaded")
 
-        header = node._format_notification_header(trace)
-        assert header == "text#1: reloaded"
+        header = node._format_notification_header("reloaded")
+        assert "text#1" in header
+        assert "reloaded" in header
 
 
 # =============================================================================
@@ -342,8 +328,7 @@ class TestSessionNotificationIntegration:
             graph.add_node(node)
 
             # Trigger a change
-            trace = Trace(node_id=node.node_id, old_version=0, new_version=1, description="changed")
-            node._mark_changed(trace)
+            node._mark_changed(description="changed")
 
             # Run tick
             await session.tick()
@@ -351,7 +336,7 @@ class TestSessionNotificationIntegration:
             # Check alerts group has content
             alerts_children = graph.get_children("alerts")
             assert len(alerts_children) == 1
-            assert alerts_children[0].content == node._format_notification_header(trace)
+            assert "changed" in alerts_children[0].content
         finally:
             await manager.close_session(session.session_id)
 
@@ -374,8 +359,7 @@ class TestSessionNotificationIntegration:
             graph.add_node(node)
 
             # Trigger change
-            trace = Trace(node_id=node.node_id, old_version=0, new_version=1, description="changed")
-            node._mark_changed(trace)
+            node._mark_changed(description="changed")
 
             # Run tick
             await session.tick()

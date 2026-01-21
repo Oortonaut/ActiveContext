@@ -51,20 +51,9 @@ if TYPE_CHECKING:
     from activecontext.context.headers import TokenInfo
 
 
-@dataclass
-class Trace:
-    """Represents a change between versions."""
-
-    node_id: str
-    old_version: int
-    new_version: int
-    description: str
-    content: str | None = None  # Optional trace content
-    originator: str | None = None  # Source of the change (node ID, filename, etc.)  # Optional trace content
-
-
 # Type alias for hooks
-OnChildChangedHook = Callable[["ContextNode", "ContextNode", Trace | None], None]
+# (parent_node, child_node, description)
+OnChildChangedHook = Callable[["ContextNode", "ContextNode", str], None]
 
 
 @dataclass
@@ -82,8 +71,8 @@ class ContextNode(ABC):
         version: Incremented on change for trace detection
         created_at: Unix timestamp of creation
         updated_at: Unix timestamp of last update
-        pending_traces: Accumulated traces until commit
         tags: Arbitrary metadata
+        tracing: When True, state changes create TraceNode children
     """
 
     node_id: str = field(default_factory=lambda: str(uuid.uuid4())[:8])
@@ -100,9 +89,6 @@ class ContextNode(ABC):
     version: int = 0
     created_at: float = field(default_factory=time.time)
     updated_at: float = field(default_factory=time.time)
-
-    # Trace accumulation
-    pending_traces: list[Trace] = field(default_factory=list)
 
     # Metadata
     tags: dict[str, Any] = field(default_factory=dict)
@@ -122,6 +108,10 @@ class ContextNode(ABC):
     # Controls how changes to this node are communicated to the agent
     notification_level: NotificationLevel = NotificationLevel.IGNORE
     is_subscription_point: bool = False  # If True, notifications stop here
+
+    # Tracing configuration
+    # When True, state changes create TraceNode children for history
+    tracing: bool = True
 
     # Graph reference (set by ContextGraph.add_node)
     _graph: ContextGraph | None = field(default=None, repr=False)
@@ -202,33 +192,96 @@ class ContextNode(ABC):
         """
         self._mark_changed()
 
-    def _mark_changed(self, trace: Trace | None = None) -> None:
-        """Mark this node as changed and notify parents."""
+    def _mark_changed(
+        self,
+        description: str = "",
+        content: str | None = None,
+        originator: str | None = None,
+    ) -> TraceNode | None:
+        """Mark this node as changed, optionally creating a trace.
+
+        Args:
+            description: Human-readable description of the change
+            content: Optional diff or detailed change content
+            originator: Who/what caused the change (defaults to self.originator)
+
+        Returns:
+            TraceNode if tracing is enabled, None otherwise
+        """
+        old_version = self.version
         self.version += 1
         self.updated_at = time.time()
-        if trace:
-            self.pending_traces.append(trace)
-            # Generate notification if level is not IGNORE
-            if self.notification_level != NotificationLevel.IGNORE:
-                self._emit_notification(trace)
-        self.notify_parents(trace)
 
-    def _emit_notification(self, trace: Trace) -> None:
+        trace_node: TraceNode | None = None
+        if self.tracing and self._graph and description:
+            trace_node = self._create_trace(
+                old_version=old_version,
+                new_version=self.version,
+                description=description,
+                content=content,
+                originator=originator,
+            )
+
+        # Generate notification if level is not IGNORE
+        if self.notification_level != NotificationLevel.IGNORE and description:
+            self._emit_notification(description, originator)
+
+        self.notify_parents(description)
+        return trace_node
+
+    def _create_trace(
+        self,
+        old_version: int,
+        new_version: int,
+        description: str,
+        content: str | None = None,
+        originator: str | None = None,
+    ) -> TraceNode:
+        """Create a TraceNode as a child of this node.
+
+        Args:
+            old_version: Version before the change
+            new_version: Version after the change
+            description: Human-readable change description
+            content: Optional diff or detailed content
+            originator: Who/what caused the change (defaults to self.originator)
+
+        Returns:
+            The created TraceNode
+        """
+        if self._graph is None:
+            raise RuntimeError("Node not attached to graph")
+
+        trace_node = TraceNode(
+            node=self.node_id,
+            old_version=old_version,
+            new_version=new_version,
+            description=description,
+            content=content,
+            originator=originator or self.originator,
+            state=NodeState.COLLAPSED,
+            tokens=200,
+        )
+        self._graph.add_node(trace_node)
+        self._graph.link(trace_node.node_id, self.node_id)
+        return trace_node
+
+    def _emit_notification(self, description: str, originator: str | None = None) -> None:
         """Emit notification - collected by graph's notification system."""
         if self._graph and hasattr(self._graph, "emit_notification"):
-            header = self._format_notification_header(trace)
+            header = self._format_notification_header(description)
             self._graph.emit_notification(
                 node_id=self.node_id,
-                trace_id=f"{self.node_id}:{trace.new_version}",
+                trace_id=f"{self.node_id}:{self.version}",
                 header=header,
                 level=self.notification_level,
             )
 
-    def _format_notification_header(self, trace: Trace) -> str:
+    def _format_notification_header(self, description: str) -> str:
         """Format brief notification header. Override in subclasses."""
-        return f"{self.display_id}: {trace.description}"
+        return f"{self.display_id}: {description}"
 
-    def notify_parents(self, trace: Trace | None = None) -> None:
+    def notify_parents(self, description: str = "") -> None:
         """Notify all parent nodes of a change."""
         if not self._graph:
             return
@@ -236,9 +289,9 @@ class ContextNode(ABC):
         for parent_id in self.parent_ids:
             parent = self._graph.get_node(parent_id)
             if parent:
-                parent.on_child_changed(self, trace)
+                parent.on_child_changed(self, description)
 
-    def on_child_changed(self, child: ContextNode, trace: Trace | None = None) -> None:
+    def on_child_changed(self, child: ContextNode, description: str = "") -> None:
         """Handle notification that a child has changed.
 
         Default implementation propagates upward. GroupNode overrides
@@ -246,18 +299,14 @@ class ContextNode(ABC):
         """
         # Call hook if registered
         if self._on_child_changed_hook:
-            self._on_child_changed_hook(self, child, trace)
+            self._on_child_changed_hook(self, child, description)
 
         # Propagate upward
-        self.notify_parents(trace)
+        self.notify_parents(description)
 
     def set_on_child_changed_hook(self, hook: OnChildChangedHook | None) -> None:
         """Register a hook for child change notifications."""
         self._on_child_changed_hook = hook
-
-    def clear_pending_traces(self) -> None:
-        """Clear accumulated diffs (called after projection render)."""
-        self.pending_traces.clear()
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize node to dict for persistence.
@@ -316,6 +365,8 @@ class ContextNode(ABC):
         # Note: MarkdownNode removed - markdown content now uses TextNode
         elif node_type == "agent":
             return AgentNode._from_dict(data)
+        elif node_type == "trace":
+            return TraceNode._from_dict(data)
         else:
             raise ValueError(f"Unknown node type: {node_type}")
 
@@ -345,8 +396,16 @@ class ContextNode(ABC):
         return self
 
     def SetState(self, s: NodeState) -> ContextNode:
-        """Set rendering state."""
-        self.state = s
+        """Set rendering state.
+
+        Generates a trace if tracing is enabled and state actually changed.
+        """
+        old_state = self.state
+        if old_state != s:
+            self.state = s
+            self._mark_changed(
+                description=f"State: {old_state.value} → {s.value}",
+            )
         return self
 
     def SetNotify(self, level: NotificationLevel) -> ContextNode:
@@ -542,15 +601,6 @@ class TextNode(ContextNode):
 
         content = "".join(output_parts)
 
-        # At ALL state, append pending traces
-        if self.state == NodeState.ALL and self.pending_traces:
-            trace_section = "\n--- Pending Traces ---\n"
-            for trace in self.pending_traces:
-                trace_section += f"[v{trace.old_version}→v{trace.new_version}] {trace.description}\n"
-                if trace.content:
-                    trace_section += trace.content + "\n"
-            content += trace_section
-
         return content
 
     def SetPos(self, pos: str) -> TextNode:
@@ -563,16 +613,9 @@ class TextNode(ContextNode):
         self.end_pos = end_pos
         return self
 
-    def _format_notification_header(self, trace: Trace) -> str:
-        """Format header with line change info for text nodes."""
-        # Try to parse line changes from trace content if available
-        if trace.content:
-            # Count lines starting with + or - (diff format)
-            added = sum(1 for line in trace.content.split("\n") if line.startswith("+"))
-            removed = sum(1 for line in trace.content.split("\n") if line.startswith("-"))
-            if added or removed:
-                return f"{self.display_id}: ({-removed:+d}/{+added:+d} lines at {self.pos})"
-        return f"{self.display_id}: {trace.description}"
+    def _format_notification_header(self, description: str) -> str:
+        """Format header with line position info for text nodes."""
+        return f"{self.display_id}: {description} (at {self.pos})"
 
     def get_display_name(self) -> str:
         """Return 'path:start-end' format."""
@@ -730,40 +773,23 @@ class GroupNode(ContextNode):
 
         # DETAILS or ALL: only show header
         # Children are rendered as separate sections by the projection engine
-        parts: list[str] = [self.render_header(cwd=cwd)]
+        return self.render_header(cwd=cwd)
 
-        # At ALL state, include pending traces
-        if self.state == NodeState.ALL and self.pending_traces:
-            parts.append("\n--- Group Traces ---\n")
-            for trace in self.pending_traces:
-                parts.append(f"[{trace.node_id}] {trace.description}\n")
-
-        return "".join(parts)
-
-    def on_child_changed(self, child: ContextNode, trace: Trace | None = None) -> None:
-        """Handle child change: track version, generate trace, propagate."""
+    def on_child_changed(self, child: ContextNode, description: str = "") -> None:
+        """Handle child change: track version, mark summary stale, propagate."""
         old_version = self.last_child_versions.get(child.node_id, 0)
         new_version = child.version
 
         if new_version != old_version:
-            # Generate trace for this change
-            group_trace = Trace(
-                node_id=child.node_id,
-                old_version=old_version,
-                new_version=new_version,
-                description=f"{child.node_type} '{child.node_id}' changed",
-                content=trace.content if trace else None,
-            )
-            self.pending_traces.append(group_trace)
             self.summary_stale = True
             self.last_child_versions[child.node_id] = new_version
 
         # Call hook if registered
         if self._on_child_changed_hook:
-            self._on_child_changed_hook(self, child, trace)
+            self._on_child_changed_hook(self, child, description)
 
         # Propagate upward
-        self.notify_parents(trace)
+        self.notify_parents(description)
 
     def invalidate_summary(self) -> None:
         """Mark summary as needing regeneration."""
@@ -1017,14 +1043,9 @@ class ArtifactNode(ContextNode):
         """Update artifact content."""
         old_content = self.content
         self.content = content
-
-        trace = Trace(
-            node_id=self.node_id,
-            old_version=self.version,
-            new_version=self.version + 1,
+        self._mark_changed(
             description=f"Content updated ({len(old_content)} → {len(content)} chars)",
         )
-        self._mark_changed(trace)
         return self
 
     def get_display_name(self) -> str:
@@ -1235,14 +1256,10 @@ class ShellNode(ContextNode):
         else:
             self.shell_status = ShellStatus.FAILED
 
-        trace = Trace(
-            node_id=self.node_id,
-            old_version=self.version,
-            new_version=self.version + 1,
+        self._mark_changed(
             description=f"Shell '{self.command}' {self.shell_status.value} (exit={exit_code})",
             content=output[:500] if output else None,
         )
-        self._mark_changed(trace)
         return self
 
     def set_timeout(self, output: str, duration_ms: float) -> ShellNode:
@@ -1251,26 +1268,17 @@ class ShellNode(ContextNode):
         self.output = output
         self.duration_ms = duration_ms
         self.exit_code = -1
-
-        trace = Trace(
-            node_id=self.node_id,
-            old_version=self.version,
-            new_version=self.version + 1,
+        self._mark_changed(
             description=f"Shell '{self.command}' timed out after {duration_ms:.0f}ms",
         )
-        self._mark_changed(trace)
         return self
 
     def set_cancelled(self) -> ShellNode:
         """Mark as cancelled by user."""
         self.shell_status = ShellStatus.CANCELLED
-        trace = Trace(
-            node_id=self.node_id,
-            old_version=self.version,
-            new_version=self.version + 1,
+        self._mark_changed(
             description=f"Shell '{self.command}' cancelled",
         )
-        self._mark_changed(trace)
         return self
 
     def get_display_name(self) -> str:
@@ -1441,55 +1449,35 @@ class LockNode(ContextNode):
         self.lock_status = LockStatus.ACQUIRED
         self.acquired_at = time.time()
         self.holder_pid = pid
-
-        trace = Trace(
-            node_id=self.node_id,
-            old_version=self.version,
-            new_version=self.version + 1,
+        self._mark_changed(
             description=f"Lock '{self.lockfile}' acquired by PID {pid}",
         )
-        self._mark_changed(trace)
         return self
 
     def set_timeout(self) -> LockNode:
         """Mark lock acquisition as timed out."""
         self.lock_status = LockStatus.TIMEOUT
         self.error_message = f"Timed out after {self.timeout}s"
-
-        trace = Trace(
-            node_id=self.node_id,
-            old_version=self.version,
-            new_version=self.version + 1,
+        self._mark_changed(
             description=f"Lock '{self.lockfile}' timed out",
         )
-        self._mark_changed(trace)
         return self
 
     def set_released(self) -> LockNode:
         """Mark lock as released."""
         self.lock_status = LockStatus.RELEASED
-
-        trace = Trace(
-            node_id=self.node_id,
-            old_version=self.version,
-            new_version=self.version + 1,
+        self._mark_changed(
             description=f"Lock '{self.lockfile}' released",
         )
-        self._mark_changed(trace)
         return self
 
     def set_error(self, message: str) -> LockNode:
         """Mark lock operation as failed with error."""
         self.lock_status = LockStatus.ERROR
         self.error_message = message
-
-        trace = Trace(
-            node_id=self.node_id,
-            old_version=self.version,
-            new_version=self.version + 1,
+        self._mark_changed(
             description=f"Lock '{self.lockfile}' error: {message}",
         )
-        self._mark_changed(trace)
         return self
 
     def get_display_name(self) -> str:
@@ -2019,14 +2007,9 @@ class MessageNode(ContextNode):
         """Update message content."""
         old_len = len(self.content)
         self.content = content
-
-        trace = Trace(
-            node_id=self.node_id,
-            old_version=self.version,
-            new_version=self.version + 1,
+        self._mark_changed(
             description=f"Message content updated ({old_len} → {len(content)} chars)",
         )
-        self._mark_changed(trace)
         return self
 
     def get_display_name(self) -> str:
@@ -2195,13 +2178,9 @@ class WorkNode(ContextNode):
         old_count = len(self.conflicts)
         self.conflicts = conflicts
         if len(conflicts) != old_count:
-            trace = Trace(
-                node_id=self.node_id,
-                old_version=self.version,
-                new_version=self.version + 1,
+            self._mark_changed(
                 description=f"Work conflicts: {old_count} → {len(conflicts)}",
             )
-            self._mark_changed(trace)
         return self
 
     def get_display_name(self) -> str:
@@ -2473,14 +2452,10 @@ class MCPServerNode(ContextNode):
         duration_ms = (time.time() - started_at) * 1000
 
         # Mark the node as changed
-        trace = Trace(
-            node_id=self.node_id,
-            old_version=self.version,
-            new_version=self.version + 1,
+        self._mark_changed(
             description=f"MCP tool '{tool_name}' completed",
             content=str(result)[:200] if result else error,
         )
-        self._mark_changed(trace)
 
         # Fire event if callback is set
         if self._on_result_callback:
@@ -2671,29 +2646,20 @@ class MCPManagerNode(ContextNode):
 
         return "\n".join(lines)
 
-    def on_child_changed(
-        self, child: ContextNode, trace: Trace | None = None
-    ) -> None:
-        """Handle MCPServerNode changes - track state transitions and generate traces."""
+    def on_child_changed(self, child: ContextNode, description: str = "") -> None:
+        """Handle MCPServerNode changes - track state transitions."""
         if not isinstance(child, MCPServerNode):
             return
 
         name = child.server_name
         old_status = self.server_states.get(name)
         new_status = child.status
+        changes: list[str] = []
 
         # Track state change
         if old_status != new_status:
             self.server_states[name] = new_status
-
-            # Generate trace for status change
-            event_trace = Trace(
-                node_id=child.node_id,
-                old_version=child.version - 1,
-                new_version=child.version,
-                description=f"MCP '{name}': {old_status or 'new'} -> {new_status}",
-            )
-            self.pending_traces.append(event_trace)
+            changes.append(f"MCP '{name}': {old_status or 'new'} -> {new_status}")
 
             # Record event
             import time as time_module
@@ -2713,21 +2679,16 @@ class MCPManagerNode(ContextNode):
         new_tools = len(child.tools)
         if old_tools != new_tools:
             self.tool_counts[name] = new_tools
-            tool_trace = Trace(
-                node_id=child.node_id,
-                old_version=child.version - 1,
-                new_version=child.version,
-                description=f"MCP '{name}' tools: {old_tools} -> {new_tools}",
-            )
-            self.pending_traces.append(tool_trace)
+            changes.append(f"MCP '{name}' tools: {old_tools} -> {new_tools}")
 
         old_resources = self.resource_counts.get(name, 0)
         new_resources = len(child.resources)
         if old_resources != new_resources:
             self.resource_counts[name] = new_resources
 
-        self._mark_changed()
-        self.notify_parents(trace)
+        change_desc = "; ".join(changes) if changes else description
+        self._mark_changed(description=change_desc)
+        self.notify_parents(change_desc)
 
     def register_server(self, server_node: MCPServerNode) -> None:
         """Register a server node as a child of this manager."""
@@ -2799,7 +2760,6 @@ class MCPManagerNode(ContextNode):
             version=d.get("version", 0),
             created_at=d.get("created_at", 0.0),
             updated_at=d.get("updated_at", 0.0),
-            pending_traces=[],
             tags=d.get("tags", {}),
             display_sequence=d.get("display_sequence"),
             originator=d.get("originator"),
@@ -2963,3 +2923,157 @@ class AgentNode(ContextNode):
             message_count=data.get("message_count", 0),
         )
         return node
+
+
+@dataclass
+class TraceNode(ContextNode):
+    """A change trace as a first-class DAG node.
+
+    TraceNodes are created as children of the node being traced, recording
+    state changes for history and debugging. The `originator` field (inherited
+    from ContextNode) identifies the cause: agent, file watcher, async process, etc.
+
+    Attributes:
+        node: The node_id of the traced node (also accessible via parent link)
+        old_version: Version before the change
+        new_version: Version after the change
+        description: Human-readable change description
+        content: Optional diff or detailed change content
+    """
+
+    node: str = ""  # node_id of the traced node
+    old_version: int = 0
+    new_version: int = 0
+    description: str = ""
+    content: str | None = None
+
+    @property
+    def node_type(self) -> str:
+        return "trace"
+
+    def GetDigest(self) -> dict[str, Any]:
+        return {
+            "id": self.node_id,
+            "type": self.node_type,
+            "node": self.node,
+            "versions": f"v{self.old_version}->v{self.new_version}",
+            "description": self.description,
+            "originator": self.originator,
+            "tokens": self.tokens,
+            "state": self.state.value,
+        }
+
+    def get_display_name(self) -> str:
+        """Return display name for this trace."""
+        return f"Trace: {self.node} v{self.old_version}->v{self.new_version}"
+
+    def get_token_breakdown(self, cwd: str = ".") -> TokenInfo:
+        """Return token counts for collapsed/summary/detail."""
+        from activecontext.core.tokens import count_tokens
+
+        from .headers import TokenInfo
+
+        # Collapsed: brief trace info
+        collapsed_text = f"[Trace: v{self.old_version}→v{self.new_version}]\n"
+        collapsed_tokens = count_tokens(collapsed_text)
+
+        return TokenInfo(
+            collapsed=collapsed_tokens,
+            summary=0,
+            detail=self.tokens,
+        )
+
+    def Render(
+        self,
+        tokens: int | None = None,
+        cwd: str = ".",
+        text_buffers: dict[str, Any] | None = None,
+    ) -> str:
+        """Render trace information based on state."""
+        if self.state == NodeState.HIDDEN:
+            return ""
+
+        header = self.render_header(cwd=cwd)
+
+        # COLLAPSED: just header
+        if self.state == NodeState.COLLAPSED:
+            return header
+
+        # SUMMARY/DETAILS/ALL: include description and content
+        parts = [header]
+        parts.append(f"  Node: {self.node}\n")
+        parts.append(f"  Change: {self.description}\n")
+
+        if self.originator:
+            parts.append(f"  Originator: {self.originator}\n")
+
+        if self.content and self.state in (NodeState.DETAILS, NodeState.ALL):
+            parts.append("  ---\n")
+            effective_tokens = tokens or self.tokens
+            char_budget = effective_tokens * 4
+            content = (
+                self.content[:char_budget]
+                if len(self.content) > char_budget
+                else self.content
+            )
+            # Indent content lines
+            for line in content.split("\n"):
+                parts.append(f"  {line}\n")
+            if len(self.content) > char_budget:
+                parts.append(f"  ... [truncated, {len(self.content)} total chars]\n")
+
+        return "".join(parts)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize to dict."""
+        d = {
+            "node_type": self.node_type,
+            "node_id": self.node_id,
+            "parent_ids": list(self.parent_ids),
+            "children_ids": list(self.children_ids),
+            "tokens": self.tokens,
+            "state": self.state.value,
+            "mode": self.mode,
+            "version": self.version,
+            "created_at": self.created_at,
+            "updated_at": self.updated_at,
+            "tags": self.tags,
+            "display_sequence": self.display_sequence,
+            "originator": self.originator,
+            "node": self.node,
+            "old_version": self.old_version,
+            "new_version": self.new_version,
+            "description": self.description,
+            "content": self.content,
+        }
+        if self.tick_frequency:
+            d["tick_frequency"] = self.tick_frequency.to_dict()
+        return d
+
+    @classmethod
+    def _from_dict(cls, data: dict[str, Any]) -> TraceNode:
+        """Deserialize from dict."""
+        tick_freq = None
+        if data.get("tick_frequency"):
+            tick_freq = TickFrequency.from_dict(data["tick_frequency"])
+
+        return cls(
+            node_id=data.get("node_id", str(uuid.uuid4())[-8:]),
+            parent_ids=set(data.get("parent_ids", [])),
+            children_ids=set(data.get("children_ids", [])),
+            tokens=data.get("tokens", 200),
+            state=NodeState(data.get("state", "collapsed")),
+            mode=data.get("mode", "paused"),
+            tick_frequency=tick_freq,
+            version=data.get("version", 0),
+            created_at=data.get("created_at", time.time()),
+            updated_at=data.get("updated_at", time.time()),
+            tags=data.get("tags", {}),
+            display_sequence=data.get("display_sequence"),
+            originator=data.get("originator"),
+            node=data.get("node", ""),
+            old_version=data.get("old_version", 0),
+            new_version=data.get("new_version", 0),
+            description=data.get("description", ""),
+            content=data.get("content"),
+        )
