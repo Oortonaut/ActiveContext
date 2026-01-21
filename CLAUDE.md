@@ -529,4 +529,4 @@ When the DSL changes, update `src/activecontext/prompts/` to keep documentation 
 
 ## TODO Management
 
-See `ACE-TODO.md` for the development roadmap and instructions on how to maintain it.
+See `.claude/plan.yaml` for the development roadmap.
