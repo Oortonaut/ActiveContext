@@ -149,42 +149,44 @@ class TestRenderPath:
 class TestCollectRenderPath:
     """Tests for render path collection."""
 
-    def test_collect_render_path_running_nodes(self, projection_engine):
-        """Test collecting render path includes running nodes."""
+    def test_collect_render_path_from_roots(self, projection_engine):
+        """Test collecting render path starts from root nodes."""
         graph = ContextGraph()
 
-        running1 = create_mock_context_node("r1", "view", mode="running")
-        running2 = create_mock_context_node("r2", "view", mode="running")
-        paused = create_mock_context_node("p1", "view", mode="paused")
+        root1 = create_mock_context_node("r1", "view")
+        root2 = create_mock_context_node("r2", "view")
+        child = create_mock_context_node("c1", "view")
 
-        graph.add_node(running1)
-        graph.add_node(running2)
-        graph.add_node(paused)
+        graph.add_node(root1)
+        graph.add_node(root2)
+        graph.add_node(child)
 
-        # Link paused as child
-        graph.link("p1", "r1")
+        # Link child to root1 - child won't be a root anymore
+        # But root1 is DETAILS by default so it will recurse
+        graph.link("c1", "r1")
 
         path = projection_engine._collect_render_path(graph)
 
-        # Running nodes should be in path
+        # Both roots and child (via recursion) should be in path
         assert "r1" in path.node_ids
         assert "r2" in path.node_ids
-        assert "p1" not in path.node_ids  # Not a root, not running
+        assert "c1" in path.node_ids  # Included via parent's DETAILS state
 
-    def test_collect_render_path_paused_roots(self, projection_engine):
-        """Test that paused root nodes are in render path."""
+    def test_collect_render_path_collapsed_no_recurse(self, projection_engine):
+        """Test that COLLAPSED parents don't recurse into children."""
         graph = ContextGraph()
 
-        paused_root = create_mock_context_node("root", "view", mode="paused")
-        paused_child = create_mock_context_node("child", "view", mode="paused")
+        root = create_mock_context_node("root", "view")
+        root.state = NodeState.COLLAPSED
+        child = create_mock_context_node("child", "view")
 
-        graph.add_node(paused_root)
-        graph.add_node(paused_child)
+        graph.add_node(root)
+        graph.add_node(child)
         graph.link("child", "root")
 
         path = projection_engine._collect_render_path(graph)
 
-        # Only paused root is in path
+        # Only root is in path - no recursion due to COLLAPSED state
         assert "root" in path.node_ids
         assert "child" not in path.node_ids
         assert "root" in path.root_ids

@@ -501,7 +501,7 @@ class DashboardClient {
             section.className = 'context-section';
             
             // Collapse less common types by default
-            const commonTypes = ['view', 'group', 'markdown'];
+            const commonTypes = ['view', 'group', 'markdown', 'trace'];
             if (!commonTypes.includes(type)) {
                 section.classList.add('collapsed');
             }

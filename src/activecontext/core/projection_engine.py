@@ -160,9 +160,6 @@ class ProjectionEngine:
     def _collect_render_path(self, graph: ContextGraph) -> RenderPath:
         """Collect the render path through the graph in document order.
 
-        Uses the root context node's child_order for deterministic ordering.
-        Falls back to legacy behavior if no root context is set.
-
         Visibility rules:
         - HIDDEN state nodes are excluded
         - COLLAPSED/SUMMARY nodes render themselves (not their children)
@@ -177,28 +174,14 @@ class ProjectionEngine:
         path = RenderPath()
         seen: set[str] = set()
 
-        # Get root context for document-ordered rendering
+        # Start from root context if set, otherwise collect all root nodes
         root = graph.get_root()
         if root is not None:
-            # Document-ordered rendering from root context
             self._collect_from_node(graph, root, path, seen)
-            return path
-
-        # Legacy fallback: collect running nodes and paused roots
-        for node in graph.get_running_nodes():
-            if node.state != NodeState.HIDDEN and node.node_id not in seen:
-                path.node_ids.append(node.node_id)
-                seen.add(node.node_id)
-                parents = graph.get_parents(node.node_id)
-                if not parents:
-                    path.root_ids.add(node.node_id)
-
-        for node in graph.get_roots():
-            if node.mode == "paused" and node.node_id not in seen:
-                if node.state != NodeState.HIDDEN:
-                    path.node_ids.append(node.node_id)
-                    seen.add(node.node_id)
-                    path.root_ids.add(node.node_id)
+        else:
+            # Collect all root nodes (nodes with no parents)
+            for node in graph.get_roots():
+                self._collect_from_node(graph, node, path, seen)
 
         return path
 
