@@ -143,8 +143,10 @@ class ContextGraph:
         parent.children_ids.add(child_id)
 
         # Maintain child_order for document ordering if parent has it
+        # BUT: Don't add trace nodes - they're metadata, not primary content
         if hasattr(parent, "child_order") and child_id not in parent.child_order:
-            parent.child_order.append(child_id)
+            if child.node_type != "trace":
+                parent.child_order.append(child_id)
 
         # Child is no longer a root
         self._root_ids.discard(child_id)

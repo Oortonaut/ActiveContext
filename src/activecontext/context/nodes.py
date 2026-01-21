@@ -254,13 +254,14 @@ class ContextNode(ABC):
 
         trace_node = TraceNode(
             node=self.node_id,
+            node_display_id=self.display_id,
             old_version=old_version,
             new_version=new_version,
             description=description,
             content=content,
             originator=originator or self.originator,
             state=NodeState.COLLAPSED,
-            tokens=200,
+            tokens=50,  # Traces are compact by default
         )
         self._graph.add_node(trace_node)
         self._graph.link(trace_node.node_id, self.node_id)
@@ -2971,6 +2972,7 @@ class TraceNode(ContextNode):
 
     Attributes:
         node: The node_id of the traced node (also accessible via parent link)
+        node_display_id: Display ID of traced node (e.g., "text#1") for rendering
         old_version: Version before the change
         new_version: Version after the change
         description: Human-readable change description
@@ -2978,6 +2980,7 @@ class TraceNode(ContextNode):
     """
 
     node: str = ""  # node_id of the traced node
+    node_display_id: str = ""  # Display ID of traced node for rendering
     old_version: int = 0
     new_version: int = 0
     description: str = ""
@@ -3000,8 +3003,11 @@ class TraceNode(ContextNode):
         }
 
     def get_display_name(self) -> str:
-        """Return display name for this trace."""
-        return f"Trace: {self.node} v{self.old_version}->v{self.new_version}"
+        """Return display name: '{node_display_id} {description}'.
+
+        Example: 'context#1 Recomputed' or 'text#5 State: collapsed → details'
+        """
+        return f"{self.node_display_id} {self.description}"
 
     def get_token_breakdown(self, cwd: str = ".") -> TokenInfo:
         """Return token counts for collapsed/summary/detail."""
@@ -3009,14 +3015,13 @@ class TraceNode(ContextNode):
 
         from .headers import TokenInfo
 
-        # Collapsed: brief trace info
-        collapsed_text = f"[Trace: v{self.old_version}→v{self.new_version}]\n"
-        collapsed_tokens = count_tokens(collapsed_text)
+        # Collapsed: just the description (shown in header)
+        collapsed_tokens = count_tokens(self.description) + 5
 
         return TokenInfo(
             collapsed=collapsed_tokens,
             summary=0,
-            detail=self.tokens,
+            detail=self.tokens if self.content else 0,
         )
 
     def Render(
@@ -3025,26 +3030,28 @@ class TraceNode(ContextNode):
         cwd: str = ".",
         text_buffers: dict[str, Any] | None = None,
     ) -> str:
-        """Render trace information based on state."""
+        """Render trace information based on state.
+
+        COLLAPSED (default): Just the header with description
+        DETAILS/ALL: Include originator and content if present
+        """
         if self.state == NodeState.HIDDEN:
             return ""
 
+        # Header includes display_id and description via get_display_name()
         header = self.render_header(cwd=cwd)
 
-        # COLLAPSED: just header
-        if self.state == NodeState.COLLAPSED:
+        # COLLAPSED/SUMMARY: just header (description is in the header)
+        if self.state in (NodeState.COLLAPSED, NodeState.SUMMARY):
             return header
 
-        # SUMMARY/DETAILS/ALL: include description and content
+        # DETAILS/ALL: include originator and content
         parts = [header]
-        parts.append(f"  Node: {self.node}\n")
-        parts.append(f"  Change: {self.description}\n")
 
         if self.originator:
             parts.append(f"  Originator: {self.originator}\n")
 
-        if self.content and self.state in (NodeState.DETAILS, NodeState.ALL):
-            parts.append("  ---\n")
+        if self.content:
             effective_tokens = tokens or self.tokens
             char_budget = effective_tokens * 4
             content = (
@@ -3052,7 +3059,7 @@ class TraceNode(ContextNode):
                 if len(self.content) > char_budget
                 else self.content
             )
-            # Indent content lines
+            parts.append("  ---\n")
             for line in content.split("\n"):
                 parts.append(f"  {line}\n")
             if len(self.content) > char_budget:
@@ -3077,6 +3084,7 @@ class TraceNode(ContextNode):
             "display_sequence": self.display_sequence,
             "originator": self.originator,
             "node": self.node,
+            "node_display_id": self.node_display_id,
             "old_version": self.old_version,
             "new_version": self.new_version,
             "description": self.description,
@@ -3108,6 +3116,7 @@ class TraceNode(ContextNode):
             display_sequence=data.get("display_sequence"),
             originator=data.get("originator"),
             node=data.get("node", ""),
+            node_display_id=data.get("node_display_id", ""),
             old_version=data.get("old_version", 0),
             new_version=data.get("new_version", 0),
             description=data.get("description", ""),
