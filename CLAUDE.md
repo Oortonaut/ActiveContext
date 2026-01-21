@@ -27,6 +27,8 @@ cd C:\ActiveContext && uv run pytest
 pushd C:\ActiveContext && uv run pytest
 ```
 
+Note: `cd /d` doesn't work on Windows. Avoid `cd` entirely - use relative paths for session files, absolute paths only when necessary.
+
 ## Development Commands
 
 ```bash
@@ -520,6 +522,8 @@ Rider logs are at:
 ## Guidance
 
 Ask a lot of questions during planning.
+
+Prefer PlantUML (`.puml`) for mid-level design planning and documentation. See `docs/diagrams/` for examples.
 
 ## TODO Management
 

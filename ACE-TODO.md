@@ -171,6 +171,10 @@ Today's Goals: Develop ActiveContext with itself
 - [ ] Add `remove(node)` DSL function to exclude node from traversal
 - [ ] Removed nodes skip rendering but retain state for potential restoration
 
+#### Cross-Platform Path Roots
+- [ ] Register path roots automatically based on OS (`~`, `$HOME`, `%USERPROFILE%`, etc.)
+- [ ] Normalize paths so agent doesn't need to know which OS it's on
+
 ---
 
 ## P2 - Important but Deferrable
