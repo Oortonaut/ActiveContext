@@ -29,6 +29,7 @@ DSL_REFERENCE = load_prompt("dsl_reference")
 NODE_STATES = load_prompt("node_states")
 CONTEXT_GRAPH = load_prompt("context_graph")
 WORK_COORDINATION = load_prompt("work_coordination")
+MCP_REFERENCE = load_prompt("mcp")
 
 # Combined prompt with all reference material
 FULL_SYSTEM_PROMPT = "\n\n---\n\n".join([
@@ -38,6 +39,7 @@ FULL_SYSTEM_PROMPT = "\n\n---\n\n".join([
     NODE_STATES,
     CONTEXT_GRAPH,
     WORK_COORDINATION,
+    MCP_REFERENCE,
 ])
 
 __all__ = [
@@ -49,5 +51,6 @@ __all__ = [
     "NODE_STATES",
     "CONTEXT_GRAPH",
     "WORK_COORDINATION",
+    "MCP_REFERENCE",
     "FULL_SYSTEM_PROMPT",
 ]
