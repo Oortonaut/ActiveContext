@@ -18,6 +18,7 @@ uv run pytest
 # ❌ Wrong - unnecessary path
 git -C C:\ActiveContext status
 cd C:\ActiveContext && uv run pytest
+pushd C:\ActiveContext && uv run pytest
 ```
 
 ## Development Commands
