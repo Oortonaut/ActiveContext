@@ -103,7 +103,7 @@ class ContextNode(ABC):
     # Originator: identifies the source of this node (node ID, filename, or arbitrary string)
     originator: str | None = None
 
-    # Display sequence for uniform headers (e.g., text#1, message#13)
+    # Display sequence for uniform headers (e.g., text_1, message_13)
     # Assigned by ContextGraph.add_node() using per-type counters
     display_sequence: int | None = field(default=None)
 
@@ -140,11 +140,11 @@ class ContextNode(ABC):
     def display_id(self) -> str:
         """Return short display ID for uniform headers.
 
-        Format: "{node_type}#{sequence}" e.g., "text#1", "message#13"
-        Used by LLM to uniquely reference this node.
+        Format: "{node_type}_{sequence}" e.g., "text_1", "message_13"
+        Used by LLM to uniquely reference this node. Valid Python identifier.
         """
         seq = self.display_sequence or 0
-        return f"{self.node_type}#{seq}"
+        return f"{self.node_type}_{seq}"
 
     @abstractmethod
     def GetDigest(self) -> dict[str, Any]:
@@ -3550,7 +3550,7 @@ class TraceNode(ContextNode):
 
     Attributes:
         node: The node_id of the traced node (also accessible via parent link)
-        node_display_id: Display ID of traced node (e.g., "text#1") for rendering
+        node_display_id: Display ID of traced node (e.g., "text_1") for rendering
         old_version: Version before the change
         new_version: Version after the change
         description: Human-readable change description
@@ -3583,7 +3583,7 @@ class TraceNode(ContextNode):
     def get_display_name(self) -> str:
         """Return display name: '{node_display_id} {description}'.
 
-        Example: 'context#1 Recomputed' or 'text#5 State: collapsed → details'
+        Example: 'context_1 Recomputed' or 'text_5 State: collapsed → details'
         """
         return f"{self.node_display_id} {self.description}"
 

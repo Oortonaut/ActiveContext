@@ -45,10 +45,10 @@ class HeadingSection:
 
         Args:
             total_lines: Total lines in document (from ParseResult)
-            node_id: Optional node ID (e.g., "text#1")
+            node_id: Optional node ID (e.g., "text_1")
 
         Returns:
-            Annotation string like '| line 10..25 of 320 {#text#1}'
+            Annotation string like '| line 10..25 of 320 {#text_1}'
         """
         id_part = f" {{#{node_id}}}" if node_id else ""
         return f"| line {self.start_line}..{self.end_line} of {total_lines}{id_part}"
@@ -61,7 +61,7 @@ class HeadingSection:
             node_id: Optional node ID
 
         Returns:
-            Annotated heading like '## Heading Text | line 10..25 of 320 {#text#1}'
+            Annotated heading like '## Heading Text | line 10..25 of 320 {#text_1}'
         """
         prefix = "#" * self.level
         tags = self.render_tags(total_lines, node_id)
@@ -259,7 +259,7 @@ def render_with_tags(content: str, result: ParseResult) -> str:
 
     for i, section in enumerate(result.sections):
         line_idx = section.start_line - 1  # 0-indexed
-        node_id = f"text#{i}"
+        node_id = f"text_{i}"
         lines[line_idx] = section.render_heading(result.total_lines, node_id)
 
     return "\n".join(lines)

@@ -165,7 +165,7 @@ Run pip install"""
 
     @pytest.mark.asyncio
     async def test_markdown_nodes_render_with_display_id(self, temp_cwd: Path) -> None:
-        """Test that markdown nodes render headings with {#text#N} annotations."""
+        """Test that markdown nodes render headings with {#text_N} annotations."""
         timeline = Timeline("test-session", cwd=str(temp_cwd))
 
         try:
@@ -203,10 +203,10 @@ Content for section two.
             children.sort(key=lambda n: n.display_sequence or 0)
             all_nodes.extend(children)
 
-            # Verify display_id format is text#N
+            # Verify display_id format is text_N
             for node in all_nodes:
-                assert node.display_id.startswith("text#")
-                num = int(node.display_id.split("#")[1])
+                assert node.display_id.startswith("text_")
+                num = int(node.display_id.split("_")[1])
                 assert num >= 0
 
             # Render all nodes and concatenate

@@ -160,7 +160,7 @@ class ContextGraph:
     _running_nodes: set[str] = field(default_factory=set)
     _checkpoints: dict[str, Checkpoint] = field(default_factory=dict)
 
-    # Per-type sequence counters for display IDs (e.g., text#1, message#13)
+    # Per-type sequence counters for display IDs (e.g., text_1, message_13)
     _type_counters: dict[str, int] = field(default_factory=lambda: defaultdict(int))
 
     # Root context node ID for document-ordered rendering
@@ -325,6 +325,22 @@ class ContextGraph:
             node_id: Unique identifier of the node.
         """
         return self._nodes.get(node_id)
+
+    def get_node_by_display_id(self, display_id: str) -> ContextNode | None:
+        """Get a node by display_id (e.g., 'text_1').
+
+        Used for namespace injection to allow direct node access.
+
+        Args:
+            display_id: Display identifier like 'text_1', 'group_2'.
+
+        Returns:
+            The node if found, None otherwise.
+        """
+        for node in self._nodes.values():
+            if node.display_id == display_id:
+                return node
+        return None
 
     def get_children(self, node_id: str) -> list[ContextNode]:
         """Get direct children of a node.

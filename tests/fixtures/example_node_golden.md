@@ -1,11 +1,11 @@
-# Main Title {#text#1}
+# Main Title {#text_1}
 
 Introduction text.
 
-## Section One {#text#2}
+## Section One {#text_2}
 
 Content for section one.
 
-## Section Two {#text#3}
+## Section Two {#text_3}
 
 Content for section two.

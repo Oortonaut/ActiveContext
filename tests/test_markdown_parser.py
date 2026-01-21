@@ -469,14 +469,14 @@ class TestRenderWithTags:
         assert section.render_tags(100) == "| line 10..25 of 100"
 
         # With node_id
-        assert section.render_tags(100, "text#1") == "| line 10..25 of 100 {#text#1}"
+        assert section.render_tags(100, "text_1") == "| line 10..25 of 100 {#text_1}"
 
     def test_render_heading_format(self) -> None:
         """Test that render_heading produces correct format."""
         section = HeadingSection(level=2, title="Features", start_line=10, end_line=25)
 
-        result = section.render_heading(100, "text#0")
-        assert result == "## Features | line 10..25 of 100 {#text#0}"
+        result = section.render_heading(100, "text_0")
+        assert result == "## Features | line 10..25 of 100 {#text_0}"
 
     def test_render_heading_levels(self) -> None:
         """Test render_heading with different heading levels."""

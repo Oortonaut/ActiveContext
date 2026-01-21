@@ -15,6 +15,27 @@ v.SetState(NodeState.SUMMARY)
 
 Regular `python` blocks show examples without execution. Only `python/acrepl` blocks run in the REPL.
 
+## Node Access
+
+Nodes are accessible by their display ID directly in the namespace:
+
+```python
+v = text("src/main.py")   # Creates text_1
+text_1.SetState(NodeState.SUMMARY)  # Direct access works
+
+g = group(text_1, text_2)  # Creates group_1
+group_1.SetTokens(500)     # Direct access
+```
+
+Display IDs follow the format `{type}_{sequence}`: `text_1`, `group_2`, `shell_3`, etc.
+
+User-defined variables take precedence:
+```python
+v = text("main.py")   # v shadows text_1
+v.SetState(...)       # Use v
+text_1.SetState(...)  # Or use display ID directly
+```
+
 ## Enums and Constants
 
 ### NodeState
@@ -39,9 +60,10 @@ Controls when running nodes update their content.
 from activecontext import TickFrequency
 
 TickFrequency.turn()        # Update every turn
-TickFrequency.period(5.0)   # Update every 5 seconds
+TickFrequency.seconds(5)    # Update every 5 seconds
 TickFrequency.async_()      # Async execution
 TickFrequency.never()       # No automatic updates
+TickFrequency.idle()        # Only when explicitly triggered
 ```
 
 ## Context Node Constructors

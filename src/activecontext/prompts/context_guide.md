@@ -12,6 +12,18 @@ v = text("src/__main__.py", tokens=2000)
 
 Regular ` ```python ` blocks are for showing examples (not executed).
 
+## Node Access
+
+Every node has a display ID (e.g., `text_1`, `group_2`) that can be used directly:
+
+```python/acrepl
+v = text("src/main.py")    # Creates text_1
+text_1.SetState(NodeState.SUMMARY)  # Both work
+v.SetState(NodeState.SUMMARY)       # Same effect
+```
+
+Display IDs follow the pattern `{type}_{sequence}`. Useful when you need to reference a node without storing it in a variable.
+
 ## Text Views
 
 A **text view** is a window into a file. The view appears in your context on the next turn, showing the file content with line numbers.
@@ -22,6 +34,7 @@ A **text view** is a window into a file. The view appears in your context on the
 |-----------|------------|--------------------------------------------------|
 | `path`    | required   | File path (relative to session cwd)              |
 | `pos`     | `"1:0"`    | Start position as `"line:col"`                   |
+| `end_pos` | `None`     | End position as `"line:col"` (limits view range) |
 | `tokens`  | `2000`     | Token budget for content                         |
 | `state`   | `DETAILS`  | Rendering state (HIDDEN, COLLAPSED, SUMMARY, DETAILS, ALL) |
 | `mode`    | `"paused"` | `"paused"` or `"running"`                        |
@@ -30,6 +43,7 @@ A **text view** is a window into a file. The view appears in your context on the
 
 ```python/acrepl
 v.SetPos("50:0")      # Jump to line 50
+v.SetEndPos("100:0")  # Limit view to lines 50-100
 v.SetTokens(500)      # Reduce token budget
 v.SetState(NodeState.SUMMARY)  # Switch to summary view
 v.Run()               # Enable auto-updates each turn

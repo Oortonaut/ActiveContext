@@ -115,7 +115,7 @@ def render_header(
     """Render a uniform header for a context node.
 
     Args:
-        display_id: Short display ID like "text#1" or "message#13"
+        display_id: Short display ID like "text_1" or "message_13"
         name: Human-readable name like "main.py:1-50" or "User #13"
         state: Current rendering state
         token_info: Token breakdown for the node
@@ -127,10 +127,10 @@ def render_header(
         Includes state and notification level as brief descriptor
 
     Examples:
-        COLLAPSED: "### main.py:1-50 {#text#1} collapsed (tokens: 18/340)\n"
-        SUMMARY:   "## main.py:1-50 {#text#1} summary wake (tokens: 18+74/340)\n"
-        DETAILS:   "# main.py:1-50 {#text#1} details hold (tokens: 18+74+340)\n"
-        ALL:       "# main.py:1-50 {#text#1} all (tokens: 18+74+340)\n"
+        COLLAPSED: "### main.py:1-50 {#text_1} collapsed (tokens: 18/340)\n"
+        SUMMARY:   "## main.py:1-50 {#text_1} summary wake (tokens: 18+74/340)\n"
+        DETAILS:   "# main.py:1-50 {#text_1} details hold (tokens: 18+74+340)\n"
+        ALL:       "# main.py:1-50 {#text_1} all (tokens: 18+74+340)\n"
     """
     from .state import NodeState
 

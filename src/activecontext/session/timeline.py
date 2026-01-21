@@ -115,6 +115,37 @@ class _ExecutionRecord:
     state_trace: NamespaceTrace
 
 
+
+class LazyNodeNamespace(dict):
+    """Dict subclass that falls back to graph lookup for node display IDs.
+
+    Allows direct access to nodes by display_id (e.g., text_1, group_2)
+    in the DSL namespace without explicit assignment.
+
+    User-defined variables take precedence over node lookups.
+    """
+
+    def __init__(
+        self,
+        graph_getter: Callable[[], ContextGraph | None],
+        *args: Any,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(*args, **kwargs)
+        self._graph_getter = graph_getter
+
+    def __getitem__(self, key: str) -> Any:
+        try:
+            return super().__getitem__(key)
+        except KeyError:
+            graph = self._graph_getter()
+            if graph:
+                node = graph.get_node_by_display_id(key)
+                if node:
+                    return node
+            raise
+
+
 class Timeline:
     """Statement timeline with controlled Python execution.
 
@@ -310,7 +341,7 @@ class Timeline:
             # Expose default __import__ for imports to work
             safe_builtins["__import__"] = builtins.__import__
 
-        self._namespace = {
+        self._namespace = LazyNodeNamespace(lambda: self._context_graph, {
             "__builtins__": safe_builtins,
             "__name__": "__activecontext__",
             "__session_id__": self._session_id,
@@ -357,7 +388,7 @@ class Timeline:
             # File locking
             "lock_file": self._lock_file,
             "lock_release": self._lock_release,
-        }
+        })
 
         # Add work coordination functions if scratchpad manager is available
         if self._scratchpad_manager:

@@ -60,12 +60,12 @@ class TestNotification:
         notif = Notification(
             node_id="test_node",
             trace_id="test_node:1",
-            header="text#1: file changed",
+            header="text_1: file changed",
             level="wake",
         )
         assert notif.node_id == "test_node"
         assert notif.trace_id == "test_node:1"
-        assert notif.header == "text#1: file changed"
+        assert notif.header == "text_1: file changed"
         assert notif.level == "wake"
 
     def test_timestamp_auto_set(self) -> None:
@@ -155,7 +155,7 @@ class TestContextNodeNotification:
         node.display_sequence = 5
 
         header = node._format_notification_header("content updated")
-        assert header == "artifact#5: content updated"
+        assert header == "artifact_5: content updated"
 
     def test_format_notification_header_textnode(self) -> None:
         """Test TextNode header formatting with position info."""
@@ -164,7 +164,7 @@ class TestContextNodeNotification:
 
         header = node._format_notification_header("file modified")
         # Should show position info
-        assert "text#3" in header
+        assert "text_3" in header
         assert "10:0" in header
 
     def test_format_notification_header_textnode_no_diff(self) -> None:
@@ -173,7 +173,7 @@ class TestContextNodeNotification:
         node.display_sequence = 1
 
         header = node._format_notification_header("reloaded")
-        assert "text#1" in header
+        assert "text_1" in header
         assert "reloaded" in header
 
 

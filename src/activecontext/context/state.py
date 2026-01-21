@@ -61,7 +61,7 @@ class Notification:
     Attributes:
         node_id: Source node that changed
         trace_id: Unique ID for deduplication (node_id:version)
-        header: Brief description (e.g., "text#3: (-5/+12 lines at 100)")
+        header: Brief description (e.g., "text_3: (-5/+12 lines at 100)")
         level: NotificationLevel value ("hold" or "wake")
         timestamp: When the notification was generated
     """
