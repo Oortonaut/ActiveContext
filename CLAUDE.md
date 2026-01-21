@@ -525,6 +525,8 @@ Ask a lot of questions during planning.
 
 Prefer PlantUML (`.puml`) for mid-level design planning and documentation. See `docs/diagrams/` for examples.
 
+When the DSL changes, update `src/activecontext/prompts/` to keep documentation in sync.
+
 ## TODO Management
 
 See `ACE-TODO.md` for the development roadmap and instructions on how to maintain it.
