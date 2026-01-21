@@ -535,6 +535,7 @@ The project tracks work in `ACE-TODO.md` with prioritized, parallelizable stream
 - Commit ACE-TODO.md when starting work (records task in git history)
 - Mark subtasks as `[/]` when starting, `[x]` when done
 - Remove completely finished tasks (all subtasks done) in the final commit
+- Move closed bugs/issues to `# Closed` section with date (e.g., `- [x] 2026-01-20: Fixed slash commands`)
 - Update the parallelization matrix if dependencies change
 
 **When discovering new work:**
