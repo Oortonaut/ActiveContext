@@ -211,6 +211,9 @@ Today's Goals: Develop ActiveContext with itself
 - [ ] Add mime type support in dashboard for content rendering
 - [ ] Add mime type support for agent consumption
 
+### ACP Plan Support
+- [ ] Implement ACP plan mode protocol support
+
 ### Subagent Testing
 - [ ] Test spawn/pause/terminate lifecycle
 - [ ] Test message passing between parent and child
