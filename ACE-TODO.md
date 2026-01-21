@@ -1,10 +1,6 @@
 Today's Goals: Develop ActiveContext with itself
 =================================================
 
-## Bugs
-
-- [ ] Slash commands aren't populating
-
 ---
 
 ## P0 - Critical Path (Sequential)
