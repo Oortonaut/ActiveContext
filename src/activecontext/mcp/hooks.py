@@ -7,8 +7,9 @@ during potentially slow operations.
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from contextvars import ContextVar
-from typing import TYPE_CHECKING, Any, Awaitable, Callable
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     pass

@@ -24,14 +24,14 @@ from activecontext.mcp.client import (
     MCPConnection,
     ServerProxy,
 )
+from activecontext.mcp.hooks import (
+    get_pre_call_hook,
+    set_pre_call_hook,
+)
 from activecontext.mcp.permissions import (
     MCPPermissionDenied,
     MCPPermissionManager,
     MCPPermissionRule,
-)
-from activecontext.mcp.hooks import (
-    get_pre_call_hook,
-    set_pre_call_hook,
 )
 from activecontext.mcp.types import (
     MCPConnectionStatus,

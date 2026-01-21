@@ -188,7 +188,7 @@ def get_message_history_data(session: Session) -> dict[str, Any]:
                     # Message object from activecontext.core.llm.provider
                     # Role is an Enum, so access .value for the string
                     role = getattr(msg, "role", None)
-                    if hasattr(role, "value"):
+                    if role is not None and hasattr(role, "value"):
                         role = role.value
                     msg_data = {
                         "id": f"msg_{i}",

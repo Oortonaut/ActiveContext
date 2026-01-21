@@ -437,7 +437,11 @@ class ContextGraph:
         Args:
             node_type: Type identifier (e.g., "text", "group", "shell").
         """
-        return [self._nodes[nid] for nid in self._by_type.get(node_type, set()) if nid in self._nodes]
+        return [
+            self._nodes[nid]
+            for nid in self._by_type.get(node_type, set())
+            if nid in self._nodes
+        ]
 
     def get_traces_for_node(self, node_id: str) -> list[ContextNode]:
         """Get all TraceNodes for a given node (now siblings, not children).
@@ -495,6 +499,7 @@ class ContextGraph:
         trace_id: str,
         header: str,
         level: NotificationLevel,
+        originator: str | None = None,
     ) -> None:
         """Collect notification with deduplication.
 
@@ -507,6 +512,7 @@ class ContextGraph:
             trace_id: Unique ID for deduplication (typically node_id:version)
             header: Brief description for the alert
             level: NotificationLevel (HOLD or WAKE)
+            originator: Who/what caused the change (node ID, filename, or arbitrary string)
         """
         if trace_id in self._seen_traces:
             return  # Already processed this trace
@@ -517,6 +523,7 @@ class ContextGraph:
             trace_id=trace_id,
             header=header,
             level=level.value,
+            originator=originator,
         )
         self._pending_notifications.append(notification)
 

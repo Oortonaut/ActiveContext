@@ -7,7 +7,7 @@ import uuid
 from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import yaml
 from filelock import FileLock
@@ -478,7 +478,7 @@ class ScratchpadManager:
         content: str,
         node_refs: list[str] | None = None,
         reply_to: str | None = None,
-        metadata: dict | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> AgentMessage:
         """Send a message between agents.
 

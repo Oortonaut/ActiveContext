@@ -78,12 +78,13 @@ def format_token_info(info: TokenInfo, state: NodeState) -> str:
     elif state == NodeState.SUMMARY:
         # Visible: collapsed + summary
         # Hidden: detail
-        if info.summary > 0:
-            visible = f"{info.collapsed}+{info.summary}"
-        else:
-            visible = f"{info.collapsed}+0"
+        visible_str = (
+            f"{info.collapsed}+{info.summary}"
+            if info.summary > 0
+            else f"{info.collapsed}+0"
+        )
         hidden = info.detail
-        result = f"{unit}: {visible}/{hidden}"
+        result = f"{unit}: {visible_str}/{hidden}"
 
     elif state in (NodeState.DETAILS, NodeState.ALL):
         # All visible

@@ -8,7 +8,7 @@ from __future__ import annotations
 import importlib.resources
 from dataclasses import dataclass, field
 from functools import lru_cache
-from typing import Any
+from typing import Any, cast
 
 import yaml
 
@@ -49,7 +49,8 @@ def _load_providers_yaml() -> dict[str, Any]:
     files = importlib.resources.files("activecontext.core.llm")
     yaml_path = files.joinpath("providers.yaml")
     with importlib.resources.as_file(yaml_path) as path, open(path) as f:
-        return yaml.safe_load(f)
+        result = yaml.safe_load(f)
+        return cast(dict[str, Any], result)
 
 
 def _build_provider_configs() -> dict[str, ProviderConfig]:

@@ -217,14 +217,14 @@ def _utility_to_python(tag: str, attrs: dict[str, str]) -> str:
         if not node:
             raise ValueError("<wait> requires 'node' attribute")
 
-        parts: list[str] = [node]  # Node is a variable reference, not quoted
+        wait_parts: list[str] = [node]  # Node is a variable reference, not quoted
 
         # Add keyword arguments
         for k, v in attrs.items():
             if k not in SPECIAL_ATTRS:
-                parts.append(f"{k}={_format_value(v)}")
+                wait_parts.append(f"{k}={_format_value(v)}")
 
-        return f"wait({', '.join(parts)})"
+        return f"wait({', '.join(wait_parts)})"
 
     # wait_all - wait for multiple nodes
     if tag == "wait_all":
@@ -234,14 +234,14 @@ def _utility_to_python(tag: str, attrs: dict[str, str]) -> str:
 
         # Parse comma-separated node references (variable names)
         node_refs = [n.strip() for n in nodes_str.split(",") if n.strip()]
-        parts: list[str] = node_refs  # Node refs are variable names
+        wait_all_parts: list[str] = node_refs  # Node refs are variable names
 
         # Add keyword arguments
         for k, v in attrs.items():
             if k not in SPECIAL_ATTRS:
-                parts.append(f"{k}={_format_value(v)}")
+                wait_all_parts.append(f"{k}={_format_value(v)}")
 
-        return f"wait_all({', '.join(parts)})"
+        return f"wait_all({', '.join(wait_all_parts)})"
 
     # wait_any - wait for first of multiple nodes
     if tag == "wait_any":
@@ -251,14 +251,14 @@ def _utility_to_python(tag: str, attrs: dict[str, str]) -> str:
 
         # Parse comma-separated node references (variable names)
         node_refs = [n.strip() for n in nodes_str.split(",") if n.strip()]
-        parts: list[str] = node_refs  # Node refs are variable names
+        wait_any_parts: list[str] = node_refs  # Node refs are variable names
 
         # Add keyword arguments
         for k, v in attrs.items():
             if k not in SPECIAL_ATTRS:
-                parts.append(f"{k}={_format_value(v)}")
+                wait_any_parts.append(f"{k}={_format_value(v)}")
 
-        return f"wait_any({', '.join(parts)})"
+        return f"wait_any({', '.join(wait_any_parts)})"
 
     # ls, done - all attrs are kwargs
     kwargs = [f"{k}={_format_value(v)}" for k, v in attrs.items() if k not in SPECIAL_ATTRS]

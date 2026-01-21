@@ -24,7 +24,7 @@ from activecontext.context.nodes import (
     TextNode,
 )
 from activecontext.context.state import NodeState, TickFrequency
-from activecontext.core.projection_engine import ProjectionConfig, ProjectionEngine
+from activecontext.core.projection_engine import ProjectionEngine
 from activecontext.logging import get_logger
 from activecontext.session.permissions import ImportGuard, PermissionManager, ShellPermissionManager
 from activecontext.session.protocols import (
@@ -48,6 +48,7 @@ if TYPE_CHECKING:
 
     from activecontext.config.schema import Config
     from activecontext.context.buffer import TextBuffer
+    from activecontext.context.state import Notification
     from activecontext.core.llm.provider import LLMProvider, Message
     from activecontext.terminal.protocol import TerminalExecutor
 
@@ -114,7 +115,6 @@ class Session:
         self._context_stack: list[str] = []
 
         # Text buffer storage - Session owns this, timeline references it
-        from activecontext.context.buffer import TextBuffer
         self._text_buffers: dict[str, TextBuffer] = {}
         self._timeline._text_buffers = self._text_buffers
 
@@ -1253,7 +1253,7 @@ class Session:
         """Wake the agent loop to process pending work."""
         self._wake_event.set()
 
-    def _update_alerts_group(self, notifications: list) -> None:
+    def _update_alerts_group(self, notifications: list[Notification]) -> None:
         """Update Alerts group with new notifications.
 
         Args:

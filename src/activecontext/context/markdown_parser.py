@@ -158,10 +158,7 @@ class MarkdownParser:
         # Create sections from headings
         for i, (line_num, level, title) in enumerate(headings):
             # Section ends at the line before next heading, or end of document
-            if i + 1 < len(headings):
-                end_line = headings[i + 1][0] - 1
-            else:
-                end_line = len(lines)
+            end_line = headings[i + 1][0] - 1 if i + 1 < len(headings) else len(lines)
 
             section = HeadingSection(
                 level=level,

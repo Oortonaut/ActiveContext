@@ -140,6 +140,7 @@ def get_role_models(role: str) -> list[RoleModelEntry]:
         display_name = f"{provider}/{model_config.name}"
 
         # Build description: role description + model description
+        description: str | None
         if role_desc and model_config.description:
             description = f"{role_desc} - {model_config.description}"
         elif model_config.description:
@@ -283,9 +284,9 @@ def get_default_model() -> str | None:
     # Collect all models and sort by context_length
     all_models: list[tuple[int, str, str]] = []  # (context_length, name, model_id)
     for provider in available:
-        config = PROVIDER_CONFIGS[provider]
-        for model in config.models:
-            all_models.append((model.context_length, model.name, model.id))
+        provider_config = PROVIDER_CONFIGS[provider]
+        for model_config in provider_config.models:
+            all_models.append((model_config.context_length, model_config.name, model_config.id))
 
     if all_models:
         # Sort by context_length descending, then name ascending

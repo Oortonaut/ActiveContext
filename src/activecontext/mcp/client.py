@@ -162,11 +162,12 @@ class MCPConnection:
                     })
                 elif isinstance(block, types.EmbeddedResource):
                     res = block.resource
-                    content.append({
+                    resource_dict: dict[str, Any] = {
                         "type": "resource",
                         "uri": str(res.uri) if hasattr(res, "uri") else None,
                         "text": res.text if hasattr(res, "text") else None,
-                    })
+                    }
+                    content.append(resource_dict)
 
             return MCPToolResult(
                 success=True,
@@ -204,11 +205,12 @@ class MCPConnection:
                 if isinstance(block, types.TextContent):
                     content.append({"type": "text", "text": block.text})
                 elif hasattr(block, "data"):
-                    content.append({
+                    blob_dict: dict[str, Any] = {
                         "type": "blob",
                         "data": block.data,
                         "mime_type": getattr(block, "mimeType", None),
-                    })
+                    }
+                    content.append(blob_dict)
 
             return MCPToolResult(success=True, content=content)
 

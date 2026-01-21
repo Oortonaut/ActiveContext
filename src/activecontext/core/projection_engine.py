@@ -252,6 +252,7 @@ class ProjectionEngine:
                     agent_view = None  # Not this agent's view
 
             # Determine visibility settings (per-agent or node default)
+            section: ProjectionSection | None
             if agent_view:
                 section = self._render_node_with_agent_view(
                     node,
@@ -337,13 +338,13 @@ class ProjectionEngine:
                 state = agent_view.state
             else:
                 # Content not found, render node normally
-                content = node.Render(tokens=agent_view.tokens, cwd=cwd, text_buffers=text_buffers)
+                content = node.Render(cwd=cwd, text_buffers=text_buffers)
                 media_type = getattr(node, "media_type", MediaType.TEXT)
                 tokens_used = count_tokens(content, media_type)
                 state = agent_view.state
         else:
             # AgentView without ContentData - use node's Render
-            content = node.Render(tokens=agent_view.tokens, cwd=cwd, text_buffers=text_buffers)
+            content = node.Render(cwd=cwd, text_buffers=text_buffers)
             media_type = getattr(node, "media_type", MediaType.TEXT)
             tokens_used = count_tokens(content, media_type)
             state = agent_view.state

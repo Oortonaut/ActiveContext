@@ -82,7 +82,7 @@ class StartupConfig:
 
     statements: list[str] = field(default_factory=list)  # Replaces defaults if set
     additional: list[str] = field(default_factory=list)  # Always executes last
-    skip_default_context: bool = False  # Skip loading CONTEXT_GUIDE.md  # Skip loading CONTEXT_GUIDE.md
+    skip_default_context: bool = False  # Skip loading CONTEXT_GUIDE.md
 
 
 @dataclass
@@ -138,7 +138,8 @@ class SessionConfig:
 class ProjectionConfig:
     """Projection engine configuration."""
 
-    pass  # Budget removed - agent manages via node visibility and line ranges  # Default: 8000  # Default: 0.4  # Default: 0.2
+    # Budget removed - agent manages via node visibility and line ranges
+    pass
 
 
 @dataclass
