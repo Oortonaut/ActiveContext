@@ -156,7 +156,7 @@ _(none)_
 - [ ] Removed nodes skip rendering but retain state for potential restoration
 
 #### Cross-Platform Path Roots
-- [ ] Register path roots automatically (`~`, `$HOME`, `%USERPROFILE%`, `{home}`, etc.)
+- [ ] Register path roots automatically (`~`, `$HOME`, `%USERPROFILE%`, `{home}`, `$CWD`, `{PROJECT}`, etc.)
 - [ ] Normalize paths so agent doesn't need to know which OS it's on
 
 ---
