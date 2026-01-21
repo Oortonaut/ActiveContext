@@ -245,7 +245,8 @@ class Timeline:
         self._queued_events: list[QueuedEvent] = []
         self._setup_default_event_handlers()
 
-        # Text buffer storage for shared line content
+        # Text buffer storage - Session replaces this with its own dict
+        # For standalone Timeline usage, this provides a default
         self._text_buffers: dict[str, TextBuffer] = {}
 
         # File watcher for detecting external file changes

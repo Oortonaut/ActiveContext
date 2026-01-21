@@ -126,6 +126,11 @@ class Session:
         self._context_stack.append("context")  # All nodes go inside root
         self._timeline.set_current_group("context")
 
+        # Text buffer storage - Session owns this, timeline references it
+        from activecontext.context.buffer import TextBuffer
+        self._text_buffers: dict[str, TextBuffer] = {}
+        self._timeline._text_buffers = self._text_buffers
+
         # Add system prompt first (document order: prompts before metadata)
         self._add_system_prompt_node()
 
@@ -141,11 +146,6 @@ class Session:
         # Configure file watcher from config
         if self._config and self._config.session:
             self._timeline.configure_file_watcher(self._config.session.file_watch)
-
-        # Text buffer storage for shared line content
-        # Key: buffer_id, Value: TextBuffer instance
-        from activecontext.context.buffer import TextBuffer
-        self._text_buffers: dict[str, TextBuffer] = {}
 
         # Event-driven agent loop infrastructure
         self._wake_event = asyncio.Event()
