@@ -179,14 +179,20 @@ class ContextNode(ABC):
         """Render uniform header for this node based on current state.
 
         Format varies by state:
-            COLLAPSED: #### [type.N] name (tokens: visible/hidden)
-            SUMMARY:   ### [type.N] name (tokens: collapsed+summary/hidden)
-            ALL:       ### [type.N] name (tokens: collapsed+summary+detail)
+            COLLAPSED: #### [type.N] name collapsed (tokens: visible/hidden)
+            SUMMARY:   ### [type.N] name summary wake (tokens: collapsed+summary/hidden)
+            ALL:       ### [type.N] name all (tokens: collapsed+summary+detail)
         """
         from .headers import render_header
 
         token_info = self.get_token_breakdown(cwd)
-        return render_header(self.display_id, self.get_display_name(), self.state, token_info)
+        return render_header(
+            self.display_id,
+            self.get_display_name(),
+            self.state,
+            token_info,
+            notification_level=self.notification_level.value,
+        )
 
     def Recompute(self) -> None:
         """Recompute this node's content. Called during tick for running nodes.

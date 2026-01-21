@@ -110,6 +110,7 @@ def render_header(
     name: str,
     state: NodeState,
     token_info: TokenInfo,
+    notification_level: str | None = None,
 ) -> str:
     """Render a uniform header for a context node.
 
@@ -118,16 +119,18 @@ def render_header(
         name: Human-readable name like "main.py:1-50" or "User #13"
         state: Current rendering state
         token_info: Token breakdown for the node
+        notification_level: Optional notification level (ignore/hold/wake)
 
     Returns:
         Formatted header string with appropriate heading level
         Uses markdown heading ID syntax: {#type#N}
+        Includes state and notification level as brief descriptor
 
     Examples:
-        COLLAPSED: "### main.py:1-50 {#text#1} (tokens: 18/340)\n"
-        SUMMARY:   "## main.py:1-50 {#text#1} (tokens: 18+74/340)\n"
-        DETAILS:   "# main.py:1-50 {#text#1} (tokens: 18+74+340)\n"
-        ALL:       "# main.py:1-50 {#text#1} (tokens: 18+74+340)\n"
+        COLLAPSED: "### main.py:1-50 {#text#1} collapsed (tokens: 18/340)\n"
+        SUMMARY:   "## main.py:1-50 {#text#1} summary wake (tokens: 18+74/340)\n"
+        DETAILS:   "# main.py:1-50 {#text#1} details hold (tokens: 18+74+340)\n"
+        ALL:       "# main.py:1-50 {#text#1} all (tokens: 18+74+340)\n"
     """
     from .state import NodeState
 
@@ -136,13 +139,18 @@ def render_header(
 
     token_str = format_token_info(token_info, state)
 
+    # Build brief: "summary wake" or just "summary" if notification is ignore/None
+    brief = state.value
+    if notification_level and notification_level != "ignore":
+        brief = f"{brief} {notification_level}"
+
     if state == NodeState.COLLAPSED:
         # Level 3 heading for collapsed nodes
-        return f"### {name} {{#{display_id}}} {token_str}\n"
+        return f"### {name} {{#{display_id}}} {brief} {token_str}\n"
 
     if state == NodeState.SUMMARY:
         # Level 2 heading for summary
-        return f"## {name} {{#{display_id}}} {token_str}\n"
+        return f"## {name} {{#{display_id}}} {brief} {token_str}\n"
 
     # Level 1 heading for DETAILS, ALL
-    return f"# {name} {{#{display_id}}} {token_str}\n"
+    return f"# {name} {{#{display_id}}} {brief} {token_str}\n"
