@@ -794,11 +794,14 @@ class ActiveContextAgent:
             log.info("  Models (%d): %s", len(model_ids), ", ".join(model_ids) if model_ids else "none")
             log.info("  Modes (%d): %s", len(mode_ids), ", ".join(mode_ids))
 
-            # Note: _post_session_setup is called on first prompt, not here
-            # Sending notifications before the response confuses the client
-
             # Start the agent loop for async prompt processing
             await self._start_agent_loop(session)
+
+            # Schedule post-session setup to run AFTER response is sent
+            # (asyncio.create_task schedules but doesn't execute until we yield)
+            if session.session_id not in self._sessions_initialized:
+                self._sessions_initialized.add(session.session_id)
+                asyncio.create_task(self._post_session_setup(session.session_id))
 
             return acp.NewSessionResponse(
                 session_id=session.session_id,
@@ -838,6 +841,10 @@ class ActiveContextAgent:
                 log.info("Session %s already loaded", session_id)
                 # Ensure agent loop is running
                 await self._start_agent_loop(existing)
+                # Schedule post-session setup to run AFTER response is sent
+                if session_id not in self._sessions_initialized:
+                    self._sessions_initialized.add(session_id)
+                    asyncio.create_task(self._post_session_setup(session_id))
                 return acp.LoadSessionResponse(
                     session_id=session_id,
                     modes=SessionModeState(
@@ -895,6 +902,11 @@ class ActiveContextAgent:
 
             # Start the agent loop for async prompt processing
             await self._start_agent_loop(session)
+
+            # Schedule post-session setup to run AFTER response is sent
+            if session_id not in self._sessions_initialized:
+                self._sessions_initialized.add(session_id)
+                asyncio.create_task(self._post_session_setup(session_id))
 
             return acp.LoadSessionResponse(
                 session_id=session_id,
@@ -1027,12 +1039,6 @@ class ActiveContextAgent:
         try:
             # Flush any queued updates from between prompts
             await self._flush_queued_updates(session_id)
-
-            # Schedule post-session setup to run AFTER prompt response is sent
-            # (sending notifications before response confuses clients)
-            if session_id not in self._sessions_initialized:
-                self._sessions_initialized.add(session_id)
-                asyncio.create_task(self._post_session_setup(session_id))
 
             # Extract text from prompt blocks
             content = ""
@@ -1484,16 +1490,18 @@ class ActiveContextAgent:
 
     async def _post_session_setup(self, session_id: str) -> None:
         """Post-session setup hook called after session is created or loaded."""
-        # Small delay to ensure prompt response is sent first
-        await asyncio.sleep(0.1)
-        # Advertise available slash commands to client
-        await self._send_session_update(
-            session_id,
-            AvailableCommandsUpdate(
-                session_update="available_commands_update",
-                available_commands=self._get_available_commands(),
-            ),
-        )
+        try:
+            # Advertise available slash commands to client
+            await self._send_session_update(
+                session_id,
+                AvailableCommandsUpdate(
+                    session_update="available_commands_update",
+                    available_commands=self._get_available_commands(),
+                ),
+            )
+            log.debug("Sent available commands for session %s", session_id)
+        except Exception as e:
+            log.warning("Failed to send available commands for session %s: %s", session_id, e)
 
     def _get_available_commands(self) -> list[AvailableCommand]:
         """Build list of available slash commands for ACP clients."""
