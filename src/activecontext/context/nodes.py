@@ -366,6 +366,8 @@ class ContextNode(ABC):
             return MCPServerNode._from_dict(data)
         elif node_type == "mcp_manager":
             return MCPManagerNode._from_dict(data)
+        elif node_type == "mcp_tool":
+            return MCPToolNode._from_dict(data)
         # Note: MarkdownNode removed - markdown content now uses TextNode
         elif node_type == "agent":
             return AgentNode._from_dict(data)
@@ -2324,6 +2326,9 @@ class MCPServerNode(ContextNode):
         default=None, repr=False, compare=False
     )
 
+    # Tool child nodes: tool_name -> node_id
+    _tool_nodes: dict[str, str] = field(default_factory=dict, repr=False)
+
     @property
     def node_type(self) -> str:
         return "mcp_server"
@@ -2342,6 +2347,34 @@ class MCPServerNode(ContextNode):
             "mode": self.mode,
             "version": self.version,
         }
+
+    def tool(self, name: str) -> MCPToolNode | None:
+        """Get a tool child node by name.
+
+        Args:
+            name: Tool name (e.g., "read_file")
+
+        Returns:
+            MCPToolNode if found, None otherwise
+        """
+        node_id = self._tool_nodes.get(name)
+        if node_id and self._graph:
+            node = self._graph.get_node(node_id)
+            if isinstance(node, MCPToolNode):
+                return node
+        return None
+
+    @property
+    def tool_nodes(self) -> list[MCPToolNode]:
+        """Get all tool child nodes."""
+        if not self._graph:
+            return []
+        nodes = []
+        for node_id in self._tool_nodes.values():
+            node = self._graph.get_node(node_id)
+            if isinstance(node, MCPToolNode):
+                nodes.append(node)
+        return nodes
 
     def Render(self, tokens: int | None = None, cwd: str = ".", text_buffers: dict[str, Any] | None = None) -> str:
         """Render MCP server as tool documentation for the LLM."""
@@ -2427,17 +2460,79 @@ class MCPServerNode(ContextNode):
         return "".join(parts)
 
     def update_from_connection(self, connection: Any) -> None:
-        """Update node state from an MCPConnection object."""
+        """Update node state from an MCPConnection object.
+
+        Creates/updates/removes MCPToolNode children based on tool changes.
+        Generates traces for removed tools to maintain audit trail.
+        """
         self.status = connection.status.value
         self.error_message = connection.error_message
-        self.tools = [
-            {
+
+        # Build incoming tool data
+        incoming_tools: dict[str, dict[str, Any]] = {}
+        for t in connection.tools:
+            incoming_tools[t.name] = {
                 "name": t.name,
                 "description": t.description,
                 "input_schema": t.input_schema,
             }
-            for t in connection.tools
-        ]
+
+        # Update tools list (kept for backward compat / Render fallback)
+        self.tools = list(incoming_tools.values())
+
+        # Diff tool child nodes if graph is available
+        if self._graph:
+            current_tool_names = set(self._tool_nodes.keys())
+            incoming_tool_names = set(incoming_tools.keys())
+
+            # Remove tools that no longer exist
+            removed = current_tool_names - incoming_tool_names
+            for tool_name in removed:
+                node_id = self._tool_nodes.pop(tool_name)
+                node = self._graph.get_node(node_id)
+                if node:
+                    # Generate trace before removal
+                    node._mark_changed(
+                        description=f"Tool '{tool_name}' removed from {self.server_name}"
+                    )
+                    self._graph.remove_node(node_id)
+
+            # Add new tools
+            added = incoming_tool_names - current_tool_names
+            for tool_name in added:
+                tool_data = incoming_tools[tool_name]
+                tool_node = MCPToolNode(
+                    tool_name=tool_name,
+                    server_name=self.server_name,
+                    description=tool_data["description"],
+                    input_schema=tool_data["input_schema"],
+                    tokens=200,
+                    state=NodeState.COLLAPSED,
+                )
+                self._graph.add_node(tool_node)
+                self._graph.link(tool_node.node_id, self.node_id)
+                self._tool_nodes[tool_name] = tool_node.node_id
+
+            # Update existing tools if schema/description changed
+            unchanged = current_tool_names & incoming_tool_names
+            for tool_name in unchanged:
+                node_id = self._tool_nodes[tool_name]
+                node = self._graph.get_node(node_id)
+                if isinstance(node, MCPToolNode):
+                    tool_data = incoming_tools[tool_name]
+                    changed = False
+                    if node.description != tool_data["description"]:
+                        node.description = tool_data["description"]
+                        changed = True
+                    if node.input_schema != tool_data["input_schema"]:
+                        node.input_schema = tool_data["input_schema"]
+                        changed = True
+                    if changed:
+                        node._mark_changed(
+                            description=f"Tool '{tool_name}' schema updated"
+                        )
+
+        # Update resources and prompts (no child nodes for these yet)
         self.resources = [
             {
                 "uri": r.uri,
@@ -2555,6 +2650,7 @@ class MCPServerNode(ContextNode):
             "tools": self.tools,
             "resources": self.resources,
             "prompts": self.prompts,
+            "_tool_nodes": self._tool_nodes,
         })
         return data
 
@@ -2585,8 +2681,169 @@ class MCPServerNode(ContextNode):
             tools=data.get("tools", []),
             resources=data.get("resources", []),
             prompts=data.get("prompts", []),
+            _tool_nodes=data.get("_tool_nodes", {}),
         )
         return node
+
+
+@dataclass
+class MCPToolNode(ContextNode):
+    """Represents an individual tool from an MCP server.
+
+    Child node of MCPServerNode, displaying tool name, description, and schema.
+    Each tool node has independent state control for granular visibility.
+
+    Attributes:
+        tool_name: Name of the tool (e.g., "read_file")
+        server_name: Parent server name for context
+        description: Tool description
+        input_schema: JSON Schema for tool parameters
+
+    Rendering states:
+        - HIDDEN: Not shown in projection
+        - COLLAPSED: Just tool_name
+        - SUMMARY: tool_name: description (truncated)
+        - DETAILS: Name, description, required params
+        - ALL: Full JSON schema
+    """
+
+    tool_name: str = ""
+    server_name: str = ""
+    description: str = ""
+    input_schema: dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def node_type(self) -> str:
+        return "mcp_tool"
+
+    def GetDigest(self) -> dict[str, Any]:
+        return {
+            "id": self.node_id,
+            "type": self.node_type,
+            "tool_name": self.tool_name,
+            "server_name": self.server_name,
+            "has_schema": bool(self.input_schema.get("properties")),
+            "tokens": self.tokens,
+            "state": self.state.value,
+            "version": self.version,
+        }
+
+    def Render(
+        self,
+        tokens: int | None = None,
+        cwd: str = ".",
+        text_buffers: dict[str, Any] | None = None,
+    ) -> str:
+        """Render tool documentation based on state."""
+        if self.state == NodeState.HIDDEN:
+            return ""
+
+        # COLLAPSED: just tool name
+        if self.state == NodeState.COLLAPSED:
+            return f"`{self.tool_name}`\n"
+
+        # SUMMARY: name + truncated description
+        if self.state == NodeState.SUMMARY:
+            desc = self.description
+            if len(desc) > 80:
+                desc = desc[:80] + "..."
+            return f"**{self.tool_name}**: {desc}\n"
+
+        # DETAILS: name, description, required params
+        if self.state == NodeState.DETAILS:
+            parts = [f"### `{self.tool_name}`\n\n"]
+            parts.append(f"{self.description}\n\n")
+
+            props = self.input_schema.get("properties", {})
+            required = set(self.input_schema.get("required", []))
+            if props:
+                parts.append("**Parameters:** ")
+                param_strs = []
+                for param in props:
+                    req = "*" if param in required else ""
+                    param_strs.append(f"`{param}`{req}")
+                parts.append(", ".join(param_strs))
+                parts.append("\n")
+
+            return "".join(parts)
+
+        # ALL: full schema
+        parts = [f"### `{self.server_name}.{self.tool_name}()`\n\n"]
+        parts.append(f"{self.description}\n\n")
+
+        props = self.input_schema.get("properties", {})
+        if props:
+            parts.append("**Parameters:**\n")
+            required = set(self.input_schema.get("required", []))
+            for param, param_schema in props.items():
+                param_type = param_schema.get("type", "any")
+                param_desc = param_schema.get("description", "")
+                req_marker = " (required)" if param in required else ""
+                parts.append(f"- `{param}` ({param_type}){req_marker}: {param_desc}\n")
+            parts.append("\n")
+
+        return "".join(parts)
+
+    def get_display_name(self) -> str:
+        """Return tool name for display."""
+        return f"{self.server_name}.{self.tool_name}"
+
+    def get_token_breakdown(self, cwd: str = ".") -> TokenInfo:
+        """Return token counts for collapsed/summary/detail."""
+        from activecontext.core.tokens import count_tokens
+
+        from .headers import TokenInfo
+
+        collapsed_tokens = count_tokens(f"`{self.tool_name}`\n")
+
+        desc = self.description[:80] if len(self.description) > 80 else self.description
+        summary_tokens = count_tokens(f"**{self.tool_name}**: {desc}\n")
+
+        detail_tokens = self.tokens
+
+        return TokenInfo(
+            collapsed=collapsed_tokens,
+            summary=summary_tokens,
+            detail=detail_tokens,
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize MCPToolNode to dict."""
+        data = super().to_dict()
+        data.update({
+            "tool_name": self.tool_name,
+            "server_name": self.server_name,
+            "description": self.description,
+            "input_schema": self.input_schema,
+        })
+        return data
+
+    @classmethod
+    def _from_dict(cls, data: dict[str, Any]) -> MCPToolNode:
+        """Deserialize MCPToolNode from dict."""
+        tick_freq = None
+        if data.get("tick_frequency"):
+            tick_freq = TickFrequency.from_dict(data["tick_frequency"])
+
+        return cls(
+            node_id=data["node_id"],
+            parent_ids=set(data.get("parent_ids", [])),
+            children_ids=set(data.get("children_ids", [])),
+            tokens=data.get("tokens", 200),
+            state=NodeState(data.get("state", "collapsed")),
+            mode=data.get("mode", "paused"),
+            tick_frequency=tick_freq,
+            version=data.get("version", 0),
+            created_at=data.get("created_at", time.time()),
+            updated_at=data.get("updated_at", time.time()),
+            tags=data.get("tags", {}),
+            display_sequence=data.get("display_sequence"),
+            originator=data.get("originator"),
+            tool_name=data.get("tool_name", ""),
+            server_name=data.get("server_name", ""),
+            description=data.get("description", ""),
+            input_schema=data.get("input_schema", {}),
+        )
 
 
 @dataclass

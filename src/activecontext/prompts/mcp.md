@@ -86,6 +86,50 @@ fs.SetState(NodeState.ALL)      # Full tool documentation
 fs.SetState(NodeState.SUMMARY)  # Just tool names
 ```
 
+## Tool Child Nodes
+
+Each tool from an MCP server is represented as an MCPToolNode child of the MCPServerNode.
+This allows granular control over which tools are visible in the context.
+
+### Accessing Tool Nodes
+
+```python
+fs = mcp_connect("filesystem")
+
+# Access via server node
+tool = fs.tool("read_file")           # Get single tool node
+all_tools = fs.tool_nodes             # Get all tool nodes
+
+# Access via namespace (prefixed names)
+filesystem_read_file.SetState(NodeState.ALL)
+filesystem_write_file.SetState(NodeState.HIDDEN)
+```
+
+### Tool Node Rendering States
+
+Each MCPToolNode has independent state control:
+
+- **HIDDEN**: Not shown in projection
+- **COLLAPSED**: Just the tool name: `` `read_file` ``
+- **SUMMARY**: Name + truncated description
+- **DETAILS**: Name, description, required parameters
+- **ALL**: Full JSON schema documentation
+
+```python
+# Show full documentation for one tool only
+fs.tool("read_file").SetState(NodeState.ALL)
+
+# Hide tools you don't need
+fs.tool("delete_file").SetState(NodeState.HIDDEN)
+```
+
+### Reconnection Behavior
+
+When a server reconnects with different tools:
+- New tools are added as child nodes
+- Removed tools generate a trace (audit trail) and are deleted
+- Changed tools update in place (schema/description changes)
+
 ## Configuration
 
 Define servers in `config.yaml`:

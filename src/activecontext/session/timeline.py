@@ -2769,7 +2769,20 @@ class Timeline:
         # Update namespace with the server proxy
         bindings = self._mcp_client_manager.generate_namespace_bindings()
         if name in bindings:
-            self._namespace[name] = bindings[name]
+            proxy = bindings[name]
+            # Augment proxy with tool() method for accessing MCPToolNode children
+            proxy._mcp_node = node
+            proxy.tool = node.tool
+            proxy.tool_nodes = node.tool_nodes
+            self._namespace[name] = proxy
+
+        # Add tool nodes to namespace with {server}_{tool} naming
+        for tool_name, tool_node_id in node._tool_nodes.items():
+            tool_node = self._context_graph.get_node(tool_node_id)
+            if tool_node:
+                # e.g., filesystem_read_file
+                namespace_key = f"{name}_{tool_name}"
+                self._namespace[namespace_key] = tool_node
 
         return node
 
@@ -2781,9 +2794,25 @@ class Timeline:
         """
         await self._mcp_client_manager.disconnect(name)
 
-        # Update node status
+        # Update node status and clean up tool children
         if name in self._mcp_server_nodes:
             node = self._mcp_server_nodes[name]
+
+            # Remove tool nodes from namespace and graph
+            for tool_name, tool_node_id in list(node._tool_nodes.items()):
+                # Remove from namespace
+                namespace_key = f"{name}_{tool_name}"
+                if namespace_key in self._namespace:
+                    del self._namespace[namespace_key]
+                # Remove from graph
+                tool_node = self._context_graph.get_node(tool_node_id)
+                if tool_node:
+                    tool_node._mark_changed(
+                        description=f"Tool '{tool_name}' removed (server disconnected)"
+                    )
+                    self._context_graph.remove_node(tool_node_id)
+            node._tool_nodes.clear()
+
             node.status = "disconnected"
             node.tools = []
             node.resources = []

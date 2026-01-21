@@ -1,7 +1,45 @@
 ActiveContext Development Roadmap
 =================================
 
+## How to Use This File
+
+**Task status markers:**
+- `[In progress]` - Top-level item currently under development
+- `[/]` - Subtask in progress
+- `[x]` - Completed task/subtask
+- `[ ]` - Not started
+
+**When starting work:**
+- Commit this file when starting (records task in git history)
+- Mark item as `[In progress]`, subtasks as `[/]`
+
+**When completing work:**
+- Mark subtasks `[x]` when done
+- Remove completely finished tasks in the final commit
+- Update the parallelization matrix if dependencies change
+
+**Bugs:**
+- Add discovered bugs to the Bugs section
+- When fixed, move to Bugs Closed section with date
+- Also add bugs you discovered and fixed during other work
+
+**When discovering new work:**
+- Add to appropriate priority tier (P1-P3)
+- Assign to a stream (A/B/C/D) if parallelizable
+- Include enough detail for another agent to execute
+
+**Priority tiers:**
+- **P1**: Core features, can parallelize
+- **P2**: Important but deferrable
+- **P3**: Tech debt, run alongside anything
+
+---
+
 ## Bugs
+
+_(none)_
+
+## Bugs Closed
 
 _(none)_
 
@@ -29,6 +67,7 @@ _(none)_
 - [ ] Track which nodes reference each file path
 - [ ] On file change: filter nodes whose displayed range overlaps the change
 - [ ] Emit context notifications on change-relevant nodes only
+- [ ] Add file change diffing to generate traces and notifications for TextBuffers
 
 #### MarkdownNode Enhancements
 - [ ] Parse markdown list items into their own child nodes
@@ -36,6 +75,7 @@ _(none)_
   - [ ] Nested list items become nested child nodes
   - [ ] Individual list items can have independent NodeState
   - [ ] Rendered output should preserve original markdown appearance
+- [ ] Update parsed text nodes when markdown source changes
 
 #### New Node Types
 - [ ] **FileSystemNode**: Directory tree view with filtering, collapse/expand
@@ -48,11 +88,15 @@ _(none)_
 - [ ] SUMMARY: brief description and common methods
 - [ ] DETAILS: full method list with signatures and examples
 
-#### MCP Node Enhancements
-- [ ] Show individual tool details as child nodes of MCPServerNode
-- [ ] Each tool node displays name, description, and parameter schema
-
 ### Stream B: Testing & Quality
+
+#### MCP Tool Node Implementation [Completed]
+- [x] Create MCPToolNode class in context/nodes.py
+- [x] Show individual tool details as child nodes of MCPServerNode
+- [x] Each tool node displays name, description, and parameter schema
+- [x] Diff-and-update on reconnection with traces for removed tools
+- [x] DSL access via server.tool() and namespace {server}_{tool}
+- [x] Tests for MCPToolNode (26 new tests)
 
 #### MCP Integration Testing
 - [ ] Test server connection lifecycle (connect/reconnect/disconnect)
