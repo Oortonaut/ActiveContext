@@ -194,8 +194,9 @@ Content for section two.
             # Get all nodes in order (root + children sorted by display_sequence)
             all_nodes = [root]
             children = []
+            context_objects = timeline.get_context_objects()
             for child_id in root.children_ids:
-                child = timeline._context_objects.get(child_id)
+                child = context_objects.get(child_id)
                 if child:
                     children.append(child)
             # Sort children by display_sequence for deterministic order

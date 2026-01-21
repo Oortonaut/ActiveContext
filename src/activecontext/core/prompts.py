@@ -96,7 +96,7 @@ def build_user_message(prompt: str, projection: Projection | None = None) -> str
         parts.append("## Current Context\n")
         for handle_id, digest in projection.handles.items():
             obj_type = digest.get("type", "unknown")
-            if obj_type == "view":
+            if obj_type == "text":
                 parts.append(
                     f"- `{handle_id}`: view of {digest.get('path', '?')} "
                     f"(state={digest.get('state', 'details')}, tokens={digest.get('tokens', 0)})"

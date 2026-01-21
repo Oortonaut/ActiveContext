@@ -200,8 +200,7 @@ class Timeline:
         self._namespace: dict[str, Any] = {}
         self._setup_namespace()
 
-        # Legacy: tracked context objects for backward compatibility
-        self._context_objects: dict[str, Any] = {}
+
 
         # Max output capture per statement
         self._max_stdout = 50000
@@ -821,8 +820,6 @@ class Timeline:
         # Register with file watcher for external change detection
         self._file_watcher.register_path(path, node.node_id)
 
-        # Legacy compatibility
-        self._context_objects[node.node_id] = node
         return node
 
     def _make_group_node(
@@ -878,8 +875,6 @@ class Timeline:
             
             self._context_graph.link(member_id, node.node_id)
 
-        # Legacy compatibility
-        self._context_objects[node.node_id] = node
         return node
 
     def _make_topic_node(
@@ -920,8 +915,6 @@ class Timeline:
             parent_id = effective_parent.node_id if isinstance(effective_parent, ContextNode) else effective_parent
             self._context_graph.link(node.node_id, parent_id)
 
-        # Legacy compatibility
-        self._context_objects[node.node_id] = node
         return node
 
     def _make_artifact_node(
@@ -965,8 +958,6 @@ class Timeline:
             parent_id = effective_parent.node_id if isinstance(effective_parent, ContextNode) else effective_parent
             self._context_graph.link(node.node_id, parent_id)
 
-        # Legacy compatibility
-        self._context_objects[node.node_id] = node
         return node
 
     def _make_markdown_node(
@@ -1037,7 +1028,6 @@ class Timeline:
                 end_line=len(buffer.lines),
             )
             self._context_graph.add_node(node)
-            self._context_objects[node.node_id] = node
             return node
 
         # Create TextNode for each heading section
@@ -1083,7 +1073,6 @@ class Timeline:
         # Add all nodes to graph
         for node in all_nodes:
             self._context_graph.add_node(node)
-            self._context_objects[node.node_id] = node
 
         # Determine parent: explicit > current_group > none
         effective_parent = parent
@@ -1218,7 +1207,7 @@ class Timeline:
 
     def _ls_handles(self) -> list[dict[str, Any]]:
         """List all context object handles with brief digests."""
-        return [obj.GetDigest() for obj in self._context_objects.values()]
+        return [node.GetDigest() for node in self._context_graph]
 
     def _show_handle(self, obj: Any, *, lod: int | None = None, tokens: int | None = None) -> str:
         """Force render a handle (placeholder)."""
@@ -1264,9 +1253,6 @@ class Timeline:
 
         # Add to context graph
         self._context_graph.add_node(node)
-
-        # Also track in legacy context_objects for compatibility
-        self._context_objects[node.node_id] = node
 
         # Start background execution
         task = asyncio.create_task(
@@ -1530,9 +1516,6 @@ class Timeline:
 
         # Add to context graph
         self._context_graph.add_node(node)
-
-        # Also track in legacy context_objects for compatibility
-        self._context_objects[node.node_id] = node
 
         # Start background lock acquisition
         task = asyncio.create_task(
@@ -3343,7 +3326,6 @@ class Timeline:
 
         # Reset namespace and context
         self._namespace.clear()
-        self._context_objects.clear()
         self._context_graph.clear()
         self._setup_namespace()
 
@@ -3366,8 +3348,8 @@ class Timeline:
         return self._snapshot_namespace()
 
     def get_context_objects(self) -> dict[str, Any]:
-        """Get all tracked context objects (legacy compatibility)."""
-        return dict(self._context_objects)
+        """Get all context objects from the graph."""
+        return {node.node_id: node for node in self._context_graph}
 
     def get_context_graph(self) -> ContextGraph:
         """Get the context graph."""

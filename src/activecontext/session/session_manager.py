@@ -191,10 +191,11 @@ class Session:
         from activecontext.prompts import FULL_SYSTEM_PROMPT
 
         # Use timeline's markdown parsing to create TextNode tree
+        # FULL_SYSTEM_PROMPT is ~6300 tokens with 117 sections, needs enough budget
         root = self._timeline._make_markdown_node(
             path="system_prompt",
             content=FULL_SYSTEM_PROMPT,
-            tokens=2000,
+            tokens=8000,  # Enough for ~6300 token prompt with margin
             state=NodeState.ALL,  # Fully expanded
         )
 
@@ -621,10 +622,6 @@ class Session:
             )
             session._message_history.append(msg)
 
-        # Populate timeline._context_objects from graph (for legacy compatibility)
-        for node in context_graph:
-            timeline._context_objects[node.node_id] = node
-
         # Link session's SessionNode to the restored graph's session node (if exists)
         restored_session_node = context_graph.get_node("session")
         if isinstance(restored_session_node, SessionNode):
@@ -696,8 +693,6 @@ class Session:
             session_id=self._session_id,
             payload={
                 "handles": projection.handles,
-                "summaries": projection.summaries,
-                "deltas": projection.deltas,
             },
             timestamp=time.time(),
         )
@@ -1265,7 +1260,7 @@ class Session:
         self._message_history.clear()
 
     def get_context_objects(self) -> dict[str, Any]:
-        """Get all tracked context objects (legacy compatibility)."""
+        """Get all context objects from the graph."""
         return self._timeline.get_context_objects()
 
     def get_context_graph(self) -> ContextGraph:

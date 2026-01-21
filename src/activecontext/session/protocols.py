@@ -214,10 +214,7 @@ class Projection:
     sections: list[ProjectionSection] = field(default_factory=list)
     token_budget: int = 8000
 
-    # Legacy fields (kept for compatibility)
     handles: dict[str, dict[str, Any]] = field(default_factory=dict)
-    summaries: list[dict[str, Any]] = field(default_factory=list)
-    deltas: list[dict[str, Any]] = field(default_factory=list)
 
     def render(self) -> str:
         """Render full projection as string for LLM."""
