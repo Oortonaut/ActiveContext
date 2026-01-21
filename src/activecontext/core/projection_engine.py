@@ -27,7 +27,7 @@ if TYPE_CHECKING:
 class ProjectionConfig:
     """Configuration for projection building."""
 
-    total_budget: int = 8000
+    pass  # Budget removed - agent manages via node visibility and line ranges
 
 
 @dataclass
@@ -82,23 +82,13 @@ class ProjectionEngine:
 
     def _config_from_app_config(self) -> ProjectionConfig:
         """Build ProjectionConfig from app config or defaults."""
-        try:
-            from activecontext.config import get_config
-
-            app_config = get_config()
-            proj = app_config.projection
-            return ProjectionConfig(
-                total_budget=proj.total_budget if proj.total_budget is not None else 8000,
-            )
-        except ImportError:
-            return ProjectionConfig()
+        return ProjectionConfig()
 
     def build(
         self,
         *,
         context_graph: ContextGraph | None = None,
         cwd: str = ".",
-        token_budget: int | None = None,
         text_buffers: dict[str, Any] | None = None,
         # Per-agent view support (split architecture)
         agent_id: str | None = None,
@@ -115,7 +105,6 @@ class ProjectionEngine:
         Args:
             context_graph: ContextGraph (DAG of nodes)
             cwd: Working directory for file access
-            token_budget: Override total token budget
             text_buffers: Dict of buffer_id -> TextBuffer for markdown nodes
             agent_id: Optional agent ID for per-agent view resolution
             view_registry: Optional ViewRegistry for per-agent visibility
@@ -124,8 +113,6 @@ class ProjectionEngine:
         Returns:
             Complete Projection ready for LLM
         """
-        budget = token_budget or self.config.total_budget
-
         if context_graph and len(context_graph) > 0:
             # Collect the render path
             render_path = self._collect_render_path(context_graph)
@@ -134,7 +121,6 @@ class ProjectionEngine:
             sections = self._render_path(
                 context_graph,
                 render_path,
-                budget,
                 cwd,
                 text_buffers=text_buffers,
                 agent_id=agent_id,
@@ -153,7 +139,6 @@ class ProjectionEngine:
 
         return Projection(
             sections=sections,
-            token_budget=budget,
             handles=handles,
         )
 
@@ -228,7 +213,6 @@ class ProjectionEngine:
         self,
         graph: ContextGraph,
         path: RenderPath,
-        budget: int,
         cwd: str,
         *,
         text_buffers: dict[str, Any] | None = None,
@@ -241,7 +225,6 @@ class ProjectionEngine:
         Args:
             graph: The context graph (for node lookup)
             path: The render path to render
-            budget: Token budget for all content
             cwd: Working directory for file access
             text_buffers: Dict of buffer_id -> TextBuffer for markdown nodes
             agent_id: Optional agent ID for per-agent view resolution
@@ -255,9 +238,6 @@ class ProjectionEngine:
             return []
 
         sections: list[ProjectionSection] = []
-
-        # Allocate budget proportionally across path nodes
-        per_node_budget = budget // len(path)
 
         for node_id in path.node_ids:
             node = graph.get_node(node_id)
@@ -281,7 +261,7 @@ class ProjectionEngine:
                     text_buffers=text_buffers,
                 )
             else:
-                section = self._render_node(node, per_node_budget, cwd, text_buffers=text_buffers)
+                section = self._render_node(node, cwd, text_buffers=text_buffers)
 
             if section:
                 sections.append(section)
@@ -291,7 +271,6 @@ class ProjectionEngine:
     def _render_node(
         self,
         node: ContextNode,
-        budget: int,
         cwd: str,
         *,
         text_buffers: dict[str, Any] | None = None,
@@ -300,7 +279,6 @@ class ProjectionEngine:
 
         Args:
             node: The context node to render
-            budget: Token budget for this node
             cwd: Working directory for file access
             text_buffers: Dict of buffer_id -> TextBuffer for markdown nodes
 
@@ -311,7 +289,7 @@ class ProjectionEngine:
         if node.state == NodeState.HIDDEN:
             return None
 
-        content = node.Render(tokens=budget, cwd=cwd, text_buffers=text_buffers)
+        content = node.Render(cwd=cwd, text_buffers=text_buffers)
         media_type = getattr(node, "media_type", MediaType.TEXT)
         tokens_used = count_tokens(content, media_type)
 

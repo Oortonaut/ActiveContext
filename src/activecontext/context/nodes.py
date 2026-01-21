@@ -153,7 +153,6 @@ class ContextNode(ABC):
 
     def Render(
         self,
-        tokens: int | None = None,
         cwd: str = ".",
         text_buffers: dict[str, Any] | None = None,
     ) -> str:
@@ -163,7 +162,6 @@ class ContextNode(ABC):
         on the node's state. Subclasses should override those methods instead.
 
         Args:
-            tokens: Optional token budget override
             cwd: Working directory for file access
             text_buffers: Optional dict of buffer_id -> TextBuffer for markdown nodes
         """
@@ -668,8 +666,6 @@ class TextNode(ContextNode):
         """
         import os
 
-        char_budget = tokens_to_chars(self.tokens, self.media_type)
-
         # Get lines either from buffer or from file
         lines: list[str] = []
 
@@ -723,46 +719,23 @@ class TextNode(ContextNode):
         output_parts: list[str] = []
 
         if is_markdown_heading:
-            # Render markdown with heading annotation and state info
-            from .headers import TokenInfo, format_token_info
-
+            # Render markdown with heading annotation
             heading = self.tags["heading"]
             level = self.tags["level"]
             prefix = "#" * level
 
-            # Build state brief: "all ignore" or "details hold"
-            brief = self.state.value
-            if self.notification_level.value != "ignore":
-                brief = f"{brief} {self.notification_level.value}"
-
-            # Get token info
-            token_breakdown = self.get_token_breakdown(cwd)
-            token_str = format_token_info(token_breakdown, self.state)
-
-            # Format: ## Heading {#text_1} all ignore (tokens: ...)
-            output_parts.append(f"{prefix} {heading} {{#{self.display_id}}} {brief} {token_str}\n")
+            # Format: ## Heading {#text_1}
+            output_parts.append(f"{prefix} {heading} {{#{self.display_id}}}\n")
 
             # Render remaining lines (skip the heading line itself)
-            chars_used = len(output_parts[0])
             for i, line in enumerate(lines):
                 # Skip the first line if it's the heading
                 if i == 0 and line.strip().startswith("#"):
                     continue
-
-                formatted = f"{line}\n"
-                if chars_used + len(formatted) > char_budget:
-                    remaining = len(lines) - i
-                    output_parts.append(f"... [{remaining} more lines]\n")
-                    break
-
-                output_parts.append(formatted)
-                chars_used += len(formatted)
+                output_parts.append(f"{line}\n")
         else:
             # Regular text rendering with line numbers
             output_parts.append(self.render_header(cwd=cwd))
-
-            chars_used = len(output_parts[0])
-            lines_included = 0
 
             # Calculate base line number
             if self.buffer_id:
@@ -777,16 +750,7 @@ class TextNode(ContextNode):
                 line_num = base_line + i
                 # Ensure line doesn't have trailing newline for consistent formatting
                 line_content = line.rstrip("\n\r") if isinstance(line, str) else line
-                formatted = f"{line_num:4d} | {line_content}\n"
-
-                if chars_used + len(formatted) > char_budget:
-                    remaining = len(lines) - lines_included
-                    output_parts.append(f"... [{remaining} more lines]\n")
-                    break
-
-                output_parts.append(formatted)
-                chars_used += len(formatted)
-                lines_included += 1
+                output_parts.append(f"{line_num:4d} | {line_content}\n")
 
         return "".join(output_parts)
 
@@ -1276,15 +1240,8 @@ class ArtifactNode(ContextNode):
         cwd: str = ".",
         text_buffers: dict[str, Any] | None = None,
     ) -> str:
-        """Render detail: header + full content (truncated to token budget)."""
-        char_budget = self.tokens * 4
-        header = self.render_header(cwd=cwd)
-
-        content = self.content
-        if len(content) > char_budget - len(header):
-            content = content[: char_budget - len(header) - 20] + "\n... [truncated]"
-
-        return header + content
+        """Render detail: header + full content."""
+        return self.render_header(cwd=cwd) + self.content
 
     def set_content(self, content: str) -> ArtifactNode:
         """Update artifact content.
@@ -3655,17 +3612,9 @@ class TraceNode(ContextNode):
             parts.append(f"  Originator: {self.originator}\n")
 
         if self.content:
-            char_budget = self.tokens * 4
-            content = (
-                self.content[:char_budget]
-                if len(self.content) > char_budget
-                else self.content
-            )
             parts.append("  ---\n")
-            for line in content.split("\n"):
+            for line in self.content.split("\n"):
                 parts.append(f"  {line}\n")
-            if len(self.content) > char_budget:
-                parts.append(f"  ... [truncated, {len(self.content)} total chars]\n")
 
         return "".join(parts)
 

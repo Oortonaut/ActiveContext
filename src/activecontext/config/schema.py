@@ -117,7 +117,7 @@ class SessionConfig:
 class ProjectionConfig:
     """Projection engine configuration."""
 
-    total_budget: int | None = None  # Default: 8000  # Default: 0.4  # Default: 0.2
+    pass  # Budget removed - agent manages via node visibility and line ranges  # Default: 8000  # Default: 0.4  # Default: 0.2
 
 
 @dataclass

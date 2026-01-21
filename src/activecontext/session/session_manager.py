@@ -651,12 +651,7 @@ class Session:
 
     def _build_projection_engine(self, config: Config | None) -> ProjectionEngine:
         """Build ProjectionEngine from config or defaults."""
-        if config and config.projection:
-            proj = config.projection
-            projection_config = ProjectionConfig(
-                total_budget=proj.total_budget if proj.total_budget is not None else 8000,
-            )
-            return ProjectionEngine(projection_config)
+        # Budget removed - agent manages context via node visibility and line ranges
         return ProjectionEngine()
 
     async def prompt(self, content: str) -> AsyncIterator[SessionUpdate]:

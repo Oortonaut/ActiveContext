@@ -208,11 +208,10 @@ class Projection:
     """LLM context - the single source of context after system prompt.
 
     Contains conversation history, view contents, and group summaries,
-    all rendered and token-managed.
+    all rendered. Agent manages budget via node visibility and line ranges.
     """
 
     sections: list[ProjectionSection] = field(default_factory=list)
-    token_budget: int = 8000
 
     handles: dict[str, dict[str, Any]] = field(default_factory=dict)
 

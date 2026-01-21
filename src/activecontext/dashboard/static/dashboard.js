@@ -663,10 +663,10 @@ class DashboardClient {
     renderProjection(data) {
         const progress = document.querySelector('#token-progress .progress-fill');
         const usage = document.getElementById('token-usage');
-        const utilization = (data.utilization * 100).toFixed(1);
 
-        progress.style.width = `${utilization}%`;
-        usage.textContent = `${data.total_used.toLocaleString()} / ${data.total_budget.toLocaleString()} (${utilization}%)`;
+        // No budget - just show total tokens used
+        progress.style.width = '0%';
+        usage.textContent = `${data.total_used.toLocaleString()} tokens`;
 
         // Calculate tokens by section type
         let convTokens = 0, viewsTokens = 0, groupsTokens = 0;
@@ -765,8 +765,7 @@ class DashboardClient {
         const tokensEl = document.getElementById('rendered-tokens');
         if (tokensEl) {
             const totalTokens = data.total_tokens || 0;
-            const tokenBudget = data.token_budget || 0;
-            tokensEl.textContent = `${totalTokens.toLocaleString()} / ${tokenBudget.toLocaleString()} tokens`;
+            tokensEl.textContent = `${totalTokens.toLocaleString()} tokens`;
         }
 
         const contentEl = document.getElementById('rendered-content');
@@ -902,16 +901,13 @@ class DashboardClient {
         this.renderContext({ views: [], groups: [], topics: [], artifacts: [], messages: [], total: 0 });
         this.renderTimeline({ statements: [], count: 0 });
         this.renderProjection({
-            total_budget: 0,
             total_used: 0,
-            utilization: 0,
             sections: []
         });
         this.renderConversation({ messages: [], count: 0 });
         this.renderRenderedContext({
             rendered: '',
             total_tokens: 0,
-            token_budget: 0,
             sections: [],
             section_count: 0
         });

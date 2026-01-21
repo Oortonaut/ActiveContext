@@ -213,7 +213,6 @@ Content for section two.
             rendered_parts = []
             for node in all_nodes:
                 rendered = node.Render(
-                    tokens=500,
                     cwd=str(temp_cwd),
                     text_buffers=timeline._text_buffers,
                 )

@@ -123,16 +123,7 @@ def get_timeline_data(session: Session) -> dict[str, Any]:
 
 
 def get_projection_data(session: Session) -> dict[str, Any]:
-    """Get token budget and projection section breakdown."""
-    # Get config for total_budget (used in fallback too)
-    try:
-        from activecontext.config import get_config
-
-        config = get_config()
-        total_budget = config.projection.total_budget or 8000
-    except Exception:
-        total_budget = 8000
-
+    """Get projection section breakdown with token usage."""
     try:
         projection = session.get_projection()
 
@@ -152,16 +143,12 @@ def get_projection_data(session: Session) -> dict[str, Any]:
                 continue
 
         return {
-            "total_budget": projection.token_budget,
             "total_used": total_used,
-            "utilization": total_used / projection.token_budget if projection.token_budget else 0,
             "sections": sections,
         }
     except Exception:
         return {
-            "total_budget": total_budget,
             "total_used": 0,
-            "utilization": 0,
             "sections": [],
         }
 
@@ -214,15 +201,15 @@ def get_message_history_data(session: Session) -> dict[str, Any]:
 
 def get_rendered_projection_data(session: Session) -> dict[str, Any]:
     """Get the full rendered projection content sent to the LLM.
-    
+
     This shows exactly what the LLM sees in its context window.
     """
     try:
         projection = session.get_projection()
-        
+
         # Get full rendered content
         rendered = projection.render()
-        
+
         # Also get per-section breakdown for detailed view
         sections: list[dict[str, Any]] = []
         for section in projection.sections:
@@ -236,15 +223,14 @@ def get_rendered_projection_data(session: Session) -> dict[str, Any]:
                 })
             except Exception:
                 continue
-        
+
         # Count total tokens
         from activecontext.core.tokens import count_tokens
         total_tokens = count_tokens(rendered)
-        
+
         return {
             "rendered": rendered,
             "total_tokens": total_tokens,
-            "token_budget": projection.token_budget,
             "sections": sections,
             "section_count": len(sections),
         }
@@ -252,7 +238,6 @@ def get_rendered_projection_data(session: Session) -> dict[str, Any]:
         return {
             "rendered": f"Error rendering projection: {e}",
             "total_tokens": 0,
-            "token_budget": 0,
             "sections": [],
             "section_count": 0,
         }

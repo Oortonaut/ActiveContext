@@ -153,11 +153,8 @@ def dict_to_config(data: dict[str, Any]) -> Config:
         startup=startup,
     )
 
-    # Projection config
-    proj_data = data.get("projection", {})
-    projection = ProjectionConfig(
-        total_budget=proj_data.get("total_budget"),
-    )
+    # Projection config (budget removed - agent manages via node visibility)
+    projection = ProjectionConfig()
 
     # Logging config
     log_data = data.get("logging", {})

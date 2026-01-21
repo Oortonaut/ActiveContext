@@ -154,14 +154,11 @@ class TestConfigLoading:
 llm:
   role: coding
   provider: anthropic
-projection:
-  total_budget: 16000
 """
         )
         config = load_config(session_root=str(temp_config_dir.parent))
         assert config.llm.role == "coding"
         assert config.llm.provider == "anthropic"
-        assert config.projection.total_budget == 16000
 
     def test_env_overrides_config(
         self, temp_config_dir: Path, monkeypatch: pytest.MonkeyPatch
@@ -193,7 +190,6 @@ llm:
         config = load_config(session_root=str(temp_config_dir.parent))
         # Should get default values
         assert config.llm.role is None
-        assert config.projection.total_budget is None
 
     def test_missing_file_uses_defaults(self, tmp_path: Path) -> None:
         """Test that missing config files use defaults."""

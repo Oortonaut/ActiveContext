@@ -1,11 +1,11 @@
-# Main Title {#text_1} details (tokens: 8+666)
+# Main Title {#text_1}
 
 Introduction text.
 
-## Section One {#text_2} details (tokens: 8+666)
+## Section One {#text_2}
 
 Content for section one.
 
-## Section Two {#text_3} details (tokens: 8+666)
+## Section Two {#text_3}
 
 Content for section two.

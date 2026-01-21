@@ -314,7 +314,7 @@ class TestSessionAPI:
 
         assert projection is not None
         assert hasattr(projection, "sections")
-        assert hasattr(projection, "token_budget")
+        assert hasattr(projection, "handles")
 
 
 # =============================================================================

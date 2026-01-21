@@ -24,9 +24,7 @@ from tests.utils import create_mock_context_node
 @pytest.fixture
 def projection_config():
     """Create ProjectionConfig with test values."""
-    return ProjectionConfig(
-        total_budget=1000,
-    )
+    return ProjectionConfig()
 
 
 @pytest.fixture
@@ -56,56 +54,6 @@ def mock_graph():
     graph.add_node(paused_root)
 
     return graph
-
-
-# =============================================================================
-# Budget Allocation Tests
-# =============================================================================
-
-
-class TestBudgetAllocation:
-    """Tests for token budget allocation."""
-
-    def test_default_budget(self):
-        """Test default budget."""
-        config = ProjectionConfig()
-
-        assert config.total_budget == 8000
-
-    def test_custom_budget(self):
-        """Test custom budget from config."""
-        config = ProjectionConfig(
-            total_budget=2000,
-        )
-
-        engine = ProjectionEngine(config=config)
-
-        assert engine.config.total_budget == 2000
-
-    def test_config_from_app_config(self, monkeypatch):
-        """Test loading config from app config."""
-        # Mock app config
-        mock_app_config = Mock()
-        mock_app_config.projection = Mock()
-        mock_app_config.projection.total_budget = 5000
-
-        # Patch at the source module where get_config is imported from
-        monkeypatch.setattr(
-            "activecontext.config.get_config",
-            lambda: mock_app_config,
-        )
-
-        engine = ProjectionEngine()
-
-        assert engine.config.total_budget == 5000
-
-    def test_config_defaults_on_import_error(self):
-        """Test that ProjectionEngine uses defaults when config not available."""
-        # Create engine without app config (import will fail in test env)
-        engine = ProjectionEngine()
-
-        # Should fall back to defaults
-        assert engine.config.total_budget == 8000
 
 
 # =============================================================================
@@ -247,9 +195,7 @@ class TestRenderPathRendering:
     def test_render_path_basic(self, projection_engine, mock_graph):
         """Test basic path rendering."""
         path = projection_engine._collect_render_path(mock_graph)
-        sections = projection_engine._render_path(
-            mock_graph, path, budget=1000, cwd="."
-        )
+        sections = projection_engine._render_path(mock_graph, path, cwd=".")
 
         assert len(sections) == 2  # Running node + paused root
         section_ids = {s.source_id for s in sections}
@@ -274,34 +220,29 @@ class TestRenderPathRendering:
         graph.add_node(visible_node)
 
         path = projection_engine._collect_render_path(graph)
-        sections = projection_engine._render_path(graph, path, budget=1000, cwd=".")
+        sections = projection_engine._render_path(graph, path, cwd=".")
 
         # Only visible node should be rendered
         assert len(sections) == 1
         assert sections[0].source_id == "visible"
 
-    def test_render_path_calls_render_with_budget(self, projection_engine, mock_graph):
-        """Test that Render is called with per-node budget."""
+    def test_render_path_calls_render(self, projection_engine, mock_graph):
+        """Test that Render is called for each visible node."""
         path = projection_engine._collect_render_path(mock_graph)
-        sections = projection_engine._render_path(
-            mock_graph, path, budget=1000, cwd="/test"
-        )
-
-        # Two visible nodes, so budget is split
-        per_node_budget = 1000 // 2
+        sections = projection_engine._render_path(mock_graph, path, cwd="/test")
 
         running_node = mock_graph.get_node("running1")
         paused_node = mock_graph.get_node("paused_root")
 
-        running_node.Render.assert_called_once_with(tokens=per_node_budget, cwd="/test", text_buffers=None)
-        paused_node.Render.assert_called_once_with(tokens=per_node_budget, cwd="/test", text_buffers=None)
+        running_node.Render.assert_called_once_with(cwd="/test", text_buffers=None)
+        paused_node.Render.assert_called_once_with(cwd="/test", text_buffers=None)
 
     def test_render_empty_path_returns_empty_sections(self, projection_engine):
         """Test rendering empty path returns no sections."""
         graph = ContextGraph()
         path = RenderPath()
 
-        sections = projection_engine._render_path(graph, path, budget=1000, cwd=".")
+        sections = projection_engine._render_path(graph, path, cwd=".")
 
         assert sections == []
 
@@ -321,7 +262,6 @@ class TestProjectionBuild:
             cwd="/test",
         )
 
-        assert projection.token_budget == 1000
         assert len(projection.sections) >= 2  # Graph nodes
         assert projection.handles is not None
         assert "running1" in projection.handles
@@ -336,15 +276,6 @@ class TestProjectionBuild:
 
         # Empty graph = no sections
         assert len(projection.sections) == 0
-
-    def test_build_respects_budget_override(self, projection_engine):
-        """Test that token_budget parameter overrides config."""
-        projection = projection_engine.build(
-            context_graph=ContextGraph(),
-            token_budget=5000,
-        )
-
-        assert projection.token_budget == 5000
 
     def test_build_no_context(self, projection_engine):
         """Test building with no context graph."""
@@ -385,8 +316,7 @@ class TestProjectionIntegration:
     def test_full_projection_with_all_components(self):
         """Test building projection with all components."""
         # Create engine
-        config = ProjectionConfig(total_budget=2000)
-        engine = ProjectionEngine(config=config)
+        engine = ProjectionEngine()
 
         # Create graph with nodes
         graph = ContextGraph()
@@ -403,7 +333,6 @@ class TestProjectionIntegration:
         )
 
         # Verify components
-        assert projection.token_budget == 2000
         assert len(projection.sections) >= 1
         assert any(s.section_type == "view" for s in projection.sections)
 
