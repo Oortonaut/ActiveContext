@@ -2788,7 +2788,7 @@ class Timeline:
             node.tools = []
             node.resources = []
             node.prompts = []
-            node._mark_changed()
+            node._mark_changed(description=f"MCP {name}: disconnected")
 
         # Unregister from MCPManagerNode
         from activecontext.context.nodes import MCPManagerNode

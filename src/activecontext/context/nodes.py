@@ -187,10 +187,13 @@ class ContextNode(ABC):
     def Recompute(self) -> None:
         """Recompute this node's content. Called during tick for running nodes.
 
-        Default implementation just bumps version and notifies parents.
-        Subclasses should override to implement actual recomputation.
+        Default implementation does nothing. Subclasses override to:
+        1. Perform actual recomputation (reload file, update stats, etc.)
+        2. Call _mark_changed() with a meaningful description if content changed
+
+        Note: Don't generate traces here - only trace meaningful state changes.
         """
-        self._mark_changed(description="Recomputed")
+        pass
 
     def _mark_changed(
         self,
