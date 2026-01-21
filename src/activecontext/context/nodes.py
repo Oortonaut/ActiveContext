@@ -22,6 +22,9 @@ from enum import Enum
 from typing import TYPE_CHECKING, Any
 
 from activecontext.context.state import NodeState, NotificationLevel, TickFrequency
+
+if TYPE_CHECKING:
+    from activecontext.context.graph import LinkedChildOrder
 from activecontext.core.tokens import MediaType, detect_media_type, tokens_to_chars
 
 
@@ -80,8 +83,8 @@ class ContextNode(ABC):
     children_ids: set[str] = field(default_factory=set)
 
     # Ordered children for projection rendering (lazily initialized by graph.link())
-    # None = no children linked yet, [] = has/had children
-    child_order: list[str] | None = field(default=None, repr=False)
+    # None = no children linked yet, LinkedChildOrder = has/had children
+    child_order: LinkedChildOrder | list[str] | None = field(default=None, repr=False)
 
     # Rendering configuration
     tokens: int = 1000
@@ -116,6 +119,10 @@ class ContextNode(ABC):
     # Tracing configuration
     # When True, state changes create TraceNode children for history
     tracing: bool = True
+
+    # Trace sink for nodes without parents
+    # When set, traces link to this node instead of being orphaned
+    trace_sink: ContextNode | None = field(default=None, repr=False)
 
     # Graph reference (set by ContextGraph.add_node)
     _graph: ContextGraph | None = field(default=None, repr=False)
@@ -298,8 +305,9 @@ class ContextNode(ABC):
             )
 
         # Generate notification if level is not IGNORE
+        # Pass trace_node so notification can use its node_id as trace_id
         if self.notification_level != NotificationLevel.IGNORE and description:
-            self._emit_notification(description, originator)
+            self._emit_notification(description, originator, trace_node=trace_node)
 
         self.notify_parents(description)
         return trace_node
@@ -312,7 +320,11 @@ class ContextNode(ABC):
         content: str | None = None,
         originator: str | None = None,
     ) -> TraceNode:
-        """Create a TraceNode as a child of this node.
+        """Create a TraceNode as a sibling of this node.
+
+        Traces are linked to the same parent as this node, inserted immediately
+        after this node in child_order. If this node has no parent but has a
+        trace_sink set, the trace is linked to the trace_sink instead.
 
         Args:
             old_version: Version before the change
@@ -339,21 +351,39 @@ class ContextNode(ABC):
             tokens=50,  # Traces are compact by default
         )
         self._graph.add_node(trace_node)
-        self._graph.link(trace_node.node_id, self.node_id)
+
+        # Link as sibling (same parent) instead of child
+        if self.parent_ids:
+            # Has parent - link trace to same parent, insert after self
+            parent_id = next(iter(self.parent_ids))  # Primary parent
+            self._graph.link(trace_node.node_id, parent_id, after=self.node_id)
+        elif self.trace_sink is not None:
+            # No parent but has trace_sink - link to sink
+            self._graph.link(trace_node.node_id, self.trace_sink.node_id)
+        # else: orphan trace (no parent, no sink) - just exists in graph
+
         return trace_node
 
-    def _emit_notification(self, description: str, originator: str | None = None) -> None:
+    def _emit_notification(
+        self,
+        description: str,
+        originator: str | None = None,
+        trace_node: TraceNode | None = None,
+    ) -> None:
         """Emit notification - collected by graph's notification system.
 
         Args:
             description: Human-readable description of the change.
             originator: Who/what caused the change.
+            trace_node: Optional TraceNode to use for trace_id (uses its node_id).
         """
         if self._graph and hasattr(self._graph, "emit_notification"):
             header = self._format_notification_header(description)
+            # Use trace node_id if available, else fall back to synthetic ID
+            trace_id = trace_node.node_id if trace_node else f"{self.node_id}:{self.version}"
             self._graph.emit_notification(
                 node_id=self.node_id,
-                trace_id=f"{self.node_id}:{self.version}",
+                trace_id=trace_id,
                 header=header,
                 level=self.notification_level,
             )
@@ -410,12 +440,20 @@ class ContextNode(ABC):
 
         Subclasses should override to include their specific fields.
         """
+        # Convert LinkedChildOrder to list for serialization
+        child_order_list: list[str] | None = None
+        if self.child_order is not None:
+            if hasattr(self.child_order, "to_list"):
+                child_order_list = self.child_order.to_list()
+            else:
+                child_order_list = list(self.child_order)
+
         return {
             "node_type": self.node_type,
             "node_id": self.node_id,
             "parent_ids": list(self.parent_ids),
             "children_ids": list(self.children_ids),
-            "child_order": self.child_order,
+            "child_order": child_order_list,
             "tokens": self.tokens,
             "state": self.state.value,
             "mode": self.mode,

@@ -20,6 +20,126 @@ if TYPE_CHECKING:
     from activecontext.context.nodes import ContextNode
 
 
+
+@dataclass
+class _ChildOrderNode:
+    """Node in the doubly-linked child order list."""
+
+    node_id: str
+    prev: _ChildOrderNode | None = None
+    next: _ChildOrderNode | None = None
+
+
+class LinkedChildOrder:
+    """Doubly-linked list with O(1) insert-after and dict index.
+
+    Maintains document ordering for child nodes with efficient operations:
+    - append: O(1)
+    - insert_after: O(1)
+    - remove: O(1)
+    - membership test: O(1)
+    - iteration: O(n)
+    """
+
+    __slots__ = ("_head", "_tail", "_index")
+
+    def __init__(self) -> None:
+        self._head: _ChildOrderNode | None = None
+        self._tail: _ChildOrderNode | None = None
+        self._index: dict[str, _ChildOrderNode] = {}
+
+    def append(self, node_id: str) -> None:
+        """Append node_id to end. O(1)."""
+        if node_id in self._index:
+            return  # Already exists
+
+        new_node = _ChildOrderNode(node_id=node_id, prev=self._tail)
+        if self._tail:
+            self._tail.next = new_node
+        else:
+            self._head = new_node
+        self._tail = new_node
+        self._index[node_id] = new_node
+
+    def insert_after(self, after_id: str, node_id: str) -> None:
+        """Insert node_id immediately after after_id. O(1).
+
+        If after_id not found, appends to end.
+        """
+        if node_id in self._index:
+            return  # Already exists
+
+        after_node = self._index.get(after_id)
+        if not after_node:
+            self.append(node_id)
+            return
+
+        new_node = _ChildOrderNode(
+            node_id=node_id,
+            prev=after_node,
+            next=after_node.next,
+        )
+        if after_node.next:
+            after_node.next.prev = new_node
+        else:
+            self._tail = new_node
+        after_node.next = new_node
+        self._index[node_id] = new_node
+
+    def remove(self, node_id: str) -> bool:
+        """Remove node. O(1). Returns True if removed."""
+        node = self._index.pop(node_id, None)
+        if not node:
+            return False
+
+        if node.prev:
+            node.prev.next = node.next
+        else:
+            self._head = node.next
+
+        if node.next:
+            node.next.prev = node.prev
+        else:
+            self._tail = node.prev
+
+        return True
+
+    def __contains__(self, node_id: str) -> bool:
+        """O(1) membership test."""
+        return node_id in self._index
+
+    def __iter__(self) -> Iterator[str]:
+        """Iterate in order. O(n)."""
+        current = self._head
+        while current:
+            yield current.node_id
+            current = current.next
+
+    def __len__(self) -> int:
+        return len(self._index)
+
+    def __bool__(self) -> bool:
+        return len(self._index) > 0
+
+    def clear(self) -> None:
+        """Remove all nodes. O(1)."""
+        self._head = None
+        self._tail = None
+        self._index.clear()
+
+    def to_list(self) -> list[str]:
+        """Convert to list for serialization."""
+        return list(self)
+
+    @classmethod
+    def from_list(cls, items: list[str]) -> LinkedChildOrder:
+        """Create from list for deserialization."""
+        instance = cls()
+        for item in items:
+            instance.append(item)
+        return instance
+
+
 @dataclass
 class ContextGraph:
     """Directed acyclic graph of context nodes.
@@ -116,14 +236,16 @@ class ContextGraph:
         # Remove node
         del self._nodes[node_id]
 
-    def link(self, child_id: str, parent_id: str) -> bool:
+    def link(self, child_id: str, parent_id: str, *, after: str | None = None) -> bool:
         """Link a child node to a parent node.
 
-        Also maintains child_order for ordered rendering if parent has it.
+        Also maintains child_order for ordered rendering.
 
         Args:
             child_id: ID of child node
             parent_id: ID of parent node
+            after: If provided, insert in child_order immediately after this node_id.
+                   If None, append to end.
 
         Returns:
             True if link was created, False if nodes don't exist or would create cycle
@@ -143,11 +265,16 @@ class ContextGraph:
         parent.children_ids.add(child_id)
 
         # Maintain child_order for document ordering (lazily initialized)
-        # Trace nodes are metadata, not primary content - skip them
-        if child.node_type != "trace":
-            if parent.child_order is None:
-                parent.child_order = []
-            if child_id not in parent.child_order:
+        # Convert list to LinkedChildOrder if needed (for backwards compatibility)
+        if parent.child_order is None:
+            parent.child_order = LinkedChildOrder()
+        elif isinstance(parent.child_order, list):
+            parent.child_order = LinkedChildOrder.from_list(parent.child_order)
+
+        if child_id not in parent.child_order:
+            if after and after in parent.child_order:
+                parent.child_order.insert_after(after, child_id)
+            else:
                 parent.child_order.append(child_id)
 
         # Child is no longer a root
@@ -179,7 +306,11 @@ class ContextGraph:
 
         # Remove from child_order if present
         if parent.child_order and child_id in parent.child_order:
-            parent.child_order.remove(child_id)
+            # Handle both LinkedChildOrder and list for backwards compatibility
+            if isinstance(parent.child_order, list):
+                parent.child_order.remove(child_id)
+            else:
+                parent.child_order.remove(child_id)
 
         # If child has no more parents, it becomes a root
         if not child.parent_ids:
@@ -188,25 +319,41 @@ class ContextGraph:
         return True
 
     def get_node(self, node_id: str) -> ContextNode | None:
-        """Get a node by ID."""
+        """Get a node by ID.
+
+        Args:
+            node_id: Unique identifier of the node.
+        """
         return self._nodes.get(node_id)
 
     def get_children(self, node_id: str) -> list[ContextNode]:
-        """Get direct children of a node."""
+        """Get direct children of a node.
+
+        Args:
+            node_id: Unique identifier of the parent node.
+        """
         node = self._nodes.get(node_id)
         if not node:
             return []
         return [self._nodes[cid] for cid in node.children_ids if cid in self._nodes]
 
     def get_parents(self, node_id: str) -> list[ContextNode]:
-        """Get direct parents of a node."""
+        """Get direct parents of a node.
+
+        Args:
+            node_id: Unique identifier of the child node.
+        """
         node = self._nodes.get(node_id)
         if not node:
             return []
         return [self._nodes[pid] for pid in node.parent_ids if pid in self._nodes]
 
     def get_ancestors(self, node_id: str) -> list[ContextNode]:
-        """Get all ancestors of a node (parents, grandparents, etc.)."""
+        """Get all ancestors of a node (parents, grandparents, etc.).
+
+        Args:
+            node_id: Unique identifier of the starting node.
+        """
         ancestors: list[ContextNode] = []
         visited: set[str] = set()
 
@@ -226,7 +373,11 @@ class ContextGraph:
         return ancestors
 
     def get_descendants(self, node_id: str) -> list[ContextNode]:
-        """Get all descendants of a node (children, grandchildren, etc.)."""
+        """Get all descendants of a node (children, grandchildren, etc.).
+
+        Args:
+            node_id: Unique identifier of the starting node.
+        """
         descendants: list[ContextNode] = []
         visited: set[str] = set()
 
@@ -272,27 +423,54 @@ class ContextGraph:
         return [self._nodes[nid] for nid in self._running_nodes if nid in self._nodes]
 
     def get_nodes_by_type(self, node_type: str) -> list[ContextNode]:
-        """Get all nodes of a specific type."""
+        """Get all nodes of a specific type.
+
+        Args:
+            node_type: Type identifier (e.g., "text", "group", "shell").
+        """
         return [self._nodes[nid] for nid in self._by_type.get(node_type, set()) if nid in self._nodes]
 
     def get_traces_for_node(self, node_id: str) -> list[ContextNode]:
-        """Get all TraceNode children for a given node.
+        """Get all TraceNodes for a given node (now siblings, not children).
+
+        Traces are linked to the same parent as the traced node, or to the
+        node's trace_sink if it has no parent.
 
         Args:
             node_id: The node to get traces for
 
         Returns:
-            List of TraceNode children, sorted by version (newest first)
+            List of TraceNodes, sorted by version (newest first)
         """
         node = self._nodes.get(node_id)
         if not node:
             return []
 
-        traces = []
-        for child_id in node.children_ids:
-            child = self._nodes.get(child_id)
-            if child and child.node_type == "trace":
-                traces.append(child)
+        traces: list[ContextNode] = []
+
+        # Find traces among siblings (same parent)
+        for parent_id in node.parent_ids:
+            parent = self._nodes.get(parent_id)
+            if parent:
+                for child_id in parent.children_ids:
+                    child = self._nodes.get(child_id)
+                    if (
+                        child
+                        and child.node_type == "trace"
+                        and getattr(child, "node", None) == node_id
+                    ):
+                        traces.append(child)
+
+        # Also check trace_sink if set
+        if node.trace_sink and node.trace_sink.node_id in self._nodes:
+            for child_id in node.trace_sink.children_ids:
+                child = self._nodes.get(child_id)
+                if (
+                    child
+                    and child.node_type == "trace"
+                    and getattr(child, "node", None) == node_id
+                ):
+                    traces.append(child)
 
         # Sort by new_version descending (newest first)
         traces.sort(key=lambda t: getattr(t, "new_version", 0), reverse=True)
