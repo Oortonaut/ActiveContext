@@ -206,6 +206,11 @@ Today's Goals: Develop ActiveContext with itself
 - [ ] Message queueing instead of prompt/response pattern
 - [ ] Out of band status updates
 
+### Agent Prompt Capabilities
+- [ ] Add agent `promptCapabilities`: text, image, audio, resource, resource_link
+- [ ] Add mime type support in dashboard for content rendering
+- [ ] Add mime type support for agent consumption
+
 ### Subagent Testing
 - [ ] Test spawn/pause/terminate lifecycle
 - [ ] Test message passing between parent and child
