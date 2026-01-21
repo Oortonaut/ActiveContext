@@ -159,6 +159,9 @@ _(none)_
 - [ ] Register path roots automatically (`~`, `$HOME`, `%USERPROFILE%`, `{home}`, `$CWD`, `{PROJECT}`, etc.)
 - [ ] Normalize paths so agent doesn't need to know which OS it's on
 
+#### REPL Output
+- [ ] Automatically print function call results
+
 ---
 
 ## P2 - Important but Deferrable
