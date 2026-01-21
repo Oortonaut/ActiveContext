@@ -265,11 +265,8 @@ class ContextGraph:
         parent.children_ids.add(child_id)
 
         # Maintain child_order for document ordering (lazily initialized)
-        # Convert list to LinkedChildOrder if needed (for backwards compatibility)
         if parent.child_order is None:
             parent.child_order = LinkedChildOrder()
-        elif isinstance(parent.child_order, list):
-            parent.child_order = LinkedChildOrder.from_list(parent.child_order)
 
         if child_id not in parent.child_order:
             if after and after in parent.child_order:
@@ -306,11 +303,7 @@ class ContextGraph:
 
         # Remove from child_order if present
         if parent.child_order and child_id in parent.child_order:
-            # Handle both LinkedChildOrder and list for backwards compatibility
-            if isinstance(parent.child_order, list):
-                parent.child_order.remove(child_id)
-            else:
-                parent.child_order.remove(child_id)
+            parent.child_order.remove(child_id)
 
         # If child has no more parents, it becomes a root
         if not child.parent_ids:

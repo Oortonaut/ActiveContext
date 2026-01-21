@@ -84,7 +84,7 @@ class ContextNode(ABC):
 
     # Ordered children for projection rendering (lazily initialized by graph.link())
     # None = no children linked yet, LinkedChildOrder = has/had children
-    child_order: LinkedChildOrder | list[str] | None = field(default=None, repr=False)
+    child_order: LinkedChildOrder | None = field(default=None, repr=False)
 
     # Rendering configuration
     tokens: int = 1000
