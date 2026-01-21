@@ -29,6 +29,10 @@ from activecontext.mcp.permissions import (
     MCPPermissionManager,
     MCPPermissionRule,
 )
+from activecontext.mcp.hooks import (
+    get_pre_call_hook,
+    set_pre_call_hook,
+)
 from activecontext.mcp.types import (
     MCPConnectionStatus,
     MCPPromptInfo,
@@ -52,4 +56,7 @@ __all__ = [
     "MCPResourceInfo",
     "MCPToolInfo",
     "MCPToolResult",
+    # Hooks
+    "get_pre_call_hook",
+    "set_pre_call_hook",
 ]

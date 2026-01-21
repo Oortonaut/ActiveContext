@@ -351,6 +351,7 @@ class ServerProxy:
         self, tool: MCPToolInfo
     ) -> Callable[..., Awaitable[MCPToolResult]]:
         """Create an async method for calling a tool."""
+        from activecontext.mcp.hooks import get_pre_call_hook
         from activecontext.mcp.permissions import MCPPermissionDenied
 
         async def tool_method(**kwargs: Any) -> MCPToolResult:
@@ -367,6 +368,11 @@ class ServerProxy:
                         tool_name=tool.name,
                         arguments=kwargs,
                     )
+
+            # Pre-call hook for UI feedback (e.g., "Calling rider.list_files...")
+            hook = get_pre_call_hook()
+            if hook:
+                await hook(self._connection.name, tool.name, kwargs)
 
             return await self._connection.call_tool(tool.name, kwargs)
 

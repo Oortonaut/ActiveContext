@@ -1112,6 +1112,8 @@ class ActiveContextAgent:
         """Internal prompt processing, separated for cleaner cancellation handling."""
         import traceback
 
+        from activecontext.mcp.hooks import set_pre_call_hook
+
         # Extract text from prompt blocks
         content = ""
         for block in prompt:
@@ -1131,8 +1133,29 @@ class ActiveContextAgent:
                     )
                 return acp.PromptResponse(stop_reason="end_turn")
 
+        # Create MCP pre-call hook for UI feedback
+        async def mcp_pre_call_hook(
+            server_name: str, tool_name: str, arguments: dict[str, Any]
+        ) -> None:
+            """Send thought update before MCP tool invocation."""
+            # Format arguments for display (truncate long values)
+            args_preview = ", ".join(
+                f"{k}={repr(v)[:50]}" for k, v in list(arguments.items())[:3]
+            )
+            if len(arguments) > 3:
+                args_preview += ", ..."
+            await self._send_session_update(
+                session_id,
+                acp.update_agent_thought_text(
+                    f"Calling {server_name}.{tool_name}({args_preview})..."
+                ),
+            )
+
         # Process prompt and stream updates
         try:
+            # Set the MCP pre-call hook for this prompt
+            set_pre_call_hook(mcp_pre_call_hook)
+
             response_text = ""
             async for update in session.prompt(content):
                 # Check if cancelled - break out early
@@ -1169,6 +1192,9 @@ class ActiveContextAgent:
                 session_id,
                 acp.update_agent_message_text(f"\n\nError: {e}"),
             )
+        finally:
+            # Always clear the MCP pre-call hook
+            set_pre_call_hook(None)
 
         # Check if session was cancelled - return cancelled stop reason per ACP spec
         if session_id in self._closed_sessions:
