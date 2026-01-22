@@ -199,7 +199,7 @@ class ProjectionSection:
     source_id: str
     content: str
     tokens_used: int
-    state: Expansion = Expansion.DETAILS
+    expansion: Expansion = Expansion.DETAILS
     metadata: dict[str, Any] = field(default_factory=dict)
 
 

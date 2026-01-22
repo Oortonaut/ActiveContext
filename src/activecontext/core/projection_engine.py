@@ -194,7 +194,7 @@ class ProjectionEngine:
         Returns:
             Total tokens for this subtree (used for parent's children_tokens)
         """
-        if node.node_id in seen or node.state == Expansion.HIDDEN:
+        if node.node_id in seen or node.expansion == Expansion.HIDDEN:
             return 0
 
         seen.add(node.node_id)
@@ -306,7 +306,7 @@ class ProjectionEngine:
             ProjectionSection or None if node should be skipped
         """
         # Skip hidden nodes
-        if node.state == Expansion.HIDDEN:
+        if node.expansion == Expansion.HIDDEN:
             return None
 
         content = node.Render(cwd=cwd, text_buffers=text_buffers)
@@ -318,7 +318,7 @@ class ProjectionEngine:
             source_id=node.node_id,
             content=content,
             tokens_used=tokens_used,
-            state=node.state,
+            expansion=node.expansion,
             metadata=node.GetDigest(),
         )
 
@@ -347,33 +347,33 @@ class ProjectionEngine:
             # Hidden content shows token placeholder
             content = self._render_hidden_placeholder(node, content_registry)
             tokens_used = 10  # Minimal tokens for placeholder
-            state = agent_view.state
+            expansion = agent_view.expansion
         elif content_registry and hasattr(node, "content_id") and node.content_id:
             # Render via AgentView + ContentData
             content_data = content_registry.get(node.content_id)
             if content_data:
                 content = agent_view.render(content_data, budget=agent_view.tokens)
                 tokens_used = count_tokens(content, MediaType.TEXT)
-                state = agent_view.state
+                expansion = agent_view.expansion
             else:
                 # Content not found, render node normally
                 content = node.Render(cwd=cwd, text_buffers=text_buffers)
                 media_type = getattr(node, "media_type", MediaType.TEXT)
                 tokens_used = count_tokens(content, media_type)
-                state = agent_view.state
+                expansion = agent_view.expansion
         else:
             # AgentView without ContentData - use node's Render
             content = node.Render(cwd=cwd, text_buffers=text_buffers)
             media_type = getattr(node, "media_type", MediaType.TEXT)
             tokens_used = count_tokens(content, media_type)
-            state = agent_view.state
+            expansion = agent_view.expansion
 
         return ProjectionSection(
             section_type=node.node_type,
             source_id=node.node_id,
             content=content,
             tokens_used=tokens_used,
-            state=state,
+            expansion=expansion,
             metadata=node.GetDigest(),
         )
 

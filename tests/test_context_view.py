@@ -72,7 +72,7 @@ class TestAgentViewInit:
         assert view.agent_id == ""
         assert view.content_id == ""
         assert view.hidden is False
-        assert view.state == Expansion.DETAILS
+        assert view.expansion == Expansion.DETAILS
         assert view.tokens == 1000
         assert view.mode == "paused"
         assert view.parent_ids == set()
@@ -97,7 +97,7 @@ class TestAgentViewInit:
             agent_id="agent1",
             content_id="content1",
             hidden=True,
-            state=Expansion.SUMMARY,
+            expansion=Expansion.SUMMARY,
             tokens=500,
             mode="running",
         )
@@ -106,7 +106,7 @@ class TestAgentViewInit:
         assert view.agent_id == "agent1"
         assert view.content_id == "content1"
         assert view.hidden is True
-        assert view.state == Expansion.SUMMARY
+        assert view.expansion == Expansion.SUMMARY
         assert view.tokens == 500
         assert view.mode == "running"
 
@@ -129,7 +129,7 @@ class TestAgentViewRender:
 
     def test_render_collapsed_file(self, mock_content):
         """Test render collapsed view for file content."""
-        view = AgentView(state=Expansion.COLLAPSED)
+        view = AgentView(expansion=Expansion.COLLAPSED)
 
         result = view.render(mock_content)
 
@@ -139,7 +139,7 @@ class TestAgentViewRender:
 
     def test_render_collapsed_shell(self, mock_shell_content):
         """Test render collapsed view for shell content."""
-        view = AgentView(state=Expansion.COLLAPSED)
+        view = AgentView(expansion=Expansion.COLLAPSED)
 
         result = view.render(mock_shell_content)
 
@@ -154,7 +154,7 @@ class TestAgentViewRender:
         content.token_count = 25
         content.source_info = {}
 
-        view = AgentView(state=Expansion.COLLAPSED)
+        view = AgentView(expansion=Expansion.COLLAPSED)
 
         result = view.render(content)
 
@@ -163,7 +163,7 @@ class TestAgentViewRender:
 
     def test_render_summary(self, mock_content):
         """Test render summary view."""
-        view = AgentView(state=Expansion.SUMMARY)
+        view = AgentView(expansion=Expansion.SUMMARY)
 
         result = view.render(mock_content)
 
@@ -172,7 +172,7 @@ class TestAgentViewRender:
 
     def test_render_summary_no_summary(self, mock_shell_content):
         """Test render summary view when no summary available."""
-        view = AgentView(state=Expansion.SUMMARY)
+        view = AgentView(expansion=Expansion.SUMMARY)
 
         result = view.render(mock_shell_content)
 
@@ -182,7 +182,7 @@ class TestAgentViewRender:
         """Test render summary view with truncation."""
         mock_content.summary = "A" * 1000
         mock_content.summary_tokens = 200
-        view = AgentView(state=Expansion.SUMMARY, tokens=50)
+        view = AgentView(expansion=Expansion.SUMMARY, tokens=50)
 
         result = view.render(mock_content)
 
@@ -191,7 +191,7 @@ class TestAgentViewRender:
 
     def test_render_details(self, mock_content):
         """Test render details view."""
-        view = AgentView(state=Expansion.DETAILS, tokens=200)
+        view = AgentView(expansion=Expansion.DETAILS, tokens=200)
 
         result = view.render(mock_content)
 
@@ -201,7 +201,7 @@ class TestAgentViewRender:
         """Test render details view with truncation."""
         mock_content.raw_content = "X" * 1000
         mock_content.token_count = 200
-        view = AgentView(state=Expansion.DETAILS, tokens=50)
+        view = AgentView(expansion=Expansion.DETAILS, tokens=50)
 
         result = view.render(mock_content)
 
@@ -210,7 +210,7 @@ class TestAgentViewRender:
 
     def test_render_details_full(self, mock_content):
         """Test render DETAILS view shows full content."""
-        view = AgentView(state=Expansion.DETAILS, tokens=200)
+        view = AgentView(expansion=Expansion.DETAILS, tokens=200)
 
         result = view.render(mock_content)
 
@@ -219,20 +219,20 @@ class TestAgentViewRender:
 
     def test_render_details_shell(self, mock_shell_content):
         """Test render DETAILS view with shell content."""
-        view = AgentView(state=Expansion.DETAILS, tokens=200)
+        view = AgentView(expansion=Expansion.DETAILS, tokens=200)
 
         result = view.render(mock_shell_content)
 
         # DETAILS shows raw content
         assert mock_shell_content.raw_content in result
 
-    def test_render_hidden_state_legacy(self):
-        """Test render with HIDDEN state (legacy)."""
+    def test_render_hidden_expansion_legacy(self):
+        """Test render with HIDDEN expansion (legacy)."""
         content = Mock()
         content.content_type = "file"
         content.token_count = 50
 
-        view = AgentView(state=Expansion.HIDDEN)
+        view = AgentView(expansion=Expansion.HIDDEN)
 
         result = view.render(content)
 
@@ -240,7 +240,7 @@ class TestAgentViewRender:
 
     def test_render_uses_budget_parameter(self, mock_content):
         """Test render uses budget parameter over self.tokens."""
-        view = AgentView(state=Expansion.DETAILS, tokens=1000)
+        view = AgentView(expansion=Expansion.DETAILS, tokens=1000)
 
         mock_content.raw_content = "X" * 100
         mock_content.token_count = 50
@@ -278,22 +278,22 @@ class TestAgentViewFluentAPI:
 
         assert view.updated_at > original_time
 
-    def test_set_state_returns_self(self):
+    def test_set_expansion_returns_self(self):
         """Test SetState returns self for chaining."""
         view = AgentView()
 
-        result = view.SetState(Expansion.SUMMARY)
+        result = view.SetExpansion(Expansion.SUMMARY)
 
         assert result is view
-        assert view.state == Expansion.SUMMARY
+        assert view.expansion == Expansion.SUMMARY
 
-    def test_set_state_updates_timestamp(self):
+    def test_set_expansion_updates_timestamp(self):
         """Test SetState updates updated_at."""
         view = AgentView()
         original_time = view.updated_at
 
         time.sleep(0.01)
-        view.SetState(Expansion.DETAILS)
+        view.SetExpansion(Expansion.DETAILS)
 
         assert view.updated_at > original_time
 
@@ -340,14 +340,14 @@ class TestAgentViewFluentAPI:
 
         result = (
             view.SetHidden(False)
-            .SetState(Expansion.SUMMARY)
+            .SetExpansion(Expansion.SUMMARY)
             .SetTokens(750)
             .Run()
         )
 
         assert result is view
         assert view.hidden is False
-        assert view.state == Expansion.SUMMARY
+        assert view.expansion == Expansion.SUMMARY
         assert view.tokens == 750
         assert view.mode == "running"
 
@@ -368,7 +368,7 @@ class TestAgentViewSerialization:
             content_id="content1",
             node_id="node1",
             hidden=True,
-            state=Expansion.SUMMARY,
+            expansion=Expansion.SUMMARY,
             tokens=500,
             parent_ids={"p1", "p2"},
             children_ids={"c1"},
@@ -383,7 +383,7 @@ class TestAgentViewSerialization:
         assert result["content_id"] == "content1"
         assert result["node_id"] == "node1"
         assert result["hidden"] is True
-        assert result["state"] == "summary"
+        assert result["expansion"] == "summary"
         assert result["tokens"] == 500
         assert set(result["parent_ids"]) == {"p1", "p2"}
         assert result["children_ids"] == ["c1"]
@@ -398,7 +398,7 @@ class TestAgentViewSerialization:
             "content_id": "content1",
             "node_id": "node1",
             "hidden": True,
-            "state": "summary",
+            "expansion": "summary",
             "tokens": 500,
             "parent_ids": ["p1", "p2"],
             "children_ids": ["c1"],
@@ -415,7 +415,7 @@ class TestAgentViewSerialization:
         assert view.content_id == "content1"
         assert view.node_id == "node1"
         assert view.hidden is True
-        assert view.state == Expansion.SUMMARY
+        assert view.expansion == Expansion.SUMMARY
         assert view.tokens == 500
         assert view.parent_ids == {"p1", "p2"}
         assert view.children_ids == {"c1"}
@@ -431,7 +431,7 @@ class TestAgentViewSerialization:
         assert view.view_id == "min12345"
         assert view.agent_id == ""
         assert view.hidden is False
-        assert view.state == Expansion.DETAILS
+        assert view.expansion == Expansion.DETAILS
         assert view.tokens == 1000
 
     def test_roundtrip(self):
@@ -439,7 +439,7 @@ class TestAgentViewSerialization:
         original = AgentView(
             view_id="round123",
             agent_id="agent1",
-            state=Expansion.DETAILS,
+            expansion=Expansion.DETAILS,
             hidden=True,
             parent_ids={"p1"},
         )
@@ -449,7 +449,7 @@ class TestAgentViewSerialization:
 
         assert restored.view_id == original.view_id
         assert restored.agent_id == original.agent_id
-        assert restored.state == original.state
+        assert restored.expansion == original.expansion
         assert restored.hidden == original.hidden
         assert restored.parent_ids == original.parent_ids
 
@@ -593,7 +593,7 @@ class TestViewRegistryRenderView:
         view = AgentView(
             view_id="test1234",
             content_id="content1",
-            state=Expansion.DETAILS,
+            expansion=Expansion.DETAILS,
         )
         view_registry.register(view)
         mock_content_registry.get.return_value = mock_content
@@ -625,7 +625,7 @@ class TestViewRegistryRenderView:
         view = AgentView(
             view_id="test1234",
             content_id="content1",
-            state=Expansion.DETAILS,
+            expansion=Expansion.DETAILS,
             tokens=1000,
         )
         view_registry.register(view)

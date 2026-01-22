@@ -60,7 +60,7 @@ class LockManager:
         timeout: float = 30.0,
         *,
         tokens: int = 200,
-        state: Expansion = Expansion.COLLAPSED,
+        expansion: Expansion = Expansion.COLLAPSED,
     ) -> LockNode:
         """Acquire an exclusive file lock asynchronously, returning a LockNode.
 
@@ -93,7 +93,7 @@ class LockManager:
             lockfile=lockfile,
             timeout=timeout,
             tokens=tokens,
-            state=state,
+            expansion=expansion,
         )
 
         # Add to context graph

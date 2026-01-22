@@ -90,7 +90,7 @@ class ContextNode(ABC):
 
     # Rendering configuration
     tokens: int = 1000
-    state: Expansion = Expansion.DETAILS
+    expansion: Expansion = Expansion.DETAILS
     mode: str = "paused"
     tick_frequency: TickFrequency | None = None
 
@@ -215,16 +215,14 @@ class ContextNode(ABC):
             cwd: Working directory for file access
             text_buffers: Optional dict of buffer_id -> TextBuffer for markdown nodes
         """
-        if self.state == Expansion.HIDDEN:
+        if self.expansion == Expansion.HIDDEN:
             return ""
-        elif self.state == Expansion.COLLAPSED:
+        elif self.expansion == Expansion.COLLAPSED:
             return self.RenderCollapsed(cwd=cwd, text_buffers=text_buffers)
-        elif self.state == Expansion.SUMMARY:
+        elif self.expansion == Expansion.SUMMARY:
             return self.RenderSummary(cwd=cwd, text_buffers=text_buffers)
-        elif self.state == Expansion.DETAILS:
+        else:  # DETAILS
             return self.RenderDetail(include_summary=False, cwd=cwd, text_buffers=text_buffers)
-        else:  # ALL
-            return self.RenderDetail(include_summary=True, cwd=cwd, text_buffers=text_buffers)
 
     def RenderCollapsed(
         self,
@@ -355,7 +353,7 @@ class ContextNode(ABC):
         return render_header(
             self.display_id,
             self.get_display_name(),
-            self.state,
+            self.expansion,
             token_info,
             notification_level=self.notification_level.value,
         )
@@ -483,7 +481,7 @@ class ContextNode(ABC):
                     field_name=field_name,
                     prev_value=prev_value,
                     curr_value=curr_value,
-                    state=Expansion.COLLAPSED,
+                    expansion=Expansion.COLLAPSED,
                     tokens=50,
                 )
                 existing.child_traces.append(child)
@@ -505,7 +503,7 @@ class ContextNode(ABC):
             prev_value=prev_value,
             curr_value=curr_value,
             trace_target=self,  # Set for future merges
-            state=Expansion.COLLAPSED,
+            expansion=Expansion.COLLAPSED,
             tokens=50,  # Traces are compact by default
         )
         self._graph.add_node(trace_node)
@@ -638,7 +636,7 @@ class ContextNode(ABC):
             "children_ids": list(self.children_ids),
             "child_order": child_order_list,
             "tokens": self.tokens,
-            "state": self.state.value,
+            "expansion": self.expansion.value,
             "mode": self.mode,
             "tick_frequency": self.tick_frequency.to_dict() if self.tick_frequency else None,
             "version": self.version,
@@ -748,21 +746,21 @@ class ContextNode(ABC):
             )
         return self
 
-    def SetState(self, s: Expansion) -> ContextNode:
-        """Set rendering state.
+    def SetExpansion(self, s: Expansion) -> ContextNode:
+        """Set rendering expansion.
 
         Args:
-            s: New node state (HIDDEN, COLLAPSED, SUMMARY, DETAILS, ALL).
+            s: New node expansion (HIDDEN, COLLAPSED, SUMMARY, DETAILS).
 
-        Generates a trace if tracing is enabled and state actually changed.
+        Generates a trace if tracing is enabled and expansion actually changed.
         """
-        old_state = self.state
-        if old_state != s:
-            self.state = s
+        old_expansion = self.expansion
+        if old_expansion != s:
+            self.expansion = s
             self._mark_changed(
-                description=f"State: {old_state.value} → {s.value}",
-                field_name="state",
-                prev_value=old_state.value,
+                description=f"Expansion: {old_expansion.value} → {s.value}",
+                field_name="expansion",
+                prev_value=old_expansion.value,
                 curr_value=s.value,
             )
         return self
@@ -829,7 +827,7 @@ class TextNode(ContextNode):
             "pos": self.pos,
             "end_pos": self.end_pos,
             "tokens": self.tokens,
-            "state": self.state.value,
+            "expansion": self.expansion.value,
             "mode": self.mode,
             "version": self.version,
             "media_type": self.media_type.value,
@@ -1037,7 +1035,7 @@ class TextNode(ContextNode):
             parent_ids=set(data.get("parent_ids", [])),
             children_ids=set(data.get("children_ids", [])),
             tokens=data.get("tokens", 1000),
-            state=Expansion(data.get("state", "details")),
+            expansion=Expansion(data.get("expansion", "details")),
             mode=data.get("mode", "paused"),
             tick_frequency=tick_freq,
             version=data.get("version", 0),
@@ -1083,7 +1081,7 @@ class GroupNode(ContextNode):
             "member_count": len(self.children_ids),
             "child_order": self.child_order,
             "tokens": self.tokens,
-            "state": self.state.value,
+            "expansion": self.expansion.value,
             "mode": self.mode,
             "version": self.version,
             "summary_stale": self.summary_stale,
@@ -1214,7 +1212,7 @@ class GroupNode(ContextNode):
             children_ids=set(data.get("children_ids", [])),
             child_order=data.get("child_order"),
             tokens=data.get("tokens", 500),
-            state=Expansion(data.get("state", "summary")),
+            expansion=Expansion(data.get("expansion", "summary")),
             mode=data.get("mode", "paused"),
             tick_frequency=tick_freq,
             version=data.get("version", 0),
@@ -1258,7 +1256,7 @@ class TopicNode(ContextNode):
             "message_count": len(self.message_indices),
             "status": self.status,
             "tokens": self.tokens,
-            "state": self.state.value,
+            "expansion": self.expansion.value,
             "mode": self.mode,
             "version": self.version,
         }
@@ -1354,7 +1352,7 @@ class TopicNode(ContextNode):
             parent_ids=set(data.get("parent_ids", [])),
             children_ids=set(data.get("children_ids", [])),
             tokens=data.get("tokens", 1000),
-            state=Expansion(data.get("state", "details")),
+            expansion=Expansion(data.get("expansion", "details")),
             mode=data.get("mode", "paused"),
             tick_frequency=tick_freq,
             version=data.get("version", 0),
@@ -1398,7 +1396,7 @@ class ArtifactNode(ContextNode):
             "language": self.language,
             "content_length": len(self.content),
             "tokens": self.tokens,
-            "state": self.state.value,
+            "expansion": self.expansion.value,
             "mode": self.mode,
             "version": self.version,
         }
@@ -1493,7 +1491,7 @@ class ArtifactNode(ContextNode):
             parent_ids=set(data.get("parent_ids", [])),
             children_ids=set(data.get("children_ids", [])),
             tokens=data.get("tokens", 500),
-            state=Expansion(data.get("state", "details")),
+            expansion=Expansion(data.get("expansion", "details")),
             mode=data.get("mode", "paused"),
             tick_frequency=tick_freq,
             version=data.get("version", 0),
@@ -1576,7 +1574,7 @@ class ShellNode(ContextNode):
             "exit_code": self.exit_code,
             "duration_ms": self.duration_ms,
             "tokens": self.tokens,
-            "state": self.state.value,
+            "expansion": self.expansion.value,
             "mode": self.mode,
             "version": self.version,
         }
@@ -1755,7 +1753,7 @@ class ShellNode(ContextNode):
             parent_ids=set(data.get("parent_ids", [])),
             children_ids=set(data.get("children_ids", [])),
             tokens=data.get("tokens", 2000),
-            state=Expansion(data.get("state", "details")),
+            expansion=Expansion(data.get("expansion", "details")),
             mode=data.get("mode", "paused"),
             tick_frequency=tick_freq,
             version=data.get("version", 0),
@@ -1829,7 +1827,7 @@ class LockNode(ContextNode):
             "status": self.lock_status.value,
             "timeout": self.timeout,
             "tokens": self.tokens,
-            "state": self.state.value,
+            "expansion": self.expansion.value,
             "mode": self.mode,
             "version": self.version,
         }
@@ -1956,7 +1954,7 @@ class LockNode(ContextNode):
             parent_ids=set(data.get("parent_ids", [])),
             children_ids=set(data.get("children_ids", [])),
             tokens=data.get("tokens", 200),
-            state=Expansion(data.get("state", "collapsed")),
+            expansion=Expansion(data.get("expansion", "collapsed")),
             mode=data.get("mode", "paused"),
             tick_frequency=tick_freq,
             version=data.get("version", 0),
@@ -2048,7 +2046,7 @@ class SessionNode(ContextNode):
             "running_nodes": self.running_node_count,
             "graph_depth": self.graph_depth,
             "tokens": self.tokens,
-            "state": self.state.value,
+            "expansion": self.expansion.value,
             "mode": self.mode,
             "version": self.version,
         }
@@ -2273,7 +2271,7 @@ class SessionNode(ContextNode):
             parent_ids=set(data.get("parent_ids", [])),
             children_ids=set(data.get("children_ids", [])),
             tokens=data.get("tokens", 500),
-            state=Expansion(data.get("state", "details")),
+            expansion=Expansion(data.get("expansion", "details")),
             mode=data.get("mode", "running"),  # Default to running for session node
             tick_frequency=tick_freq or TickFrequency.turn(),
             version=data.get("version", 0),
@@ -2384,7 +2382,7 @@ class MessageNode(ContextNode):
             "content_length": len(self.content),
             "tool_name": self.tool_name,
             "tokens": self.tokens,
-            "state": self.state.value,
+            "expansion": self.expansion.value,
             "mode": self.mode,
             "version": self.version,
         }
@@ -2513,7 +2511,7 @@ class MessageNode(ContextNode):
             parent_ids=set(data.get("parent_ids", [])),
             children_ids=set(data.get("children_ids", [])),
             tokens=data.get("tokens", 500),
-            state=Expansion(data.get("state", "details")),
+            expansion=Expansion(data.get("expansion", "details")),
             mode=data.get("mode", "paused"),
             tick_frequency=tick_freq,
             version=data.get("version", 0),
@@ -2568,7 +2566,7 @@ class WorkNode(ContextNode):
             "conflict_count": len(self.conflicts),
             "agent_id": self.agent_id,
             "tokens": self.tokens,
-            "state": self.state.value,
+            "expansion": self.expansion.value,
             "mode": self.mode,
             "version": self.version,
         }
@@ -2715,7 +2713,7 @@ class WorkNode(ContextNode):
             parent_ids=set(data.get("parent_ids", [])),
             children_ids=set(data.get("children_ids", [])),
             tokens=data.get("tokens", 200),
-            state=Expansion(data.get("state", "details")),
+            expansion=Expansion(data.get("expansion", "details")),
             mode=data.get("mode", "paused"),
             tick_frequency=tick_freq,
             version=data.get("version", 0),
@@ -2794,7 +2792,7 @@ class MCPServerNode(ContextNode):
             "resource_count": len(self.resources),
             "prompt_count": len(self.prompts),
             "tokens": self.tokens,
-            "state": self.state.value,
+            "expansion": self.expansion.value,
             "mode": self.mode,
             "version": self.version,
         }
@@ -2963,7 +2961,7 @@ class MCPServerNode(ContextNode):
                     description=tool_data["description"],
                     input_schema=tool_data["input_schema"],
                     tokens=200,
-                    state=Expansion.COLLAPSED,
+                    expansion=Expansion.COLLAPSED,
                 )
                 self._graph.add_node(tool_node)
                 self._graph.link(tool_node.node_id, self.node_id)
@@ -3123,7 +3121,7 @@ class MCPServerNode(ContextNode):
             children_ids=set(data.get("children_ids", [])),
             child_order=data.get("child_order"),
             tokens=data.get("tokens", 1000),
-            state=Expansion(data.get("state", "details")),
+            expansion=Expansion(data.get("expansion", "details")),
             mode=data.get("mode", "paused"),
             tick_frequency=tick_freq,
             version=data.get("version", 0),
@@ -3182,7 +3180,7 @@ class MCPToolNode(ContextNode):
             "server_name": self.server_name,
             "has_schema": bool(self.input_schema.get("properties")),
             "tokens": self.tokens,
-            "state": self.state.value,
+            "expansion": self.expansion.value,
             "version": self.version,
         }
 
@@ -3295,7 +3293,7 @@ class MCPToolNode(ContextNode):
             parent_ids=set(data.get("parent_ids", [])),
             children_ids=set(data.get("children_ids", [])),
             tokens=data.get("tokens", 200),
-            state=Expansion(data.get("state", "collapsed")),
+            expansion=Expansion(data.get("expansion", "collapsed")),
             mode=data.get("mode", "paused"),
             tick_frequency=tick_freq,
             version=data.get("version", 0),
@@ -3540,7 +3538,7 @@ class MCPManagerNode(ContextNode):
             parent_ids=set(d.get("parent_ids", [])),
             children_ids=set(d.get("children_ids", [])),
             tokens=d.get("tokens", 300),
-            state=Expansion(d.get("state", "summary")),
+            expansion=Expansion(d.get("expansion", "summary")),
             mode=d.get("mode", "paused"),
             tick_frequency=tick_freq,
             version=d.get("version", 0),
@@ -3602,7 +3600,7 @@ class AgentNode(ContextNode):
             "agent_state": self.agent_state,
             "message_count": self.message_count,
             "tokens": self.tokens,
-            "state": self.state.value,
+            "expansion": self.expansion.value,
             "mode": self.mode,
             "version": self.version,
         }
@@ -3708,7 +3706,7 @@ class AgentNode(ContextNode):
             parent_ids=set(data.get("parent_ids", [])),
             children_ids=set(data.get("children_ids", [])),
             tokens=data.get("tokens", 200),
-            state=Expansion(data.get("state", "details")),
+            expansion=Expansion(data.get("expansion", "details")),
             mode=data.get("mode", "paused"),
             tick_frequency=tick_freq,
             version=data.get("version", 0),
@@ -3776,7 +3774,7 @@ class TraceNode(ContextNode):
             "description": self.description,
             "originator": self.originator,
             "tokens": self.tokens,
-            "state": self.state.value,
+            "expansion": self.expansion.value,
         }
 
     # Formatting constants
@@ -3873,7 +3871,7 @@ class TraceNode(ContextNode):
             "parent_ids": list(self.parent_ids),
             "children_ids": list(self.children_ids),
             "tokens": self.tokens,
-            "state": self.state.value,
+            "expansion": self.expansion.value,
             "mode": self.mode,
             "version": self.version,
             "created_at": self.created_at,
@@ -3911,7 +3909,7 @@ class TraceNode(ContextNode):
             parent_ids=set(data.get("parent_ids", [])),
             children_ids=set(data.get("children_ids", [])),
             tokens=data.get("tokens", 200),
-            state=Expansion(data.get("state", "collapsed")),
+            expansion=Expansion(data.get("expansion", "collapsed")),
             mode=data.get("mode", "paused"),
             tick_frequency=tick_freq,
             version=data.get("version", 0),

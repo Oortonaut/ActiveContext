@@ -76,7 +76,7 @@ class ShellManager:
         timeout: float | None = 30.0,
         *,
         tokens: int = 2000,
-        state: Expansion = Expansion.DETAILS,
+        expansion: Expansion = Expansion.DETAILS,
     ) -> ShellNode:
         """Execute a shell command asynchronously, returning a ShellNode.
 
@@ -101,7 +101,7 @@ class ShellManager:
             command=command,
             args=args or [],
             tokens=tokens,
-            state=state,
+            expansion=expansion,
         )
 
         # Add to context graph

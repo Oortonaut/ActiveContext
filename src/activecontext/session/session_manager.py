@@ -130,7 +130,7 @@ class Session:
                 # Shouldn't happen, but create fresh if somehow wrong type
                 self._root_context = GroupNode(
                     node_id="context",
-                    state=Expansion.DETAILS,
+                    expansion=Expansion.DETAILS,
                     mode="running",
                     tick_frequency=TickFrequency.turn(),
                 )
@@ -142,7 +142,7 @@ class Session:
             # All other nodes become children of this root
             self._root_context = GroupNode(
                 node_id="context",
-                state=Expansion.DETAILS,
+                expansion=Expansion.DETAILS,
                 mode="running",
                 tick_frequency=TickFrequency.turn(),
             )
@@ -202,7 +202,7 @@ class Session:
             path="system_prompt",
             content=SYSTEM_PROMPT,
             tokens=2000,  # Base system prompt is smaller than full combined prompt
-            state=Expansion.DETAILS,  # Fully expanded
+            expansion=Expansion.DETAILS,  # Fully expanded
         )
 
         # Link root node to root context for document ordering
@@ -276,7 +276,7 @@ class Session:
         self._mcp_manager_node = MCPManagerNode(
             node_id="mcp_manager",
             tokens=300,
-            state=Expansion.SUMMARY,
+            expansion=Expansion.SUMMARY,
             mode="running",
             tick_frequency=TickFrequency.turn(),
         )
@@ -288,7 +288,7 @@ class Session:
         self._user_messages_group = GroupNode(
             node_id="user_messages",
             tokens=2000,
-            state=Expansion.DETAILS,  # Visible in projection
+            expansion=Expansion.DETAILS,  # Visible in projection
             mode="running",
             tick_frequency=TickFrequency.turn(),
         )
@@ -300,7 +300,7 @@ class Session:
         self._alerts_group = GroupNode(
             node_id="alerts",
             tokens=500,
-            state=Expansion.HIDDEN,  # Hidden when empty, DETAILS when has content
+            expansion=Expansion.HIDDEN,  # Hidden when empty, DETAILS when has content
             mode="running",
             tick_frequency=TickFrequency.turn(),
         )
@@ -871,7 +871,7 @@ class Session:
             role="user",
             content=content,
             originator="user",
-            state=Expansion.DETAILS,
+            expansion=Expansion.DETAILS,
             mode="running",
         )
 
@@ -1371,14 +1371,14 @@ class Session:
                 node_id=f"alert_{i}",
                 content=notif.header,
                 artifact_type="notification",
-                state=Expansion.DETAILS,
+                expansion=Expansion.DETAILS,
                 tags={"level": notif.level, "source": notif.node_id},
             )
             context_graph.add_node(alert_node)
             context_graph.link(alert_node.node_id, self._alerts_group.node_id)
 
         # Update group visibility based on content
-        self._alerts_group.state = Expansion.DETAILS if notifications else Expansion.HIDDEN
+        self._alerts_group.expansion = Expansion.DETAILS if notifications else Expansion.HIDDEN
 
     def get_projection(self) -> Projection:
         """Build the LLM projection from current session state.
@@ -1477,7 +1477,7 @@ class Session:
 
                 # Use forward slashes for cross-platform compatibility
                 safe_path = rel_path.replace("\\", "/")
-                source = f'guide = markdown("{safe_path}", tokens=1500, state=Expansion.DETAILS)'
+                source = f'guide = markdown("{safe_path}", tokens=1500, expansion=Expansion.DETAILS)'
                 await self._timeline.execute_statement(source)
                 break
 

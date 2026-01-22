@@ -30,49 +30,49 @@ class NodeView:
 
     Attributes:
         _node: The underlying ContextNode
-        _state_override: Optional view-specific state (if None, use node.state)
+        _expansion_override: Optional view-specific expansion (if None, use node.expansion)
     """
 
-    __slots__ = ("_node", "_state_override")
+    __slots__ = ("_node", "_expansion_override")
 
     _node: ContextNode
-    _state_override: Expansion | None
+    _expansion_override: Expansion | None
 
-    def __init__(self, node: ContextNode, state: Expansion | None = None) -> None:
+    def __init__(self, node: ContextNode, expansion: Expansion | None = None) -> None:
         """Create a view wrapping a node.
 
         Args:
             node: The ContextNode to wrap
-            state: Optional state override (if None, uses node.state)
+            expansion: Optional expansion override (if None, uses node.expansion)
         """
         object.__setattr__(self, "_node", node)
-        object.__setattr__(self, "_state_override", state)
+        object.__setattr__(self, "_expansion_override", expansion)
 
     def node(self) -> ContextNode:
         """Return the underlying ContextNode."""
         return self._node
 
     @property
-    def state(self) -> Expansion:
-        """Return view state (override or node's state)."""
-        if self._state_override is not None:
-            return self._state_override
-        return self._node.state
+    def expansion(self) -> Expansion:
+        """Return view expansion (override or node's expansion)."""
+        if self._expansion_override is not None:
+            return self._expansion_override
+        return self._node.expansion
 
-    @state.setter
-    def state(self, value: Expansion) -> None:
-        """Set view state (updates node directly for now)."""
-        self._node.state = value
+    @expansion.setter
+    def expansion(self, value: Expansion) -> None:
+        """Set view expansion (updates node directly for now)."""
+        self._node.expansion = value
         # Clear override when setting directly
-        object.__setattr__(self, "_state_override", None)
+        object.__setattr__(self, "_expansion_override", None)
 
-    def SetState(self, s: Expansion) -> NodeView:
-        """Set rendering state (fluent API).
+    def SetExpansion(self, s: Expansion) -> NodeView:
+        """Set rendering expansion (fluent API).
 
         Args:
-            s: New node state (HIDDEN, COLLAPSED, SUMMARY, DETAILS, ALL).
+            s: New node expansion (HIDDEN, COLLAPSED, SUMMARY, DETAILS).
         """
-        self._node.SetState(s)
+        self._node.SetExpansion(s)
         return self
 
     def SetTokens(self, n: int) -> NodeView:
@@ -136,8 +136,8 @@ class AgentView:
         agent_id: Which agent owns this view
         content_id: Reference to ContentData
         node_id: Original node ID (for backward compatibility with DSL)
-        hidden: Whether the view is hidden (orthogonal to state)
-        state: Expansion state (COLLAPSED, SUMMARY, DETAILS, ALL)
+        hidden: Whether the view is hidden (orthogonal to expansion)
+        expansion: Expansion state (COLLAPSED, SUMMARY, DETAILS)
         tokens: Token budget for this view
         parent_ids: Parent view IDs in the agent's DAG
         children_ids: Child view IDs in the agent's DAG
@@ -154,7 +154,7 @@ class AgentView:
 
     # Visibility settings (per-agent)
     hidden: bool = False
-    state: Expansion = Expansion.DETAILS
+    expansion: Expansion = Expansion.DETAILS
     tokens: int = 1000
 
     # DAG structure (per-agent)
@@ -196,17 +196,15 @@ class AgentView:
         if self.hidden:
             return f"[{content.content_type}: {content.token_count} tokens]"
 
-        # Render based on state
-        if self.state == Expansion.COLLAPSED:
+        # Render based on expansion
+        if self.expansion == Expansion.COLLAPSED:
             return self._render_collapsed(content)
-        elif self.state == Expansion.SUMMARY:
+        elif self.expansion == Expansion.SUMMARY:
             return self._render_summary(content, effective_budget)
-        elif self.state == Expansion.DETAILS:
+        elif self.expansion == Expansion.DETAILS:
             return self._render_details(content, effective_budget)
-        elif self.state == Expansion.DETAILS:
-            return self._render_all(content, effective_budget)
         else:
-            # HIDDEN state (legacy) - treat as hidden flag
+            # HIDDEN expansion - treat as hidden flag
             return f"[{content.content_type}: {content.token_count} tokens]"
 
     def _render_collapsed(self, content: ContentData) -> str:
@@ -271,9 +269,9 @@ class AgentView:
         self.updated_at = time.time()
         return self
 
-    def SetState(self, state: Expansion) -> AgentView:
+    def SetExpansion(self, expansion: Expansion) -> AgentView:
         """Set expansion state."""
-        self.state = state
+        self.expansion = expansion
         self.updated_at = time.time()
         return self
 
@@ -303,7 +301,7 @@ class AgentView:
             "content_id": self.content_id,
             "node_id": self.node_id,
             "hidden": self.hidden,
-            "state": self.state.value,
+            "expansion": self.expansion.value,
             "tokens": self.tokens,
             "parent_ids": list(self.parent_ids),
             "children_ids": list(self.children_ids),
@@ -322,7 +320,7 @@ class AgentView:
             content_id=data.get("content_id", ""),
             node_id=data.get("node_id", data["view_id"]),
             hidden=data.get("hidden", False),
-            state=Expansion(data.get("state", "details")),
+            expansion=Expansion(data.get("expansion", "details")),
             tokens=data.get("tokens", 1000),
             parent_ids=set(data.get("parent_ids", [])),
             children_ids=set(data.get("children_ids", [])),

@@ -257,8 +257,8 @@ async def _handle_websocket_command(
     """Handle incoming WebSocket commands."""
     cmd_type = cmd.get("type")
 
-    if cmd_type == "set_state":
-        await _handle_set_state(websocket, session_id, cmd)
+    if cmd_type == "set_expansion":
+        await _handle_set_expansion(websocket, session_id, cmd)
     else:
         await websocket.send_json({
             "type": "error",
@@ -266,12 +266,12 @@ async def _handle_websocket_command(
         })
 
 
-async def _handle_set_state(
+async def _handle_set_expansion(
     websocket: WebSocket,
     session_id: str,
     cmd: dict[str, Any],
 ) -> None:
-    """Handle node state change request."""
+    """Handle node expansion change request."""
     manager = get_manager()
     if not manager:
         await websocket.send_json({
@@ -289,27 +289,27 @@ async def _handle_set_state(
         return
 
     node_id = cmd.get("node_id")
-    new_state_str = cmd.get("state")
+    new_expansion_str = cmd.get("expansion")
 
-    if not node_id or not new_state_str:
+    if not node_id or not new_expansion_str:
         await websocket.send_json({
             "type": "error",
-            "message": "Missing node_id or state",
+            "message": "Missing node_id or expansion",
         })
         return
 
-    # Validate state
+    # Validate expansion
     try:
-        new_state = Expansion(new_state_str)
+        new_expansion = Expansion(new_expansion_str)
     except ValueError:
-        valid_states = ", ".join(s.value for s in Expansion)
+        valid_expansions = ", ".join(s.value for s in Expansion)
         await websocket.send_json({
             "type": "error",
-            "message": f"Invalid state: {new_state_str}. Valid: {valid_states}",
+            "message": f"Invalid expansion: {new_expansion_str}. Valid: {valid_expansions}",
         })
         return
 
-    # Get node and apply state change
+    # Get node and apply expansion change
     graph = session.get_context_graph()
     node = graph.get_node(node_id)
 
@@ -320,8 +320,8 @@ async def _handle_set_state(
         })
         return
 
-    old_state = node.state
-    node.SetState(new_state)
+    old_expansion = node.expansion
+    node.SetExpansion(new_expansion)
 
     # Broadcast update to all dashboard clients
     await broadcast_update(
@@ -330,9 +330,9 @@ async def _handle_set_state(
         {
             "node_id": node_id,
             "node_type": node.node_type,
-            "change": "state_changed",
-            "old_state": old_state.value,
-            "new_state": new_state.value,
+            "change": "expansion_changed",
+            "old_expansion": old_expansion.value,
+            "new_expansion": new_expansion.value,
             "digest": node.GetDigest(),
         },
         time.time(),
@@ -340,10 +340,10 @@ async def _handle_set_state(
 
     # Confirm to requesting client
     await websocket.send_json({
-        "type": "state_changed",
+        "type": "expansion_changed",
         "node_id": node_id,
-        "old_state": old_state.value,
-        "new_state": new_state.value,
+        "old_expansion": old_expansion.value,
+        "new_expansion": new_expansion.value,
     })
 
 

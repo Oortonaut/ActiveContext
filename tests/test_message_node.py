@@ -142,13 +142,13 @@ class TestMessageNodeRender:
         rendered = node.Render()
         assert "Hello, how are you?" in rendered
 
-    def test_render_hidden_state(self) -> None:
+    def test_render_hidden_expansion(self) -> None:
         """Test that hidden messages render empty."""
         node = MessageNode(
             role="user",
             content="Hello",
             originator="user",
-            state=Expansion.HIDDEN,
+            expansion=Expansion.HIDDEN,
         )
         assert node.Render() == ""
 
@@ -158,7 +158,7 @@ class TestMessageNodeRender:
             role="user",
             content="Hello, world!",
             originator="user",
-            state=Expansion.COLLAPSED,
+            expansion=Expansion.COLLAPSED,
         )
         rendered = node.Render()
         assert "User" in rendered  # Title case in new header format

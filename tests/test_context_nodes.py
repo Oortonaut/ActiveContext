@@ -37,7 +37,7 @@ class TestTextNodeSerialization:
         node = TextNode(
             node_id="view1",
             path="src/main.py",
-            state=Expansion.DETAILS,
+            expansion=Expansion.DETAILS,
         )
 
         data = node.to_dict()
@@ -45,7 +45,7 @@ class TestTextNodeSerialization:
         assert data["node_type"] == "text"
         assert data["node_id"] == "view1"
         assert data["path"] == "src/main.py"
-        assert data["state"] == "details"
+        assert data["expansion"] == "details"
         # TextNode doesn't serialize _content - it's loaded from disk
 
     def test_from_dict_basic(self):
@@ -54,7 +54,7 @@ class TestTextNodeSerialization:
             "node_type": "text",
             "node_id": "view1",
             "path": "src/main.py",
-            "state": "details",
+            "expansion": "details",
             "tokens": 100,
             "pos": "1:0",
         }
@@ -63,14 +63,14 @@ class TestTextNodeSerialization:
 
         assert node.node_id == "view1"
         assert node.path == "src/main.py"
-        assert node.state == Expansion.DETAILS
+        assert node.expansion == Expansion.DETAILS
 
     def test_roundtrip(self):
         """Test TextNode serialization round-trip."""
         original = TextNode(
             node_id="view1",
             path="src/main.py",
-            state=Expansion.DETAILS,
+            expansion=Expansion.DETAILS,
             pos="10:5",
         )
 
@@ -79,7 +79,7 @@ class TestTextNodeSerialization:
 
         assert restored.node_id == original.node_id
         assert restored.path == original.path
-        assert restored.state == original.state
+        assert restored.expansion == original.expansion
         assert restored.pos == original.pos
 
     def test_factory_dispatch(self):
@@ -88,7 +88,7 @@ class TestTextNodeSerialization:
             "node_type": "text",
             "node_id": "view1",
             "path": "test.py",
-            "state": "collapsed",
+            "expansion": "collapsed",
         }
 
         node = ContextNode.from_dict(data)
@@ -110,7 +110,7 @@ class TestGroupNodeSerialization:
         node = GroupNode(
             node_id="group1",
             summary_prompt="Summarize these files",
-            state=Expansion.SUMMARY,
+            expansion=Expansion.SUMMARY,
             cached_summary="A group of related files",
         )
 
@@ -119,7 +119,7 @@ class TestGroupNodeSerialization:
         assert data["node_type"] == "group"
         assert data["node_id"] == "group1"
         assert data["summary_prompt"] == "Summarize these files"
-        assert data["state"] == "summary"
+        assert data["expansion"] == "summary"
         assert data["cached_summary"] == "A group of related files"
 
     def test_from_dict_basic(self):
@@ -128,7 +128,7 @@ class TestGroupNodeSerialization:
             "node_type": "group",
             "node_id": "group1",
             "summary_prompt": "Test prompt",
-            "state": "summary",
+            "expansion": "summary",
             "cached_summary": "Test summary",
         }
 
@@ -136,7 +136,7 @@ class TestGroupNodeSerialization:
 
         assert node.node_id == "group1"
         assert node.summary_prompt == "Test prompt"
-        assert node.state == Expansion.SUMMARY
+        assert node.expansion == Expansion.SUMMARY
         assert node.cached_summary == "Test summary"
 
     def test_roundtrip(self):
@@ -144,7 +144,7 @@ class TestGroupNodeSerialization:
         original = GroupNode(
             node_id="group1",
             summary_prompt="Summarize the auth module",
-            state=Expansion.DETAILS,
+            expansion=Expansion.DETAILS,
             cached_summary="Authentication implementation",
         )
 
@@ -153,7 +153,7 @@ class TestGroupNodeSerialization:
 
         assert restored.node_id == original.node_id
         assert restored.summary_prompt == original.summary_prompt
-        assert restored.state == original.state
+        assert restored.expansion == original.expansion
         assert restored.cached_summary == original.cached_summary
 
     def test_factory_dispatch(self):
@@ -161,7 +161,7 @@ class TestGroupNodeSerialization:
         data = {
             "node_type": "group",
             "node_id": "group1",
-            "state": "collapsed",
+            "expansion": "collapsed",
         }
 
         node = ContextNode.from_dict(data)
@@ -182,7 +182,7 @@ class TestTopicNodeSerialization:
         node = TopicNode(
             node_id="topic1",
             title="Authentication Implementation",
-            state=Expansion.COLLAPSED,
+            expansion=Expansion.COLLAPSED,
         )
 
         data = node.to_dict()
@@ -196,7 +196,7 @@ class TestTopicNodeSerialization:
         original = TopicNode(
             node_id="topic1",
             title="Bug Fix Discussion",
-            state=Expansion.DETAILS,
+            expansion=Expansion.DETAILS,
         )
 
         data = original.to_dict()
@@ -204,7 +204,7 @@ class TestTopicNodeSerialization:
 
         assert restored.node_id == original.node_id
         assert restored.title == original.title
-        assert restored.state == original.state
+        assert restored.expansion == original.expansion
 
     def test_factory_dispatch(self):
         """Test that ContextNode.from_dict dispatches to TopicNode."""
@@ -212,7 +212,7 @@ class TestTopicNodeSerialization:
             "node_type": "topic",
             "node_id": "topic1",
             "title": "Test Topic",
-            "state": "collapsed",
+            "expansion": "collapsed",
         }
 
         node = ContextNode.from_dict(data)
@@ -235,7 +235,7 @@ class TestArtifactNodeSerialization:
             content="def foo(): pass",
             artifact_type="code",
             language="python",
-            state=Expansion.DETAILS,
+            expansion=Expansion.DETAILS,
         )
 
         data = node.to_dict()
@@ -253,7 +253,7 @@ class TestArtifactNodeSerialization:
             content="Error: Connection refused",
             artifact_type="error",
             language="text",
-            state=Expansion.DETAILS,
+            expansion=Expansion.DETAILS,
         )
 
         data = original.to_dict()
@@ -271,7 +271,7 @@ class TestArtifactNodeSerialization:
             "node_id": "artifact1",
             "content": "test",
             "artifact_type": "output",
-            "state": "details",
+            "expansion": "details",
         }
 
         node = ContextNode.from_dict(data)
@@ -293,7 +293,7 @@ class TestShellNodeSerialization:
             node_id="shell1",
             command="pytest",
             args=["-v", "tests/"],
-            state=Expansion.DETAILS,
+            expansion=Expansion.DETAILS,
             output="All tests passed",
             exit_code=0,
         )
@@ -313,7 +313,7 @@ class TestShellNodeSerialization:
             node_id="shell1",
             command="git",
             args=["status"],
-            state=Expansion.DETAILS,
+            expansion=Expansion.DETAILS,
             output="On branch main",
             exit_code=0,
         )
@@ -334,7 +334,7 @@ class TestShellNodeSerialization:
             "node_id": "shell1",
             "command": "ls",
             "args": ["-la"],
-            "state": "collapsed",
+            "expansion": "collapsed",
         }
 
         node = ContextNode.from_dict(data)
@@ -355,7 +355,7 @@ class TestLockNodeSerialization:
         node = LockNode(
             node_id="lock1",
             lockfile="src/config.py.lock",
-            state=Expansion.COLLAPSED,
+            expansion=Expansion.COLLAPSED,
         )
 
         data = node.to_dict()
@@ -370,7 +370,7 @@ class TestLockNodeSerialization:
             node_id="lock1",
             lockfile="src/main.py.lock",
             timeout=60.0,
-            state=Expansion.DETAILS,
+            expansion=Expansion.DETAILS,
         )
 
         data = original.to_dict()
@@ -386,7 +386,7 @@ class TestLockNodeSerialization:
             "node_type": "lock",
             "node_id": "lock1",
             "lockfile": "test.py.lock",
-            "state": "collapsed",
+            "expansion": "collapsed",
         }
 
         node = ContextNode.from_dict(data)
@@ -406,7 +406,7 @@ class TestSessionNodeSerialization:
         """Test SessionNode serialization to dict."""
         node = SessionNode(
             node_id="session1",
-            state=Expansion.COLLAPSED,
+            expansion=Expansion.COLLAPSED,
             turn_count=5,
             total_statements_executed=25,
         )
@@ -422,7 +422,7 @@ class TestSessionNodeSerialization:
         """Test SessionNode serialization round-trip."""
         original = SessionNode(
             node_id="session1",
-            state=Expansion.DETAILS,
+            expansion=Expansion.DETAILS,
             turn_count=10,
             total_tokens_consumed=5000,
         )
@@ -438,7 +438,7 @@ class TestSessionNodeSerialization:
         data = {
             "node_type": "session",
             "node_id": "session1",
-            "state": "collapsed",
+            "expansion": "collapsed",
         }
 
         node = ContextNode.from_dict(data)
@@ -459,7 +459,7 @@ class TestMCPServerNodeSerialization:
         node = MCPServerNode(
             node_id="mcp1",
             server_name="filesystem",
-            state=Expansion.COLLAPSED,
+            expansion=Expansion.COLLAPSED,
             tools=[{"name": "read_file", "description": "Read a file"}],
         )
 
@@ -475,7 +475,7 @@ class TestMCPServerNodeSerialization:
         original = MCPServerNode(
             node_id="mcp1",
             server_name="github",
-            state=Expansion.DETAILS,
+            expansion=Expansion.DETAILS,
             tools=[
                 {"name": "list_repos", "description": "List repositories"},
                 {"name": "create_issue", "description": "Create an issue"},
@@ -495,7 +495,7 @@ class TestMCPServerNodeSerialization:
             "node_type": "mcp_server",
             "node_id": "mcp1",
             "server_name": "test",
-            "state": "collapsed",
+            "expansion": "collapsed",
         }
 
         node = ContextNode.from_dict(data)
@@ -515,7 +515,7 @@ class TestMCPManagerNodeSerialization:
         """Test MCPManagerNode serialization to dict."""
         node = MCPManagerNode(
             node_id="mcp_manager",
-            state=Expansion.COLLAPSED,
+            expansion=Expansion.COLLAPSED,
         )
 
         data = node.to_dict()
@@ -527,21 +527,21 @@ class TestMCPManagerNodeSerialization:
         """Test MCPManagerNode serialization round-trip."""
         original = MCPManagerNode(
             node_id="mcp_manager",
-            state=Expansion.DETAILS,
+            expansion=Expansion.DETAILS,
         )
 
         data = original.to_dict()
         restored = MCPManagerNode._from_dict(data)
 
         assert restored.node_id == original.node_id
-        assert restored.state == original.state
+        assert restored.expansion == original.expansion
 
     def test_factory_dispatch(self):
         """Test that ContextNode.from_dict dispatches to MCPManagerNode."""
         data = {
             "node_type": "mcp_manager",
             "node_id": "mcp_manager",
-            "state": "collapsed",
+            "expansion": "collapsed",
         }
 
         node = ContextNode.from_dict(data)
@@ -563,7 +563,7 @@ class TestAgentNodeSerialization:
             node_id="agent1",
             agent_id="child-agent-123",
             agent_type="researcher",
-            state=Expansion.DETAILS,
+            expansion=Expansion.DETAILS,
             agent_state="running",
             task="Research the API",
         )
@@ -583,7 +583,7 @@ class TestAgentNodeSerialization:
             node_id="agent1",
             agent_id="worker-456",
             agent_type="coder",
-            state=Expansion.DETAILS,
+            expansion=Expansion.DETAILS,
             agent_state="completed",
             task="Implement feature X",
         )
@@ -604,7 +604,7 @@ class TestAgentNodeSerialization:
             "node_id": "agent1",
             "agent_id": "test-agent",
             "agent_type": "helper",
-            "state": "collapsed",
+            "expansion": "collapsed",
         }
 
         node = ContextNode.from_dict(data)
@@ -627,13 +627,13 @@ class TestContextGraphSerialization:
         # Create graph with various node types
         graph = ContextGraph()
 
-        view = TextNode(node_id="view1", path="main.py", state=Expansion.DETAILS)
+        view = TextNode(node_id="view1", path="main.py", expansion=Expansion.DETAILS)
         graph.add_node(view)
 
-        group = GroupNode(node_id="group1", state=Expansion.SUMMARY, cached_summary="Code files")
+        group = GroupNode(node_id="group1", expansion=Expansion.SUMMARY, cached_summary="Code files")
         graph.add_node(group)
 
-        topic = TopicNode(node_id="topic1", title="Discussion", state=Expansion.COLLAPSED)
+        topic = TopicNode(node_id="topic1", title="Discussion", expansion=Expansion.COLLAPSED)
         graph.add_node(topic)
         graph.link("topic1", "group1")  # topic is child of group (link(child, parent))
 

@@ -14,9 +14,9 @@ Controls how a node renders in the projection.
 ```python
 from activecontext import Expansion
 
-v = text("src/main.py", state=Expansion.DETAILS)
-v.SetState(Expansion.SUMMARY)  # Reduce detail
-v.SetState(Expansion.HIDDEN)   # Hide completely
+v = text("src/main.py", expansion=Expansion.DETAILS)
+v.SetExpansion(Expansion.SUMMARY)  # Reduce detail
+v.SetExpansion(Expansion.HIDDEN)   # Hide completely
 ```
 
 ## TickFrequency
@@ -46,7 +46,7 @@ All context nodes support method chaining:
 
 ```python
 v = text("src/main.py") \
-    .SetState(Expansion.DETAILS) \
+    .SetExpansion(Expansion.DETAILS) \
     .SetTokens(2000) \
     .Run(TickFrequency.turn())
 
@@ -57,7 +57,7 @@ v.Pause()  # Stop automatic updates
 
 | Method | Description |
 |--------|-------------|
-| `.SetState(state)` | Set rendering state |
+| `.SetExpansion(expansion)` | Set rendering expansion |
 | `.SetTokens(n)` | Set token budget |
 | `.Run(freq=None)` | Enable tick updates |
 | `.Pause()` | Disable tick updates |

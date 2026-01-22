@@ -836,7 +836,7 @@ class Timeline:
         *,
         pos: str = "1:0",
         tokens: int = 2000,
-        state: Expansion = Expansion.DETAILS,
+        expansion: Expansion = Expansion.DETAILS,
         mode: str = "paused",
         parent: ContextNode | str | None = None,
     ) -> TextNode:
@@ -857,7 +857,7 @@ class Timeline:
             path=path,
             pos=pos,
             tokens=tokens,
-            state=state,
+            expansion=expansion,
             mode=mode,
         )
 
@@ -883,7 +883,7 @@ class Timeline:
         self,
         *members: ContextNode | str,
         tokens: int = 500,
-        state: Expansion = Expansion.SUMMARY,
+        expansion: Expansion = Expansion.SUMMARY,
         mode: str = "paused",
         summary: str | None = None,
         parent: ContextNode | str | None = None,
@@ -903,7 +903,7 @@ class Timeline:
         """
         node = GroupNode(
             tokens=tokens,
-            state=state,
+            expansion=expansion,
             mode=mode,
             cached_summary=summary,
             summary_stale=summary is None,  # Not stale if summary provided
@@ -1025,7 +1025,7 @@ class Timeline:
         *,
         content: str | None = None,
         tokens: int = 2000,
-        state: Expansion = Expansion.DETAILS,
+        expansion: Expansion = Expansion.DETAILS,
         parent: ContextNode | str | None = None,
     ) -> TextNode:
         """Create a tree of TextNodes from a markdown file.
@@ -1090,7 +1090,7 @@ class Timeline:
             node = TextNode(
                 path=path,
                 tokens=tokens,
-                state=state,
+                expansion=expansion,
                 media_type=MediaType.MARKDOWN,
                 buffer_id=buffer.buffer_id,
                 start_line=1,
@@ -1107,7 +1107,7 @@ class Timeline:
             node = TextNode(
                 path=path,
                 tokens=tokens // max(len(result.sections), 1),
-                state=state,
+                expansion=expansion,
                 media_type=MediaType.MARKDOWN,
                 buffer_id=buffer.buffer_id,
                 start_line=section.start_line,
@@ -1160,7 +1160,7 @@ class Timeline:
         path: str,
         *,
         tokens: int = 2000,
-        state: Expansion = Expansion.DETAILS,
+        expansion: Expansion = Expansion.DETAILS,
         **kwargs: Any,
     ) -> TextNode:
         """Dispatcher for creating text views based on media type.
@@ -1181,9 +1181,9 @@ class Timeline:
             ValueError: If media_type is not recognized
         """
         if media_type == "markdown":
-            return self._make_markdown_node(path, tokens=tokens, state=state, **kwargs)
+            return self._make_markdown_node(path, tokens=tokens, expansion=expansion, **kwargs)
         elif media_type == "text":
-            return self._make_text_node(path, tokens=tokens, state=state, **kwargs)
+            return self._make_text_node(path, tokens=tokens, expansion=expansion, **kwargs)
         else:
             raise ValueError(f"Unknown media_type: {media_type}. Use 'text' or 'markdown'.")
 
@@ -1694,7 +1694,7 @@ class Timeline:
             self._work_node = WorkNode(
                 node_id=node_id,
                 tokens=200,
-                state=Expansion.DETAILS,
+                expansion=Expansion.DETAILS,
                 intent=entry.intent,
                 work_status=entry.status,
                 files=[f.to_dict() for f in file_accesses],
@@ -1805,7 +1805,7 @@ class Timeline:
 
         if self._work_node:
             self._work_node.work_status = "done"
-            self._work_node.state = Expansion.HIDDEN
+            self._work_node.expansion = Expansion.HIDDEN
 
     def _work_list(self) -> list[dict[str, Any]]:
         """List all active work entries from all agents.

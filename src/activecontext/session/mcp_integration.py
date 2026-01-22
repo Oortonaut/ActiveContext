@@ -58,7 +58,7 @@ class MCPIntegration:
         url: str | None = None,
         env: dict[str, str] | None = None,
         tokens: int = 1000,
-        state: Expansion = Expansion.DETAILS,
+        expansion: Expansion = Expansion.DETAILS,
     ) -> MCPServerNode:
         """Connect to an MCP server.
 
@@ -119,7 +119,7 @@ class MCPIntegration:
             node = MCPServerNode(
                 server_name=name,
                 tokens=tokens,
-                state=state,
+                expansion=expansion,
             )
             self._mcp_server_nodes[name] = node
             self._context_graph.add_node(node)

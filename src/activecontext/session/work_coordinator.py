@@ -98,7 +98,7 @@ class WorkCoordinator:
             self._work_node = WorkNode(
                 node_id=node_id,
                 tokens=200,
-                state=Expansion.DETAILS,
+                expansion=Expansion.DETAILS,
                 intent=entry.intent,
                 work_status=entry.status,
                 files=[f.to_dict() for f in file_accesses],
@@ -209,7 +209,7 @@ class WorkCoordinator:
 
         if self._work_node:
             self._work_node.work_status = "done"
-            self._work_node.state = Expansion.HIDDEN
+            self._work_node.expansion = Expansion.HIDDEN
 
     def work_list(self) -> list[dict[str, Any]]:
         """List all active work entries from all agents.
