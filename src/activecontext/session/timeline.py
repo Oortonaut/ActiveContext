@@ -38,6 +38,7 @@ from activecontext.context.state import NodeState, NotificationLevel, TickFreque
 from activecontext.mcp import (
     MCPClientManager,
 )
+from activecontext.session.mcp_integration import MCPIntegration
 from activecontext.session.permissions import (
     ImportDenied,
     ImportGuard,
@@ -223,14 +224,18 @@ class Timeline:
         # WorkNode for displaying coordination status (created on first work_on)
         self._work_node: WorkNode | None = None
 
-        # MCP client manager for external tool servers (must be set before _setup_namespace)
-        self._mcp_client_manager = MCPClientManager(config=mcp_config)
-
-        # MCPServerNodes keyed by server name (for tracking in graph)
-        self._mcp_server_nodes: dict[str, MCPServerNode] = {}
-
-        # Controlled Python namespace
+        # Controlled Python namespace (created before MCP setup)
         self._namespace: dict[str, Any] = {}
+
+        # MCP integration manager (must be set before _setup_namespace)
+        self._mcp_integration = MCPIntegration(
+            mcp_config=mcp_config,
+            context_graph=self._context_graph,
+            namespace=self._namespace,
+            fire_event=self.fire_event,
+        )
+
+        # Set up namespace with DSL functions
         self._setup_namespace()
 
 
@@ -408,14 +413,14 @@ class Timeline:
 
         # Add MCP functions
         self._namespace.update({
-            "mcp_connect": self._mcp_connect,
-            "mcp_disconnect": self._mcp_disconnect,
-            "mcp_list": self._mcp_list,
-            "mcp_tools": self._mcp_tools,
+            "mcp_connect": self._mcp_integration.connect,
+            "mcp_disconnect": self._mcp_integration.disconnect,
+            "mcp_list": self._mcp_integration.list_connections,
+            "mcp_tools": self._mcp_integration.list_tools,
         })
 
         # Inject connected MCP server proxies into namespace
-        self._namespace.update(self._mcp_client_manager.generate_namespace_bindings())
+        self._namespace.update(self._mcp_integration.generate_namespace_bindings())
 
     def _setup_agent_namespace(self) -> None:
         """Add agent functions to namespace when agent manager is available.
@@ -1794,6 +1799,9 @@ class Timeline:
         self.cancel_all_locks()
         self.release_all_locks()
 
+        # Disconnect from all MCP servers
+        await self._mcp_integration.cleanup()
+
         # Give cancelled tasks a chance to complete
         if self._shell_tasks or self._lock_tasks:
             await asyncio.sleep(0)
@@ -2704,205 +2712,7 @@ class Timeline:
 
         return self._agent_manager.get_shared_node(node_id)
 
-    # =========================================================================
-    # MCP (Model Context Protocol) DSL Functions
-    # =========================================================================
 
-    async def _mcp_connect(
-        self,
-        name: str | None = None,
-        *,
-        command: list[str] | None = None,
-        url: str | None = None,
-        env: dict[str, str] | None = None,
-        tokens: int = 1000,
-        state: NodeState = NodeState.DETAILS,
-    ) -> MCPServerNode:
-        """Connect to an MCP server.
-
-        Args:
-            name: Server name from config, or custom name for dynamic connection
-            command: For stdio transport: command and args to spawn server
-            url: For streamable-http transport: server URL
-            env: Environment variables for the server process
-            tokens: Token budget for tool documentation
-            state: Initial rendering state
-
-        Returns:
-            MCPServerNode representing the connection
-
-        Examples:
-            # Connect to configured server
-            fs = mcp_connect("filesystem")
-
-            # Dynamic stdio connection
-            gh = mcp_connect("github", command=["npx", "-y", "@mcp/server-github"])
-
-            # Dynamic HTTP connection
-            tools = mcp_connect("remote", url="http://localhost:8000/mcp")
-        """
-        from activecontext.config.schema import MCPConnectMode, MCPServerConfig
-
-        # Build config if dynamic
-        config: MCPServerConfig | None = None
-        if command or url:
-            config = MCPServerConfig(
-                name=name or "dynamic",
-                command=command,
-                url=url,
-                env=env or {},
-                transport="stdio" if command else "streamable-http",
-            )
-            name = config.name
-        elif name is None:
-            raise ValueError("Must provide 'name' or 'command'/'url'")
-
-        # Check if server is disabled (NEVER mode) when using config from file
-        if config is None and self._mcp_client_manager.config:
-            for server_config in self._mcp_client_manager.config.servers:
-                if server_config.name == name:
-                    if server_config.connect == MCPConnectMode.NEVER:
-                        raise ValueError(
-                            f"MCP server '{name}' is disabled (connect=never)"
-                        )
-                    break
-
-        # Connect via MCPClientManager
-        connection = await self._mcp_client_manager.connect(name=name, config=config)
-
-        # Create or update MCPServerNode
-        if name in self._mcp_server_nodes:
-            node = self._mcp_server_nodes[name]
-        else:
-            node = MCPServerNode(
-                server_name=name,
-                tokens=tokens,
-                state=state,
-            )
-            self._mcp_server_nodes[name] = node
-            self._context_graph.add_node(node)
-
-            # Wire up MCP result callback to fire events
-            # Use lambda to match expected signature (returns None)
-            node.set_on_result_callback(lambda name, data: (self.fire_event(name, data), None)[1])
-
-        # Update node from connection
-        node.update_from_connection(connection)
-
-        # Register with MCPManagerNode
-        from activecontext.context.nodes import MCPManagerNode
-
-        mcp_manager = self._context_graph.get_node("mcp_manager")
-        if mcp_manager and isinstance(mcp_manager, MCPManagerNode):
-            # Link in graph (server as child of manager)
-            self._context_graph.link(node.node_id, mcp_manager.node_id)
-            mcp_manager.register_server(node)
-
-        # Update namespace with the server proxy
-        bindings = self._mcp_client_manager.generate_namespace_bindings()
-        if name in bindings:
-            proxy = bindings[name]
-            # Augment proxy with tool() method for accessing MCPToolNode children
-            proxy._mcp_node = node
-            proxy.tool = node.tool
-            proxy.tool_nodes = node.tool_nodes
-            self._namespace[name] = proxy
-
-        # Add tool nodes to namespace with {server}_{tool} naming
-        for tool_name, tool_node_id in node._tool_nodes.items():
-            tool_node = self._context_graph.get_node(tool_node_id)
-            if tool_node:
-                # e.g., filesystem_read_file
-                namespace_key = f"{name}_{tool_name}"
-                self._namespace[namespace_key] = tool_node
-
-        return node
-
-    async def _mcp_disconnect(self, name: str) -> None:
-        """Disconnect from an MCP server.
-
-        Args:
-            name: Name of the server to disconnect
-        """
-        await self._mcp_client_manager.disconnect(name)
-
-        # Update node status and clean up tool children
-        if name in self._mcp_server_nodes:
-            node = self._mcp_server_nodes[name]
-
-            # Remove tool nodes from namespace and graph
-            for tool_name, tool_node_id in list(node._tool_nodes.items()):
-                # Remove from namespace
-                namespace_key = f"{name}_{tool_name}"
-                if namespace_key in self._namespace:
-                    del self._namespace[namespace_key]
-                # Remove from graph
-                tool_node = self._context_graph.get_node(tool_node_id)
-                if tool_node:
-                    tool_node._mark_changed(
-                        description=f"Tool '{tool_name}' removed (server disconnected)"
-                    )
-                    self._context_graph.remove_node(tool_node_id)
-            node._tool_nodes.clear()
-
-            node.status = "disconnected"
-            node.tools = []
-            node.resources = []
-            node.prompts = []
-            node._mark_changed(description=f"MCP {name}: disconnected")
-
-        # Unregister from MCPManagerNode
-        from activecontext.context.nodes import MCPManagerNode
-
-        mcp_manager = self._context_graph.get_node("mcp_manager")
-        if mcp_manager and isinstance(mcp_manager, MCPManagerNode):
-            mcp_manager.unregister_server(name)
-
-        # Remove from namespace
-        if name in self._namespace:
-            del self._namespace[name]
-
-    def _mcp_list(self) -> list[dict[str, Any]]:
-        """List all MCP server connections and their status.
-
-        Returns:
-            List of connection info dicts with name, status, tool/resource counts.
-        """
-        return [
-            {
-                "name": conn.name,
-                "status": conn.status.value,
-                "tools": len(conn.tools),
-                "resources": len(conn.resources),
-                "prompts": len(conn.prompts),
-            }
-            for conn in self._mcp_client_manager.list_connections()
-        ]
-
-    def _mcp_tools(self, server: str | None = None) -> list[dict[str, Any]]:
-        """List available MCP tools, optionally filtered by server.
-
-        Args:
-            server: Optional server name to filter by
-
-        Returns:
-            List of tool info dicts with server, name, description.
-        """
-        tools = self._mcp_client_manager.get_all_tools()
-        if server:
-            tools = [t for t in tools if t.server_name == server]
-        return [
-            {
-                "server": t.server_name,
-                "name": t.name,
-                "description": t.description,
-            }
-            for t in tools
-        ]
-
-    async def _mcp_cleanup(self) -> None:
-        """Disconnect from all MCP servers. Called during session cleanup."""
-        await self._mcp_client_manager.disconnect_all()
 
     def is_waiting(self) -> bool:
         """Check if a wait condition is active."""
