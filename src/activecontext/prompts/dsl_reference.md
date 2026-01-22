@@ -60,29 +60,30 @@ Controls when running nodes update their content.
 from activecontext import TickFrequency
 
 TickFrequency.turn()        # Update every turn
-TickFrequency.seconds(5)    # Update every 5 seconds
+TickFrequency.period(5)     # Update every 5 seconds
 TickFrequency.async_()      # Async execution
 TickFrequency.never()       # No automatic updates
-TickFrequency.idle()        # Only when explicitly triggered
 ```
 
 ## Context Node Constructors
 
-### `text(path, pos="1:0", end_pos=None, tokens=1000, state=NodeState.DETAILS)`
+### `text(path, *, pos="1:0", tokens=2000, state=NodeState.ALL, mode="paused", parent=None)`
 Create a text view of a file or file region.
 
 ```python
 v = text("src/main.py")                          # Entire file
-v = text("src/main.py", pos="50:0", end_pos="100:0")  # Lines 50-100
+v = text("src/main.py", pos="50:0", tokens=500)  # Start at line 50
 v = text("src/main.py", tokens=500, state=NodeState.SUMMARY)
+v = text("src/main.py", parent=group_node)       # Link to parent at creation
 ```
 
-### `markdown(path, content=None, tokens=2000, state=NodeState.DETAILS)`
+### `markdown(path, *, content=None, tokens=2000, state=NodeState.DETAILS, parent=None)`
 Parse a markdown file into a tree of TextNodes, where each heading section is a separate node.
 
 ```python
 m = markdown("README.md")                        # Parse file
 m = markdown("inline.md", content="# Title\n\nContent")  # Inline content
+m = markdown("docs/guide.md", parent=docs_group) # Link to parent
 ```
 
 Returns the root TextNode. Child sections are accessible via `children_ids`.
@@ -95,7 +96,7 @@ v = view("text", "src/main.py")                  # Same as text()
 m = view("markdown", "docs/README.md")           # Same as markdown()
 ```
 
-### `group(*members, tokens=500, state=NodeState.SUMMARY, summary=None)`
+### `group(*members, tokens=500, state=NodeState.SUMMARY, summary=None, parent=None)`
 Create a summary group over multiple nodes.
 
 ```python
@@ -104,19 +105,21 @@ g = group("node_id_1", "node_id_2")      # Group from node IDs
 g = group(v1, v2, summary="Auth module overview")
 ```
 
-### `topic(title, tokens=1000, state=NodeState.DETAILS)`
+### `topic(title, *, tokens=1000, status="active", parent=None)`
 Create a conversation topic/thread marker.
 
 ```python
 t = topic("Authentication Implementation")
+t = topic("Bug Fix", status="resolved")   # Status: active, resolved, deferred
 ```
 
-### `artifact(content, artifact_type="code", language=None, tokens=500)`
+### `artifact(artifact_type="code", *, content="", language=None, tokens=500, parent=None)`
 Create an artifact (code snippet, output, error).
 
 ```python
-a = artifact("def foo(): pass", artifact_type="code", language="python")
-a = artifact(error_text, artifact_type="error")
+a = artifact("code", content="def foo(): pass", language="python")
+a = artifact("error", content=error_text)
+a = artifact("output", content=command_output)
 ```
 
 ## Path Prefixes
@@ -156,16 +159,12 @@ node.SetState(NodeState.SUMMARY)   # Change rendering state
 node.SetTokens(500)                # Change token budget
 node.Run(TickFrequency.turn())     # Start running with frequency
 node.Pause()                       # Stop automatic updates
-node.Refresh()                     # Force immediate update
 ```
 
 ### TextNode Methods
 
 ```python
 v.SetPos("50:0")      # Jump to line 50
-v.SetEndPos("100:0")  # Set end of region
-v.Scroll(10)          # Scroll down 10 lines
-v.Scroll(-5)          # Scroll up 5 lines
 ```
 
 ### Method Chaining
@@ -178,19 +177,21 @@ v = text("src/main.py").SetTokens(2000).SetState(NodeState.ALL).Run(TickFrequenc
 
 ## DAG Manipulation
 
-### `link(parent, child)` / `link(parent, child1, child2, ...)`
-Add parent-child relationships in the context graph.
+### `link(child, parent)`
+Add a parent-child relationship in the context graph.
 
 ```python
-link(group_node, view_node)
-link(g, v1, v2, v3)  # Link multiple children
+link(view_node, group_node)   # Make view_node a child of group_node
+link(v1, g)                   # Add v1 to group g
 ```
 
-### `unlink(parent, child)`
+Note: Argument order is `(child, parent)` - the child comes first.
+
+### `unlink(child, parent)`
 Remove a parent-child relationship.
 
 ```python
-unlink(group_node, view_node)
+unlink(view_node, group_node)
 ```
 
 ## Checkpointing
@@ -210,27 +211,28 @@ restore("before_refactor")
 ```
 
 ### `checkpoints()`
-List available checkpoints.
+List available checkpoints. Returns list of checkpoint metadata dicts.
 
 ```python
-names = checkpoints()  # ["before_refactor", "exploration"]
+cps = checkpoints()  # [{"name": "before_refactor", "created": ..., ...}]
 ```
 
-### `branch(from_checkpoint, new_name)`
-Create a new checkpoint branching from an existing one.
+### `branch(name)`
+Save current DAG structure as a checkpoint and continue (alias for checkpoint).
 
 ```python
-branch("before_refactor", "refactor_attempt_2")
+branch("refactor_attempt_2")  # Same as checkpoint("refactor_attempt_2")
 ```
 
 ## Shell Execution
 
-### `shell(command, *args, timeout=60, max_output=50000)`
+### `shell(command, args=None, cwd=None, env=None, timeout=30.0, *, tokens=2000, state=NodeState.DETAILS)`
 Execute a shell command asynchronously. Returns a ShellNode.
 
 ```python
-s = shell("pytest", "-v", "tests/")
-s = shell("npm", "run", "build", timeout=120)
+s = shell("pytest", args=["-v", "tests/"])
+s = shell("npm", args=["run", "build"], timeout=120)
+s = shell("git", args=["status"])
 
 # Check status
 s.is_complete    # True when done
@@ -241,13 +243,52 @@ s.output         # stdout/stderr
 
 ## HTTP Requests
 
-### `fetch(url, method="GET", headers=None, body=None)`
+### `fetch(url, *, method="GET", headers=None, data=None, json=None, timeout=30.0)`
 Make an HTTP/HTTPS request (requires permission).
 
 ```python
 response = await fetch("https://api.example.com/data")
-response = await fetch("https://api.example.com/post", method="POST", body=data)
+response = await fetch("https://api.example.com/post", method="POST", data=payload)
+response = await fetch("https://api.example.com/api", method="POST", json={"key": "value"})
 ```
+
+## File Locking
+
+### `lock_file(lockfile, timeout=30.0, *, tokens=200, state=NodeState.COLLAPSED)`
+Acquire a file lock for coordination. Returns a LockNode.
+
+```python
+lock = lock_file("src/shared.py.lock", timeout=60)
+# Lock is acquired when node shows success
+# Do work with the locked resource
+lock_release(lock)
+```
+
+### `lock_release(lock)`
+Release a previously acquired file lock.
+
+```python
+lock_release(lock)          # By LockNode reference
+lock_release("lock_1")      # By node ID
+```
+
+## Notification Control
+
+### `notify(node, level=NotificationLevel.WAKE)`
+Set notification level for a node. Controls how the agent is alerted to changes.
+
+```python
+from activecontext import NotificationLevel
+
+notify(shell_node, NotificationLevel.WAKE)    # Wake agent when done
+notify(text_node, NotificationLevel.HOLD)     # Buffer notifications
+notify(group_node, "ignore")                  # String level also works
+```
+
+Notification levels:
+- `WAKE` - Immediately wake the agent when node changes
+- `HOLD` - Buffer notifications until next tick
+- `IGNORE` - Don't notify on changes
 
 ## Work Coordination
 
@@ -391,14 +432,15 @@ You can use XML-style tags instead of Python syntax. Tags are converted to Pytho
 
 ```xml
 <!-- name becomes the variable name -->
-<text name="v" path="src/main.py" tokens="3000" state="all"/>
-<markdown name="m" path="README.md" tokens="2000"/>
+<view name="v" path="src/main.py" tokens="3000" state="all"/>
 <group name="g" tokens="500" state="summary">
     <member ref="v"/>
 </group>
 <topic name="t" title="Feature X" tokens="1000"/>
-<artifact name="a" content="def foo(): pass" artifact_type="code" language="python"/>
+<artifact name="a" artifact_type="code" content="def foo(): pass" language="python"/>
 ```
+
+Note: Use `<view>` tag for both text and markdown files. The `<text>` and `<markdown>` tags are not supported.
 
 ### Method Calls
 
@@ -407,10 +449,8 @@ You can use XML-style tags instead of Python syntax. Tags are converted to Pytho
 <SetState self="v" s="collapsed"/>
 <SetTokens self="v" n="500"/>
 <SetPos self="v" pos="50:0"/>
-<Scroll self="v" delta="10"/>
 <Run self="v" freq="turn"/>
 <Pause self="v"/>
-<Refresh self="v"/>
 ```
 
 ### Shell Execution
@@ -423,10 +463,11 @@ You can use XML-style tags instead of Python syntax. Tags are converted to Pytho
 ### DAG Manipulation
 
 ```xml
-<link child="v" parent="g"/>
+<link child="v" parent="g"/>   <!-- Note: child first, parent second -->
 <unlink child="v" parent="g"/>
 <checkpoint name="before_refactor"/>
 <restore name="before_refactor"/>
+<branch name="attempt_2"/>
 ```
 
 ### Utility Functions
