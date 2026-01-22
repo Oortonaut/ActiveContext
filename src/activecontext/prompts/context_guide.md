@@ -36,7 +36,7 @@ A **text view** is a window into a file. The view appears in your context on the
 | `pos`     | `"1:0"`    | Start position as `"line:col"`                   |
 | `end_pos` | `None`     | End position as `"line:col"` (limits view range) |
 | `tokens`  | `2000`     | Token budget for content                         |
-| `state`   | `DETAILS`  | Rendering state (HIDDEN, COLLAPSED, SUMMARY, DETAILS, ALL) |
+| `state`   | `DETAILS`  | Rendering state (HIDDEN, COLLAPSED, SUMMARY, DETAILS) |
 | `mode`    | `"paused"` | `"paused"` or `"running"`                        |
 
 ### Text Methods

@@ -10,7 +10,6 @@ Controls how a node renders in the projection.
 | `COLLAPSED` | Metadata only (title, trace count) | Background context, low priority |
 | `SUMMARY` | LLM-generated summary | Groups, large files |
 | `DETAILS` | Full content with child settings | Active work files |
-| `ALL` | Everything including pending traces | Debugging, detailed review |
 
 ```python
 from activecontext import Expansion

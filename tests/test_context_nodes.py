@@ -70,7 +70,7 @@ class TestTextNodeSerialization:
         original = TextNode(
             node_id="view1",
             path="src/main.py",
-            state=Expansion.ALL,
+            state=Expansion.DETAILS,
             pos="10:5",
         )
 
@@ -235,7 +235,7 @@ class TestArtifactNodeSerialization:
             content="def foo(): pass",
             artifact_type="code",
             language="python",
-            state=Expansion.ALL,
+            state=Expansion.DETAILS,
         )
 
         data = node.to_dict()
@@ -271,7 +271,7 @@ class TestArtifactNodeSerialization:
             "node_id": "artifact1",
             "content": "test",
             "artifact_type": "output",
-            "state": "all",
+            "state": "details",
         }
 
         node = ContextNode.from_dict(data)
@@ -313,7 +313,7 @@ class TestShellNodeSerialization:
             node_id="shell1",
             command="git",
             args=["status"],
-            state=Expansion.ALL,
+            state=Expansion.DETAILS,
             output="On branch main",
             exit_code=0,
         )
@@ -583,7 +583,7 @@ class TestAgentNodeSerialization:
             node_id="agent1",
             agent_id="worker-456",
             agent_type="coder",
-            state=Expansion.ALL,
+            state=Expansion.DETAILS,
             agent_state="completed",
             task="Implement feature X",
         )

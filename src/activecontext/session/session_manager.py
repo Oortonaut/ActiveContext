@@ -130,7 +130,7 @@ class Session:
                 # Shouldn't happen, but create fresh if somehow wrong type
                 self._root_context = GroupNode(
                     node_id="context",
-                    state=Expansion.ALL,
+                    state=Expansion.DETAILS,
                     mode="running",
                     tick_frequency=TickFrequency.turn(),
                 )
@@ -142,7 +142,7 @@ class Session:
             # All other nodes become children of this root
             self._root_context = GroupNode(
                 node_id="context",
-                state=Expansion.ALL,
+                state=Expansion.DETAILS,
                 mode="running",
                 tick_frequency=TickFrequency.turn(),
             )
@@ -202,7 +202,7 @@ class Session:
             path="system_prompt",
             content=SYSTEM_PROMPT,
             tokens=2000,  # Base system prompt is smaller than full combined prompt
-            state=Expansion.ALL,  # Fully expanded
+            state=Expansion.DETAILS,  # Fully expanded
         )
 
         # Link root node to root context for document ordering
@@ -1371,7 +1371,7 @@ class Session:
                 node_id=f"alert_{i}",
                 content=notif.header,
                 artifact_type="notification",
-                state=Expansion.ALL,
+                state=Expansion.DETAILS,
                 tags={"level": notif.level, "source": notif.node_id},
             )
             context_graph.add_node(alert_node)
@@ -1477,7 +1477,7 @@ class Session:
 
                 # Use forward slashes for cross-platform compatibility
                 safe_path = rel_path.replace("\\", "/")
-                source = f'guide = markdown("{safe_path}", tokens=1500, state=Expansion.ALL)'
+                source = f'guide = markdown("{safe_path}", tokens=1500, state=Expansion.DETAILS)'
                 await self._timeline.execute_statement(source)
                 break
 

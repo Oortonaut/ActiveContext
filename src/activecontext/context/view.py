@@ -203,7 +203,7 @@ class AgentView:
             return self._render_summary(content, effective_budget)
         elif self.state == Expansion.DETAILS:
             return self._render_details(content, effective_budget)
-        elif self.state == Expansion.ALL:
+        elif self.state == Expansion.DETAILS:
             return self._render_all(content, effective_budget)
         else:
             # HIDDEN state (legacy) - treat as hidden flag

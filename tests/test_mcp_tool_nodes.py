@@ -174,7 +174,7 @@ class TestMCPToolNodeRender:
 
     def test_render_all(self, tool_node):
         """Test ALL state shows full schema documentation."""
-        tool_node.state = Expansion.ALL
+        tool_node.state = Expansion.DETAILS
         result = tool_node.Render()
         assert "### `filesystem.read_file()`" in result
         assert "**Parameters:**" in result
@@ -237,7 +237,7 @@ class TestMCPToolNodeSerialization:
             description="Write a file",
             input_schema={"properties": {"path": {}}},
             tokens=300,
-            state=Expansion.ALL,
+            state=Expansion.DETAILS,
         )
         data = original.to_dict()
         restored = MCPToolNode._from_dict(data)
@@ -246,7 +246,7 @@ class TestMCPToolNodeSerialization:
         assert restored.description == "Write a file"
         assert restored.input_schema == {"properties": {"path": {}}}
         assert restored.tokens == 300
-        assert restored.state == Expansion.ALL
+        assert restored.state == Expansion.DETAILS
 
     def test_from_dict_via_factory(self):
         """Test ContextNode.from_dict() dispatches to MCPToolNode."""
@@ -464,9 +464,9 @@ class TestMCPToolNodeIntegration:
         tool = mcp_server_node.tool("read_file")
 
         # Test fluent API
-        result = tool.SetState(Expansion.ALL)
+        result = tool.SetState(Expansion.DETAILS)
         assert result is tool
-        assert tool.state == Expansion.ALL
+        assert tool.state == Expansion.DETAILS
 
     def test_tool_node_display_name(self):
         """Test MCPToolNode.get_display_name() format."""

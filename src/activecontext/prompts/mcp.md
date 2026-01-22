@@ -77,12 +77,11 @@ When connected, the MCPServerNode appears in your context with tool documentatio
 
 - **COLLAPSED**: `MCP: filesystem [OK] (5 tools)`
 - **SUMMARY**: Server + tool names list
-- **DETAILS**: Tool names + descriptions + usage hint
-- **ALL**: Full documentation with parameter schemas
+- **DETAILS**: Full documentation with parameter schemas
 
 ```python
 fs = mcp_connect("filesystem")
-fs.SetState(Expansion.ALL)      # Full tool documentation
+fs.SetState(Expansion.DETAILS)      # Full tool documentation
 fs.SetState(Expansion.SUMMARY)  # Just tool names
 ```
 
@@ -101,7 +100,7 @@ tool = fs.tool("read_file")           # Get single tool node
 all_tools = fs.tool_nodes             # Get all tool nodes
 
 # Access via namespace (prefixed names)
-filesystem_read_file.SetState(Expansion.ALL)
+filesystem_read_file.SetState(Expansion.DETAILS)
 filesystem_write_file.SetState(Expansion.HIDDEN)
 ```
 
@@ -112,12 +111,11 @@ Each MCPToolNode has independent state control:
 - **HIDDEN**: Not shown in projection
 - **COLLAPSED**: Just the tool name: `` `read_file` ``
 - **SUMMARY**: Name + truncated description
-- **DETAILS**: Name, description, required parameters
-- **ALL**: Full JSON schema documentation
+- **DETAILS**: Full JSON schema documentation
 
 ```python
 # Show full documentation for one tool only
-fs.tool("read_file").SetState(Expansion.ALL)
+fs.tool("read_file").SetState(Expansion.DETAILS)
 
 # Hide tools you don't need
 fs.tool("delete_file").SetState(Expansion.HIDDEN)

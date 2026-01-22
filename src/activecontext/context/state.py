@@ -21,18 +21,12 @@ class Expansion(Enum):
     - COLLAPSED: Title and metadata only (size, trace count)
     - SUMMARY: LLM-generated summary (default for groups)
     - DETAILS: Full view with child settings (default for views)
-    - ALL: Everything including full traces (DEPRECATED: use DETAILS)
-
-    Note: ALL is deprecated and will be removed in a future version.
-    It was originally a union of SUMMARY + DETAILS but adds complexity.
-    Use DETAILS instead for full content display.
     """
 
     HIDDEN = "hidden"
     COLLAPSED = "collapsed"
     SUMMARY = "summary"
     DETAILS = "details"
-    ALL = "all"  # DEPRECATED: use DETAILS instead
 
     def __str__(self) -> str:
         return self.value

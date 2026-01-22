@@ -208,23 +208,22 @@ class TestAgentViewRender:
         assert "truncated" in result
         assert len(result) < 1000
 
-    def test_render_all(self, mock_content):
-        """Test render ALL view."""
-        view = AgentView(state=Expansion.ALL, tokens=200)
+    def test_render_details_full(self, mock_content):
+        """Test render DETAILS view shows full content."""
+        view = AgentView(state=Expansion.DETAILS, tokens=200)
 
         result = view.render(mock_content)
 
-        assert "## Summary" in result
-        assert "## Details" in result
-        assert "Summary of the file." in result
+        # DETAILS shows raw content without summary section
+        assert mock_content.raw_content in result
 
-    def test_render_all_without_summary(self, mock_shell_content):
-        """Test render ALL view when no summary."""
-        view = AgentView(state=Expansion.ALL, tokens=200)
+    def test_render_details_shell(self, mock_shell_content):
+        """Test render DETAILS view with shell content."""
+        view = AgentView(state=Expansion.DETAILS, tokens=200)
 
         result = view.render(mock_shell_content)
 
-        assert "## Details" in result
+        # DETAILS shows raw content
         assert mock_shell_content.raw_content in result
 
     def test_render_hidden_state_legacy(self):
@@ -294,7 +293,7 @@ class TestAgentViewFluentAPI:
         original_time = view.updated_at
 
         time.sleep(0.01)
-        view.SetState(Expansion.ALL)
+        view.SetState(Expansion.DETAILS)
 
         assert view.updated_at > original_time
 
@@ -440,7 +439,7 @@ class TestAgentViewSerialization:
         original = AgentView(
             view_id="round123",
             agent_id="agent1",
-            state=Expansion.ALL,
+            state=Expansion.DETAILS,
             hidden=True,
             parent_ids={"p1"},
         )

@@ -49,7 +49,7 @@ Expansion.HIDDEN     # Not shown in projection (but still ticked if running)
 Expansion.COLLAPSED  # Title and metadata only (~50 tokens)
 Expansion.SUMMARY    # LLM-generated summary
 Expansion.DETAILS    # Full view with child settings
-Expansion.ALL        # Everything including full traces
+
 ```
 
 ### TickFrequency
@@ -67,7 +67,7 @@ TickFrequency.never()       # No automatic updates
 
 ## Context Node Constructors
 
-### `text(path, *, pos="1:0", tokens=2000, state=Expansion.ALL, mode="paused", parent=None)`
+### `text(path, *, pos="1:0", tokens=2000, state=Expansion.DETAILS, mode="paused", parent=None)`
 Create a text view of a file or file region.
 
 ```python
@@ -88,7 +88,7 @@ m = markdown("docs/guide.md", parent=docs_group) # Link to parent
 
 Returns the root TextNode. Child sections are accessible via `children_ids`.
 
-### `view(media_type, path, tokens=2000, state=Expansion.ALL, **kwargs)`
+### `view(media_type, path, tokens=2000, state=Expansion.DETAILS, **kwargs)`
 Dispatcher that routes to `text()` or `markdown()` based on media type.
 
 ```python
@@ -172,7 +172,7 @@ v.SetPos("50:0")      # Jump to line 50
 Methods return `self` for chaining:
 
 ```python
-v = text("src/main.py").SetTokens(2000).SetState(Expansion.ALL).Run(TickFrequency.turn())
+v = text("src/main.py").SetTokens(2000).SetState(Expansion.DETAILS).Run(TickFrequency.turn())
 ```
 
 ## DAG Manipulation

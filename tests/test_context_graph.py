@@ -611,13 +611,12 @@ class TestStateTypes:
         assert Expansion.COLLAPSED.value == "collapsed"
         assert Expansion.SUMMARY.value == "summary"
         assert Expansion.DETAILS.value == "details"
-        assert Expansion.ALL.value == "all"
 
     def test_node_state_string_representation(self):
         """Test Expansion string representation."""
         assert str(Expansion.HIDDEN) == "hidden"
         assert str(Expansion.SUMMARY) == "summary"
-        assert str(Expansion.ALL) == "all"
+        assert str(Expansion.DETAILS) == "details"
 
     def test_tick_frequency_turn(self):
         """Test TickFrequency.turn() factory."""

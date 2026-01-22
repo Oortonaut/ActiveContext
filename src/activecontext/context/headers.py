@@ -86,7 +86,7 @@ def format_token_info(info: TokenInfo, state: Expansion) -> str:
         hidden = info.detail
         result = f"{unit}: {visible_str}/{hidden}"
 
-    elif state in (Expansion.DETAILS, Expansion.ALL):
+    elif state == Expansion.DETAILS:
         # All visible
         if info.summary > 0:
             result = f"{unit}: {info.collapsed}+{info.summary}+{info.detail}"

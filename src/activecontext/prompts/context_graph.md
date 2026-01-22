@@ -110,4 +110,4 @@ The projection engine walks the graph from roots:
 
 Groups render differently based on state:
 - `SUMMARY`: Show cached summary (or children if stale)
-- `DETAILS`/`ALL`: Render all children
+- `DETAILS`: Render all children

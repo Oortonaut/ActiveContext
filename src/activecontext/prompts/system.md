@@ -44,13 +44,12 @@ Control information density with enum `Expansion`:
 | `COLLAPSED`     | Title/metadata only (~50 tokens) | Quick reference, navigation |
 | `SUMMARY` (alt) | Leaf node content                | Data display                |
 | `SUMMARY`       | LLM-generated summary            | Understanding structure     |
-| `DETAILS`       | Child nodes only                 | Active work area            |
-| `ALL`           | Union of Summary and child nodes | Debugging, full inspection  |
+| `DETAILS`       | Full content with children       | Active work area            |
 
 
 **Guidelines:**
 
-- Start with `DETAILS` or `ALL` for files you're actively editing
+- Start with `DETAILS` for files you're actively editing
 - Use `SUMMARY` for related context you need to understand but not modify
 - Use `COLLAPSED` for files you've finished with but may return to
 - Set to `HIDDEN` when a view is no longer relevant
@@ -60,7 +59,7 @@ Control information density with enum `Expansion`:
 ### Examining Code
 
 ```python
-v = text("src/auth.py", tokens=2000, state=Expansion.ALL)
+v = text("src/auth.py", tokens=2000, state=Expansion.DETAILS)
 ```
 
 Always read code before suggesting changes. Adjust `tokens` based on file size.
@@ -119,7 +118,7 @@ Regular `python` blocks are for showing examples without execution.
 
 1. **Examine before editing** - Always view files before suggesting changes
 2. **Manage context actively** - Collapse or hide views you're done with
-3. **Use appropriate detail levels** - ALL for active work, SUMMARY for reference
+3. **Use appropriate detail levels** - DETAILS for active work, SUMMARY for reference
 4. **Checkpoint before exploration** - Save state before major investigations
 5. **Wait for shells** - Use `wait()` when you need command output
 6. **Signal completion** - Call `done()` with a summary when finished

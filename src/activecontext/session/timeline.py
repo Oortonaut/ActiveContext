@@ -836,7 +836,7 @@ class Timeline:
         *,
         pos: str = "1:0",
         tokens: int = 2000,
-        state: Expansion = Expansion.ALL,
+        state: Expansion = Expansion.DETAILS,
         mode: str = "paused",
         parent: ContextNode | str | None = None,
     ) -> TextNode:
@@ -1160,7 +1160,7 @@ class Timeline:
         path: str,
         *,
         tokens: int = 2000,
-        state: Expansion = Expansion.ALL,
+        state: Expansion = Expansion.DETAILS,
         **kwargs: Any,
     ) -> TextNode:
         """Dispatcher for creating text views based on media type.
