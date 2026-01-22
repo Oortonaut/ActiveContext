@@ -790,9 +790,13 @@ class DashboardClient {
 
         // Render sections breakdown
         const sectionsEl = document.getElementById('rendered-sections');
-        if (sectionsEl && data.sections) {
+        if (sectionsEl) {
             sectionsEl.innerHTML = '';
-            data.sections.forEach((section, index) => {
+            
+            if (!data.sections || data.sections.length === 0) {
+                sectionsEl.innerHTML = '<div class="rendered-empty">No sections to display</div>';
+            } else {
+                data.sections.forEach((section, index) => {
                 const sectionItem = document.createElement('div');
                 const nodeId = section.source_id;
                 const currentExpansion = section.expansion || 'details';
@@ -840,6 +844,7 @@ class DashboardClient {
 
                 sectionsEl.appendChild(sectionItem);
             });
+            }
         }
 
         // Store data for copy button
