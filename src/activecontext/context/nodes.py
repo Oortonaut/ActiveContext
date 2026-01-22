@@ -24,7 +24,9 @@ from typing import TYPE_CHECKING, Any
 from activecontext.context.state import Expansion, NotificationLevel, TickFrequency
 
 if TYPE_CHECKING:
-    from activecontext.context.graph import LinkedChildOrder
+    pass  # Moved to runtime import below
+
+from activecontext.context.graph import LinkedChildOrder
 from activecontext.core.tokens import MediaType, detect_media_type
 
 
@@ -1075,11 +1077,19 @@ class GroupNode(ContextNode):
         return "group"
 
     def GetDigest(self) -> dict[str, Any]:
+        # Handle both LinkedChildOrder and list for child_order
+        child_order_list = None
+        if self.child_order is not None:
+            if hasattr(self.child_order, "to_list"):
+                child_order_list = self.child_order.to_list()
+            else:
+                child_order_list = list(self.child_order) if self.child_order else None
+        
         return {
             "id": self.node_id,
             "type": self.node_type,
             "member_count": len(self.children_ids),
-            "child_order": self.child_order,
+            "child_order": child_order_list,
             "tokens": self.tokens,
             "expansion": self.expansion.value,
             "mode": self.mode,
@@ -1206,11 +1216,20 @@ class GroupNode(ContextNode):
         if data.get("tick_frequency"):
             tick_freq = TickFrequency.from_dict(data["tick_frequency"])
 
+        # Convert child_order from list to LinkedChildOrder if needed
+        child_order_data = data.get("child_order")
+        child_order = None
+        if child_order_data:
+            if isinstance(child_order_data, list):
+                child_order = LinkedChildOrder.from_list(child_order_data)
+            else:
+                child_order = child_order_data
+
         node = cls(
             node_id=data["node_id"],
             parent_ids=set(data.get("parent_ids", [])),
             children_ids=set(data.get("children_ids", [])),
-            child_order=data.get("child_order"),
+            child_order=child_order,
             tokens=data.get("tokens", 500),
             expansion=Expansion(data.get("expansion", "summary")),
             mode=data.get("mode", "paused"),
@@ -3115,11 +3134,20 @@ class MCPServerNode(ContextNode):
         if data.get("tick_frequency"):
             tick_freq = TickFrequency.from_dict(data["tick_frequency"])
 
+        # Convert child_order from list to LinkedChildOrder if needed
+        child_order_data = data.get("child_order")
+        child_order = None
+        if child_order_data:
+            if isinstance(child_order_data, list):
+                child_order = LinkedChildOrder.from_list(child_order_data)
+            else:
+                child_order = child_order_data
+
         node = cls(
             node_id=data["node_id"],
             parent_ids=set(data.get("parent_ids", [])),
             children_ids=set(data.get("children_ids", [])),
-            child_order=data.get("child_order"),
+            child_order=child_order,
             tokens=data.get("tokens", 1000),
             expansion=Expansion(data.get("expansion", "details")),
             mode=data.get("mode", "paused"),
