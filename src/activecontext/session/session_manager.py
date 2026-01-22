@@ -1623,9 +1623,13 @@ class SessionManager:
         # Get MCP config if available
         mcp_config = project_config.mcp if project_config else None
 
+        # Create context graph - Session owns this, Timeline uses it
+        context_graph = ContextGraph()
+
         timeline = Timeline(
             session_id,
             cwd=cwd,
+            context_graph=context_graph,
             permission_manager=permission_manager,
             terminal_executor=terminal_executor,
             permission_requester=permission_requester,  # type: ignore[arg-type]
