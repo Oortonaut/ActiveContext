@@ -185,6 +185,9 @@ class Session:
         # Alerts group for notifications - created in _create_metadata_nodes
         self._alerts_group: GroupNode | None = None
 
+        # Track whether startup() has been called
+        self._startup_done: bool = is_restore  # Restored sessions skip startup
+
     def _add_system_prompt_node(self) -> None:
         """Add the system prompt as a fully expanded TextNode tree.
 
@@ -1404,16 +1407,98 @@ class Session:
         """Get the context graph (DAG of context nodes)."""
         return self._timeline.context_graph
 
-    async def _setup_initial_context(self) -> None:
-        """Set up initial context for a new session.
+    async def delegate_conversation(
+        self,
+        handler: Any,  # ConversationHandler protocol
+        *,
+        originator: str,
+        pause_agent: bool = True,
+        forward_permissions: bool = True,
+    ) -> Any:
+        """Delegate conversation control to a handler.
 
-        Three-tier startup execution:
-        1. Base statements: user's `statements` if set, else PACKAGE_DEFAULT_STARTUP
-        2. Additional statements: user's `additional` always executes last
-        3. Context guide: loaded unless skip_default_context is True
+        All communication flows through MessageNode with specified originator.
+        The handler can send output and request input, with all messages
+        appearing in the context graph and projection.
 
-        Only runs on NEW session creation, not when loading from file.
+        Args:
+            handler: Handler to process conversation (implements ConversationHandler protocol)
+            originator: Identifier for MessageNodes (e.g., "shell:bash", "mcp:menu")
+            pause_agent: Pause agent loop during delegation
+            forward_permissions: Handler inherits session permissions
+
+        Returns:
+            Result from handler (becomes MessageNode with role="user")
+
+        Raises:
+            asyncio.CancelledError: If conversation is cancelled
+
+        Example:
+            >>> from activecontext.handlers.interactive_shell import InteractiveShellHandler
+            >>> handler = InteractiveShellHandler("bash")
+            >>> result = await session.delegate_conversation(
+            ...     handler, originator="shell:bash"
+            ... )
+            >>> print(f"Shell exited with code {result['exit_code']}")
         """
+        from activecontext.session.coordinator import SessionConversationTransport
+
+        # Create transport wrapper
+        transport = SessionConversationTransport(
+            session=self,
+            originator=originator,
+            forward_permissions=forward_permissions,
+        )
+
+        # TODO: Pause agent loop if requested
+        # if pause_agent:
+        #     await self.pause()
+
+        try:
+            # Let handler take over
+            result = await handler.handle(transport)
+
+            # Add result as MessageNode
+            result_node = MessageNode(
+                role="user",  # Result flows back as user input
+                originator=originator,
+                content=str(result),
+                expansion=Expansion.DETAILS,
+            )
+            self.timeline.context_graph.add_node(result_node)
+
+            return result
+
+        except asyncio.CancelledError:
+            # Cancellation is regular code path
+            cancel_node = MessageNode(
+                role="user",
+                originator=originator,
+                content="[Cancelled]",
+                expansion=Expansion.DETAILS,
+            )
+            self.timeline.context_graph.add_node(cancel_node)
+            raise
+
+        # TODO: Resume agent loop if paused
+        # finally:
+        #     if pause_agent:
+        #         await self.resume()
+
+    async def startup(self) -> AsyncIterator[SessionUpdate]:
+        """Execute startup scripts and yield updates for each statement.
+
+        This method should be called after session creation to run startup scripts.
+        It yields SessionUpdate events that can be used to show tool call progress.
+
+        For restored sessions, this method yields nothing (startup already happened).
+
+        Yields:
+            SessionUpdate events for each startup statement (executing/executed).
+        """
+        if self._startup_done:
+            return
+
         from activecontext.config.schema import PACKAGE_DEFAULT_STARTUP, StartupConfig
 
         startup_config = (
@@ -1431,17 +1516,63 @@ class Session:
 
         # Execute base statements
         for statement in base_statements:
+            yield SessionUpdate(
+                kind=UpdateKind.STATEMENT_EXECUTING,
+                session_id=self._session_id,
+                payload={"source": statement, "is_startup": True},
+                timestamp=time.time(),
+            )
             try:
                 await self._timeline.execute_statement(statement)
+                yield SessionUpdate(
+                    kind=UpdateKind.STATEMENT_EXECUTED,
+                    session_id=self._session_id,
+                    payload={"source": statement, "status": "ok", "is_startup": True},
+                    timestamp=time.time(),
+                )
             except Exception as e:
                 log.warning(f"Startup statement failed: {statement!r}: {e}")
+                yield SessionUpdate(
+                    kind=UpdateKind.STATEMENT_EXECUTED,
+                    session_id=self._session_id,
+                    payload={
+                        "source": statement,
+                        "status": "error",
+                        "is_startup": True,
+                        "exception": {"message": str(e), "type": type(e).__name__},
+                    },
+                    timestamp=time.time(),
+                )
 
         # Execute user additions last (always additive)
         for statement in startup_config.additional:
+            yield SessionUpdate(
+                kind=UpdateKind.STATEMENT_EXECUTING,
+                session_id=self._session_id,
+                payload={"source": statement, "is_startup": True},
+                timestamp=time.time(),
+            )
             try:
                 await self._timeline.execute_statement(statement)
+                yield SessionUpdate(
+                    kind=UpdateKind.STATEMENT_EXECUTED,
+                    session_id=self._session_id,
+                    payload={"source": statement, "status": "ok", "is_startup": True},
+                    timestamp=time.time(),
+                )
             except Exception as e:
                 log.warning(f"Additional startup statement failed: {statement!r}: {e}")
+                yield SessionUpdate(
+                    kind=UpdateKind.STATEMENT_EXECUTED,
+                    session_id=self._session_id,
+                    payload={
+                        "source": statement,
+                        "status": "error",
+                        "is_startup": True,
+                        "exception": {"message": str(e), "type": type(e).__name__},
+                    },
+                    timestamp=time.time(),
+                )
 
         # Load context guide (project-specific or bundled) unless skipped
         if not startup_config.skip_default_context:
@@ -1452,6 +1583,23 @@ class Session:
 
         # Auto-connect to configured MCP servers
         await self._setup_mcp_autoconnect()
+
+        self._startup_done = True
+
+    async def _setup_initial_context(self) -> None:
+        """Set up initial context for a new session (non-yielding version).
+
+        This is the synchronous startup for transports that don't need update streaming.
+        For ACP transports, use startup() instead to get tool call updates.
+
+        Only runs on NEW session creation, not when loading from file.
+        """
+        if self._startup_done:
+            return
+
+        # Consume the startup generator to run all statements
+        async for _ in self.startup():
+            pass
 
 
 
@@ -1549,6 +1697,7 @@ class SessionManager:
         shell_permission_requester: ShellPermissionRequester | None = None,
         website_permission_requester: WebsitePermissionRequester | None = None,
         import_permission_requester: ImportPermissionRequester | None = None,
+        skip_startup: bool = False,
     ) -> Session:
         """Create a new session with its own timeline.
 
@@ -1566,6 +1715,8 @@ class SessionManager:
                 async (session_id, url, method) -> (granted, persist)
             import_permission_requester: Optional callback for ACP import permission prompts;
                 async (session_id, module) -> (granted, persist, include_submodules)
+            skip_startup: If True, skip automatic startup script execution.
+                Caller should manually call session.startup() to get updates.
         """
         if session_id is None:
             session_id = str(uuid.uuid4())
@@ -1637,7 +1788,9 @@ class SessionManager:
         self._reload_unregisters[session_id] = unregister
 
         # Initialize with example context view if guide exists
-        await session._setup_initial_context()
+        # Skip if caller wants to handle startup themselves (e.g., for tool call updates)
+        if not skip_startup:
+            await session._setup_initial_context()
 
         return session
 

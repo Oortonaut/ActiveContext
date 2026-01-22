@@ -421,6 +421,83 @@ class TestSessionConfiguration:
         mock_load_config.assert_called_with(session_root="/project/path")
 
 
+class TestSessionStartup:
+    """Tests for session startup functionality."""
+
+    @pytest.mark.asyncio
+    async def test_startup_yields_updates(self, mock_llm_provider):
+        """Test that startup() yields STATEMENT_EXECUTING and STATEMENT_EXECUTED updates."""
+        from activecontext.session.protocols import UpdateKind
+
+        manager = SessionManager(default_llm=mock_llm_provider)
+        # Create session with skip_startup so we can call startup() manually
+        session = await manager.create_session(cwd="/test/path", skip_startup=True)
+
+        # Collect updates from startup()
+        updates = []
+        async for update in session.startup():
+            updates.append(update)
+
+        # Should have at least some updates (base statements from PACKAGE_DEFAULT_STARTUP)
+        assert len(updates) > 0
+
+        # Updates should alternate between EXECUTING and EXECUTED
+        executing_count = sum(1 for u in updates if u.kind == UpdateKind.STATEMENT_EXECUTING)
+        executed_count = sum(1 for u in updates if u.kind == UpdateKind.STATEMENT_EXECUTED)
+        assert executing_count == executed_count
+
+        # Each update should have is_startup flag
+        for update in updates:
+            assert update.payload.get("is_startup") is True
+
+    @pytest.mark.asyncio
+    async def test_startup_idempotent(self, mock_llm_provider):
+        """Test that startup() only runs once (subsequent calls are no-ops)."""
+        manager = SessionManager(default_llm=mock_llm_provider)
+        session = await manager.create_session(cwd="/test/path", skip_startup=True)
+
+        # First call should yield updates
+        first_updates = [u async for u in session.startup()]
+        assert len(first_updates) > 0
+
+        # Second call should yield nothing
+        second_updates = [u async for u in session.startup()]
+        assert len(second_updates) == 0
+
+    @pytest.mark.asyncio
+    async def test_skip_startup_parameter(self, mock_llm_provider):
+        """Test that skip_startup parameter prevents automatic startup."""
+        manager = SessionManager(default_llm=mock_llm_provider)
+
+        # Create session with skip_startup=True
+        session = await manager.create_session(cwd="/test/path", skip_startup=True)
+
+        # Startup should not have been done yet
+        assert session._startup_done is False
+
+        # Call startup manually
+        async for _ in session.startup():
+            pass
+
+        # Now startup should be done
+        assert session._startup_done is True
+
+    @pytest.mark.asyncio
+    async def test_automatic_startup(self, mock_llm_provider):
+        """Test that startup runs automatically when skip_startup=False (default)."""
+        manager = SessionManager(default_llm=mock_llm_provider)
+
+        # Create session without skip_startup (default behavior)
+        session = await manager.create_session(cwd="/test/path")
+
+        # Startup should have been done
+        assert session._startup_done is True
+
+        # Calling startup() again should yield nothing
+        updates = [u async for u in session.startup()]
+        assert len(updates) == 0
+
+
 # =============================================================================
 # Integration Tests
 # =============================================================================

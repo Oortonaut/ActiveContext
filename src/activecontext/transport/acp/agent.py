@@ -735,6 +735,7 @@ class ActiveContextAgent:
 
             if session is None:
                 # Create new session with JetBrains UUID (or generate one)
+                # Skip startup so we can emit tool calls during post_session_setup
                 session = await self._manager.create_session(
                     cwd=cwd,
                     session_id=jetbrains_uuid,  # Will generate UUID if None
@@ -742,6 +743,7 @@ class ActiveContextAgent:
                     shell_permission_requester=None,
                     website_permission_requester=None,
                     import_permission_requester=None,
+                    skip_startup=True,
                 )
                 log.info("Created session %s", session.session_id)
 
@@ -1513,9 +1515,79 @@ class ActiveContextAgent:
         await self._conn.session_update(session_id, update)
 
     async def _post_session_setup(self, session_id: str) -> None:
-        """Post-session setup hook called after session is created or loaded."""
+        """Post-session setup hook called after session is created or loaded.
+
+        Runs startup scripts (if not already done) and emits tool call updates,
+        then advertises available slash commands.
+        """
+        session = await self._manager.get_session(session_id)
+        if not session:
+            log.warning("Session %s not found for post-setup", session_id)
+            return
+
+        # Run startup scripts with tool call updates
+        # Track tool_call_id between EXECUTING and EXECUTED updates
+        current_tool_call_id: str | None = None
+
         try:
-            # Advertise available slash commands to client
+            async for update in session.startup():
+                if update.kind == UpdateKind.STATEMENT_EXECUTING:
+                    # Start a new tool call
+                    source = update.payload.get("source", "")
+                    current_tool_call_id = f"startup-{uuid.uuid4()}"
+
+                    await self._send_session_update(
+                        session_id,
+                        helpers.start_tool_call(
+                            tool_call_id=current_tool_call_id,
+                            title="Startup",
+                            kind="execute",
+                            status="in_progress",
+                            content=[
+                                helpers.tool_content(
+                                    helpers.text_block(f"```python\n{source}\n```")
+                                )
+                            ],
+                        ),
+                    )
+
+                elif update.kind == UpdateKind.STATEMENT_EXECUTED:
+                    # Update the tool call status using tracked ID
+                    tool_call_id = current_tool_call_id or f"startup-{uuid.uuid4()}"
+                    status = update.payload.get("status", "ok")
+                    exception = update.payload.get("exception")
+
+                    if status == "ok":
+                        await self._send_session_update(
+                            session_id,
+                            helpers.update_tool_call(
+                                tool_call_id=tool_call_id,
+                                status="completed",
+                            ),
+                        )
+                    else:
+                        err_msg = exception.get("message", "Error") if exception else "Error"
+                        await self._send_session_update(
+                            session_id,
+                            helpers.update_tool_call(
+                                tool_call_id=tool_call_id,
+                                status="failed",
+                                content=[
+                                    helpers.tool_content(
+                                        helpers.text_block(f"Error: {err_msg}")
+                                    )
+                                ],
+                            ),
+                        )
+
+                    # Clear for next statement
+                    current_tool_call_id = None
+
+        except Exception as e:
+            log.warning("Startup failed for session %s: %s", session_id, e)
+
+        # Advertise available slash commands to client
+        try:
             await self._send_session_update(
                 session_id,
                 AvailableCommandsUpdate(
