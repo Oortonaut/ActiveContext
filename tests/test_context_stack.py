@@ -13,8 +13,8 @@ class MockSession:
     def __init__(self) -> None:
         self._timeline = Timeline(
             session_id="test",
-            cwd=".",
             context_graph=ContextGraph(),
+            cwd=".",
         )
         self._context_stack: list[str] = []
 

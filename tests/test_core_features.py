@@ -2,6 +2,7 @@
 
 import pytest
 
+from activecontext.context.graph import ContextGraph
 from activecontext.core.llm.provider import Message, Role
 from activecontext.core.prompts import parse_response
 from activecontext.session.protocols import Projection, ProjectionSection
@@ -204,7 +205,7 @@ class TestDoneSignal:
         """done() should set the done flag."""
         from activecontext.session.timeline import Timeline
 
-        timeline = Timeline("test-session", cwd=".")
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=".")
         assert not timeline.is_done()
 
         # Call done through namespace
@@ -217,7 +218,7 @@ class TestDoneSignal:
         """reset_done() should clear the flag."""
         from activecontext.session.timeline import Timeline
 
-        timeline = Timeline("test-session", cwd=".")
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=".")
         timeline._namespace["done"]("First task")
         assert timeline.is_done()
 
@@ -229,7 +230,7 @@ class TestDoneSignal:
         """done() can be called without a message."""
         from activecontext.session.timeline import Timeline
 
-        timeline = Timeline("test-session", cwd=".")
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=".")
         timeline._namespace["done"]()
 
         assert timeline.is_done()

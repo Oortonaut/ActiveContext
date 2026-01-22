@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from activecontext import ActiveContext
+from activecontext.context.graph import ContextGraph
 from activecontext.context.state import NodeState
 from activecontext.session.timeline import Timeline
 
@@ -24,7 +25,7 @@ class TestCheckpointRestore:
     @pytest.mark.asyncio
     async def test_checkpoint_and_restore(self, temp_cwd: Path) -> None:
         """Test creating a checkpoint and restoring edge structure."""
-        timeline = Timeline("test-session", cwd=str(temp_cwd))
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
 
         try:
             # Create some views
@@ -62,7 +63,7 @@ class TestCheckpointRestore:
     @pytest.mark.asyncio
     async def test_list_checkpoints(self, temp_cwd: Path) -> None:
         """Test listing available checkpoints."""
-        timeline = Timeline("test-session", cwd=str(temp_cwd))
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
 
         try:
             # Create multiple checkpoints
@@ -80,7 +81,7 @@ class TestCheckpointRestore:
     @pytest.mark.asyncio
     async def test_branch_from_checkpoint(self, temp_cwd: Path) -> None:
         """Test branching (creating checkpoint of current state)."""
-        timeline = Timeline("test-session", cwd=str(temp_cwd))
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
 
         try:
             # Create a view and checkpoint
@@ -115,7 +116,7 @@ class TestWaitFunctionality:
         """Test shell command completion and wait condition setup."""
         import sys
 
-        timeline = Timeline("test-session", cwd=str(temp_cwd))
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
 
         try:
             # Create a quick shell command
@@ -148,7 +149,7 @@ class TestWaitFunctionality:
         """Test that wait() returns immediately for completed nodes."""
         import sys
 
-        timeline = Timeline("test-session", cwd=str(temp_cwd))
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
 
         try:
             # Create and wait for shell
@@ -181,7 +182,7 @@ class TestDoneFunction:
     @pytest.mark.asyncio
     async def test_done_sets_flag(self, temp_cwd: Path) -> None:
         """Test that done() sets the completion flag."""
-        timeline = Timeline("test-session", cwd=str(temp_cwd))
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
 
         try:
             assert not timeline.is_done()
@@ -197,7 +198,7 @@ class TestDoneFunction:
     @pytest.mark.asyncio
     async def test_done_without_message(self, temp_cwd: Path) -> None:
         """Test done() without a message."""
-        timeline = Timeline("test-session", cwd=str(temp_cwd))
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
 
         try:
             result = await timeline.execute_statement("done()")
@@ -211,7 +212,7 @@ class TestDoneFunction:
     @pytest.mark.asyncio
     async def test_reset_done(self, temp_cwd: Path) -> None:
         """Test resetting the done flag."""
-        timeline = Timeline("test-session", cwd=str(temp_cwd))
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
 
         try:
             await timeline.execute_statement('done("First")')
@@ -235,7 +236,7 @@ class TestLinkUnlink:
     @pytest.mark.asyncio
     async def test_link_view_to_group(self, temp_cwd: Path) -> None:
         """Test linking a view to a group."""
-        timeline = Timeline("test-session", cwd=str(temp_cwd))
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
 
         try:
             # Create a group and a view
@@ -255,7 +256,7 @@ class TestLinkUnlink:
     @pytest.mark.asyncio
     async def test_unlink_removes_connection(self, temp_cwd: Path) -> None:
         """Test unlinking removes the connection."""
-        timeline = Timeline("test-session", cwd=str(temp_cwd))
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
 
         try:
             # Create linked nodes
@@ -288,7 +289,7 @@ class TestTopicAndArtifact:
     @pytest.mark.asyncio
     async def test_create_topic(self, temp_cwd: Path) -> None:
         """Test creating a topic node."""
-        timeline = Timeline("test-session", cwd=str(temp_cwd))
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
 
         try:
             result = await timeline.execute_statement('t = topic("Authentication")')
@@ -306,7 +307,7 @@ class TestTopicAndArtifact:
     @pytest.mark.asyncio
     async def test_create_artifact(self, temp_cwd: Path) -> None:
         """Test creating an artifact node."""
-        timeline = Timeline("test-session", cwd=str(temp_cwd))
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
 
         try:
             code = "def hello(): pass"
@@ -393,7 +394,7 @@ class TestErrorHandling:
     @pytest.mark.asyncio
     async def test_syntax_error_captured(self, temp_cwd: Path) -> None:
         """Test that syntax errors are captured."""
-        timeline = Timeline("test-session", cwd=str(temp_cwd))
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
 
         try:
             result = await timeline.execute_statement("if True print('x')")  # Missing colon
@@ -406,7 +407,7 @@ class TestErrorHandling:
     @pytest.mark.asyncio
     async def test_runtime_error_captured(self, temp_cwd: Path) -> None:
         """Test that runtime errors are captured."""
-        timeline = Timeline("test-session", cwd=str(temp_cwd))
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
 
         try:
             result = await timeline.execute_statement("1 / 0")
@@ -419,7 +420,7 @@ class TestErrorHandling:
     @pytest.mark.asyncio
     async def test_undefined_variable_error(self, temp_cwd: Path) -> None:
         """Test that undefined variable errors are captured."""
-        timeline = Timeline("test-session", cwd=str(temp_cwd))
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
 
         try:
             result = await timeline.execute_statement("x = undefined_var + 1")
@@ -432,7 +433,7 @@ class TestErrorHandling:
     @pytest.mark.asyncio
     async def test_restore_nonexistent_checkpoint_error(self, temp_cwd: Path) -> None:
         """Test that restoring nonexistent checkpoint raises error."""
-        timeline = Timeline("test-session", cwd=str(temp_cwd))
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
 
         try:
             result = await timeline.execute_statement('restore("nonexistent")')

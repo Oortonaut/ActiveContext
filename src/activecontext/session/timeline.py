@@ -165,8 +165,8 @@ class Timeline:
     def __init__(
         self,
         session_id: str,
-        cwd: str = ".",
         context_graph: ContextGraph,
+        cwd: str = ".",
         permission_manager: PermissionManager | None = None,
         terminal_executor: TerminalExecutor | None = None,
         permission_requester: PermissionRequester | None = None,
@@ -2368,10 +2368,6 @@ class Timeline:
     def get_context_objects(self) -> dict[str, Any]:
         """Get all context objects from the graph."""
         return {node.node_id: node for node in self._context_graph}
-
-    def get_context_graph(self) -> ContextGraph:
-        """Get the context graph."""
-        return self._context_graph
 
     @property
     def context_graph(self) -> ContextGraph:

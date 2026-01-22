@@ -1220,22 +1220,6 @@ class Session:
 
         return updates
 
-    def check_wait_condition(self) -> tuple[bool, str | None]:
-        """Check if an active wait condition is satisfied.
-
-        Returns:
-            Tuple of (is_satisfied, prompt_to_inject).
-        """
-        return self._timeline.check_wait_condition()
-
-    def is_waiting(self) -> bool:
-        """Check if session is waiting for a condition."""
-        return self._timeline.is_waiting()
-
-    def clear_wait_condition(self) -> None:
-        """Clear the active wait condition."""
-        self._timeline.clear_wait_condition()
-
     async def cancel(self) -> None:
         """Cancel the current operation and all running shell commands."""
         self._cancelled = True
@@ -1418,11 +1402,6 @@ class Session:
 
     def get_context_graph(self) -> ContextGraph:
         """Get the context graph (DAG of context nodes)."""
-        return self._timeline.context_graph
-
-    @property
-    def context_graph(self) -> ContextGraph:
-        """The context graph (DAG of context nodes)."""
         return self._timeline.context_graph
 
     async def _setup_initial_context(self) -> None:
@@ -1628,8 +1607,8 @@ class SessionManager:
 
         timeline = Timeline(
             session_id,
-            cwd=cwd,
             context_graph=context_graph,
+            cwd=cwd,
             permission_manager=permission_manager,
             terminal_executor=terminal_executor,
             permission_requester=permission_requester,  # type: ignore[arg-type]
