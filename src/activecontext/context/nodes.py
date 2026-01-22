@@ -3704,12 +3704,7 @@ class TraceNode(ContextNode):
         - Many fields: "Fields Changed: state, tokens, content..."
         - Many values: "state: a -> { b, c, d, (35 others) }"
 
-        Falls back to legacy format if no field_name is set.
         """
-        # Legacy format for backward compatibility
-        if not self.field_name:
-            return f"{self.node_display_id} {self.description}"
-
         if not self.child_traces:
             # Single change (possibly with merged values for same field)
             if self.merged_values:
