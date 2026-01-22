@@ -214,11 +214,12 @@ class TestTimelineShellIntegration:
     @pytest.fixture
     async def timeline(self, tmp_path):
         """Create timeline and cleanup after test."""
+        from activecontext.context.graph import ContextGraph
         from activecontext.session.timeline import Timeline
-        tl = Timeline(session_id="test", cwd=str(tmp_path))
+        tl = Timeline(session_id="test", context_graph=ContextGraph(), cwd=str(tmp_path))
         yield tl
         # Cancel all background shell tasks
-        for task in tl._shell_tasks.values():
+        for task in tl._shell_manager._shell_tasks.values():
             if not task.done():
                 task.cancel()
                 try:

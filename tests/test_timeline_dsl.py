@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 
 from activecontext.session.timeline import Timeline
+from activecontext.context.graph import ContextGraph
 
 
 class TestLsHandles:
@@ -22,7 +23,7 @@ class TestLsHandles:
     @pytest.mark.asyncio
     async def test_ls_returns_context_objects(self, temp_cwd: Path) -> None:
         """Test that ls() returns context object digests."""
-        timeline = Timeline("test-session", cwd=str(temp_cwd))
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
 
         try:
             # Initially empty
@@ -64,7 +65,7 @@ class TestSetTitle:
     @pytest.mark.asyncio
     async def test_set_title_with_callback(self, temp_cwd: Path) -> None:
         """Test that set_title() calls the registered callback."""
-        timeline = Timeline("test-session", cwd=str(temp_cwd))
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
 
         try:
             captured_title = None
@@ -86,7 +87,7 @@ class TestSetTitle:
     @pytest.mark.asyncio
     async def test_set_title_without_callback(self, temp_cwd: Path) -> None:
         """Test that set_title() warns when no callback is registered."""
-        timeline = Timeline("test-session", cwd=str(temp_cwd))
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
 
         try:
             # No callback registered, should still succeed but print warning
@@ -107,7 +108,7 @@ class TestMarkdownFunction:
     @pytest.mark.asyncio
     async def test_create_markdown_tree_from_file(self, temp_cwd: Path) -> None:
         """Test creating a markdown tree from a file."""
-        timeline = Timeline("test-session", cwd=str(temp_cwd))
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
 
         try:
             # Create a markdown file
@@ -144,7 +145,7 @@ Run pip install"""
     @pytest.mark.asyncio
     async def test_create_markdown_tree_with_content(self, temp_cwd: Path) -> None:
         """Test creating a markdown tree with inline content."""
-        timeline = Timeline("test-session", cwd=str(temp_cwd))
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
 
         try:
             md_content = "# Hello\\n\\nWorld"
@@ -166,7 +167,7 @@ Run pip install"""
     @pytest.mark.asyncio
     async def test_markdown_nodes_render_with_display_id(self, temp_cwd: Path) -> None:
         """Test that markdown nodes render headings with {#text_N} annotations."""
-        timeline = Timeline("test-session", cwd=str(temp_cwd))
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
 
         try:
             # Create a markdown file matching the golden fixture
@@ -239,7 +240,7 @@ class TestLsPermissions:
     @pytest.mark.asyncio
     async def test_ls_permissions_without_manager(self, temp_cwd: Path) -> None:
         """Test ls_permissions() when no permission manager is set."""
-        timeline = Timeline("test-session", cwd=str(temp_cwd))
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
 
         try:
             result = await timeline.execute_statement("perms = ls_permissions()")
@@ -256,7 +257,7 @@ class TestLsPermissions:
     @pytest.mark.asyncio
     async def test_ls_imports(self, temp_cwd: Path) -> None:
         """Test ls_imports() lists import configuration."""
-        timeline = Timeline("test-session", cwd=str(temp_cwd))
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
 
         try:
             result = await timeline.execute_statement("imports = ls_imports()")
@@ -275,7 +276,7 @@ class TestLsPermissions:
     @pytest.mark.asyncio
     async def test_ls_shell_permissions(self, temp_cwd: Path) -> None:
         """Test ls_shell_permissions() lists shell permission configuration."""
-        timeline = Timeline("test-session", cwd=str(temp_cwd))
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
 
         try:
             result = await timeline.execute_statement("shell_perms = ls_shell_permissions()")
@@ -293,7 +294,7 @@ class TestLsPermissions:
     @pytest.mark.asyncio
     async def test_ls_website_permissions(self, temp_cwd: Path) -> None:
         """Test ls_website_permissions() lists website permission configuration."""
-        timeline = Timeline("test-session", cwd=str(temp_cwd))
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
 
         try:
             result = await timeline.execute_statement("web_perms = ls_website_permissions()")
@@ -321,7 +322,7 @@ class TestWaitConditions:
         """Test that wait_all() sets up a wait condition for multiple nodes."""
         import sys
 
-        timeline = Timeline("test-session", cwd=str(temp_cwd))
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
 
         try:
             # Create two shell commands
@@ -350,7 +351,7 @@ class TestWaitConditions:
         """Test that wait_any() sets up a wait condition for first completion."""
         import sys
 
-        timeline = Timeline("test-session", cwd=str(temp_cwd))
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
 
         try:
             # Create two shell commands
@@ -386,7 +387,7 @@ class TestShowFunction:
     @pytest.mark.asyncio
     async def test_show_text_node(self, temp_cwd: Path) -> None:
         """Test show() returns rendered string about a text node."""
-        timeline = Timeline("test-session", cwd=str(temp_cwd))
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
 
         try:
             await timeline.execute_statement('v = text("test.py")')
@@ -414,7 +415,7 @@ class TestReplayFrom:
     @pytest.mark.asyncio
     async def test_replay_from_index(self, temp_cwd: Path) -> None:
         """Test replaying statements from a given index."""
-        timeline = Timeline("test-session", cwd=str(temp_cwd))
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
 
         try:
             # Execute several statements
@@ -449,7 +450,7 @@ class TestNamespaceSnapshot:
     @pytest.mark.asyncio
     async def test_get_namespace_returns_copy(self, temp_cwd: Path) -> None:
         """Test that get_namespace returns a snapshot copy."""
-        timeline = Timeline("test-session", cwd=str(temp_cwd))
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
 
         try:
             await timeline.execute_statement("x = 1")
@@ -466,7 +467,7 @@ class TestNamespaceSnapshot:
     @pytest.mark.asyncio
     async def test_namespace_excludes_dsl_functions(self, temp_cwd: Path) -> None:
         """Test that get_namespace excludes DSL functions but includes user vars."""
-        timeline = Timeline("test-session", cwd=str(temp_cwd))
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
 
         try:
             # Initially namespace should be empty (DSL funcs are excluded)

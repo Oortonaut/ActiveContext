@@ -13,6 +13,7 @@ from activecontext.config.schema import (
     SandboxConfig,
     ShellPermissionConfig,
 )
+from activecontext.context.graph import ContextGraph
 from activecontext.session.permissions import (
     GlobSegment,
     ImportDenied,
@@ -409,7 +410,7 @@ class TestTimelineIntegration:
 
         config = SandboxConfig(allow_cwd=False)
         manager = PermissionManager.from_config(str(temp_cwd), config)
-        timeline = Timeline("test-session", cwd=str(temp_cwd), permission_manager=manager)
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd), permission_manager=manager)
 
         try:
             # Use forward slashes to avoid Windows path escaping issues
@@ -431,7 +432,7 @@ class TestTimelineIntegration:
 
         config = SandboxConfig(allow_cwd=True)
         manager = PermissionManager.from_config(str(temp_cwd), config)
-        timeline = Timeline("test-session", cwd=str(temp_cwd), permission_manager=manager)
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd), permission_manager=manager)
 
         try:
             # Use forward slashes to avoid Windows path escaping issues
@@ -458,7 +459,7 @@ class TestTimelineIntegration:
             ],
         )
         manager = PermissionManager.from_config(str(temp_cwd), config)
-        timeline = Timeline("test-session", cwd=str(temp_cwd), permission_manager=manager)
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd), permission_manager=manager)
 
         try:
             result = await timeline.execute_statement("ls_permissions()")
@@ -474,7 +475,7 @@ class TestTimelineIntegration:
         """Test Timeline works without permission manager (no restrictions)."""
         from activecontext.session.timeline import Timeline
 
-        timeline = Timeline("test-session", cwd=str(temp_cwd))
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
 
         try:
             # Use forward slashes to avoid Windows path escaping issues
@@ -674,6 +675,7 @@ class TestImportTimelineIntegration:
         guard = ImportGuard(allowed_modules={"json"})
         timeline = Timeline(
             "test-session",
+            context_graph=ContextGraph(),
             cwd=str(temp_cwd),
             import_guard=guard,
         )
@@ -697,6 +699,7 @@ class TestImportTimelineIntegration:
         guard = ImportGuard(allowed_modules={"json"})
         timeline = Timeline(
             "test-session",
+            context_graph=ContextGraph(),
             cwd=str(temp_cwd),
             import_guard=guard,
         )
@@ -717,6 +720,7 @@ class TestImportTimelineIntegration:
         guard = ImportGuard(allowed_modules={"json"})
         timeline = Timeline(
             "test-session",
+            context_graph=ContextGraph(),
             cwd=str(temp_cwd),
             import_guard=guard,
         )
@@ -737,6 +741,7 @@ class TestImportTimelineIntegration:
         guard = ImportGuard(allowed_modules={"json", "math"})
         timeline = Timeline(
             "test-session",
+            context_graph=ContextGraph(),
             cwd=str(temp_cwd),
             import_guard=guard,
         )
@@ -755,7 +760,7 @@ class TestImportTimelineIntegration:
         """Test Timeline works without import guard (no restrictions)."""
         from activecontext.session.timeline import Timeline
 
-        timeline = Timeline("test-session", cwd=str(temp_cwd))
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
 
         try:
             result = await timeline.execute_statement("import json")
@@ -774,6 +779,7 @@ class TestImportTimelineIntegration:
         guard = ImportGuard(allow_all=True)
         timeline = Timeline(
             "test-session",
+            context_graph=ContextGraph(),
             cwd=str(temp_cwd),
             import_guard=guard,
         )
@@ -790,7 +796,7 @@ class TestImportTimelineIntegration:
         """Test setting import guard after timeline creation."""
         from activecontext.session.timeline import Timeline
 
-        timeline = Timeline("test-session", cwd=str(temp_cwd))
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
 
         try:
             # Initially no guard, imports work
@@ -1041,6 +1047,7 @@ class TestPermissionRequestFlow:
 
         timeline = Timeline(
             "test-session",
+            context_graph=ContextGraph(),
             cwd=str(temp_cwd),
             permission_manager=manager,
             permission_requester=mock_requester,
@@ -1075,6 +1082,7 @@ class TestPermissionRequestFlow:
 
         timeline = Timeline(
             "test-session",
+            context_graph=ContextGraph(),
             cwd=str(temp_cwd),
             permission_manager=manager,
             permission_requester=mock_requester,
@@ -1113,6 +1121,7 @@ class TestPermissionRequestFlow:
 
         timeline = Timeline(
             "test-session",
+            context_graph=ContextGraph(),
             cwd=str(temp_cwd),
             permission_manager=manager,
             permission_requester=mock_requester,
@@ -1139,6 +1148,7 @@ class TestPermissionRequestFlow:
         # No permission requester
         timeline = Timeline(
             "test-session",
+            context_graph=ContextGraph(),
             cwd=str(temp_cwd),
             permission_manager=manager,
         )
@@ -1520,6 +1530,7 @@ class TestShellTimelineIntegration:
         manager = ShellPermissionManager.from_config(config)
         timeline = Timeline(
             "test-session",
+            context_graph=ContextGraph(),
             cwd=str(temp_cwd),
             shell_permission_manager=manager,
         )
@@ -1574,6 +1585,7 @@ class TestShellTimelineIntegration:
         manager = ShellPermissionManager.from_config(config)
         timeline = Timeline(
             "test-session",
+            context_graph=ContextGraph(),
             cwd=str(temp_cwd),
             shell_permission_manager=manager,
         )
@@ -1614,6 +1626,7 @@ class TestShellTimelineIntegration:
         manager = ShellPermissionManager.from_config(config)
         timeline = Timeline(
             "test-session",
+            context_graph=ContextGraph(),
             cwd=str(temp_cwd),
             shell_permission_manager=manager,
         )
@@ -1634,7 +1647,7 @@ class TestShellTimelineIntegration:
         """Test Timeline works without shell permission manager (no restrictions)."""
         from activecontext.session.timeline import Timeline
 
-        timeline = Timeline("test-session", cwd=str(temp_cwd))
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
 
         try:
             result = await timeline.execute_statement('shell("echo", ["hello"])')
@@ -1661,7 +1674,7 @@ class TestShellPermissionRequestFlow:
 
         def create(**kwargs):
             from activecontext.session.timeline import Timeline
-            tl = Timeline("test-session", cwd=str(temp_cwd), **kwargs)
+            tl = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd), **kwargs)
             timelines.append(tl)
             return tl
 

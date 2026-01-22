@@ -388,7 +388,7 @@ class TestNotifyDSLFunction:
         """Test that notify() sets notification level."""
         from activecontext.session.timeline import Timeline
 
-        timeline = Timeline("test-session", cwd=str(temp_cwd))
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
 
         try:
             # Create a node
@@ -409,7 +409,7 @@ class TestNotifyDSLFunction:
         """Test that notify() accepts string level."""
         from activecontext.session.timeline import Timeline
 
-        timeline = Timeline("test-session", cwd=str(temp_cwd))
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
 
         try:
             await timeline.execute_statement('v = text("test.py")')
@@ -424,7 +424,7 @@ class TestNotifyDSLFunction:
         """Test that notify() accepts node_id string."""
         from activecontext.session.timeline import Timeline
 
-        timeline = Timeline("test-session", cwd=str(temp_cwd))
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
 
         try:
             await timeline.execute_statement('v = text("test.py")')
@@ -441,7 +441,7 @@ class TestNotifyDSLFunction:
         """Test that notify() returns the node for chaining."""
         from activecontext.session.timeline import Timeline
 
-        timeline = Timeline("test-session", cwd=str(temp_cwd))
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
 
         try:
             await timeline.execute_statement('v = text("test.py")')
@@ -457,7 +457,7 @@ class TestNotifyDSLFunction:
         """Test that notify() with invalid node_id raises ValueError."""
         from activecontext.session.timeline import Timeline
 
-        timeline = Timeline("test-session", cwd=str(temp_cwd))
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
 
         try:
             result = await timeline.execute_statement('notify("nonexistent", NotificationLevel.WAKE)')
@@ -474,7 +474,7 @@ class TestNotifyDSLFunction:
         """Test that NotificationLevel is available in namespace."""
         from activecontext.session.timeline import Timeline
 
-        timeline = Timeline("test-session", cwd=str(temp_cwd))
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
 
         try:
             # Should be able to use NotificationLevel directly
