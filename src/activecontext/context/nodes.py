@@ -75,6 +75,8 @@ class ContextNode(ABC):
         created_at: Unix timestamp of creation
         updated_at: Unix timestamp of last update
         tags: Arbitrary metadata
+        originator: Source of this node (node ID, filename, or arbitrary string)
+        title: Human-readable title for display (empty = use default from get_display_name)
         tracing: When True, state changes create TraceNode children
     """
 
@@ -103,6 +105,10 @@ class ContextNode(ABC):
     # Originator: identifies the source of this node (node ID, filename, or arbitrary string)
     originator: str | None = None
 
+    # Human-readable title for this node (used in headers and display)
+    # If empty, get_display_name() provides a default based on node type
+    title: str = ""
+
     # Display sequence for uniform headers (e.g., text_1, message_13)
     # Assigned by ContextGraph.add_node() using per-type counters
     display_sequence: int | None = field(default=None)
@@ -129,6 +135,10 @@ class ContextNode(ABC):
 
     # Optional hook for child change notifications
     _on_child_changed_hook: OnChildChangedHook | None = field(default=None, repr=False)
+
+    # Trace merging state (for time-window based merging)
+    _last_trace: TraceNode | None = field(default=None, init=False, repr=False)
+    _last_trace_time: float = field(default=0.0, init=False, repr=False)
 
     @property
     @abstractmethod
@@ -277,6 +287,9 @@ class ContextNode(ABC):
         description: str = "",
         content: str | None = None,
         originator: str | None = None,
+        field_name: str = "",
+        prev_value: Any = "",
+        curr_value: Any = "",
     ) -> TraceNode | None:
         """Mark this node as changed, optionally creating a trace.
 
@@ -284,6 +297,9 @@ class ContextNode(ABC):
             description: Human-readable description of the change
             content: Optional diff or detailed change content
             originator: Who/what caused the change (defaults to self.originator)
+            field_name: Name of field that changed (e.g., "state", "content")
+            prev_value: Previous value (will be stringified)
+            curr_value: Current value (will be stringified)
 
         Returns:
             TraceNode if tracing is enabled, None otherwise
@@ -300,6 +316,9 @@ class ContextNode(ABC):
                 description=description,
                 content=content,
                 originator=originator,
+                field_name=field_name,
+                prev_value=str(prev_value) if prev_value != "" else "",
+                curr_value=str(curr_value) if curr_value != "" else "",
             )
 
         # Generate notification if level is not IGNORE
@@ -310,6 +329,9 @@ class ContextNode(ABC):
         self.notify_parents(description)
         return trace_node
 
+    # Time window for merging traces to the same node (seconds)
+    TRACE_MERGE_WINDOW = 1.0
+
     def _create_trace(
         self,
         old_version: int,
@@ -317,12 +339,18 @@ class ContextNode(ABC):
         description: str,
         content: str | None = None,
         originator: str | None = None,
+        field_name: str = "",
+        prev_value: str = "",
+        curr_value: str = "",
     ) -> TraceNode:
-        """Create a TraceNode as a sibling of this node.
+        """Create a TraceNode as a sibling of this node, with optional merging.
 
         Traces are linked to the same parent as this node, inserted immediately
-        after this node in child_order. If this node has no parent but has a
+        BEFORE this node in child_order. If this node has no parent but has a
         trace_sink set, the trace is linked to the trace_sink instead.
+
+        If a recent trace exists (within TRACE_MERGE_WINDOW), the new change
+        is merged into it rather than creating a new trace.
 
         Args:
             old_version: Version before the change
@@ -330,13 +358,52 @@ class ContextNode(ABC):
             description: Human-readable change description
             content: Optional diff or detailed content
             originator: Who/what caused the change (defaults to self.originator)
+            field_name: Name of field that changed
+            prev_value: Previous value (stringified)
+            curr_value: Current value (stringified)
 
         Returns:
-            The created TraceNode
+            The created or merged TraceNode
         """
         if self._graph is None:
             raise RuntimeError("Node not attached to graph")
 
+        now = time.time()
+
+        # Check for existing trace to merge with (same node, within time window)
+        if (
+            self._last_trace is not None
+            and self._last_trace.trace_target is self
+            and (now - self._last_trace_time) < self.TRACE_MERGE_WINDOW
+        ):
+            # Merge into existing trace
+            existing = self._last_trace
+            if field_name == existing.field_name:
+                # Same field - add to merged_values
+                existing.merged_values.append(curr_value)
+            else:
+                # Different field - add as child trace
+                child = TraceNode(
+                    node=self.node_id,
+                    node_display_id=self.display_id,
+                    old_version=old_version,
+                    new_version=new_version,
+                    description=description,
+                    content=content,
+                    originator=originator or self.originator,
+                    field_name=field_name,
+                    prev_value=prev_value,
+                    curr_value=curr_value,
+                    state=NodeState.COLLAPSED,
+                    tokens=50,
+                )
+                existing.child_traces.append(child)
+            existing.new_version = new_version
+            existing.updated_at = now
+            self._last_trace_time = now
+            return existing
+
+        # Create new trace
         trace_node = TraceNode(
             node=self.node_id,
             node_display_id=self.display_id,
@@ -345,20 +412,26 @@ class ContextNode(ABC):
             description=description,
             content=content,
             originator=originator or self.originator,
+            field_name=field_name,
+            prev_value=prev_value,
+            curr_value=curr_value,
+            trace_target=self,  # Set for future merges
             state=NodeState.COLLAPSED,
             tokens=50,  # Traces are compact by default
         )
         self._graph.add_node(trace_node)
 
-        # Link as sibling (same parent) instead of child
+        # Link as sibling (same parent) - insert BEFORE self so traces appear first
         if self.parent_ids:
-            # Has parent - link trace to same parent, insert after self
             parent_id = next(iter(self.parent_ids))  # Primary parent
-            self._graph.link(trace_node.node_id, parent_id, after=self.node_id)
+            self._graph.link(trace_node.node_id, parent_id, before=self.node_id)
         elif self.trace_sink is not None:
-            # No parent but has trace_sink - link to sink
-            self._graph.link(trace_node.node_id, self.trace_sink.node_id)
-        # else: orphan trace (no parent, no sink) - just exists in graph
+            self._graph.link(trace_node.node_id, self.trace_sink.node_id, before=self.node_id)
+        # No orphan case - traces always have a parent or sink
+
+        # Track for future merging
+        self._last_trace = trace_node
+        self._last_trace_time = now
 
         return trace_node
 
@@ -484,6 +557,7 @@ class ContextNode(ABC):
             "updated_at": self.updated_at,
             "tags": self.tags,
             "originator": self.originator,
+            "title": self.title,
             "content_id": self.content_id,
             "display_sequence": self.display_sequence,
             "notification_level": self.notification_level.value,
@@ -545,7 +619,12 @@ class ContextNode(ABC):
         if self._graph:
             self._graph._running_nodes.add(self.node_id)
         if old_mode != "running":
-            self._mark_changed(description=f"Mode: {old_mode} → running")
+            self._mark_changed(
+                description=f"Mode: {old_mode} → running",
+                field_name="mode",
+                prev_value=old_mode,
+                curr_value="running",
+            )
         return self
 
     def Pause(self) -> ContextNode:
@@ -555,7 +634,12 @@ class ContextNode(ABC):
         if self._graph:
             self._graph._running_nodes.discard(self.node_id)
         if old_mode != "paused":
-            self._mark_changed(description=f"Mode: {old_mode} → paused")
+            self._mark_changed(
+                description=f"Mode: {old_mode} → paused",
+                field_name="mode",
+                prev_value=old_mode,
+                curr_value="paused",
+            )
         return self
 
     def SetTokens(self, n: int) -> ContextNode:
@@ -567,7 +651,12 @@ class ContextNode(ABC):
         old_tokens = self.tokens
         self.tokens = n
         if old_tokens != n:
-            self._mark_changed(description=f"Tokens: {old_tokens} → {n}")
+            self._mark_changed(
+                description=f"Tokens: {old_tokens} → {n}",
+                field_name="tokens",
+                prev_value=old_tokens,
+                curr_value=n,
+            )
         return self
 
     def SetState(self, s: NodeState) -> ContextNode:
@@ -583,6 +672,9 @@ class ContextNode(ABC):
             self.state = s
             self._mark_changed(
                 description=f"State: {old_state.value} → {s.value}",
+                field_name="state",
+                prev_value=old_state.value,
+                curr_value=s.value,
             )
         return self
 
@@ -595,7 +687,12 @@ class ContextNode(ABC):
         old_level = self.notification_level
         self.notification_level = level
         if old_level != level:
-            self._mark_changed(description=f"Notify: {old_level.value} → {level.value}")
+            self._mark_changed(
+                description=f"Notify: {old_level.value} → {level.value}",
+                field_name="notification_level",
+                prev_value=old_level.value,
+                curr_value=level.value,
+            )
         return self
 
 
@@ -860,6 +957,7 @@ class TextNode(ContextNode):
             tags=data.get("tags", {}),
             display_sequence=data.get("display_sequence"),
             originator=data.get("originator"),
+            title=data.get("title", ""),
             path=data.get("path", ""),
             pos=data.get("pos", "1:0"),
             end_pos=data.get("end_pos"),
@@ -1036,6 +1134,7 @@ class GroupNode(ContextNode):
             tags=data.get("tags", {}),
             display_sequence=data.get("display_sequence"),
             originator=data.get("originator"),
+            title=data.get("title", ""),
             summary_prompt=data.get("summary_prompt"),
             cached_summary=data.get("cached_summary"),
             summary_stale=data.get("summary_stale", True),
@@ -1314,6 +1413,7 @@ class ArtifactNode(ContextNode):
             tags=data.get("tags", {}),
             display_sequence=data.get("display_sequence"),
             originator=data.get("originator"),
+            title=data.get("title", ""),
             artifact_type=data.get("artifact_type", "code"),
             content=data.get("content", ""),
             language=data.get("language"),
@@ -1575,6 +1675,7 @@ class ShellNode(ContextNode):
             tags=data.get("tags", {}),
             display_sequence=data.get("display_sequence"),
             originator=data.get("originator"),
+            title=data.get("title", ""),
             command=data.get("command", ""),
             args=data.get("args", []),
             shell_status=ShellStatus(data.get("shell_status", "pending")),
@@ -1775,6 +1876,7 @@ class LockNode(ContextNode):
             tags=data.get("tags", {}),
             display_sequence=data.get("display_sequence"),
             originator=data.get("originator"),
+            title=data.get("title", ""),
             lockfile=data.get("lockfile", ""),
             lock_status=LockStatus(data.get("lock_status", "pending")),
             timeout=data.get("timeout", 30.0),
@@ -2091,6 +2193,7 @@ class SessionNode(ContextNode):
             tags=data.get("tags", {}),
             display_sequence=data.get("display_sequence"),
             originator=data.get("originator"),
+            title=data.get("title", ""),
             token_history=data.get("token_history", []),
             token_min=data.get("token_min", 0),
             token_max=data.get("token_max", 0),
@@ -2330,6 +2433,7 @@ class MessageNode(ContextNode):
             tags=data.get("tags", {}),
             display_sequence=data.get("display_sequence"),
             originator=originator,
+            title=data.get("title", ""),
             role=data.get("role", "user"),
             content=data.get("content", ""),
             tool_name=data.get("tool_name"),
@@ -2531,6 +2635,7 @@ class WorkNode(ContextNode):
             tags=data.get("tags", {}),
             display_sequence=data.get("display_sequence"),
             originator=data.get("originator"),
+            title=data.get("title", ""),
             intent=data.get("intent", ""),
             work_status=data.get("work_status", "active"),
             files=data.get("files", []),
@@ -2938,6 +3043,7 @@ class MCPServerNode(ContextNode):
             tags=data.get("tags", {}),
             display_sequence=data.get("display_sequence"),
             originator=data.get("originator"),
+            title=data.get("title", ""),
             server_name=data.get("server_name", ""),
             status=data.get("status", "disconnected"),
             error_message=data.get("error_message"),
@@ -3109,6 +3215,7 @@ class MCPToolNode(ContextNode):
             tags=data.get("tags", {}),
             display_sequence=data.get("display_sequence"),
             originator=data.get("originator"),
+            title=data.get("title", ""),
             tool_name=data.get("tool_name", ""),
             server_name=data.get("server_name", ""),
             description=data.get("description", ""),
@@ -3353,6 +3460,7 @@ class MCPManagerNode(ContextNode):
             tags=d.get("tags", {}),
             display_sequence=d.get("display_sequence"),
             originator=d.get("originator"),
+            title=d.get("title", ""),
             server_states=d.get("server_states", {}),
             tool_counts=d.get("tool_counts", {}),
             resource_counts=d.get("resource_counts", {}),
@@ -3520,6 +3628,7 @@ class AgentNode(ContextNode):
             tags=data.get("tags", {}),
             display_sequence=data.get("display_sequence"),
             originator=data.get("originator"),
+            title=data.get("title", ""),
             agent_id=data.get("agent_id", ""),
             agent_type=data.get("agent_type", "default"),
             relation=data.get("relation", "self"),
@@ -3555,6 +3664,16 @@ class TraceNode(ContextNode):
     description: str = ""
     content: str | None = None
 
+    # Field-level change tracking
+    field_name: str = ""  # Field that changed (e.g., "state", "content")
+    prev_value: str = ""  # Previous value (stringified)
+    curr_value: str = ""  # Current value (stringified)
+
+    # Trace merging support
+    merged_values: list[str] = field(default_factory=list)  # For same field: list of additional curr values
+    trace_target: ContextNode | None = field(default=None, repr=False)  # Target node for merge lookup
+    child_traces: list[TraceNode] = field(default_factory=list)  # Child traces when merged
+
     @property
     def node_type(self) -> str:
         return "trace"
@@ -3571,12 +3690,55 @@ class TraceNode(ContextNode):
             "state": self.state.value,
         }
 
-    def get_display_name(self) -> str:
-        """Return display name: '{node_display_id} {description}'.
+    # Formatting constants
+    MAX_HEADER_LENGTH = 80
+    MAX_VALUES_SHOWN = 5
 
-        Example: 'context_1 Recomputed' or 'text_5 State: collapsed → details'
+    def get_display_name(self) -> str:
+        """Return display name with smart formatting.
+
+        Formats:
+        - Single field: "state: collapsed -> details"
+        - Multiple fields: "state: a -> b, tokens: 100 -> 200"
+        - Merged values: "state: collapsed -> { details, all, hidden }"
+        - Many fields: "Fields Changed: state, tokens, content..."
+        - Many values: "state: a -> { b, c, d, (35 others) }"
+
+        Falls back to legacy format if no field_name is set.
         """
-        return f"{self.node_display_id} {self.description}"
+        # Legacy format for backward compatibility
+        if not self.field_name:
+            return f"{self.node_display_id} {self.description}"
+
+        if not self.child_traces:
+            # Single change (possibly with merged values for same field)
+            if self.merged_values:
+                return f"{self.field_name}: {self.prev_value} -> {self._format_merged_values()}"
+            return f"{self.field_name}: {self.prev_value} -> {self.curr_value}"
+
+        # Merged from multiple fields
+        all_changes = [(self.field_name, self.prev_value, self.curr_value)]
+        all_changes += [(t.field_name, t.prev_value, t.curr_value) for t in self.child_traces]
+
+        # Try compact: "field: a -> b, other: c -> d"
+        compact = ", ".join(f"{f}: {p} -> {c}" for f, p, c in all_changes)
+        if len(compact) <= self.MAX_HEADER_LENGTH:
+            return compact
+
+        # Field list: "Fields Changed: state, tokens, content..."
+        fields = list(dict.fromkeys(f for f, _, _ in all_changes))  # unique, preserve order
+        if len(fields) <= 5:
+            return f"Fields Changed: {', '.join(fields)}"
+        return f"Fields Changed: {len(fields)}"
+
+    def _format_merged_values(self) -> str:
+        """Format merged values as { val1, val2, ... } or { val1, val2, (N others) }."""
+        values = [self.curr_value] + self.merged_values
+        if len(values) <= self.MAX_VALUES_SHOWN:
+            return f"{{ {', '.join(values)} }}"
+        shown = values[: self.MAX_VALUES_SHOWN]
+        remaining = len(values) - self.MAX_VALUES_SHOWN
+        return f"{{ {', '.join(shown)}, ({remaining} others) }}"
 
     def get_token_breakdown(self, cwd: str = ".") -> TokenInfo:
         """Return token counts for collapsed/summary/detail."""
@@ -3641,6 +3803,13 @@ class TraceNode(ContextNode):
             "new_version": self.new_version,
             "description": self.description,
             "content": self.content,
+            # Field-level tracking
+            "field_name": self.field_name,
+            "prev_value": self.prev_value,
+            "curr_value": self.curr_value,
+            "merged_values": self.merged_values,
+            # trace_target is not serialized (runtime reference)
+            "child_traces": [t.to_dict() for t in self.child_traces],
         }
         if self.tick_frequency:
             d["tick_frequency"] = self.tick_frequency.to_dict()
@@ -3667,10 +3836,18 @@ class TraceNode(ContextNode):
             tags=data.get("tags", {}),
             display_sequence=data.get("display_sequence"),
             originator=data.get("originator"),
+            title=data.get("title", ""),
             node=data.get("node", ""),
             node_display_id=data.get("node_display_id", ""),
             old_version=data.get("old_version", 0),
             new_version=data.get("new_version", 0),
             description=data.get("description", ""),
             content=data.get("content"),
+            # Field-level tracking
+            field_name=data.get("field_name", ""),
+            prev_value=data.get("prev_value", ""),
+            curr_value=data.get("curr_value", ""),
+            merged_values=data.get("merged_values", []),
+            # trace_target not deserialized (runtime reference)
+            child_traces=[cls._from_dict(t) for t in data.get("child_traces", [])],
         )

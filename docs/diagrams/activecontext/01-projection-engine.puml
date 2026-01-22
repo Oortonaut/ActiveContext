@@ -1,0 +1,89 @@
+@startuml Projection_Engine
+!theme plain
+skinparam backgroundColor #FEFEFE
+
+title ActiveContext - Projection Engine Flow
+
+participant "Session" as S
+participant "ProjectionEngine" as PE
+participant "ContextGraph" as CG
+participant "RenderPath" as RP
+participant "Node" as N
+participant "AgentView" as AV
+
+== Build Projection ==
+
+S -> PE : build(context_graph, cwd)
+activate PE
+
+PE -> CG : get_root() / get_roots()
+activate CG
+CG --> PE : root nodes
+deactivate CG
+
+== Collect Render Path ==
+
+PE -> PE : _collect_render_path(graph)
+activate PE #LightBlue
+
+loop for each root node
+  PE -> PE : _collect_from_node(graph, node, path, seen)
+  
+  alt node.state == HIDDEN
+    PE -> PE : skip (not added to path)
+  else node.state in [COLLAPSED, SUMMARY]
+    PE -> RP : add node_id (no children)
+  else node.state in [DETAILS, ALL]
+    PE -> RP : add node_id
+    PE -> N : get child_order
+    N --> PE : ordered children
+    loop for each child
+      PE -> PE : _collect_from_node() [recurse]
+    end
+  end
+end
+
+PE --> PE : RenderPath(node_ids, edges, root_ids)
+deactivate PE
+
+== Render Path to Sections ==
+
+PE -> PE : _render_path(graph, path, cwd)
+activate PE #LightGreen
+
+loop for each node_id in path.node_ids
+  PE -> CG : get_node(node_id)
+  CG --> PE : node
+  
+  alt has AgentView
+    PE -> AV : render(content, budget)
+    AV --> PE : rendered string
+  else no AgentView
+    PE -> N : Render(cwd=cwd)
+    N --> PE : rendered string
+  end
+  
+  PE -> PE : create ProjectionSection
+end
+
+PE --> PE : list[ProjectionSection]
+deactivate PE
+
+== Assemble Projection ==
+
+PE -> CG : collect handles (node_id -> digest)
+PE --> S : Projection(sections, handles)
+deactivate PE
+
+== Render for LLM ==
+
+S -> S : projection.render()
+note right
+  "\n\n".join(
+    section.content
+    for section in sections
+    if section.content
+  )
+end note
+
+@enduml

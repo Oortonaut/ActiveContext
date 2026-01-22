@@ -1,0 +1,93 @@
+@startuml Node_States
+!theme plain
+skinparam backgroundColor #FEFEFE
+
+title ActiveContext - NodeState Visibility Model
+
+state "NodeState" as NS {
+  
+  state "HIDDEN" as H : Not in projection
+  state "COLLAPSED" as C : Metadata only\n~50 tokens
+  state "SUMMARY" as S : Agent summary\nVariable tokens
+  state "DETAILS" as D : Full content\nRespects budget
+  state "ALL" as A : Summary + Details\nMax visibility
+
+  [*] --> D : default
+  
+  H --> C : SetState(COLLAPSED)
+  H --> S : SetState(SUMMARY)
+  H --> D : SetState(DETAILS)
+  H --> A : SetState(ALL)
+  
+  C --> H : SetState(HIDDEN)
+  C --> S : SetState(SUMMARY)
+  C --> D : SetState(DETAILS)
+  C --> A : SetState(ALL)
+  
+  S --> H : SetState(HIDDEN)
+  S --> C : SetState(COLLAPSED)
+  S --> D : SetState(DETAILS)
+  S --> A : SetState(ALL)
+  
+  D --> H : SetState(HIDDEN)
+  D --> C : SetState(COLLAPSED)
+  D --> S : SetState(SUMMARY)
+  D --> A : SetState(ALL)
+  
+  A --> H : SetState(HIDDEN)
+  A --> C : SetState(COLLAPSED)
+  A --> S : SetState(SUMMARY)
+  A --> D : SetState(DETAILS)
+}
+
+note right of H
+  **HIDDEN**
+  - Node exists in graph
+  - Still ticked (async ops continue)
+  - Not rendered to projection
+  - Children also hidden
+end note
+
+note right of C
+  **COLLAPSED**
+  - Minimal footprint
+  - Type + ID + basic metadata
+  - Token info shown
+  - Children NOT rendered
+end note
+
+note right of S
+  **SUMMARY**
+  - Agent-generated summary
+  - Truncated to token budget
+  - Children NOT rendered
+  - "[no summary]" if unavailable
+end note
+
+note right of D
+  **DETAILS**
+  - Full content rendered
+  - Respects token budget
+  - Children ARE rendered
+  - Uses child_order
+end note
+
+note right of A
+  **ALL**
+  - Summary + Details combined
+  - Maximum information
+  - Children ARE rendered
+  - Includes traces/metadata
+end note
+
+legend right
+  **Rendering Rules**
+  | State | Self | Children |
+  | HIDDEN | No | No |
+  | COLLAPSED | Yes | No |
+  | SUMMARY | Yes | No |
+  | DETAILS | Yes | Yes |
+  | ALL | Yes | Yes |
+endlegend
+
+@enduml

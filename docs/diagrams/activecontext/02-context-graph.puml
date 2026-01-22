@@ -1,0 +1,144 @@
+@startuml Context_Graph
+!theme plain
+skinparam backgroundColor #FEFEFE
+
+title ActiveContext - Context Graph Structure
+
+package "ContextGraph (DAG)" as Graph {
+  
+  abstract class ContextNode {
+    +node_id: str
+    +display_id: str
+    +state: NodeState
+    +tokens: int
+    +child_order: list[str]
+    --
+    +Render(cwd) -> str
+    +GetDigest() -> dict
+    +Tick() -> bool
+  }
+  
+  class TextNode {
+    +path: str
+    +pos: str
+    +end_pos: str
+    +content: str
+    --
+    Renders file content
+    with line numbers
+  }
+  
+  class GroupNode {
+    +summary: str
+    +members: list[str]
+    --
+    Header only; children
+    rendered by engine
+  }
+  
+  class MessageNode {
+    +role: Role
+    +content: str
+    +tool_call: ToolCall?
+    +tool_result: ToolResult?
+    --
+    Conversation messages
+  }
+  
+  class ShellNode {
+    +command: str
+    +output: str
+    +exit_code: int?
+    +is_complete: bool
+    --
+    Async shell execution
+  }
+  
+  class MCPServerNode {
+    +name: str
+    +command: list[str]
+    +tools: list[MCPToolNode]
+    --
+    MCP server connection
+  }
+  
+  class TopicNode {
+    +title: str
+    --
+    Conversation thread marker
+  }
+  
+  class ArtifactNode {
+    +content: str
+    +artifact_type: str
+    +language: str?
+    --
+    Code snippets, outputs
+  }
+  
+  class MarkdownNode {
+    +buffer_id: str
+    +sections: list[Section]
+    --
+    Structured markdown
+    with heading hierarchy
+  }
+  
+  class WorkNode {
+    +intent: str
+    +files: list[FileAccess]
+    +conflicts: list[Conflict]
+    --
+    Multi-agent coordination
+  }
+  
+  class SessionNode {
+    +stats: SessionStats
+    --
+    Session metadata
+  }
+  
+  ContextNode <|-- TextNode
+  ContextNode <|-- GroupNode
+  ContextNode <|-- MessageNode
+  ContextNode <|-- ShellNode
+  ContextNode <|-- MCPServerNode
+  ContextNode <|-- TopicNode
+  ContextNode <|-- ArtifactNode
+  ContextNode <|-- MarkdownNode
+  ContextNode <|-- WorkNode
+  ContextNode <|-- SessionNode
+}
+
+package "Graph Operations" as Ops {
+  class ContextGraph {
+    +nodes: dict[str, ContextNode]
+    +edges: list[tuple]
+    +root_context_id: str?
+    --
+    +add_node(node)
+    +link(parent, child)
+    +unlink(parent, child)
+    +get_root() -> ContextNode?
+    +get_roots() -> list[ContextNode]
+    +get_children(node_id) -> list
+    +checkpoint(name)
+    +restore(name)
+  }
+}
+
+note right of Graph
+  **DAG Structure**
+  - Nodes form directed acyclic graph
+  - Parents contain/summarize children
+  - child_order defines render sequence
+  - root_context_id for document order
+end note
+
+note bottom of TextNode
+  **Position Format**
+  pos="1:0" (line:col)
+  end_pos="50:0"
+end note
+
+@enduml

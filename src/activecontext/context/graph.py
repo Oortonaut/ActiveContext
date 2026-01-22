@@ -86,6 +86,38 @@ class LinkedChildOrder:
         after_node.next = new_node
         self._index[node_id] = new_node
 
+    def insert_before(self, before_id: str, node_id: str) -> None:
+        """Insert node_id immediately before before_id. O(1).
+
+        If before_id not found, prepends to beginning.
+        """
+        if node_id in self._index:
+            return  # Already exists
+
+        before_node = self._index.get(before_id)
+        if not before_node:
+            # Prepend to beginning
+            new_node = _ChildOrderNode(node_id=node_id, next=self._head)
+            if self._head:
+                self._head.prev = new_node
+            else:
+                self._tail = new_node
+            self._head = new_node
+            self._index[node_id] = new_node
+            return
+
+        new_node = _ChildOrderNode(
+            node_id=node_id,
+            prev=before_node.prev,
+            next=before_node,
+        )
+        if before_node.prev:
+            before_node.prev.next = new_node
+        else:
+            self._head = new_node
+        before_node.prev = new_node
+        self._index[node_id] = new_node
+
     def remove(self, node_id: str) -> bool:
         """Remove node. O(1). Returns True if removed."""
         node = self._index.pop(node_id, None)
@@ -236,7 +268,14 @@ class ContextGraph:
         # Remove node
         del self._nodes[node_id]
 
-    def link(self, child_id: str, parent_id: str, *, after: str | None = None) -> bool:
+    def link(
+        self,
+        child_id: str,
+        parent_id: str,
+        *,
+        after: str | None = None,
+        before: str | None = None,
+    ) -> bool:
         """Link a child node to a parent node.
 
         Handles cycle detection, root tracking, and child_order maintenance.
@@ -245,7 +284,9 @@ class ContextGraph:
             child_id: ID of child node
             parent_id: ID of parent node
             after: If provided, insert in child_order immediately after this node_id.
-                   If None, append to end.
+            before: If provided, insert in child_order immediately before this node_id.
+                   Takes precedence over after if both are provided.
+                   If neither, append to end.
 
         Returns:
             True if link was created, False if nodes don't exist or would create cycle
@@ -269,7 +310,9 @@ class ContextGraph:
             parent.child_order = LinkedChildOrder()
 
         if child_id not in parent.child_order:
-            if after and after in parent.child_order:
+            if before and before in parent.child_order:
+                parent.child_order.insert_before(before, child_id)
+            elif after and after in parent.child_order:
                 parent.child_order.insert_after(after, child_id)
             else:
                 parent.child_order.append(child_id)

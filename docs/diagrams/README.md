@@ -22,72 +22,38 @@ This directory contains PlantUML diagrams documenting the Agent Client Protocol 
 
 ## Rendering Diagrams
 
-### Option 1: PlantUML CLI
+### Using the Render Script (Recommended)
+
+The project includes a Python script that uses the public PlantUML server:
 
 ```bash
-# Install PlantUML (requires Java)
-# macOS: brew install plantuml
-# Ubuntu: apt install plantuml
+# Render all diagrams to PNG and SVG
+uv run python docs/diagrams/render.py
+
+# PNG only
+uv run python docs/diagrams/render.py --png
+
+# SVG only  
+uv run python docs/diagrams/render.py --svg
+
+# Render specific directory
+uv run python docs/diagrams/render.py acp/
+uv run python docs/diagrams/render.py activecontext/
 
 # Render single file
-plantuml 01-architecture.puml
+uv run python docs/diagrams/render.py activecontext/01-projection-engine.puml
 
-# Render all diagrams to PNG
-plantuml *.puml
-
-# Render to SVG
-plantuml -tsvg *.puml
+# Clean generated images
+uv run python docs/diagrams/render.py --clean
 ```
 
-### Option 2: PlantUML Server
-
-```bash
-# Using Docker
-docker run -d -p 8080:8080 plantuml/plantuml-server:jetty
-
-# Then open http://localhost:8080 and paste diagram code
-```
-
-### Option 3: VS Code Extension
+### VS Code (Preview Only)
 
 1. Install "PlantUML" extension by jebbs
 2. Open any `.puml` file
 3. Press `Alt+D` to preview
 
-### Option 4: Online Tools
+### Online
 
-- **PlantUML Server**: http://www.plantuml.com/plantuml/uml
-- **Kroki**: https://kroki.io/
-
-### Option 5: GitHub/GitLab Rendering
-
-Some platforms render PlantUML in Markdown using code fences:
-
-~~~markdown
-```plantuml
-@startuml
-Alice -> Bob: Hello
-@enduml
-```
-~~~
-
-## Batch Rendering Script
-
-```bash
-#!/bin/bash
-# render-all.sh - Render all diagrams to PNG and SVG
-
-for f in *.puml; do
-    echo "Rendering $f..."
-    plantuml -tpng "$f"
-    plantuml -tsvg "$f"
-done
-echo "Done! Check for .png and .svg files."
-```
-
-## Diagram Types
-
-- **Sequence diagrams** (02, 03, 05, 06, 07, 08, 09, 12): Show message flows between participants
-- **State diagrams** (04, 10): Show state machines and transitions
-- **Component diagrams** (01): Show system architecture
-- **Class diagrams** (11, 13): Show data structures and types
+- http://www.plantuml.com/plantuml/uml
+- https://kroki.io/
