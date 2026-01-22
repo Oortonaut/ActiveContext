@@ -44,11 +44,13 @@ class RenderPath:
         node_ids: Ordered list of node IDs to render
         edges: List of (child_id, parent_id) tuples for structure
         root_ids: Node IDs that are roots in this path (no parents in path)
+        total_tokens: Sum of all root nodes' total_tokens (complete context size)
     """
 
     node_ids: list[str] = field(default_factory=list)
     edges: list[tuple[str, str]] = field(default_factory=list)
     root_ids: set[str] = field(default_factory=set)
+    total_tokens: int = 0
 
     def __len__(self) -> int:
         """Return number of nodes in path."""
@@ -154,7 +156,7 @@ class ProjectionEngine:
             graph: The context graph
 
         Returns:
-            RenderPath capturing nodes in document order
+            RenderPath capturing nodes in document order with token totals
         """
         path = RenderPath()
         seen: set[str] = set()
@@ -162,11 +164,11 @@ class ProjectionEngine:
         # Start from root context if set, otherwise collect all root nodes
         root = graph.get_root()
         if root is not None:
-            self._collect_from_node(graph, root, path, seen)
+            path.total_tokens = self._collect_from_node(graph, root, path, seen)
         else:
             # Collect all root nodes (nodes with no parents)
             for node in graph.get_roots():
-                self._collect_from_node(graph, node, path, seen)
+                path.total_tokens += self._collect_from_node(graph, node, path, seen)
 
         return path
 
@@ -176,8 +178,8 @@ class ProjectionEngine:
         node: ContextNode,
         path: RenderPath,
         seen: set[str],
-    ) -> None:
-        """Recursively collect nodes in document order.
+    ) -> int:
+        """Recursively collect nodes in document order, computing token totals.
 
         Always recurses into children regardless of parent state - each node's
         own state controls its rendering. This ensures complete token information
@@ -188,9 +190,12 @@ class ProjectionEngine:
             node: Current node to process
             path: RenderPath to append to
             seen: Set of already-seen node IDs
+
+        Returns:
+            Total tokens for this subtree (used for parent's children_tokens)
         """
         if node.node_id in seen or node.state == NodeState.HIDDEN:
-            return
+            return 0
 
         seen.add(node.node_id)
         path.node_ids.append(node.node_id)
@@ -199,15 +204,29 @@ class ProjectionEngine:
         if not node.parent_ids:
             path.root_ids.add(node.node_id)
 
-        # Always recurse into children in document order
-        # Each child's own state controls its rendering
+        # Recurse into children first (post-order) to compute their totals
+        children_total = 0
         child_order = getattr(node, "child_order", None)
         if child_order:
             for child_id in child_order:
                 child = graph.get_node(child_id)
                 if child:
                     path.edges.append((child_id, node.node_id))
-                    self._collect_from_node(graph, child, path, seen)
+                    child_tokens = self._collect_from_node(graph, child, path, seen)
+                    if isinstance(child_tokens, int):
+                        children_total += child_tokens
+
+        # Cache children tokens on this node (guard for Mock objects)
+        if hasattr(node, "_cached_children_tokens"):
+            node._cached_children_tokens = children_total
+
+        # Return total for this subtree (guard for Mock objects)
+        total = getattr(node, "total_tokens", 0)
+        if isinstance(total, int):
+            return total
+        # Fallback for Mock objects: use tokens property
+        tokens = getattr(node, "tokens", 0)
+        return tokens if isinstance(tokens, int) else 0
 
     def _render_path(
         self,

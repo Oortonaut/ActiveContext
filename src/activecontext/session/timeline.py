@@ -35,6 +35,7 @@ from activecontext.context.nodes import (
     WorkNode,
 )
 from activecontext.context.state import NodeState, NotificationLevel, TickFrequency
+from activecontext.context.view import NodeView
 from activecontext.mcp import (
     MCPClientManager,
 )
@@ -128,6 +129,7 @@ class LazyNodeNamespace(dict[str, Any]):
     Allows direct access to nodes by display_id (e.g., text_1, group_2)
     in the DSL namespace without explicit assignment.
 
+    Returns NodeView wrappers for nodes to enable view-based state management.
     User-defined variables take precedence over node lookups.
     """
 
@@ -148,7 +150,8 @@ class LazyNodeNamespace(dict[str, Any]):
             if graph:
                 node = graph.get_node_by_display_id(key)
                 if node:
-                    return node
+                    # Return NodeView wrapper for view-based state management
+                    return NodeView(node)
             raise
 
 
@@ -163,7 +166,7 @@ class Timeline:
         self,
         session_id: str,
         cwd: str = ".",
-        context_graph: ContextGraph | None = None,
+        context_graph: ContextGraph,
         permission_manager: PermissionManager | None = None,
         terminal_executor: TerminalExecutor | None = None,
         permission_requester: PermissionRequester | None = None,
@@ -181,8 +184,8 @@ class Timeline:
         self._statements: list[Statement] = []
         self._executions: dict[str, list[_ExecutionRecord]] = {}  # statement_id -> executions
 
-        # Context graph (DAG of context nodes)
-        self._context_graph = context_graph or ContextGraph()
+        # Context graph (DAG of context nodes) - injected by Session
+        self._context_graph = context_graph
 
         # Permission manager for file access control
         self._permission_manager = permission_manager

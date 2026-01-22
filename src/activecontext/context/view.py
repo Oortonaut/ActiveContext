@@ -16,6 +16,111 @@ from activecontext.context.state import NodeState
 
 if TYPE_CHECKING:
     from activecontext.context.content import ContentData, ContentRegistry
+    from activecontext.context.nodes import ContextNode
+
+
+class NodeView:
+    """Lightweight view wrapper for ContextNode.
+
+    Provides a view layer over nodes that can hold view-specific state
+    while forwarding attribute access to the underlying node.
+
+    This allows the DSL to bind variables to views rather than raw nodes,
+    enabling future separation of node data from view state.
+
+    Attributes:
+        _node: The underlying ContextNode
+        _state_override: Optional view-specific state (if None, use node.state)
+    """
+
+    __slots__ = ("_node", "_state_override")
+
+    _node: ContextNode
+    _state_override: NodeState | None
+
+    def __init__(self, node: ContextNode, state: NodeState | None = None) -> None:
+        """Create a view wrapping a node.
+
+        Args:
+            node: The ContextNode to wrap
+            state: Optional state override (if None, uses node.state)
+        """
+        object.__setattr__(self, "_node", node)
+        object.__setattr__(self, "_state_override", state)
+
+    def node(self) -> ContextNode:
+        """Return the underlying ContextNode."""
+        return self._node
+
+    @property
+    def state(self) -> NodeState:
+        """Return view state (override or node's state)."""
+        if self._state_override is not None:
+            return self._state_override
+        return self._node.state
+
+    @state.setter
+    def state(self, value: NodeState) -> None:
+        """Set view state (updates node directly for now)."""
+        self._node.state = value
+        # Clear override when setting directly
+        object.__setattr__(self, "_state_override", None)
+
+    def SetState(self, s: NodeState) -> NodeView:
+        """Set rendering state (fluent API).
+
+        Args:
+            s: New node state (HIDDEN, COLLAPSED, SUMMARY, DETAILS, ALL).
+        """
+        self._node.SetState(s)
+        return self
+
+    def SetTokens(self, n: int) -> NodeView:
+        """Set token budget (fluent API)."""
+        self._node.SetTokens(n)
+        return self
+
+    def Run(self, freq: Any = None) -> NodeView:
+        """Enable tick recomputation with given frequency."""
+        self._node.Run(freq)
+        return self
+
+    def Pause(self) -> NodeView:
+        """Disable tick recomputation."""
+        self._node.Pause()
+        return self
+
+    def SetNotify(self, level: Any) -> NodeView:
+        """Set notification level."""
+        self._node.SetNotify(level)
+        return self
+
+    def __getattr__(self, name: str) -> Any:
+        """Forward attribute access to the underlying node."""
+        return getattr(self._node, name)
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        """Forward attribute assignment to the underlying node."""
+        if name in ("_node", "_state_override"):
+            object.__setattr__(self, name, value)
+        else:
+            setattr(self._node, name, value)
+
+    def __repr__(self) -> str:
+        """Return string representation."""
+        return f"NodeView({self._node!r})"
+
+    def __eq__(self, other: Any) -> bool:
+        """Compare views by their underlying node."""
+        if isinstance(other, NodeView):
+            return self._node is other._node
+        if isinstance(other, type(self._node)):
+            return self._node is other
+        return False
+
+    def __hash__(self) -> int:
+        """Hash by underlying node ID."""
+        return hash(self._node.node_id)
 
 
 @dataclass

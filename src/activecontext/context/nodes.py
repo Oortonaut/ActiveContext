@@ -140,6 +140,9 @@ class ContextNode(ABC):
     _last_trace: TraceNode | None = field(default=None, init=False, repr=False)
     _last_trace_time: float = field(default=0.0, init=False, repr=False)
 
+    # Cached children tokens (computed during projection collection)
+    _cached_children_tokens: int = field(default=0, init=False, repr=False)
+
     @property
     @abstractmethod
     def node_type(self) -> str:
@@ -155,6 +158,43 @@ class ContextNode(ABC):
         """
         seq = self.display_sequence or 0
         return f"{self.node_type}_{seq}"
+
+    @property
+    def header_tokens(self) -> int:
+        """Tokens for the header line.
+
+        Computed by counting tokens in the rendered header string.
+        """
+        from activecontext.core.tokens import count_tokens
+
+        header = self.render_header()
+        return count_tokens(header)
+
+    @property
+    def content_tokens(self) -> int:
+        """Tokens for this node's own content (excluding children).
+
+        Subclasses should override to provide accurate counts.
+        Default implementation returns the configured token budget.
+        """
+        return self.tokens
+
+    @property
+    def children_tokens(self) -> int:
+        """Sum of children's total_tokens.
+
+        This is computed during projection collection and cached.
+        Returns 0 for leaf nodes or before collection.
+        """
+        return self._cached_children_tokens
+
+    @property
+    def total_tokens(self) -> int:
+        """Total tokens: header + content + children.
+
+        Provides complete token count for this subtree.
+        """
+        return self.header_tokens + self.content_tokens + self.children_tokens
 
     @abstractmethod
     def GetDigest(self) -> dict[str, Any]:
@@ -248,6 +288,55 @@ class ContextNode(ABC):
             TokenInfo with collapsed, summary, and detail token counts.
         """
         ...
+
+    def render_brief(self) -> str:
+        """Render brief identifier: title + node-specific data.
+
+        Examples:
+            TextNode: "main.py:1-50"
+            ShellNode: "Shell: pytest [COMPLETED]"
+            MessageNode: "User"
+
+        Default uses get_display_name() for backward compatibility.
+        Subclasses can override for custom formatting.
+        """
+        return self.get_display_name()
+
+    def render_tail(self) -> str:
+        """Render tail: | {#display_id}[: location] [alerts]
+
+        Examples:
+            "| {#text_1}"
+            "| {#text_1}: line 50..100"
+            "| {#shell_3} [WAKE]"
+        """
+        parts = [f"| {{#{self.display_id}}}"]
+
+        # Add notification alert if not IGNORE
+        if self.notification_level.value != "ignore":
+            parts.append(f"[{self.notification_level.value.upper()}]")
+
+        return " ".join(parts)
+
+    def render_size(self) -> str:
+        """Render size indicator based on node type and state.
+
+        Format varies by node type:
+            - Brief node: ", nnn tokens"
+            - Content node: ", nnn/mmm tokens" (header/total)
+            - Branch node: ", nnn/mmm/ooo tokens" (header/content/children)
+
+        Default shows header/total format.
+        """
+        if self.children_tokens > 0:
+            # Branch node: show header/content/children
+            return f", {self.header_tokens}/{self.content_tokens}/{self.children_tokens} tokens"
+        elif self.content_tokens > self.header_tokens:
+            # Content node: show header/total
+            return f", {self.header_tokens}/{self.total_tokens} tokens"
+        else:
+            # Brief node: just total
+            return f", {self.total_tokens} tokens"
 
     def render_header(self, cwd: str = ".") -> str:
         """Render uniform header for this node based on current state.

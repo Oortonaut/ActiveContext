@@ -1,19 +1,19 @@
 # Auto-detect text files and normalize line endings
 * text=auto
 
-# Force specific files to LF (Unix-style)
-*.py text eol=lf
-*.pyi text eol=lf
-*.json text eol=lf
-*.yaml text eol=lf
-*.yml text eol=lf
-*.toml text eol=lf
-*.md text eol=lf
-*.txt text eol=lf
+# Source files - use native OS line endings on checkout
+*.py text
+*.pyi text
+*.json text
+*.yaml text
+*.yml text
+*.toml text
+*.md text
+*.txt text
+
+# Shell scripts - keep platform-specific
 *.sh text eol=lf
 *.bash text eol=lf
-
-# Windows batch files need CRLF
 *.bat text eol=crlf
 *.cmd text eol=crlf
 *.ps1 text eol=crlf
