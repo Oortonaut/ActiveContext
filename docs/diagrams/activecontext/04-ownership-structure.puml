@@ -1,0 +1,142 @@
+@startuml Ownership_Structure
+!theme plain
+skinparam backgroundColor #FEFEFE
+
+title ActiveContext - Ownership Structure
+
+package "Session (Orchestrator)" as Session {
+
+  class Session <<owner>> {
+    -_context_graph: ContextGraph
+    -_timeline: Timeline
+    -_projection_engine: ProjectionEngine
+    -_message_history: list[Message]
+    -_text_buffers: dict[str, TextBuffer]
+    -_llm: LLMProvider
+    --
+    +prompt(content) -> AsyncIterator[SessionUpdate]
+    +get_projection() -> Projection
+    +tick() -> list[SessionUpdate]
+    +save() / from_file()
+  }
+
+  note right of Session
+    **Session owns:**
+    • ContextGraph (the DAG)
+    • Text buffers
+    • Message history
+    • LLM provider
+
+    **Session creates structural nodes:**
+    • root context
+    • system_prompt
+    • context_guide
+    • session metadata
+    • mcp_manager
+    • user_messages
+    • alerts
+  end note
+}
+
+package "Timeline (Execution Engine)" as TimelinePackage {
+
+  class Timeline <<injected>> {
+    -_context_graph: ContextGraph
+    -_mcp_integration: MCPIntegration
+    -_shell_manager: ShellManager
+    -_lock_manager: LockManager
+    -_agent_spawner: AgentSpawner
+    -_namespace: dict[str, Any]
+    --
+    +execute_statement(source) -> ExecutionResult
+    +replay_from(index) -> AsyncIterator[ExecutionResult]
+  }
+
+  note right of Timeline
+    **Timeline receives via injection:**
+    • ContextGraph (from Session)
+
+    **Timeline creates content nodes:**
+    • TextNode (via text())
+    • GroupNode (via group())
+    • TopicNode (via topic())
+    • ArtifactNode (via artifact())
+    • MarkdownNode (via markdown())
+  end note
+}
+
+package "Managers (Domain Delegates)" as Managers {
+  class MCPIntegration {
+    -_context_graph: ContextGraph
+    --
+    Creates MCPServerNode
+  }
+
+  class ShellManager {
+    -_context_graph: ContextGraph
+    --
+    Creates ShellNode
+  }
+
+  class LockManager {
+    -_context_graph: ContextGraph
+    --
+    Creates LockNode
+  }
+
+  class AgentSpawner {
+    -_context_graph: ContextGraph
+    --
+    Shares nodes between agents
+  }
+}
+
+package "Core" as Core {
+  class ContextGraph {
+    -_nodes: dict[str, ContextNode]
+    -_edges: list[tuple]
+    --
+    +add_node(node)
+    +link(child_id, parent_id)
+    +checkpoint(name)
+    +restore(name)
+  }
+
+  class ProjectionEngine {
+    --
+    +build(context_graph, cwd) -> Projection
+  }
+
+  note bottom of ContextGraph
+    **Single source of truth**
+    All nodes live here,
+    manipulated by Session,
+    Timeline, and managers
+  end note
+}
+
+' Ownership relationships
+Session *-- ContextGraph : owns >
+Session *-- Timeline : owns >
+Session *-- ProjectionEngine : owns >
+
+' Dependency injection
+Session ..> Timeline : creates with graph >
+Timeline --> ContextGraph : uses (injected) >
+
+' Timeline delegates
+Timeline *-- MCPIntegration : owns >
+Timeline *-- ShellManager : owns >
+Timeline *-- LockManager : owns >
+Timeline *-- AgentSpawner : owns >
+
+' Managers use graph
+MCPIntegration --> ContextGraph : uses (injected) >
+ShellManager --> ContextGraph : uses (injected) >
+LockManager --> ContextGraph : uses (injected) >
+AgentSpawner --> ContextGraph : uses (injected) >
+
+' Projection engine reads graph
+ProjectionEngine ..> ContextGraph : reads >
+
+@enduml

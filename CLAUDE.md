@@ -55,14 +55,17 @@ python -m activecontext  # Run ACP agent (stdio)
             ▼                          ▼
 ┌─────────────────────────────────────────────────────────┐
 │                    SESSION LAYER                        │
-│  SessionManager → Session (1:1) → Timeline              │
+│  SessionManager → Session (owns ContextGraph)           │
+│                     ├─ Timeline (uses graph)            │
+│                     ├─ ProjectionEngine (reads graph)   │
+│                     └─ Text Buffers                     │
 └─────────────────────────────────────────────────────────┘
                           │
             ┌─────────────┼─────────────┐
             ▼             ▼             ▼
 ┌─────────────────────────────────────────────────────────┐
-│                      CORE LAYER                         │
-│  ContextGraph │ ProjectionEngine │ PermissionManagers   │
+│                   TIMELINE DELEGATES                    │
+│  MCPIntegration │ ShellManager │ LockManager │ AgentSpawner
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -314,6 +317,56 @@ def on_change(new_config):
 
 unregister = on_config_reload(on_change)
 ```
+
+## Ownership and Responsibilities
+
+### Session (Orchestrator - Owns ContextGraph)
+
+**Session** is the high-level orchestrator that owns the ContextGraph and coordinates all session state:
+
+- **ContextGraph Ownership**: Creates and owns the graph, passes to Timeline via dependency injection
+- **Structural Nodes**: Creates special nodes directly in its graph:
+  - `context` (root) - Document-ordered rendering root
+  - `system_prompt` - System instructions buffer
+  - `context_guide` - Usage guide (@prompts/context_guide.md)
+  - `session` - Session metadata (SessionNode)
+  - `mcp_manager` - MCP server tracking (MCPManagerNode)
+  - `user_messages` - Queued async messages
+  - `alerts` - Notification aggregation
+- **LLM Integration**: Manages message history, calls LLM provider, handles streaming
+- **Projection Building**: Builds token-aware context from graph using ProjectionEngine
+- **Agent Loop**: Runs autonomous agent loop with message queuing and wake conditions
+- **Text Buffers**: Owns markdown text buffers for live-editing nodes
+- **Persistence**: Saves/loads session state (graph + timeline) to/from disk
+- **Path Resolution**: Handles @prompts/ and path roots ({home}, {cwd}, etc.)
+
+### Timeline (Execution Engine - Uses ContextGraph)
+
+**Timeline** is the Python statement execution engine that uses the injected ContextGraph:
+
+- **Statement Execution**: Executes Python statements with controlled builtins
+- **DSL Namespace**: Manages Python namespace with DSL functions (text, group, shell, etc.)
+- **Content Nodes**: Creates content nodes via DSL (TextNode, GroupNode, TopicNode, ArtifactNode, MarkdownNode)
+- **DAG Manipulation**: Provides DSL functions for link/unlink, checkpoint/restore
+- **Wait Conditions**: Manages wait conditions and event system
+- **Work Coordination**: File locking and conflict detection for multi-agent coordination
+- **Manager Delegation**: Delegates domain-specific concerns to focused managers:
+  - `MCPIntegration` - MCP server connections and tool execution
+  - `ShellManager` - Async shell command execution
+  - `LockManager` - File lock acquisition and release
+  - `AgentSpawner` - Multi-agent spawning and communication
+
+### Key Difference
+
+| Aspect | Session | Timeline |
+|--------|---------|----------|
+| **Owns** | ContextGraph, text buffers, message history | Statement history, wait conditions |
+| **Creates** | Structural nodes (root, session, alerts) | Content nodes (text, group, topic) |
+| **Knows about** | LLM, projections, messages | Python, DSL, events |
+| **User interaction** | Handles prompts | Executes statements |
+| **Focus** | Orchestration | Execution |
+
+**Dependency Flow**: Session creates ContextGraph → Timeline receives it via constructor → Timeline's managers also receive graph reference → All manipulate the same graph owned by Session.
 
 ## Key Protocols
 
