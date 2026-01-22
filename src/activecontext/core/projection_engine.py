@@ -12,7 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
-from activecontext.context.state import NodeState
+from activecontext.context.state import Expansion
 from activecontext.core.tokens import MediaType, count_tokens
 from activecontext.session.protocols import Projection, ProjectionSection
 
@@ -194,7 +194,7 @@ class ProjectionEngine:
         Returns:
             Total tokens for this subtree (used for parent's children_tokens)
         """
-        if node.node_id in seen or node.state == NodeState.HIDDEN:
+        if node.node_id in seen or node.state == Expansion.HIDDEN:
             return 0
 
         seen.add(node.node_id)
@@ -306,7 +306,7 @@ class ProjectionEngine:
             ProjectionSection or None if node should be skipped
         """
         # Skip hidden nodes
-        if node.state == NodeState.HIDDEN:
+        if node.state == Expansion.HIDDEN:
             return None
 
         content = node.Render(cwd=cwd, text_buffers=text_buffers)

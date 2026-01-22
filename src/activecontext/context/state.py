@@ -1,7 +1,7 @@
 """State and tick frequency types for context nodes.
 
 This module defines:
-- NodeState: Semantic rendering states (replaces numeric LOD)
+- Expansion: Semantic rendering states (replaces numeric LOD)
 - TickFrequency: Typed tick frequency specification (replaces string parsing)
 """
 
@@ -13,7 +13,7 @@ from enum import Enum
 from typing import Any
 
 
-class NodeState(Enum):
+class Expansion(Enum):
     """Rendering state for context nodes.
 
     States control how nodes appear in projections:

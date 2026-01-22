@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
-from activecontext.context.state import NodeState
+from activecontext.context.state import Expansion
 
 if TYPE_CHECKING:
     pass
@@ -199,7 +199,7 @@ class ProjectionSection:
     source_id: str
     content: str
     tokens_used: int
-    state: NodeState = NodeState.DETAILS
+    state: Expansion = Expansion.DETAILS
     metadata: dict[str, Any] = field(default_factory=dict)
 
 

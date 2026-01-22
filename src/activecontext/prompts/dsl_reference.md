@@ -9,7 +9,7 @@ Execute statements in `python/acrepl` fenced code blocks:
 ~~~markdown
 ```python/acrepl
 v = text("src/main.py", tokens=2000)
-v.SetState(NodeState.SUMMARY)
+v.SetState(Expansion.SUMMARY)
 ```
 ~~~
 
@@ -21,7 +21,7 @@ Nodes are accessible by their display ID directly in the namespace:
 
 ```python
 v = text("src/main.py")   # Creates text_1
-text_1.SetState(NodeState.SUMMARY)  # Direct access works
+text_1.SetState(Expansion.SUMMARY)  # Direct access works
 
 g = group(text_1, text_2)  # Creates group_1
 group_1.SetTokens(500)     # Direct access
@@ -38,18 +38,18 @@ text_1.SetState(...)  # Or use display ID directly
 
 ## Enums and Constants
 
-### NodeState
+### Expansion
 
 Controls rendering detail level for context nodes.
 
 ```python
-from activecontext import NodeState
+from activecontext import Expansion
 
-NodeState.HIDDEN     # Not shown in projection (but still ticked if running)
-NodeState.COLLAPSED  # Title and metadata only (~50 tokens)
-NodeState.SUMMARY    # LLM-generated summary
-NodeState.DETAILS    # Full view with child settings
-NodeState.ALL        # Everything including full traces
+Expansion.HIDDEN     # Not shown in projection (but still ticked if running)
+Expansion.COLLAPSED  # Title and metadata only (~50 tokens)
+Expansion.SUMMARY    # LLM-generated summary
+Expansion.DETAILS    # Full view with child settings
+Expansion.ALL        # Everything including full traces
 ```
 
 ### TickFrequency
@@ -67,17 +67,17 @@ TickFrequency.never()       # No automatic updates
 
 ## Context Node Constructors
 
-### `text(path, *, pos="1:0", tokens=2000, state=NodeState.ALL, mode="paused", parent=None)`
+### `text(path, *, pos="1:0", tokens=2000, state=Expansion.ALL, mode="paused", parent=None)`
 Create a text view of a file or file region.
 
 ```python
 v = text("src/main.py")                          # Entire file
 v = text("src/main.py", pos="50:0", tokens=500)  # Start at line 50
-v = text("src/main.py", tokens=500, state=NodeState.SUMMARY)
+v = text("src/main.py", tokens=500, state=Expansion.SUMMARY)
 v = text("src/main.py", parent=group_node)       # Link to parent at creation
 ```
 
-### `markdown(path, *, content=None, tokens=2000, state=NodeState.DETAILS, parent=None)`
+### `markdown(path, *, content=None, tokens=2000, state=Expansion.DETAILS, parent=None)`
 Parse a markdown file into a tree of TextNodes, where each heading section is a separate node.
 
 ```python
@@ -88,7 +88,7 @@ m = markdown("docs/guide.md", parent=docs_group) # Link to parent
 
 Returns the root TextNode. Child sections are accessible via `children_ids`.
 
-### `view(media_type, path, tokens=2000, state=NodeState.ALL, **kwargs)`
+### `view(media_type, path, tokens=2000, state=Expansion.ALL, **kwargs)`
 Dispatcher that routes to `text()` or `markdown()` based on media type.
 
 ```python
@@ -96,7 +96,7 @@ v = view("text", "src/main.py")                  # Same as text()
 m = view("markdown", "docs/README.md")           # Same as markdown()
 ```
 
-### `group(*members, tokens=500, state=NodeState.SUMMARY, summary=None, parent=None)`
+### `group(*members, tokens=500, state=Expansion.SUMMARY, summary=None, parent=None)`
 Create a summary group over multiple nodes.
 
 ```python
@@ -132,7 +132,7 @@ Access bundled reference documentation from the ActiveContext package:
 
 ```python
 m = markdown("@prompts/dsl_reference.md")      # DSL function reference
-m = markdown("@prompts/node_states.md")        # NodeState documentation
+m = markdown("@prompts/node_states.md")        # Expansion documentation
 m = markdown("@prompts/context_graph.md")      # DAG manipulation guide
 m = markdown("@prompts/work_coordination.md")  # Multi-agent coordination
 m = markdown("@prompts/mcp.md")                # MCP usage guide
@@ -140,7 +140,7 @@ m = markdown("@prompts/mcp.md")                # MCP usage guide
 
 Available prompts:
 - `dsl_reference.md` - This reference document
-- `node_states.md` - NodeState enum documentation
+- `node_states.md` - Expansion enum documentation
 - `context_graph.md` - DAG manipulation guide
 - `work_coordination.md` - Multi-agent coordination guide
 - `mcp.md` - MCP server integration guide
@@ -155,7 +155,7 @@ All context nodes support chainable configuration methods.
 ### Common Methods
 
 ```python
-node.SetState(NodeState.SUMMARY)   # Change rendering state
+node.SetState(Expansion.SUMMARY)   # Change rendering state
 node.SetTokens(500)                # Change token budget
 node.Run(TickFrequency.turn())     # Start running with frequency
 node.Pause()                       # Stop automatic updates
@@ -172,7 +172,7 @@ v.SetPos("50:0")      # Jump to line 50
 Methods return `self` for chaining:
 
 ```python
-v = text("src/main.py").SetTokens(2000).SetState(NodeState.ALL).Run(TickFrequency.turn())
+v = text("src/main.py").SetTokens(2000).SetState(Expansion.ALL).Run(TickFrequency.turn())
 ```
 
 ## DAG Manipulation
@@ -226,7 +226,7 @@ branch("refactor_attempt_2")  # Same as checkpoint("refactor_attempt_2")
 
 ## Shell Execution
 
-### `shell(command, args=None, cwd=None, env=None, timeout=30.0, *, tokens=2000, state=NodeState.DETAILS)`
+### `shell(command, args=None, cwd=None, env=None, timeout=30.0, *, tokens=2000, state=Expansion.DETAILS)`
 Execute a shell command asynchronously. Returns a ShellNode.
 
 ```python
@@ -254,7 +254,7 @@ response = await fetch("https://api.example.com/api", method="POST", json={"key"
 
 ## File Locking
 
-### `lock_file(lockfile, timeout=30.0, *, tokens=200, state=NodeState.COLLAPSED)`
+### `lock_file(lockfile, timeout=30.0, *, tokens=200, state=Expansion.COLLAPSED)`
 Acquire a file lock for coordination. Returns a LockNode.
 
 ```python
@@ -331,7 +331,7 @@ entries = work_list()
 
 ## MCP (Model Context Protocol)
 
-### `mcp_connect(name, *, command=None, url=None, env=None, tokens=1000, state=NodeState.DETAILS)`
+### `mcp_connect(name, *, command=None, url=None, env=None, tokens=1000, state=Expansion.DETAILS)`
 Connect to an MCP server. Returns an MCPServerNode.
 
 ```python

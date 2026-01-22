@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from activecontext.context.nodes import LockNode, LockStatus
-from activecontext.context.state import NodeState
+from activecontext.context.state import Expansion
 
 if TYPE_CHECKING:
     from activecontext.context.graph import ContextGraph
@@ -60,7 +60,7 @@ class LockManager:
         timeout: float = 30.0,
         *,
         tokens: int = 200,
-        state: NodeState = NodeState.COLLAPSED,
+        state: Expansion = Expansion.COLLAPSED,
     ) -> LockNode:
         """Acquire an exclusive file lock asynchronously, returning a LockNode.
 

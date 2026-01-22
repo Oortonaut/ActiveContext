@@ -11,7 +11,7 @@ from unittest.mock import Mock
 import pytest
 
 from activecontext.context.graph import ContextGraph
-from activecontext.context.state import NodeState
+from activecontext.context.state import Expansion
 from activecontext.core.projection_engine import ProjectionConfig, ProjectionEngine, RenderPath
 from tests.utils import create_mock_context_node
 
@@ -40,12 +40,12 @@ def mock_graph():
 
     # Create mock nodes with Render method
     running_node = create_mock_context_node("running1", "view", mode="running")
-    running_node.state = NodeState.DETAILS
+    running_node.state = Expansion.DETAILS
     running_node.Render = Mock(return_value="# Running Node Content\nThis is the content.")
     running_node.clear_pending_traces = Mock()
 
     paused_root = create_mock_context_node("paused_root", "view", mode="paused")
-    paused_root.state = NodeState.SUMMARY
+    paused_root.state = Expansion.SUMMARY
     paused_root.Render = Mock(return_value="# Paused Root Summary")
     paused_root.clear_pending_traces = Mock()
 
@@ -125,7 +125,7 @@ class TestCollectRenderPath:
         graph = ContextGraph()
 
         root = create_mock_context_node("root", "view")
-        root.state = NodeState.COLLAPSED
+        root.state = Expansion.COLLAPSED
         child = create_mock_context_node("child", "view")
 
         graph.add_node(root)
@@ -145,10 +145,10 @@ class TestCollectRenderPath:
         graph = ContextGraph()
 
         hidden_node = create_mock_context_node("hidden", "view", mode="running")
-        hidden_node.state = NodeState.HIDDEN
+        hidden_node.state = Expansion.HIDDEN
 
         visible_node = create_mock_context_node("visible", "view", mode="running")
-        visible_node.state = NodeState.DETAILS
+        visible_node.state = Expansion.DETAILS
 
         graph.add_node(hidden_node)
         graph.add_node(visible_node)
@@ -208,12 +208,12 @@ class TestRenderPathRendering:
         graph = ContextGraph()
 
         hidden_node = create_mock_context_node("hidden", "view", mode="running")
-        hidden_node.state = NodeState.HIDDEN
+        hidden_node.state = Expansion.HIDDEN
         hidden_node.Render = Mock(return_value="Hidden content")
         hidden_node.clear_pending_traces = Mock()
 
         visible_node = create_mock_context_node("visible", "view", mode="running")
-        visible_node.state = NodeState.DETAILS
+        visible_node.state = Expansion.DETAILS
         visible_node.Render = Mock(return_value="Visible content")
         visible_node.clear_pending_traces = Mock()
 
@@ -322,7 +322,7 @@ class TestProjectionIntegration:
         # Create graph with nodes
         graph = ContextGraph()
         node = create_mock_context_node("node1", "view", mode="running")
-        node.state = NodeState.DETAILS
+        node.state = Expansion.DETAILS
         node.Render = Mock(return_value="Node content")
         node.clear_pending_traces = Mock()
         graph.add_node(node)

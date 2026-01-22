@@ -284,7 +284,7 @@ def _format_value(val: str) -> str:
     Attempts to preserve type:
     - Numbers remain unquoted
     - Booleans (true/false) become True/False
-    - NodeState values (hidden, collapsed, summary, details, all) become NodeState.HIDDEN, etc.
+    - Expansion values (hidden, collapsed, summary, details, all) become Expansion.HIDDEN, etc.
     - TickFrequency patterns (turn, async, never, period:N) become TickFrequency.turn(), etc.
     - Everything else is quoted as string
     """
@@ -294,10 +294,10 @@ def _format_value(val: str) -> str:
     if val.lower() == "false":
         return "False"
 
-    # Check for NodeState enum values
+    # Check for Expansion enum values
     state_values = {"hidden", "collapsed", "summary", "details", "all"}
     if val.lower() in state_values:
-        return f"NodeState.{val.upper()}"
+        return f"Expansion.{val.upper()}"
 
     # Check for TickFrequency patterns
     if val.lower() in ("turn", "sync"):

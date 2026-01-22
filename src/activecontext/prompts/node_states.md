@@ -1,6 +1,6 @@
 # Node States and Tick Frequency
 
-## NodeState Enum
+## Expansion Enum
 
 Controls how a node renders in the projection.
 
@@ -13,11 +13,11 @@ Controls how a node renders in the projection.
 | `ALL` | Everything including pending traces | Debugging, detailed review |
 
 ```python
-from activecontext import NodeState
+from activecontext import Expansion
 
-v = text("src/main.py", state=NodeState.DETAILS)
-v.SetState(NodeState.SUMMARY)  # Reduce detail
-v.SetState(NodeState.HIDDEN)   # Hide completely
+v = text("src/main.py", state=Expansion.DETAILS)
+v.SetState(Expansion.SUMMARY)  # Reduce detail
+v.SetState(Expansion.HIDDEN)   # Hide completely
 ```
 
 ## TickFrequency
@@ -47,7 +47,7 @@ All context nodes support method chaining:
 
 ```python
 v = text("src/main.py") \
-    .SetState(NodeState.DETAILS) \
+    .SetState(Expansion.DETAILS) \
     .SetTokens(2000) \
     .Run(TickFrequency.turn())
 

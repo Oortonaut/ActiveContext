@@ -6,7 +6,7 @@ import pytest
 
 from activecontext.context.graph import ContextGraph
 from activecontext.context.nodes import MessageNode
-from activecontext.context.state import NodeState
+from activecontext.context.state import Expansion
 from activecontext.core.projection_engine import ProjectionConfig, ProjectionEngine
 
 
@@ -148,7 +148,7 @@ class TestMessageNodeRender:
             role="user",
             content="Hello",
             originator="user",
-            state=NodeState.HIDDEN,
+            state=Expansion.HIDDEN,
         )
         assert node.Render() == ""
 
@@ -158,7 +158,7 @@ class TestMessageNodeRender:
             role="user",
             content="Hello, world!",
             originator="user",
-            state=NodeState.COLLAPSED,
+            state=Expansion.COLLAPSED,
         )
         rendered = node.Render()
         assert "User" in rendered  # Title case in new header format

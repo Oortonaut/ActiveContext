@@ -21,7 +21,7 @@ from activecontext.context.nodes import (
     TopicNode,
     TextNode,
 )
-from activecontext.context.state import NodeState
+from activecontext.context.state import Expansion
 
 
 # =============================================================================
@@ -37,7 +37,7 @@ class TestTextNodeSerialization:
         node = TextNode(
             node_id="view1",
             path="src/main.py",
-            state=NodeState.DETAILS,
+            state=Expansion.DETAILS,
         )
 
         data = node.to_dict()
@@ -63,14 +63,14 @@ class TestTextNodeSerialization:
 
         assert node.node_id == "view1"
         assert node.path == "src/main.py"
-        assert node.state == NodeState.DETAILS
+        assert node.state == Expansion.DETAILS
 
     def test_roundtrip(self):
         """Test TextNode serialization round-trip."""
         original = TextNode(
             node_id="view1",
             path="src/main.py",
-            state=NodeState.ALL,
+            state=Expansion.ALL,
             pos="10:5",
         )
 
@@ -110,7 +110,7 @@ class TestGroupNodeSerialization:
         node = GroupNode(
             node_id="group1",
             summary_prompt="Summarize these files",
-            state=NodeState.SUMMARY,
+            state=Expansion.SUMMARY,
             cached_summary="A group of related files",
         )
 
@@ -136,7 +136,7 @@ class TestGroupNodeSerialization:
 
         assert node.node_id == "group1"
         assert node.summary_prompt == "Test prompt"
-        assert node.state == NodeState.SUMMARY
+        assert node.state == Expansion.SUMMARY
         assert node.cached_summary == "Test summary"
 
     def test_roundtrip(self):
@@ -144,7 +144,7 @@ class TestGroupNodeSerialization:
         original = GroupNode(
             node_id="group1",
             summary_prompt="Summarize the auth module",
-            state=NodeState.DETAILS,
+            state=Expansion.DETAILS,
             cached_summary="Authentication implementation",
         )
 
@@ -182,7 +182,7 @@ class TestTopicNodeSerialization:
         node = TopicNode(
             node_id="topic1",
             title="Authentication Implementation",
-            state=NodeState.COLLAPSED,
+            state=Expansion.COLLAPSED,
         )
 
         data = node.to_dict()
@@ -196,7 +196,7 @@ class TestTopicNodeSerialization:
         original = TopicNode(
             node_id="topic1",
             title="Bug Fix Discussion",
-            state=NodeState.DETAILS,
+            state=Expansion.DETAILS,
         )
 
         data = original.to_dict()
@@ -235,7 +235,7 @@ class TestArtifactNodeSerialization:
             content="def foo(): pass",
             artifact_type="code",
             language="python",
-            state=NodeState.ALL,
+            state=Expansion.ALL,
         )
 
         data = node.to_dict()
@@ -253,7 +253,7 @@ class TestArtifactNodeSerialization:
             content="Error: Connection refused",
             artifact_type="error",
             language="text",
-            state=NodeState.DETAILS,
+            state=Expansion.DETAILS,
         )
 
         data = original.to_dict()
@@ -293,7 +293,7 @@ class TestShellNodeSerialization:
             node_id="shell1",
             command="pytest",
             args=["-v", "tests/"],
-            state=NodeState.DETAILS,
+            state=Expansion.DETAILS,
             output="All tests passed",
             exit_code=0,
         )
@@ -313,7 +313,7 @@ class TestShellNodeSerialization:
             node_id="shell1",
             command="git",
             args=["status"],
-            state=NodeState.ALL,
+            state=Expansion.ALL,
             output="On branch main",
             exit_code=0,
         )
@@ -355,7 +355,7 @@ class TestLockNodeSerialization:
         node = LockNode(
             node_id="lock1",
             lockfile="src/config.py.lock",
-            state=NodeState.COLLAPSED,
+            state=Expansion.COLLAPSED,
         )
 
         data = node.to_dict()
@@ -370,7 +370,7 @@ class TestLockNodeSerialization:
             node_id="lock1",
             lockfile="src/main.py.lock",
             timeout=60.0,
-            state=NodeState.DETAILS,
+            state=Expansion.DETAILS,
         )
 
         data = original.to_dict()
@@ -406,7 +406,7 @@ class TestSessionNodeSerialization:
         """Test SessionNode serialization to dict."""
         node = SessionNode(
             node_id="session1",
-            state=NodeState.COLLAPSED,
+            state=Expansion.COLLAPSED,
             turn_count=5,
             total_statements_executed=25,
         )
@@ -422,7 +422,7 @@ class TestSessionNodeSerialization:
         """Test SessionNode serialization round-trip."""
         original = SessionNode(
             node_id="session1",
-            state=NodeState.DETAILS,
+            state=Expansion.DETAILS,
             turn_count=10,
             total_tokens_consumed=5000,
         )
@@ -459,7 +459,7 @@ class TestMCPServerNodeSerialization:
         node = MCPServerNode(
             node_id="mcp1",
             server_name="filesystem",
-            state=NodeState.COLLAPSED,
+            state=Expansion.COLLAPSED,
             tools=[{"name": "read_file", "description": "Read a file"}],
         )
 
@@ -475,7 +475,7 @@ class TestMCPServerNodeSerialization:
         original = MCPServerNode(
             node_id="mcp1",
             server_name="github",
-            state=NodeState.DETAILS,
+            state=Expansion.DETAILS,
             tools=[
                 {"name": "list_repos", "description": "List repositories"},
                 {"name": "create_issue", "description": "Create an issue"},
@@ -515,7 +515,7 @@ class TestMCPManagerNodeSerialization:
         """Test MCPManagerNode serialization to dict."""
         node = MCPManagerNode(
             node_id="mcp_manager",
-            state=NodeState.COLLAPSED,
+            state=Expansion.COLLAPSED,
         )
 
         data = node.to_dict()
@@ -527,7 +527,7 @@ class TestMCPManagerNodeSerialization:
         """Test MCPManagerNode serialization round-trip."""
         original = MCPManagerNode(
             node_id="mcp_manager",
-            state=NodeState.DETAILS,
+            state=Expansion.DETAILS,
         )
 
         data = original.to_dict()
@@ -563,7 +563,7 @@ class TestAgentNodeSerialization:
             node_id="agent1",
             agent_id="child-agent-123",
             agent_type="researcher",
-            state=NodeState.DETAILS,
+            state=Expansion.DETAILS,
             agent_state="running",
             task="Research the API",
         )
@@ -583,7 +583,7 @@ class TestAgentNodeSerialization:
             node_id="agent1",
             agent_id="worker-456",
             agent_type="coder",
-            state=NodeState.ALL,
+            state=Expansion.ALL,
             agent_state="completed",
             task="Implement feature X",
         )
@@ -627,13 +627,13 @@ class TestContextGraphSerialization:
         # Create graph with various node types
         graph = ContextGraph()
 
-        view = TextNode(node_id="view1", path="main.py", state=NodeState.DETAILS)
+        view = TextNode(node_id="view1", path="main.py", state=Expansion.DETAILS)
         graph.add_node(view)
 
-        group = GroupNode(node_id="group1", state=NodeState.SUMMARY, cached_summary="Code files")
+        group = GroupNode(node_id="group1", state=Expansion.SUMMARY, cached_summary="Code files")
         graph.add_node(group)
 
-        topic = TopicNode(node_id="topic1", title="Discussion", state=NodeState.COLLAPSED)
+        topic = TopicNode(node_id="topic1", title="Discussion", state=Expansion.COLLAPSED)
         graph.add_node(topic)
         graph.link("topic1", "group1")  # topic is child of group (link(child, parent))
 

@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 from activecontext.context.nodes import WorkNode
-from activecontext.context.state import NodeState, TickFrequency
+from activecontext.context.state import Expansion, TickFrequency
 from activecontext.coordination import (
     Conflict,
     FileAccess,
@@ -336,7 +336,7 @@ class TestWorkNode:
         node = WorkNode(
             node_id="work_123",
             intent="Implementing a very long feature description that should be truncated",
-            state=NodeState.COLLAPSED,
+            state=Expansion.COLLAPSED,
             files=[{"path": "src/main.py", "mode": "write"}],
         )
         rendered = node.Render()
@@ -347,7 +347,7 @@ class TestWorkNode:
         node = WorkNode(
             node_id="work_123",
             intent="Test work",
-            state=NodeState.DETAILS,
+            state=Expansion.DETAILS,
             agent_id="abc12345",
             files=[
                 {"path": "src/main.py", "mode": "write"},
@@ -365,7 +365,7 @@ class TestWorkNode:
         node = WorkNode(
             node_id="work_123",
             intent="Test",
-            state=NodeState.DETAILS,
+            state=Expansion.DETAILS,
             conflicts=[
                 {
                     "agent_id": "def67890",
@@ -384,7 +384,7 @@ class TestWorkNode:
         node = WorkNode(
             node_id="work_123",
             intent="Test",
-            state=NodeState.HIDDEN,
+            state=Expansion.HIDDEN,
         )
         assert node.Render() == ""
 

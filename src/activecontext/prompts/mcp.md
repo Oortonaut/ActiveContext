@@ -4,7 +4,7 @@ Connect to external MCP servers to access their tools and resources.
 
 ## Connecting to Servers
 
-### `mcp_connect(name, *, command=None, url=None, env=None, tokens=1000, state=NodeState.DETAILS)`
+### `mcp_connect(name, *, command=None, url=None, env=None, tokens=1000, state=Expansion.DETAILS)`
 Connect to an MCP server. Returns an MCPServerNode.
 
 ```python
@@ -82,8 +82,8 @@ When connected, the MCPServerNode appears in your context with tool documentatio
 
 ```python
 fs = mcp_connect("filesystem")
-fs.SetState(NodeState.ALL)      # Full tool documentation
-fs.SetState(NodeState.SUMMARY)  # Just tool names
+fs.SetState(Expansion.ALL)      # Full tool documentation
+fs.SetState(Expansion.SUMMARY)  # Just tool names
 ```
 
 ## Tool Child Nodes
@@ -101,8 +101,8 @@ tool = fs.tool("read_file")           # Get single tool node
 all_tools = fs.tool_nodes             # Get all tool nodes
 
 # Access via namespace (prefixed names)
-filesystem_read_file.SetState(NodeState.ALL)
-filesystem_write_file.SetState(NodeState.HIDDEN)
+filesystem_read_file.SetState(Expansion.ALL)
+filesystem_write_file.SetState(Expansion.HIDDEN)
 ```
 
 ### Tool Node Rendering States
@@ -117,10 +117,10 @@ Each MCPToolNode has independent state control:
 
 ```python
 # Show full documentation for one tool only
-fs.tool("read_file").SetState(NodeState.ALL)
+fs.tool("read_file").SetState(Expansion.ALL)
 
 # Hide tools you don't need
-fs.tool("delete_file").SetState(NodeState.HIDDEN)
+fs.tool("delete_file").SetState(Expansion.HIDDEN)
 ```
 
 ### Reconnection Behavior

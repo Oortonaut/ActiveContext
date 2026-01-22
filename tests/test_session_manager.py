@@ -166,8 +166,8 @@ class TestSessionIsolation:
         session1 = await session_manager.create_session(cwd="/proj1")
         session2 = await session_manager.create_session(cwd="/proj2")
 
-        graph1 = session1.context_graph
-        graph2 = session2.context_graph
+        graph1 = session1.get_context_graph()
+        graph2 = session2.get_context_graph()
 
         assert graph1 is not graph2
 
@@ -497,7 +497,7 @@ class TestSessionManagerIntegration:
         session = await session_manager.create_session(cwd="/test")
 
         # Get graph
-        graph = session.context_graph
+        graph = session.get_context_graph()
         initial_count = len(graph)
 
         # Add a node

@@ -15,7 +15,7 @@ import pytest
 
 from activecontext.context.checkpoint import Checkpoint, GroupState
 from activecontext.context.graph import ContextGraph
-from activecontext.context.state import NodeState, TickFrequency
+from activecontext.context.state import Expansion, TickFrequency
 from tests.utils import create_mock_context_node
 
 
@@ -603,21 +603,21 @@ class TestCheckpoints:
 
 
 class TestStateTypes:
-    """Tests for NodeState and TickFrequency types."""
+    """Tests for Expansion and TickFrequency types."""
 
     def test_node_state_enum_values(self):
-        """Test NodeState enum values."""
-        assert NodeState.HIDDEN.value == "hidden"
-        assert NodeState.COLLAPSED.value == "collapsed"
-        assert NodeState.SUMMARY.value == "summary"
-        assert NodeState.DETAILS.value == "details"
-        assert NodeState.ALL.value == "all"
+        """Test Expansion enum values."""
+        assert Expansion.HIDDEN.value == "hidden"
+        assert Expansion.COLLAPSED.value == "collapsed"
+        assert Expansion.SUMMARY.value == "summary"
+        assert Expansion.DETAILS.value == "details"
+        assert Expansion.ALL.value == "all"
 
     def test_node_state_string_representation(self):
-        """Test NodeState string representation."""
-        assert str(NodeState.HIDDEN) == "hidden"
-        assert str(NodeState.SUMMARY) == "summary"
-        assert str(NodeState.ALL) == "all"
+        """Test Expansion string representation."""
+        assert str(Expansion.HIDDEN) == "hidden"
+        assert str(Expansion.SUMMARY) == "summary"
+        assert str(Expansion.ALL) == "all"
 
     def test_tick_frequency_turn(self):
         """Test TickFrequency.turn() factory."""

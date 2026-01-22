@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from activecontext.context.nodes import ShellNode, ShellStatus
-from activecontext.context.state import NodeState
+from activecontext.context.state import Expansion
 from activecontext.terminal.result import ShellResult
 
 if TYPE_CHECKING:
@@ -76,7 +76,7 @@ class ShellManager:
         timeout: float | None = 30.0,
         *,
         tokens: int = 2000,
-        state: NodeState = NodeState.DETAILS,
+        state: Expansion = Expansion.DETAILS,
     ) -> ShellNode:
         """Execute a shell command asynchronously, returning a ShellNode.
 

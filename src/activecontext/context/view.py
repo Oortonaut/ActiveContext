@@ -12,7 +12,7 @@ import uuid
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
-from activecontext.context.state import NodeState
+from activecontext.context.state import Expansion
 
 if TYPE_CHECKING:
     from activecontext.context.content import ContentData, ContentRegistry
@@ -36,9 +36,9 @@ class NodeView:
     __slots__ = ("_node", "_state_override")
 
     _node: ContextNode
-    _state_override: NodeState | None
+    _state_override: Expansion | None
 
-    def __init__(self, node: ContextNode, state: NodeState | None = None) -> None:
+    def __init__(self, node: ContextNode, state: Expansion | None = None) -> None:
         """Create a view wrapping a node.
 
         Args:
@@ -53,20 +53,20 @@ class NodeView:
         return self._node
 
     @property
-    def state(self) -> NodeState:
+    def state(self) -> Expansion:
         """Return view state (override or node's state)."""
         if self._state_override is not None:
             return self._state_override
         return self._node.state
 
     @state.setter
-    def state(self, value: NodeState) -> None:
+    def state(self, value: Expansion) -> None:
         """Set view state (updates node directly for now)."""
         self._node.state = value
         # Clear override when setting directly
         object.__setattr__(self, "_state_override", None)
 
-    def SetState(self, s: NodeState) -> NodeView:
+    def SetState(self, s: Expansion) -> NodeView:
         """Set rendering state (fluent API).
 
         Args:
@@ -154,7 +154,7 @@ class AgentView:
 
     # Visibility settings (per-agent)
     hidden: bool = False
-    state: NodeState = NodeState.DETAILS
+    state: Expansion = Expansion.DETAILS
     tokens: int = 1000
 
     # DAG structure (per-agent)
@@ -197,13 +197,13 @@ class AgentView:
             return f"[{content.content_type}: {content.token_count} tokens]"
 
         # Render based on state
-        if self.state == NodeState.COLLAPSED:
+        if self.state == Expansion.COLLAPSED:
             return self._render_collapsed(content)
-        elif self.state == NodeState.SUMMARY:
+        elif self.state == Expansion.SUMMARY:
             return self._render_summary(content, effective_budget)
-        elif self.state == NodeState.DETAILS:
+        elif self.state == Expansion.DETAILS:
             return self._render_details(content, effective_budget)
-        elif self.state == NodeState.ALL:
+        elif self.state == Expansion.ALL:
             return self._render_all(content, effective_budget)
         else:
             # HIDDEN state (legacy) - treat as hidden flag
@@ -271,7 +271,7 @@ class AgentView:
         self.updated_at = time.time()
         return self
 
-    def SetState(self, state: NodeState) -> AgentView:
+    def SetState(self, state: Expansion) -> AgentView:
         """Set expansion state."""
         self.state = state
         self.updated_at = time.time()
@@ -322,7 +322,7 @@ class AgentView:
             content_id=data.get("content_id", ""),
             node_id=data.get("node_id", data["view_id"]),
             hidden=data.get("hidden", False),
-            state=NodeState(data.get("state", "details")),
+            state=Expansion(data.get("state", "details")),
             tokens=data.get("tokens", 1000),
             parent_ids=set(data.get("parent_ids", [])),
             children_ids=set(data.get("children_ids", [])),

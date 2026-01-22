@@ -10,7 +10,7 @@ import pytest
 
 from activecontext import ActiveContext
 from activecontext.context.graph import ContextGraph
-from activecontext.context.state import NodeState
+from activecontext.context.state import Expansion
 from activecontext.session.timeline import Timeline
 
 

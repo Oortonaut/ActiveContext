@@ -21,7 +21,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from .state import NodeState
+    from .state import Expansion
 
 
 @dataclass
@@ -43,7 +43,7 @@ class TokenInfo:
     is_bytes: bool = False
 
 
-def format_token_info(info: TokenInfo, state: NodeState) -> str:
+def format_token_info(info: TokenInfo, state: Expansion) -> str:
     """Format token info string based on current visibility state.
 
     The slash `/` separates visible tokens from hidden tokens.
@@ -61,21 +61,21 @@ def format_token_info(info: TokenInfo, state: NodeState) -> str:
         SUMMARY:   (tokens: 18+74/340) - 18+74 visible, 340 hidden
         ALL:       (tokens: 18+74+340) - all visible
     """
-    from .state import NodeState
+    from .state import Expansion
 
     unit = "bytes" if info.is_bytes else "tokens"
 
-    if state == NodeState.HIDDEN:
+    if state == Expansion.HIDDEN:
         return ""
 
-    if state == NodeState.COLLAPSED:
+    if state == Expansion.COLLAPSED:
         # Visible: collapsed only
         # Hidden: summary + detail
         visible = info.collapsed
         hidden = info.summary + info.detail
         result = f"{unit}: {visible}/{hidden}"
 
-    elif state == NodeState.SUMMARY:
+    elif state == Expansion.SUMMARY:
         # Visible: collapsed + summary
         # Hidden: detail
         visible_str = (
@@ -86,7 +86,7 @@ def format_token_info(info: TokenInfo, state: NodeState) -> str:
         hidden = info.detail
         result = f"{unit}: {visible_str}/{hidden}"
 
-    elif state in (NodeState.DETAILS, NodeState.ALL):
+    elif state in (Expansion.DETAILS, Expansion.ALL):
         # All visible
         if info.summary > 0:
             result = f"{unit}: {info.collapsed}+{info.summary}+{info.detail}"
@@ -109,7 +109,7 @@ def format_token_info(info: TokenInfo, state: NodeState) -> str:
 def render_header(
     display_id: str,
     name: str,
-    state: NodeState,
+    state: Expansion,
     token_info: TokenInfo,
     notification_level: str | None = None,
 ) -> str:
@@ -133,9 +133,9 @@ def render_header(
         DETAILS:   "# main.py:1-50 {#text_1} details hold (tokens: 18+74+340)\n"
         ALL:       "# main.py:1-50 {#text_1} all (tokens: 18+74+340)\n"
     """
-    from .state import NodeState
+    from .state import Expansion
 
-    if state == NodeState.HIDDEN:
+    if state == Expansion.HIDDEN:
         return ""
 
     token_str = format_token_info(token_info, state)
@@ -145,11 +145,11 @@ def render_header(
     if notification_level and notification_level != "ignore":
         brief = f"{brief} {notification_level}"
 
-    if state == NodeState.COLLAPSED:
+    if state == Expansion.COLLAPSED:
         # Level 3 heading for collapsed nodes
         return f"### {name} {{#{display_id}}} {brief} {token_str}\n"
 
-    if state == NodeState.SUMMARY:
+    if state == Expansion.SUMMARY:
         # Level 2 heading for summary
         return f"## {name} {{#{display_id}}} {brief} {token_str}\n"
 

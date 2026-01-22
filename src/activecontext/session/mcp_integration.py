@@ -8,7 +8,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from activecontext.context.nodes import MCPManagerNode, MCPServerNode
-from activecontext.context.state import NodeState
+from activecontext.context.state import Expansion
 from activecontext.mcp.client import MCPClientManager
 
 if TYPE_CHECKING:
@@ -58,7 +58,7 @@ class MCPIntegration:
         url: str | None = None,
         env: dict[str, str] | None = None,
         tokens: int = 1000,
-        state: NodeState = NodeState.DETAILS,
+        state: Expansion = Expansion.DETAILS,
     ) -> MCPServerNode:
         """Connect to an MCP server.
 

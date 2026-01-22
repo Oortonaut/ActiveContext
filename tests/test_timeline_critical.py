@@ -14,7 +14,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from activecontext.session.timeline import Timeline
-from activecontext.context.state import NodeState
+from activecontext.context.state import Expansion
 
 
 class TestReplayFrom:
@@ -239,13 +239,13 @@ class TestLockManagement:
         timeline = Timeline("test-session", cwd=str(temp_cwd))
         try:
             result = await timeline.execute_statement(
-                'lock = lock_file(".test.lock", state=NodeState.DETAILS)'
+                'lock = lock_file(".test.lock", state=Expansion.DETAILS)'
             )
             assert result.status.value == "ok"
 
             ns = timeline.get_namespace()
             lock_node = ns["lock"]
-            assert lock_node.state == NodeState.DETAILS
+            assert lock_node.state == Expansion.DETAILS
         finally:
             await timeline.close()
 

@@ -49,11 +49,11 @@ class SessionModeConfig:
 # Note: context_guide is handled separately by _load_context_guide() which supports
 # project-specific overrides via CONTEXT_GUIDE.md in cwd
 PACKAGE_DEFAULT_STARTUP: list[str] = [
-    'markdown("@prompts/dsl_reference.md", tokens=2000, state=NodeState.ALL)',
-    'markdown("@prompts/node_states.md", tokens=500, state=NodeState.ALL)',
-    'markdown("@prompts/context_graph.md", tokens=500, state=NodeState.ALL)',
-    'markdown("@prompts/work_coordination.md", tokens=500, state=NodeState.ALL)',
-    'markdown("@prompts/mcp.md", tokens=500, state=NodeState.ALL)',
+    'markdown("@prompts/dsl_reference.md", tokens=2000, state=Expansion.ALL)',
+    'markdown("@prompts/node_states.md", tokens=500, state=Expansion.ALL)',
+    'markdown("@prompts/context_graph.md", tokens=500, state=Expansion.ALL)',
+    'markdown("@prompts/work_coordination.md", tokens=500, state=Expansion.ALL)',
+    'markdown("@prompts/mcp.md", tokens=500, state=Expansion.ALL)',
 ]
 
 

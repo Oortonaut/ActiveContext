@@ -34,7 +34,7 @@ from activecontext.context.nodes import (
     TopicNode,
     WorkNode,
 )
-from activecontext.context.state import NodeState, NotificationLevel, TickFrequency
+from activecontext.context.state import Expansion, NotificationLevel, TickFrequency
 from activecontext.context.view import NodeView
 from activecontext.mcp import (
     MCPClientManager,
@@ -371,7 +371,7 @@ class Timeline:
             "__name__": "__activecontext__",
             "__session_id__": self._session_id,
             # Type enums for LLM use
-            "NodeState": NodeState,
+            "Expansion": Expansion,
             "TickFrequency": TickFrequency,
             "NotificationLevel": NotificationLevel,
             # Context node constructors
@@ -836,7 +836,7 @@ class Timeline:
         *,
         pos: str = "1:0",
         tokens: int = 2000,
-        state: NodeState = NodeState.ALL,
+        state: Expansion = Expansion.ALL,
         mode: str = "paused",
         parent: ContextNode | str | None = None,
     ) -> TextNode:
@@ -883,7 +883,7 @@ class Timeline:
         self,
         *members: ContextNode | str,
         tokens: int = 500,
-        state: NodeState = NodeState.SUMMARY,
+        state: Expansion = Expansion.SUMMARY,
         mode: str = "paused",
         summary: str | None = None,
         parent: ContextNode | str | None = None,
@@ -1025,7 +1025,7 @@ class Timeline:
         *,
         content: str | None = None,
         tokens: int = 2000,
-        state: NodeState = NodeState.DETAILS,
+        state: Expansion = Expansion.DETAILS,
         parent: ContextNode | str | None = None,
     ) -> TextNode:
         """Create a tree of TextNodes from a markdown file.
@@ -1160,7 +1160,7 @@ class Timeline:
         path: str,
         *,
         tokens: int = 2000,
-        state: NodeState = NodeState.ALL,
+        state: Expansion = Expansion.ALL,
         **kwargs: Any,
     ) -> TextNode:
         """Dispatcher for creating text views based on media type.
@@ -1694,7 +1694,7 @@ class Timeline:
             self._work_node = WorkNode(
                 node_id=node_id,
                 tokens=200,
-                state=NodeState.DETAILS,
+                state=Expansion.DETAILS,
                 intent=entry.intent,
                 work_status=entry.status,
                 files=[f.to_dict() for f in file_accesses],
@@ -1805,7 +1805,7 @@ class Timeline:
 
         if self._work_node:
             self._work_node.work_status = "done"
-            self._work_node.state = NodeState.HIDDEN
+            self._work_node.state = Expansion.HIDDEN
 
     def _work_list(self) -> list[dict[str, Any]]:
         """List all active work entries from all agents.
@@ -2051,7 +2051,7 @@ class Timeline:
         """Create a shallow snapshot of user-defined namespace entries."""
         # Exclude injected DSL functions and types
         excluded = {
-            "NodeState", "TickFrequency", "NotificationLevel",
+            "Expansion", "TickFrequency", "NotificationLevel",
             "text", "group", "topic", "artifact", "markdown", "view",
             "link", "unlink",
             "checkpoint", "restore", "checkpoints", "branch",

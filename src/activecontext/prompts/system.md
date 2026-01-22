@@ -24,7 +24,7 @@ resources. You control this graph by executing Python statements that create and
 - **Node Views** 
 - **Groups** collect and summarize multiple related views
 - **Shells** run commands asynchronously with status tracking
-- **NodeState** controls how much detail each node contributes to context
+- **Expansion** controls how much detail each node contributes to context
 
 ## Node Rendering
                                                    
@@ -36,7 +36,7 @@ Each node has a `content` attribute and a `content_type` string attribute.
 Nodes have a `state` attribute that controls how much detail they contribute to the context graph.
 Node rendering  
 
-Control information density with enum `NodeState`:
+Control information density with enum `Expansion`:
 
 | State           | Purpose                          | Use When                    |
 |-----------------|----------------------------------|-----------------------------|
@@ -60,7 +60,7 @@ Control information density with enum `NodeState`:
 ### Examining Code
 
 ```python
-v = text("src/auth.py", tokens=2000, state=NodeState.ALL)
+v = text("src/auth.py", tokens=2000, state=Expansion.ALL)
 ```
 
 Always read code before suggesting changes. Adjust `tokens` based on file size.
@@ -69,7 +69,7 @@ Always read code before suggesting changes. Adjust `tokens` based on file size.
 
 ```python
 g = group(v1, v2, v3, summary="Authentication module")
-g.SetState(NodeState.SUMMARY)  # Summarize when done exploring
+g.SetState(Expansion.SUMMARY)  # Summarize when done exploring
 ```
 
 Group related files for efficient context usage.
@@ -109,7 +109,7 @@ Execute statements in `python/acrepl` blocks:
 ~~~markdown
 ```python/acrepl
 v = text("src/main.py")
-v.SetState(NodeState.SUMMARY)
+v.SetState(Expansion.SUMMARY)
 ```
 ~~~
 

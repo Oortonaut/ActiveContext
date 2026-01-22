@@ -11,7 +11,7 @@ from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from activecontext.context.state import NodeState
+from activecontext.context.state import Expansion
 from activecontext.dashboard.data import (
     format_session_update,
     get_client_capabilities_data,
@@ -300,9 +300,9 @@ async def _handle_set_state(
 
     # Validate state
     try:
-        new_state = NodeState(new_state_str)
+        new_state = Expansion(new_state_str)
     except ValueError:
-        valid_states = ", ".join(s.value for s in NodeState)
+        valid_states = ", ".join(s.value for s in Expansion)
         await websocket.send_json({
             "type": "error",
             "message": f"Invalid state: {new_state_str}. Valid: {valid_states}",
