@@ -158,14 +158,17 @@
                     <span id="rendered-tokens" class="badge">0 tokens</span>
                 </h2>
                 <div class="card-controls">
-                    <button id="toggle-sections" class="control-btn">Show Sections</button>
+                    <label class="checkbox-control">
+                        <input type="checkbox" id="raw-mode-checkbox">
+                        <span>Raw</span>
+                    </label>
                     <button id="copy-rendered" class="control-btn">Copy</button>
                 </div>
                 <div class="card-content">
-                    <div id="rendered-content" class="rendered-content">
+                    <div id="rendered-content" class="rendered-content hidden">
                         <div class="rendered-empty">No projection rendered yet</div>
                     </div>
-                    <div id="rendered-sections" class="rendered-sections hidden">
+                    <div id="rendered-sections" class="rendered-sections">
                         <!-- Section breakdown will be rendered here -->
                     </div>
                 </div>

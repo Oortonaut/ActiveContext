@@ -625,6 +625,33 @@ main {
     border-color: var(--accent);
 }
 
+/* Checkbox control */
+.checkbox-control {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    padding: 0.35rem 0.75rem;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    cursor: pointer;
+    transition: background 0.2s, border-color 0.2s;
+    user-select: none;
+}
+
+.checkbox-control:hover {
+    background: var(--bg-primary);
+    border-color: var(--accent);
+}
+
+.checkbox-control input[type="checkbox"] {
+    accent-color: var(--accent);
+    cursor: pointer;
+    width: 14px;
+    height: 14px;
+}
+
 .rendered-content,
 .rendered-sections {
     max-height: 600px;
