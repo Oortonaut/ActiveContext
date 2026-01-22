@@ -39,6 +39,7 @@ from activecontext.mcp import (
     MCPClientManager,
 )
 from activecontext.session.lock_manager import LockManager
+from activecontext.session.agent_spawner import AgentSpawner
 from activecontext.session.mcp_integration import MCPIntegration
 from activecontext.session.shell_manager import ShellManager
 from activecontext.session.permissions import (
@@ -253,6 +254,14 @@ class Timeline:
             cwd=cwd,
         )
 
+        # Agent spawner for multi-agent coordination (will be configured later)
+        self._agent_spawner = AgentSpawner(
+            agent_manager=None,  # Set later by AgentManager
+            agent_id=None,  # Set later when spawned
+            context_graph=self._context_graph,
+            cwd=cwd,
+        )
+
         # Set up namespace with DSL functions
         self._setup_namespace()
 
@@ -427,23 +436,24 @@ class Timeline:
     def _setup_agent_namespace(self) -> None:
         """Add agent functions to namespace when agent manager is available.
 
-        Called by AgentManager after setting _agent_manager.
+        Called by AgentManager after setting _agent_manager and _agent_id.
         """
         if self._agent_manager is None:
             return
 
+        # Propagate agent manager and agent ID to AgentSpawner
+        self._agent_spawner.set_agent_manager(self._agent_manager)
+        if self._agent_id:
+            self._agent_spawner.set_agent_id(self._agent_id)
+
+        # Delegate agent DSL bindings to AgentSpawner
+        self._agent_spawner.setup_namespace(self._namespace)
+
+        # Add wait_message (manages Timeline wait state, so stays in Timeline)
+        self._namespace["wait_message"] = self._wait_message
+
+        # Add non-agent event system functions
         self._namespace.update({
-            "spawn": self._spawn_agent,
-            "send": self._send_message,
-            "send_update": self._send_update,
-            "recv": self._recv_messages,
-            "wait_message": self._wait_message,
-            "agents": self._list_agents,
-            "agent_status": self._get_agent_status,
-            "pause_agent": self._pause_agent,
-            "resume_agent": self._resume_agent,
-            "terminate_agent": self._terminate_agent,
-            "get_shared_node": self._get_shared_node,
             # Event system
             "event_response": self._event_response,
             "wait": self._wait_event,
@@ -1818,228 +1828,6 @@ class Timeline:
             for e in entries
         ]
 
-    # =========================================================================
-    # Multi-Agent DSL Functions
-    # =========================================================================
-
-    def _spawn_agent(
-        self,
-        agent_type: str,
-        task: str,
-        **kwargs: Any,
-    ) -> AgentHandle:
-        """Spawn a new child agent.
-
-        DSL function: spawn(agent_type, task, **kwargs)
-
-        Args:
-            agent_type: Type ID (explorer, summarizer, etc.)
-            task: Task description
-            **kwargs: Additional arguments for session creation
-
-        Returns:
-            AgentHandle for interacting with the spawned agent
-
-        Example:
-            agent = spawn("explorer", task="find auth code")
-            agent.Send("look for OAuth")
-        """
-        if not self._agent_manager:
-            raise RuntimeError("Agent manager not available")
-
-
-        # Spawn synchronously using existing loop
-        import asyncio
-        try:
-            loop = asyncio.get_running_loop()
-            # Create a coroutine and schedule it
-            coro = self._agent_manager.spawn_agent(
-                agent_type=agent_type,
-                task=task,
-                parent_id=self._agent_id,
-                cwd=self._cwd,
-                **kwargs,
-            )
-            # Use run_coroutine_threadsafe if we're not in the main thread
-            # or use ensure_future if we're in an async context
-            future = asyncio.ensure_future(coro)
-            # This won't block properly in sync context, so we need a different approach
-            # For now, we'll raise if called from non-async context
-            return future  # type: ignore  # Will be awaited by exec
-        except RuntimeError:
-            # No running loop - shouldn't happen in normal DSL execution
-            raise RuntimeError("spawn() must be called in async context")
-
-    async def _spawn_agent_async(
-        self,
-        agent_type: str,
-        task: str,
-        **kwargs: Any,
-    ) -> AgentHandle:
-        """Async version of spawn_agent for internal use."""
-        if not self._agent_manager:
-            raise RuntimeError("Agent manager not available")
-
-        return await self._agent_manager.spawn_agent(
-            agent_type=agent_type,
-            task=task,
-            parent_id=self._agent_id,
-            cwd=self._cwd,
-            **kwargs,
-        )
-
-    def _send_message(
-        self,
-        target: Any,  # AgentHandle or str (agent_id)
-        content: str,
-        *node_refs: ContextNode,
-    ) -> str:
-        """Send a message to another agent.
-
-        DSL function: send(target, content, *node_refs)
-
-        Args:
-            target: AgentHandle or agent ID string
-            content: Message content
-            *node_refs: Nodes to share with the recipient
-
-        Returns:
-            Message ID
-
-        Example:
-            send(agent, "summarize this group", my_group)
-        """
-        if not self._agent_manager:
-            raise RuntimeError("Agent manager not available")
-
-        from activecontext.agents.handle import AgentHandle
-
-        # Resolve target to agent_id
-        if isinstance(target, AgentHandle):
-            recipient = target.agent_id
-        elif isinstance(target, str):
-            recipient = target
-        else:
-            raise TypeError(f"Expected AgentHandle or str, got {type(target)}")
-
-        # Share nodes and collect IDs
-        ref_ids: list[str] = []
-        for node in node_refs:
-            self._agent_manager.share_node(node)
-            ref_ids.append(node.node_id)
-
-        # Get sender ID
-        sender = self._agent_id or "unknown"
-
-        # Send message (sync operation via scratchpad)
-        import asyncio
-        try:
-            loop = asyncio.get_running_loop()
-            coro = self._agent_manager.send_message(
-                sender=sender,
-                recipient=recipient,
-                content=content,
-                node_refs=ref_ids,
-            )
-            return asyncio.ensure_future(coro)  # type: ignore
-        except RuntimeError:
-            raise RuntimeError("send() must be called in async context")
-
-    def _send_update(
-        self,
-        content: str,
-        *node_refs: ContextNode,
-    ) -> str:
-        """Send an update message to parent agent and continue running.
-
-        DSL function: send_update(content, *node_refs)
-
-        Unlike send(), this sends to the parent agent specifically and
-        does NOT end the turn - the agent continues executing.
-
-        Args:
-            content: Message content
-            *node_refs: Nodes to share with the parent
-
-        Returns:
-            Message ID
-
-        Example:
-            send_update("Found 3 auth files so far", partial_results)
-            # Agent continues working...
-        """
-        if not self._agent_manager:
-            raise RuntimeError("Agent manager not available")
-
-        # Get parent ID
-        entry = self._agent_manager.get_agent(self._agent_id) if self._agent_id else None
-        if not entry or not entry.parent_id:
-            raise RuntimeError("No parent agent to send update to")
-
-        parent_id = entry.parent_id
-
-        # Share nodes and collect IDs
-        ref_ids: list[str] = []
-        for node in node_refs:
-            self._agent_manager.share_node(node)
-            ref_ids.append(node.node_id)
-
-        # Get sender ID
-        sender = self._agent_id or "unknown"
-
-        # Send message (sync operation via scratchpad)
-        import asyncio
-        try:
-            loop = asyncio.get_running_loop()
-            coro = self._agent_manager.send_message(
-                sender=sender,
-                recipient=parent_id,
-                content=content,
-                node_refs=ref_ids,
-            )
-            future = asyncio.ensure_future(coro)
-            # Don't set _done_called - agent continues running
-            return future  # type: ignore
-        except RuntimeError:
-            raise RuntimeError("send_update() must be called in async context")
-
-    def _recv_messages(self) -> list[dict[str, Any]]:
-        """Receive pending messages for this agent.
-
-        DSL function: recv()
-
-        Returns:
-            List of message dictionaries with sender, content, node_refs, etc.
-
-        Example:
-            messages = recv()
-            for msg in messages:
-                print(f"From {msg['sender']}: {msg['content']}")
-        """
-        if not self._agent_manager:
-            return []
-
-        if not self._agent_id:
-            return []
-
-        messages = self._agent_manager.get_messages(self._agent_id, status="pending")
-
-        # Mark as read and convert to dicts
-        result: list[dict[str, Any]] = []
-        for msg in messages:
-            self._agent_manager.mark_message_read(msg.id)
-            result.append({
-                "id": msg.id,
-                "sender": msg.sender,
-                "content": msg.content,
-                "node_refs": msg.node_refs,
-                "created_at": msg.created_at.isoformat(),
-                "reply_to": msg.reply_to,
-                "metadata": msg.metadata,
-            })
-
-        return result
-
     def _wait_message(
         self,
         timeout: float | None = None,
@@ -2074,153 +1862,11 @@ class Timeline:
         )
         self._done_called = True  # End turn to wait
 
-    def _list_agents(self) -> list[dict[str, Any]]:
-        """List all active agents.
+    # =========================================================================
+    # Multi-Agent DSL Functions
+    # =========================================================================
 
-        DSL function: agents()
 
-        Returns:
-            List of agent info dictionaries
-        """
-        if not self._agent_manager:
-            return []
-
-        entries = self._agent_manager.list_agents()
-        return [
-            {
-                "id": e.id,
-                "type": e.agent_type,
-                "task": e.task,
-                "state": e.state.value,
-                "parent_id": e.parent_id,
-                "session_id": e.session_id,
-            }
-            for e in entries
-        ]
-
-    def _get_agent_status(self, agent: Any) -> dict[str, Any]:
-        """Get status of a specific agent.
-
-        DSL function: agent_status(agent)
-
-        Args:
-            agent: AgentHandle or agent ID string
-
-        Returns:
-            Agent status dictionary
-        """
-        if not self._agent_manager:
-            return {"error": "Agent manager not available"}
-
-        from activecontext.agents.handle import AgentHandle
-
-        # Resolve agent_id
-        if isinstance(agent, AgentHandle):
-            agent_id = agent.agent_id
-        elif isinstance(agent, str):
-            agent_id = agent
-        else:
-            return {"error": f"Expected AgentHandle or str, got {type(agent)}"}
-
-        entry = self._agent_manager.get_agent(agent_id)
-        if not entry:
-            return {"error": f"Agent {agent_id} not found"}
-
-        return {
-            "id": entry.id,
-            "type": entry.agent_type,
-            "task": entry.task,
-            "state": entry.state.value,
-            "parent_id": entry.parent_id,
-            "session_id": entry.session_id,
-            "created_at": entry.created_at.isoformat(),
-            "updated_at": entry.updated_at.isoformat(),
-        }
-
-    def _pause_agent(self, agent: Any) -> None:
-        """Pause an agent.
-
-        DSL function: pause_agent(agent)
-
-        Args:
-            agent: AgentHandle or agent ID string
-        """
-        if not self._agent_manager:
-            raise RuntimeError("Agent manager not available")
-
-        from activecontext.agents.handle import AgentHandle
-
-        if isinstance(agent, AgentHandle):
-            agent_id = agent.agent_id
-        elif isinstance(agent, str):
-            agent_id = agent
-        else:
-            raise TypeError(f"Expected AgentHandle or str, got {type(agent)}")
-
-        import asyncio
-        asyncio.ensure_future(self._agent_manager.pause_agent(agent_id))
-
-    def _resume_agent(self, agent: Any) -> None:
-        """Resume a paused agent.
-
-        DSL function: resume_agent(agent)
-
-        Args:
-            agent: AgentHandle or agent ID string
-        """
-        if not self._agent_manager:
-            raise RuntimeError("Agent manager not available")
-
-        from activecontext.agents.handle import AgentHandle
-
-        if isinstance(agent, AgentHandle):
-            agent_id = agent.agent_id
-        elif isinstance(agent, str):
-            agent_id = agent
-        else:
-            raise TypeError(f"Expected AgentHandle or str, got {type(agent)}")
-
-        import asyncio
-        asyncio.ensure_future(self._agent_manager.resume_agent(agent_id))
-
-    def _terminate_agent(self, agent: Any) -> None:
-        """Terminate an agent.
-
-        DSL function: terminate_agent(agent)
-
-        Args:
-            agent: AgentHandle or agent ID string
-        """
-        if not self._agent_manager:
-            raise RuntimeError("Agent manager not available")
-
-        from activecontext.agents.handle import AgentHandle
-
-        if isinstance(agent, AgentHandle):
-            agent_id = agent.agent_id
-        elif isinstance(agent, str):
-            agent_id = agent
-        else:
-            raise TypeError(f"Expected AgentHandle or str, got {type(agent)}")
-
-        import asyncio
-        asyncio.ensure_future(self._agent_manager.terminate_agent(agent_id))
-
-    def _get_shared_node(self, node_id: str) -> ContextNode | None:
-        """Get a shared node by ID.
-
-        DSL function: get_shared_node(node_id)
-
-        Args:
-            node_id: Node ID from another agent's message
-
-        Returns:
-            The shared node, or None if not found
-        """
-        if not self._agent_manager:
-            return None
-
-        return self._agent_manager.get_shared_node(node_id)
 
 
 
