@@ -341,19 +341,37 @@ class Session:
         self._title = title
 
     def resolve_path(self, path: str) -> tuple[str, str | None]:
-        """Resolve path prefixes to actual paths or content.
+        """Resolve path prefixes and roots to actual paths or content.
 
-        Supports special path prefixes:
+        Supports special path prefixes and roots for cross-platform compatibility:
+
+        **Content prefixes** (return path + content):
         - @prompts/: Bundled reference prompts (e.g., @prompts/dsl_reference.md)
 
+        **Path roots** (return resolved path, no content):
+        - ~ : User home directory (Unix style)
+        - {home}: User home directory
+        - $HOME: User home directory (Unix env var style)
+        - %USERPROFILE%: User home directory (Windows env var style)
+        - {cwd}: Session working directory
+        - $CWD: Session working directory
+        - {PROJECT}: Project root (same as cwd)
+
+        Path separators are normalized to the platform's native separator.
+
         Args:
-            path: File path, possibly with a prefix
+            path: File path, possibly with a prefix or root
 
         Returns:
             Tuple of (resolved_path, content_or_none):
             - For @prompts/: returns (name, prompt_content)
+            - For path roots: returns (absolute_path, None)
             - For regular paths: returns (path, None)
         """
+        import os
+        import re
+
+        # Handle @prompts/ prefix (content provider)
         if path.startswith("@prompts/"):
             # Extract prompt name: "@prompts/dsl_reference.md" -> "dsl_reference"
             name = path[9:]  # Remove "@prompts/"
@@ -363,8 +381,102 @@ class Session:
 
             content = load_prompt(name)
             return (f"@prompts/{name}", content)
-        # Future: @home/, @project/, etc.
-        return (path, None)
+
+        # Path root expansion (returns resolved path, no content)
+        resolved = self._expand_path_roots(path)
+
+        # Normalize separators to platform native
+        resolved = os.path.normpath(resolved)
+
+        return (resolved, None)
+
+    def _expand_path_roots(self, path: str) -> str:
+        """Expand path root prefixes to absolute paths.
+
+        Supports cross-platform path roots:
+        - ~ : User home directory (tilde expansion)
+        - {home}: User home directory (brace syntax)
+        - $HOME: User home directory (Unix env var syntax)
+        - %USERPROFILE%: User home directory (Windows env var syntax)
+        - {cwd}: Session working directory
+        - $CWD: Session working directory
+        - {PROJECT}: Project root (same as cwd)
+
+        Args:
+            path: Path that may start with a root prefix
+
+        Returns:
+            Path with root prefix expanded to absolute path
+        """
+        import os
+
+        # Get home and cwd for expansion
+        home = os.path.expanduser("~")
+        cwd = self._cwd
+
+        def strip_leading_seps(s: str) -> str:
+            """Strip all leading path separators from a string."""
+            while s and s[0] in "/\\":
+                s = s[1:]
+            return s
+
+        def is_path_boundary(s: str) -> bool:
+            """Check if string is empty or starts with a path separator."""
+            return not s or s[0] in "/\\"
+
+        # Home directory roots - handle in order of specificity
+        # Windows-style: %USERPROFILE%/... or %USERPROFILE%\...
+        if path.upper().startswith("%USERPROFILE%"):
+            rest = path[13:]  # len("%USERPROFILE%")
+            if is_path_boundary(rest):
+                rest = strip_leading_seps(rest)
+                return os.path.join(home, rest) if rest else home
+
+        # Unix-style: $HOME/... or $HOME\... (must be followed by separator or end)
+        if path.startswith("$HOME"):
+            rest = path[5:]  # len("$HOME")
+            if is_path_boundary(rest):
+                rest = strip_leading_seps(rest)
+                return os.path.join(home, rest) if rest else home
+
+        # Brace-style: {home}/... or {home}\...
+        if path.lower().startswith("{home}"):
+            rest = path[6:]  # len("{home}")
+            if is_path_boundary(rest):
+                rest = strip_leading_seps(rest)
+                return os.path.join(home, rest) if rest else home
+
+        # Tilde: ~/... or ~\... (must be followed by separator or end)
+        # Note: ~username is a valid Unix path, so we only match ~ followed by / or \ or end
+        if path.startswith("~"):
+            rest = path[1:]
+            if is_path_boundary(rest):
+                rest = strip_leading_seps(rest)
+                return os.path.join(home, rest) if rest else home
+
+        # CWD/Project roots
+        # Brace-style: {cwd}/... or {PROJECT}/...
+        if path.lower().startswith("{cwd}"):
+            rest = path[5:]  # len("{cwd}")
+            if is_path_boundary(rest):
+                rest = strip_leading_seps(rest)
+                return os.path.join(cwd, rest) if rest else cwd
+
+        if path.lower().startswith("{project}"):
+            rest = path[9:]  # len("{project}")
+            if is_path_boundary(rest):
+                rest = strip_leading_seps(rest)
+                return os.path.join(cwd, rest) if rest else cwd
+
+        # Unix-style: $CWD/... (must be followed by separator or end)
+        if path.startswith("$CWD"):
+            rest = path[4:]  # len("$CWD")
+            if is_path_boundary(rest):
+                rest = strip_leading_seps(rest)
+                return os.path.join(cwd, rest) if rest else cwd
+
+        # No recognized root - return as-is
+        return path
 
     # -------------------------------------------------------------------------
     # Text Buffer Management
@@ -1131,7 +1243,7 @@ class Session:
         if self._current_task and not self._current_task.done():
             self._current_task.cancel()
         # Also cancel all running shell tasks
-        self._timeline.cancel_all_shells()
+        self._timeline._shell_manager.cancel_all()
 
     async def run_agent_loop(self) -> AsyncIterator[SessionUpdate]:
         """Event-driven agent loop. Idle until wake, process until queue empty.

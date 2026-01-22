@@ -39,6 +39,7 @@ from activecontext.mcp import (
     MCPClientManager,
 )
 from activecontext.session.mcp_integration import MCPIntegration
+from activecontext.session.shell_manager import ShellManager
 from activecontext.session.permissions import (
     ImportDenied,
     ImportGuard,
@@ -235,6 +236,16 @@ class Timeline:
             fire_event=self.fire_event,
         )
 
+        # Shell execution manager (must be set before _setup_namespace)
+        self._shell_manager = ShellManager(
+            context_graph=self._context_graph,
+            terminal_executor=self._terminal_executor,
+            shell_permission_manager=self._shell_permission_manager,
+            shell_permission_requester=self._shell_permission_requester,
+            session_id=session_id,
+            cwd=cwd,
+        )
+
         # Set up namespace with DSL functions
         self._setup_namespace()
 
@@ -250,13 +261,6 @@ class Timeline:
 
         # Callback for setting session title (set by Session after creation)
         self._set_title_callback: Callable[[str], None] | None = None
-
-        # Pending async shell results (node_id, result) - populated by background tasks
-        # Processed at tick time to trigger node updates and notifications
-        self._pending_shell_results: list[tuple[str, ShellResult]] = []
-
-        # Background tasks for shell execution
-        self._shell_tasks: dict[str, asyncio.Task[None]] = {}
 
         # Pending async lock results (node_id, status, error_msg) - populated by background tasks
         self._pending_lock_results: list[tuple[str, LockStatus, str | None]] = []
@@ -383,7 +387,7 @@ class Timeline:
             "ls_shell_permissions": self._ls_shell_permissions,
             "ls_website_permissions": self._ls_website_permissions,
             # Shell execution
-            "shell": self._shell,
+            "shell": self._shell_manager.execute,
             # HTTP/HTTPS requests
             "fetch": self._fetch,
             # Agent control
@@ -1267,257 +1271,19 @@ class Timeline:
         digest = obj.GetDigest() if hasattr(obj, "GetDigest") else str(obj)
         return f"[{digest}]"
 
-    def _shell(
-        self,
-        command: str,
-        args: list[str] | None = None,
-        cwd: str | None = None,
-        env: dict[str, str] | None = None,
-        timeout: float | None = 30.0,
-        *,
-        tokens: int = 2000,
-        state: NodeState = NodeState.DETAILS,
-    ) -> ShellNode:
-        """Execute a shell command asynchronously, returning a ShellNode.
 
-        Creates a ShellNode in the context graph and starts the subprocess
-        in the background. The node's status updates when the command completes,
-        and change notifications propagate up the DAG at tick time.
-
-        Args:
-            command: The command to execute (e.g., "pytest", "git").
-            args: Optional list of arguments (e.g., ["tests/", "-v"]).
-            cwd: Working directory. If None, uses session cwd.
-            env: Additional environment variables.
-            timeout: Timeout in seconds (default: 30). None for no timeout.
-            tokens: Token budget for rendering output (default: 2000).
-            state: Initial rendering state (default: DETAILS).
-
-        Returns:
-            ShellNode that tracks the command execution.
-        """
-        # Create the ShellNode
-        node = ShellNode(
-            command=command,
-            args=args or [],
-            tokens=tokens,
-            state=state,
-        )
-
-        # Add to context graph
-        self._context_graph.add_node(node)
-
-        # Start background execution
-        task = asyncio.create_task(
-            self._shell_background_task(
-                node_id=node.node_id,
-                command=command,
-                args=args,
-                cwd=cwd,
-                env=env,
-                timeout=timeout,
-            )
-        )
-        self._shell_tasks[node.node_id] = task
-
-        return node
-
-    async def _shell_background_task(
-        self,
-        node_id: str,
-        command: str,
-        args: list[str] | None,
-        cwd: str | None,
-        env: dict[str, str] | None,
-        timeout: float | None,
-    ) -> None:
-        """Background task that executes a shell command and stores the result.
-
-        This runs in the background while the agent continues. When complete,
-        it stores the result in _pending_shell_results for processing at tick.
-        """
-        # Get the node (stays PENDING until permission is granted)
-        node = self._context_graph.get_node(node_id)
-
-        result: ShellResult
-
-        # Check permission if manager is configured
-        if self._shell_permission_manager:
-            if not self._shell_permission_manager.check_access(command, args):
-                # Permission denied - try to request
-                if self._shell_permission_requester:
-                    try:
-                        granted, persist = await self._shell_permission_requester(
-                            self._session_id, command, args
-                        )
-                    except asyncio.CancelledError:
-                        # Cancelled during permission request
-                        full_cmd = f"{command} {' '.join(args or [])}"
-                        result = ShellResult(
-                            command=full_cmd,
-                            exit_code=-1,
-                            output="Cancelled",
-                            truncated=False,
-                            status="cancelled",
-                            signal="SIGTERM",
-                            duration_ms=0,
-                        )
-                        self._pending_shell_results.append((node_id, result))
-                        return
-
-                    if granted:
-                        if persist:
-                            # "Allow always" - write to config file
-                            write_shell_permission_to_config(
-                                Path(self._cwd), command, args
-                            )
-                            # Reload config to pick up new rule
-                            from activecontext.config import load_config
-
-                            config = load_config(session_root=self._cwd)
-                            self._shell_permission_manager.reload(config.sandbox)
-                        else:
-                            # "Allow once" - grant temporary access
-                            self._shell_permission_manager.grant_temporary(command, args)
-                    else:
-                        # Denied - store error result
-                        full_cmd = f"{command} {' '.join(args or [])}"
-                        result = ShellResult(
-                            command=full_cmd,
-                            exit_code=126,  # Permission denied exit code
-                            output=f"Shell command denied by sandbox policy: {full_cmd}",
-                            truncated=False,
-                            status="error",
-                            signal=None,
-                            duration_ms=0,
-                        )
-                        self._pending_shell_results.append((node_id, result))
-                        return
-                else:
-                    # No requester available - store error result
-                    full_cmd = f"{command} {' '.join(args or [])}"
-                    result = ShellResult(
-                        command=full_cmd,
-                        exit_code=126,
-                        output=f"Shell command denied by sandbox policy: {full_cmd}",
-                        truncated=False,
-                        status="error",
-                        signal=None,
-                        duration_ms=0,
-                    )
-                    self._pending_shell_results.append((node_id, result))
-                    return
-
-        # Permission granted (or no manager) - mark as running and execute
-        if isinstance(node, ShellNode):
-            node.shell_status = ShellStatus.RUNNING
-            node.started_at_exec = time.time()
-
-        try:
-            result = await self._terminal_executor.execute(
-                command=command,
-                args=args,
-                cwd=cwd,
-                env=env,
-                timeout=timeout,
-            )
-        except asyncio.CancelledError:
-            full_cmd = f"{command} {' '.join(args or [])}"
-            result = ShellResult(
-                command=full_cmd,
-                exit_code=-1,
-                output="Cancelled",
-                truncated=False,
-                status="cancelled",
-                signal="SIGTERM",
-                duration_ms=0,
-            )
-        except Exception as e:
-            full_cmd = f"{command} {' '.join(args or [])}"
-            result = ShellResult(
-                command=full_cmd,
-                exit_code=-1,
-                output=f"Error: {e}",
-                truncated=False,
-                status="error",
-                signal=None,
-                duration_ms=0,
-            )
-
-        # Store result for processing at tick time
-        self._pending_shell_results.append((node_id, result))
 
     def process_pending_shell_results(self) -> list[str]:
         """Process pending shell results and update nodes.
 
-        Called during tick to apply async shell results. This triggers
-        node change notifications that propagate up the DAG.
+        Delegates to ShellManager for processing async shell results.
 
         Returns:
             List of node IDs that were updated.
         """
-        updated_nodes: list[str] = []
+        return self._shell_manager.process_pending_results()
 
-        while self._pending_shell_results:
-            node_id, result = self._pending_shell_results.pop(0)
 
-            node = self._context_graph.get_node(node_id)
-            if not isinstance(node, ShellNode):
-                continue
-
-            # Apply the result - this triggers _mark_changed() and notifications
-            if result.status == "timeout":
-                node.set_timeout(result.output, result.duration_ms)
-            elif result.signal:
-                node.set_completed(
-                    exit_code=result.exit_code or -1,
-                    output=result.output,
-                    duration_ms=result.duration_ms,
-                    truncated=result.truncated,
-                    signal=result.signal,
-                )
-            else:
-                node.set_completed(
-                    exit_code=result.exit_code or 0,
-                    output=result.output,
-                    duration_ms=result.duration_ms,
-                    truncated=result.truncated,
-                )
-
-            updated_nodes.append(node_id)
-
-            # Clean up task reference
-            self._shell_tasks.pop(node_id, None)
-
-        return updated_nodes
-
-    def cancel_shell(self, node_id: str) -> bool:
-        """Cancel a running shell command.
-
-        Args:
-            node_id: The ShellNode ID to cancel.
-
-        Returns:
-            True if a task was cancelled, False if not found/already done.
-        """
-        task = self._shell_tasks.get(node_id)
-        if task and not task.done():
-            task.cancel()
-            return True
-        return False
-
-    def cancel_all_shells(self) -> int:
-        """Cancel all running shell commands.
-
-        Returns:
-            Number of tasks cancelled.
-        """
-        cancelled = 0
-        for node_id, task in list(self._shell_tasks.items()):
-            if not task.done():
-                task.cancel()
-                cancelled += 1
-        return cancelled
 
     # =========================================================================
     # File locking DSL functions
@@ -1793,7 +1559,7 @@ class Timeline:
                 await timeline.close()
         """
         # Cancel all pending shell tasks
-        self.cancel_all_shells()
+        self._shell_manager.cancel_all()
 
         # Cancel all pending lock tasks and release held locks
         self.cancel_all_locks()
@@ -1803,7 +1569,7 @@ class Timeline:
         await self._mcp_integration.cleanup()
 
         # Give cancelled tasks a chance to complete
-        if self._shell_tasks or self._lock_tasks:
+        if self._shell_manager.has_pending_tasks() or self._lock_tasks:
             await asyncio.sleep(0)
 
     async def __aenter__(self) -> Timeline:
@@ -2806,7 +2572,7 @@ class Timeline:
                     for node_id in condition.node_ids:
                         if node_id != first_completed.node_id:
                             # Cancel shells or locks
-                            self.cancel_shell(node_id)
+                            self._shell_manager.cancel(node_id)
                             self.cancel_lock(node_id)
 
                 return True, prompt

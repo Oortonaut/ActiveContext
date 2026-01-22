@@ -131,7 +131,7 @@ class TestWaitFunctionality:
             shell_node = ns["s"]
 
             # Wait for the actual shell task to complete (async)
-            shell_task = timeline._shell_tasks.get(shell_node.node_id)
+            shell_task = timeline._shell_manager._shell_tasks.get(shell_node.node_id)
             if shell_task:
                 await asyncio.wait_for(shell_task, timeout=10.0)
 
