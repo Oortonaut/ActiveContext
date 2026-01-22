@@ -369,7 +369,6 @@ class Session:
             - For regular paths: returns (path, None)
         """
         import os
-        import re
 
         # Handle @prompts/ prefix (content provider)
         if path.startswith("@prompts/"):

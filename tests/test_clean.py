@@ -184,3 +184,43 @@ class TestMain:
         monkeypatch.chdir(tmp_path)
         # Should not raise
         main()
+
+
+class TestMoreThan10Items:
+    """Tests for output truncation when many items are removed."""
+
+    def test_clean_truncates_output_over_10_items(self, tmp_path: Path, capsys):
+        from activecontext.clean import clean
+
+        # Create 12 __pycache__ directories to trigger truncation
+        for i in range(12):
+            cache = tmp_path / f"pkg{i}" / "__pycache__"
+            cache.mkdir(parents=True)
+
+        clean(tmp_path)
+
+        captured = capsys.readouterr()
+        assert "Removed 12 items" in captured.out
+        assert "... and 2 more" in captured.out
+
+
+class TestScriptExecution:
+    """Tests for __main__ execution."""
+
+    def test_script_execution(self, tmp_path: Path, monkeypatch):
+        import subprocess
+        import sys
+
+        # Create a cache to clean
+        pycache = tmp_path / "__pycache__"
+        pycache.mkdir()
+
+        result = subprocess.run(
+            [sys.executable, "-m", "activecontext.clean"],
+            cwd=tmp_path,
+            capture_output=True,
+            text=True,
+        )
+
+        assert result.returncode == 0
+        assert not pycache.exists()
