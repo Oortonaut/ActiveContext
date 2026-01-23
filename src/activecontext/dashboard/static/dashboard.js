@@ -134,7 +134,7 @@ class DashboardClient {
         if (!this.sessionId) return;
 
         try {
-            const response = await fetch(`/api/sessions/${this.sessionId}/conversation`);
+            const response = await fetch(`/api/sessions/${this.sessionId}/message-history`);
             const data = await response.json();
             this.renderConversation(data);
         } catch (error) {
@@ -197,8 +197,16 @@ class DashboardClient {
         };
 
         this.ws.onmessage = (event) => {
-            const data = JSON.parse(event.data);
-            this.handleMessage(data);
+            // Handle pong response from server (plain string, not JSON)
+            if (event.data === 'pong') {
+                return;
+            }
+            try {
+                const data = JSON.parse(event.data);
+                this.handleMessage(data);
+            } catch (err) {
+                console.error('Failed to parse WebSocket message:', err, event.data);
+            }
         };
 
         this.ws.onclose = () => {
@@ -769,6 +777,8 @@ class DashboardClient {
     }
 
     renderRenderedContext(data) {
+        console.log('renderRenderedContext called with:', data);
+        
         const tokensEl = document.getElementById('rendered-tokens');
         if (tokensEl) {
             const totalTokens = data.total_tokens || 0;
@@ -777,6 +787,7 @@ class DashboardClient {
 
         const contentEl = document.getElementById('rendered-content');
         if (contentEl) {
+            try {
             // Check for actual content (not just truthy - empty string is valid but shows as empty)
             if (data.rendered !== undefined && data.rendered !== null && data.rendered.length > 0) {
                 contentEl.innerHTML = `<pre class="rendered-pre">${this.escapeHtml(data.rendered)}</pre>`;
@@ -786,16 +797,24 @@ class DashboardClient {
             } else {
                 contentEl.innerHTML = '<div class="rendered-empty">No projection rendered yet (no messages or context)</div>';
             }
+            } catch (err) {
+                console.error('Error rendering content:', err);
+                contentEl.innerHTML = '<div class="rendered-empty">Error: ' + err.message + '</div>';
+            }
         }
 
         // Render sections breakdown
         const sectionsEl = document.getElementById('rendered-sections');
+        console.log('sectionsEl:', sectionsEl, 'data.sections:', data.sections);
         if (sectionsEl) {
             sectionsEl.innerHTML = '';
             
-            if (!data.sections || data.sections.length === 0) {
+            if (!data.sections || !Array.isArray(data.sections) || data.sections.length === 0) {
+                console.log('No sections, showing empty state');
                 sectionsEl.innerHTML = '<div class="rendered-empty">No sections to display</div>';
             } else {
+                console.log('Rendering', data.sections.length, 'sections');
+                try {
                 data.sections.forEach((section, index) => {
                 const sectionItem = document.createElement('div');
                 const nodeId = section.source_id;
@@ -844,6 +863,10 @@ class DashboardClient {
 
                 sectionsEl.appendChild(sectionItem);
             });
+                } catch (err) {
+                    console.error('Error rendering sections:', err);
+                    sectionsEl.innerHTML = '<div class="rendered-empty">Error rendering sections: ' + err.message + '</div>';
+                }
             }
         }
 

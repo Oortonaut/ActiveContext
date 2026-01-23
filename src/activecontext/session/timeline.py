@@ -18,7 +18,7 @@ from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import dataclass
 from io import StringIO
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Awaitable
 
 from activecontext.context.graph import ContextGraph
 from activecontext.context.nodes import (
@@ -313,6 +313,14 @@ class Timeline:
         # Returns (resolved_path, content_or_none)
         self._path_resolver: Callable[[str], tuple[str, str | None]] | None = None
 
+        # Conversation delegation callback (set by Session for interact/connect DSL)
+        # Signature: (handler, originator, pause_agent, forward_permissions) -> result
+        self._delegate_conversation: Callable[..., Awaitable[Any]] | None = None
+
+        # Conversation handle creation callback (set by Session for connect() DSL)
+        # Signature: (handler, originator, forward_permissions) -> ConversationHandle
+        self._create_conversation_handle: Callable[..., Any] | None = None
+
     def configure_file_watcher(self, config: FileWatchConfig | None) -> None:
         """Configure the file watcher from config.
 
@@ -410,6 +418,9 @@ class Timeline:
             "wait": self._wait,
             "wait_all": self._wait_all,
             "wait_any": self._wait_any,
+            # Conversation delegation
+            "interact": self._interact,
+            "connect": self._connect,
             # File locking
             "lock_file": self._lock_manager.acquire,
             "lock_release": self._lock_manager.release,
@@ -1641,6 +1652,175 @@ class Timeline:
             cancel_others=cancel_others,
         )
         self._done_called = True
+
+    # === Conversation Delegation DSL Functions ===
+
+    def _interact(
+        self,
+        command: str | Any,  # str or ConversationHandler
+        *args: str,
+        originator: str | None = None,
+        cwd: str | None = None,
+        **kwargs: Any,
+    ) -> Any:
+        """Execute an interactive command, delegating conversation control to a handler.
+
+        This DSL function allows agents to attach the user directly to an
+        interactive process (shell, debugger, menu, etc.) via conversation
+        delegation. All input/output flows through MessageNodes in the context graph.
+
+        This is a blocking operation - control returns when the handler completes.
+        For non-blocking operation, use connect() instead.
+
+        Args:
+            command: Command to run (e.g., "/bin/bash") or ConversationHandler instance
+            *args: Command arguments (if command is string)
+            originator: Override originator identifier (default: derived from command)
+            cwd: Working directory for shell commands (default: session cwd)
+            **kwargs: Handler options
+
+        Returns:
+            Result from the interactive session
+
+        Example:
+            >>> result = interact("/bin/bash")
+            >>> print(f"Shell exited with code {result['exit_code']}")
+
+            >>> result = interact("gdb", "./myapp")
+
+            >>> result = interact(my_custom_handler, originator="custom:handler")
+        """
+        if self._delegate_conversation is None:
+            raise RuntimeError(
+                "interact() requires Session integration. "
+                "Ensure the session is properly initialized."
+            )
+
+        from activecontext.handlers import InteractiveShellHandler
+
+        # Determine handler and originator
+        if isinstance(command, str):
+            # Shell command
+            handler = InteractiveShellHandler(
+                shell=command if command else None,
+                args=args,
+                cwd=cwd or self._cwd,
+            )
+            originator = originator or f"shell:{command or 'default'}"
+        else:
+            # Assume it's a ConversationHandler
+            handler = command
+            originator = originator or "conversation"
+
+        # Run synchronously using asyncio
+        import asyncio
+
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            # We're already in an async context - create a task and wait
+            # This happens when called from within an async function
+            future = asyncio.ensure_future(
+                self._delegate_conversation(
+                    handler,
+                    originator=originator,
+                    pause_agent=kwargs.get("pause_agent", True),
+                    forward_permissions=kwargs.get("forward_permissions", True),
+                )
+            )
+            # Return the future/awaitable for the caller to await
+            return future
+        else:
+            # Not in async context - use run_until_complete
+            return loop.run_until_complete(
+                self._delegate_conversation(
+                    handler,
+                    originator=originator,
+                    pause_agent=kwargs.get("pause_agent", True),
+                    forward_permissions=kwargs.get("forward_permissions", True),
+                )
+            )
+
+    def _connect(
+        self,
+        command: str | Any,  # str or ConversationHandler
+        *args: str,
+        originator: str | None = None,
+        cwd: str | None = None,
+        **kwargs: Any,
+    ) -> Any:  # Returns ConversationHandle
+        """Create a non-blocking conversation connection.
+
+        Similar to interact(), but returns a ConversationHandle immediately
+        for manual operation. The handler runs in the background, and the
+        caller can check status, send input, and wait for completion.
+
+        Args:
+            command: Command to run (e.g., "/bin/bash") or ConversationHandler instance
+            *args: Command arguments (if command is string)
+            originator: Override originator identifier (default: derived from command)
+            cwd: Working directory for shell commands (default: session cwd)
+            **kwargs: Handler options
+
+        Returns:
+            ConversationHandle for manual operation
+
+        Example:
+            >>> handle = connect("/bin/bash")
+            >>> await handle.start()
+            >>> while not handle.is_done():
+            ...     if handle.is_waiting():
+            ...         prompt = handle.get_last_prompt_node()
+            ...         await handle.send_input("ls -la")
+            >>> result = await handle.wait()
+
+            >>> # Run multiple shells concurrently
+            >>> sh1 = connect("bash")
+            >>> sh2 = connect("python")
+            >>> await sh1.start()
+            >>> await sh2.start()
+            >>> # Coordinator can manage both...
+        """
+        if self._create_conversation_handle is None:
+            raise RuntimeError(
+                "connect() requires Session integration. "
+                "Ensure the session is properly initialized."
+            )
+
+        from activecontext.handlers import InteractiveShellHandler
+
+        # Determine handler and originator
+        if isinstance(command, str):
+            # Shell command
+            handler = InteractiveShellHandler(
+                shell=command if command else None,
+                args=args,
+                cwd=cwd or self._cwd,
+            )
+            originator = originator or f"shell:{command or 'default'}"
+        else:
+            # Assume it's a ConversationHandler
+            handler = command
+            originator = originator or "conversation"
+
+        # Create handle via Session
+        handle = self._create_conversation_handle(
+            handler,
+            originator=originator,
+            forward_permissions=kwargs.get("forward_permissions", True),
+        )
+
+        # Start the handler in the background
+        import asyncio
+
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            # Create task to start the handler
+            asyncio.create_task(handle.start())
+        else:
+            # Not in async context - caller must await handle.start()
+            pass
+
+        return handle
 
     # === Work Coordination DSL Functions ===
 

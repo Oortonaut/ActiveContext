@@ -170,6 +170,10 @@ class Session:
         # Register path resolver callback with timeline for @prompts/ etc.
         self._timeline._path_resolver = self.resolve_path
 
+        # Register conversation delegation callback with timeline for interact()/connect() DSL
+        self._timeline._delegate_conversation = self.delegate_conversation
+        self._timeline._create_conversation_handle = self.create_conversation_handle
+
         # Configure file watcher from config
         if self._config and self._config.session:
             self._timeline.configure_file_watcher(self._config.session.file_watch)
@@ -187,6 +191,12 @@ class Session:
 
         # Track whether startup() has been called
         self._startup_done: bool = is_restore  # Restored sessions skip startup
+
+        # Conversation delegation callbacks (Phase 2: ACP Integration)
+        # Set by ACP agent to enable transport registration and update emission
+        self._emit_update_callback: Any | None = None  # async (SessionUpdate) -> None
+        self._register_transport_callback: Any | None = None  # (session_id, transport) -> None
+        self._unregister_transport_callback: Any | None = None  # (session_id) -> None
 
     def _add_system_prompt_node(self) -> None:
         """Add the system prompt as a fully expanded TextNode tree.
@@ -1443,12 +1453,17 @@ class Session:
         """
         from activecontext.session.coordinator import SessionConversationTransport
 
-        # Create transport wrapper
+        # Create transport wrapper with update callback (Phase 2: ACP Integration)
         transport = SessionConversationTransport(
             session=self,
             originator=originator,
             forward_permissions=forward_permissions,
+            update_callback=self._emit_update_callback,  # For ACP transport integration
         )
+
+        # Register transport with ACP agent (if using ACP transport)
+        if self._register_transport_callback:
+            self._register_transport_callback(self._session_id, transport)
 
         # TODO: Pause agent loop if requested
         # if pause_agent:
@@ -1479,6 +1494,65 @@ class Session:
             )
             self.timeline.context_graph.add_node(cancel_node)
             raise
+
+        finally:
+            # Unregister transport with ACP agent
+            if self._unregister_transport_callback:
+                self._unregister_transport_callback(self._session_id)
+
+    def create_conversation_handle(
+        self,
+        handler: Any,  # ConversationHandler protocol
+        *,
+        originator: str,
+        forward_permissions: bool = True,
+    ) -> Any:  # Returns ConversationHandle
+        """Create a conversation handle for non-blocking manual operation.
+
+        This is the non-blocking variant of delegate_conversation(). It creates
+        a ConversationHandle that can be started, monitored, and waited on manually.
+
+        Args:
+            handler: Handler to process conversation (implements ConversationHandler protocol)
+            originator: Identifier for MessageNodes (e.g., "shell:bash", "mcp:menu")
+            forward_permissions: Handler inherits session permissions
+
+        Returns:
+            ConversationHandle for manual operation
+
+        Example:
+            >>> from activecontext.handlers.interactive_shell import InteractiveShellHandler
+            >>> handler = InteractiveShellHandler("bash")
+            >>> handle = session.create_conversation_handle(
+            ...     handler, originator="shell:bash"
+            ... )
+            >>> await handle.start()
+            >>> while not handle.is_done():
+            ...     if handle.is_waiting():
+            ...         await handle.send_input("ls -la")
+            >>> result = await handle.wait()
+        """
+        from activecontext.session.coordinator import (
+            ConversationHandle,
+            SessionConversationTransport,
+        )
+
+        # Create transport wrapper with update callback
+        transport = SessionConversationTransport(
+            session=self,
+            originator=originator,
+            forward_permissions=forward_permissions,
+            update_callback=self._emit_update_callback,
+        )
+
+        # Register transport with ACP agent (if using ACP transport)
+        if self._register_transport_callback:
+            self._register_transport_callback(self._session_id, transport)
+
+        # Create handle (caller is responsible for starting it)
+        handle = ConversationHandle(handler, transport)
+
+        return handle
 
         # TODO: Resume agent loop if paused
         # finally:
