@@ -968,15 +968,19 @@ class ActiveContextAgent:
         **kwargs: Any,
     ) -> SetSessionModeResponse | None:
         """Set session mode."""
+        log.debug("set_session_mode called: session=%s mode=%s", session_id, mode_id)
+
         # Validate mode exists
         valid_modes = {m.id for m in self._session_modes}
         if mode_id not in valid_modes:
+            log.warning("Invalid mode %s, valid modes: %s", mode_id, valid_modes)
             raise acp.RequestError(
                 code=-32602,
                 message=f"Invalid mode: {mode_id}. Valid modes: {valid_modes}",
             )
 
         self._sessions_mode[session_id] = mode_id
+        log.debug("Mode set successfully for session %s", session_id)
         return SetSessionModeResponse()
 
     async def set_session_model(

@@ -1655,6 +1655,12 @@ class Session:
         # Create metadata nodes after prompts (document order: prompt, guide, session, mcp)
         self._create_metadata_nodes()
 
+        # Yield to event loop to process pending callbacks before MCP connect.
+        # On Windows, stdin is read in a background thread that uses call_soon_threadsafe
+        # to feed data. This sleep(0) ensures those callbacks are processed, allowing
+        # the ACP receive loop to handle requests that arrived during startup.
+        await asyncio.sleep(0)
+
         # Auto-connect to configured MCP servers
         await self._setup_mcp_autoconnect()
 
