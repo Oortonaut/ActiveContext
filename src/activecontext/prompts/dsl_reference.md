@@ -9,7 +9,7 @@ Execute statements in `python/acrepl` fenced code blocks:
 ~~~markdown
 ```python/acrepl
 v = text("src/main.py", tokens=2000)
-v.SetExpansion(Expansion.SUMMARY)
+v.expansion = Expansion.SUMMARY
 ```
 ~~~
 
@@ -21,10 +21,10 @@ Nodes are accessible by their display ID directly in the namespace:
 
 ```python
 v = text("src/main.py")   # Creates text_1
-text_1.SetExpansion(Expansion.SUMMARY)  # Direct access works
+text_1.expansion = Expansion.SUMMARY  # Direct access works
 
 g = group(text_1, text_2)  # Creates group_1
-group_1.SetTokens(500)     # Direct access
+group_1.tokens = 500     # Direct access
 ```
 
 Display IDs follow the format `{type}_{sequence}`: `text_1`, `group_2`, `shell_3`, etc.
@@ -32,8 +32,8 @@ Display IDs follow the format `{type}_{sequence}`: `text_1`, `group_2`, `shell_3
 User-defined variables take precedence:
 ```python
 v = text("main.py")   # v shadows text_1
-v.SetExpansion(...)       # Use v
-text_1.SetExpansion(...)  # Or use display ID directly
+v.expansion = ...         # Use v
+text_1.expansion = ...    # Or use display ID directly
 ```
 
 ## Enums and Constants
@@ -155,8 +155,8 @@ All context nodes support chainable configuration methods.
 ### Common Methods
 
 ```python
-node.SetExpansion(Expansion.SUMMARY)   # Change rendering state
-node.SetTokens(500)                # Change token budget
+node.expansion = Expansion.SUMMARY     # Change rendering state
+node.tokens = 500                      # Change token budget
 node.Run(TickFrequency.turn())     # Start running with frequency
 node.Pause()                       # Stop automatic updates
 ```
@@ -169,10 +169,13 @@ v.SetPos("50:0")      # Jump to line 50
 
 ### Method Chaining
 
-Methods return `self` for chaining:
+Use direct assignment for configuration:
 
 ```python
-v = text("src/main.py").SetTokens(2000).SetExpansion(Expansion.DETAILS).Run(TickFrequency.turn())
+v = text("src/main.py")
+v.tokens = 2000
+v.expansion = Expansion.DETAILS
+v.Run(TickFrequency.turn())
 ```
 
 ## DAG Manipulation
@@ -442,12 +445,12 @@ You can use XML-style tags instead of Python syntax. Tags are converted to Pytho
 
 Note: Use `<view>` tag for both text and markdown files. The `<text>` and `<markdown>` tags are not supported.
 
-### Method Calls
+### Method Calls and Assignments
 
 ```xml
-<!-- self refers to the variable to call the method on -->
-<SetExpansion self="v" s="collapsed"/>
-<SetTokens self="v" n="500"/>
+<!-- Direct field assignment using assign tag -->
+<assign target="v.expansion" value="collapsed"/>
+<assign target="v.tokens" value="500"/>
 <SetPos self="v" pos="50:0"/>
 <Run self="v" freq="turn"/>
 <Pause self="v"/>

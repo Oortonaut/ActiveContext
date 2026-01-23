@@ -81,8 +81,8 @@ When connected, the MCPServerNode appears in your context with tool documentatio
 
 ```python
 fs = mcp_connect("filesystem")
-fs.SetExpansion(Expansion.DETAILS)      # Full tool documentation
-fs.SetExpansion(Expansion.SUMMARY)  # Just tool names
+fs.expansion = Expansion.DETAILS    # Full tool documentation
+fs.expansion = Expansion.SUMMARY    # Just tool names
 ```
 
 ## Tool Child Nodes
@@ -100,8 +100,8 @@ tool = fs.tool("read_file")           # Get single tool node
 all_tools = fs.tool_nodes             # Get all tool nodes
 
 # Access via namespace (prefixed names)
-filesystem_read_file.SetExpansion(Expansion.DETAILS)
-filesystem_write_file.SetExpansion(Expansion.HIDDEN)
+filesystem_read_file.expansion = Expansion.DETAILS
+filesystem_write_file.expansion = Expansion.HIDDEN
 ```
 
 ### Tool Node Rendering States
@@ -115,10 +115,10 @@ Each MCPToolNode has independent state control:
 
 ```python
 # Show full documentation for one tool only
-fs.tool("read_file").SetExpansion(Expansion.DETAILS)
+fs.tool("read_file").expansion = Expansion.DETAILS
 
 # Hide tools you don't need
-fs.tool("delete_file").SetExpansion(Expansion.HIDDEN)
+fs.tool("delete_file").expansion = Expansion.HIDDEN
 ```
 
 ### Reconnection Behavior

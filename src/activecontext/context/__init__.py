@@ -46,9 +46,24 @@ from activecontext.context.nodes import (
     TraceNode,
     WorkNode,
 )
+from activecontext.context.traceable import (
+    trace_all_fields,
+    traceable,
+    format_value,
+    register_formatter,
+    is_traceable,
+    get_traceable_fields,
+)
 from activecontext.context.view import AgentView, ViewRegistry
 
 __all__ = [
+    # Traceable
+    "trace_all_fields",
+    "traceable",
+    "format_value",
+    "register_formatter",
+    "is_traceable",
+    "get_traceable_fields",
     # Buffer
     "TextBuffer",
     # Checkpoint

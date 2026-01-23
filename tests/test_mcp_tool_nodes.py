@@ -449,14 +449,13 @@ class TestMCPServerNodeSerialization:
 class TestMCPToolNodeIntegration:
     """Integration tests for MCPToolNode with the full system."""
 
-    def test_tool_node_fluent_api(self, context_graph, mcp_server_node, mock_connection):
-        """Test MCPToolNode supports fluent API for state changes."""
+    def test_tool_node_direct_assignment(self, context_graph, mcp_server_node, mock_connection):
+        """Test MCPToolNode supports direct field assignment for state changes."""
         mcp_server_node.update_from_connection(mock_connection)
         tool = mcp_server_node.tool("read_file")
 
-        # Test fluent API
-        result = tool.SetExpansion(Expansion.DETAILS)
-        assert result is tool
+        # Test direct assignment
+        tool.expansion = Expansion.DETAILS
         assert tool.expansion == Expansion.DETAILS
 
     def test_tool_node_display_name(self):

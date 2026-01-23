@@ -100,11 +100,10 @@ class TestContextNodeNotification:
         node.notification_level = NotificationLevel.WAKE
         assert node.notification_level == NotificationLevel.WAKE
 
-    def test_set_notify_fluent(self) -> None:
-        """Test SetNotify fluent API."""
+    def test_notification_level_assignment(self) -> None:
+        """Test direct notification_level assignment."""
         node = TextNode(path="test.py")
-        result = node.SetNotify(NotificationLevel.HOLD)
-        assert result is node  # Returns self for chaining
+        node.notification_level = NotificationLevel.HOLD
         assert node.notification_level == NotificationLevel.HOLD
 
     def test_is_subscription_point_default(self) -> None:

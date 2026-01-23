@@ -22,6 +22,7 @@ from enum import Enum
 from typing import TYPE_CHECKING, Any
 
 from activecontext.context.state import Expansion, NotificationLevel, TickFrequency
+from activecontext.context.traceable import trace_all_fields
 
 if TYPE_CHECKING:
     pass  # Moved to runtime import below
@@ -61,6 +62,7 @@ if TYPE_CHECKING:
 OnChildChangedHook = Callable[["ContextNode", "ContextNode", str], None]
 
 
+@trace_all_fields
 @dataclass
 class ContextNode(ABC):
     """Base class for all context DAG nodes.
@@ -696,93 +698,28 @@ class ContextNode(ABC):
             raise ValueError(f"Unknown node type: {node_type}")
 
     # Fluent API for mode control
-    def Run(self, freq: TickFrequency | None = None) -> ContextNode:
+    def Run(self, freq: TickFrequency | None = None) -> None:
         """Enable tick recomputation with given frequency.
 
         Args:
             freq: Tick frequency (defaults to turn() if not specified)
+
+        Note: Mode change is auto-traced by @trace_all_fields.
         """
-        old_mode = self.mode
-        self.mode = "running"
+        self.mode = "running"  # Auto-traced
         self.tick_frequency = freq or TickFrequency.turn()
         if self._graph:
             self._graph._running_nodes.add(self.node_id)
-        if old_mode != "running":
-            self._mark_changed(
-                description=f"Mode: {old_mode} → running",
-                field_name="mode",
-                prev_value=old_mode,
-                curr_value="running",
-            )
-        return self
 
-    def Pause(self) -> ContextNode:
-        """Disable tick recomputation."""
-        old_mode = self.mode
-        self.mode = "paused"
+    def Pause(self) -> None:
+        """Disable tick recomputation.
+
+        Note: Mode change is auto-traced by @trace_all_fields.
+        """
+        self.mode = "paused"  # Auto-traced
         if self._graph:
             self._graph._running_nodes.discard(self.node_id)
-        if old_mode != "paused":
-            self._mark_changed(
-                description=f"Mode: {old_mode} → paused",
-                field_name="mode",
-                prev_value=old_mode,
-                curr_value="paused",
-            )
-        return self
 
-    def SetTokens(self, n: int) -> ContextNode:
-        """Set token budget.
-
-        Args:
-            n: New token budget for rendering.
-        """
-        old_tokens = self.tokens
-        self.tokens = n
-        if old_tokens != n:
-            self._mark_changed(
-                description=f"Tokens: {old_tokens} → {n}",
-                field_name="tokens",
-                prev_value=old_tokens,
-                curr_value=n,
-            )
-        return self
-
-    def SetExpansion(self, s: Expansion) -> ContextNode:
-        """Set rendering expansion.
-
-        Args:
-            s: New node expansion (HIDDEN, COLLAPSED, SUMMARY, DETAILS).
-
-        Generates a trace if tracing is enabled and expansion actually changed.
-        """
-        old_expansion = self.expansion
-        if old_expansion != s:
-            self.expansion = s
-            self._mark_changed(
-                description=f"Expansion: {old_expansion.value} → {s.value}",
-                field_name="expansion",
-                prev_value=old_expansion.value,
-                curr_value=s.value,
-            )
-        return self
-
-    def SetNotify(self, level: NotificationLevel) -> ContextNode:
-        """Set notification level (fluent API).
-
-        Args:
-            level: NotificationLevel.IGNORE, HOLD, or WAKE
-        """
-        old_level = self.notification_level
-        self.notification_level = level
-        if old_level != level:
-            self._mark_changed(
-                description=f"Notify: {old_level.value} → {level.value}",
-                field_name="notification_level",
-                prev_value=old_level.value,
-                curr_value=level.value,
-            )
-        return self
 
 
 @dataclass

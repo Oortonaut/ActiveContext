@@ -18,8 +18,8 @@ Every node has a display ID (e.g., `text_1`, `group_2`) that can be used directl
 
 ```python/acrepl
 v = text("src/main.py")    # Creates text_1
-text_1.SetExpansion(Expansion.SUMMARY)  # Both work
-v.SetExpansion(Expansion.SUMMARY)       # Same effect
+text_1.expansion = Expansion.SUMMARY  # Both work
+v.expansion = Expansion.SUMMARY       # Same effect
 ```
 
 Display IDs follow the pattern `{type}_{sequence}`. Useful when you need to reference a node without storing it in a variable.
@@ -44,15 +44,17 @@ A **text view** is a window into a file. The view appears in your context on the
 ```python/acrepl
 v.SetPos("50:0")      # Jump to line 50
 v.SetEndPos("100:0")  # Limit view to lines 50-100
-v.SetTokens(500)      # Reduce token budget
-v.SetExpansion(Expansion.SUMMARY)  # Switch to summary view
+v.tokens = 500        # Reduce token budget
+v.expansion = Expansion.SUMMARY  # Switch to summary view
 v.Run()               # Enable auto-updates each turn
 v.Pause()             # Disable auto-updates
 ```
 
 Methods are chainable:
 ```python/acrepl
-v.SetPos("100:0").SetTokens(1000).Run()
+v.SetPos("100:0")
+v.tokens = 1000
+v.Run()
 ```
 
 ## Markdown Files
@@ -100,7 +102,8 @@ main = text("src/main.py", tokens=3000)
 
 # On the next turn, you'll see the file content
 # Then you can adjust the view:
-main.SetPos("50:0").SetTokens(1000)
+main.SetPos("50:0")
+main.tokens = 1000
 
 # Create views of related files
 utils = text("src/utils.py", tokens=1000)

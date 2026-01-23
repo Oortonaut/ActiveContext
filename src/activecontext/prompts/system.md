@@ -68,7 +68,7 @@ Always read code before suggesting changes. Adjust `tokens` based on file size.
 
 ```python
 g = group(v1, v2, v3, summary="Authentication module")
-g.SetExpansion(Expansion.SUMMARY)  # Summarize when done exploring
+g.expansion = Expansion.SUMMARY  # Summarize when done exploring
 ```
 
 Group related files for efficient context usage.
@@ -108,7 +108,7 @@ Execute statements in `python/acrepl` blocks:
 ~~~markdown
 ```python/acrepl
 v = text("src/main.py")
-v.SetExpansion(Expansion.SUMMARY)
+v.expansion = Expansion.SUMMARY
 ```
 ~~~
 
