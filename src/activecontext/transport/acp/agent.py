@@ -168,6 +168,10 @@ class ActiveContextAgent:
         self._client_info: dict[str, Any] | None = None
         self._protocol_version: int | None = None
 
+        # Conversation delegation (Phase 2 - ACP Integration)
+        from activecontext.session.coordinator import SessionConversationTransport
+        self._active_transports: dict[str, SessionConversationTransport] = {}  # session_id -> transport
+
     def _load_modes_from_config(self) -> None:
         """Load session modes from config if available."""
         try:
@@ -763,6 +767,9 @@ class ActiveContextAgent:
                 )
                 session.timeline._terminal_executor = terminal_executor
 
+            # Set up conversation delegation callbacks (Phase 2: ACP Integration)
+            self._setup_conversation_callbacks(session)
+
             # Track session metadata
             self._sessions_cwd[session.session_id] = cwd
             self._sessions_mode[session.session_id] = self._default_mode_id
@@ -876,6 +883,9 @@ class ActiveContextAgent:
                     default_cwd=cwd,
                 )
                 session.timeline._terminal_executor = terminal_executor
+
+            # Set up conversation delegation callbacks (Phase 2: ACP Integration)
+            self._setup_conversation_callbacks(session)
 
             # Track session metadata
             self._sessions_cwd[session_id] = cwd
@@ -1045,6 +1055,14 @@ class ActiveContextAgent:
             for block in prompt:
                 if isinstance(block, TextContentBlock) or hasattr(block, "text"):
                     content += block.text
+
+            # NEW: Check for active conversation transport FIRST
+            # If a conversation handler is waiting for input, route to it instead of agent loop
+            transport = self._active_transports.get(session_id)
+            if transport:
+                # Route to conversation handler instead of agent loop
+                transport.handle_input_response(content)
+                return acp.PromptResponse(stop_reason="end_turn")
 
             # Handle slash commands synchronously (they don't go through the queue)
             if content.strip().startswith("/"):
@@ -1337,6 +1355,81 @@ class ActiveContextAgent:
 
         log.debug("Cleaned up session tracking for %s", session_id)
 
+    # --- Conversation delegation methods (Phase 2: ACP Integration) ---
+
+    def _setup_conversation_callbacks(self, session: Any) -> None:
+        """Set up conversation delegation callbacks for a session.
+
+        Called after session creation/loading to wire the session to the ACP agent
+        for conversation transport registration and update emission.
+
+        Args:
+            session: Session instance to configure
+        """
+        # Set update callback for SessionConversationTransport
+        async def emit_update(update: Any) -> None:
+            """Emit a SessionUpdate to the ACP client."""
+            await self._emit_update(session.session_id, update)
+
+        session._emit_update_callback = emit_update
+
+        # Set transport registration callbacks
+        session._register_transport_callback = self.register_conversation_transport
+        session._unregister_transport_callback = self.unregister_conversation_transport
+
+        log.debug("Set up conversation callbacks for session %s", session.session_id)
+
+    def register_conversation_transport(
+        self,
+        session_id: str,
+        transport: Any,  # SessionConversationTransport (avoid circular import)
+    ) -> None:
+        """Register a conversation transport for input response routing.
+
+        Called by Session.delegate_conversation() to wire up the transport
+        for this session. Input responses from ACP will be routed to this transport.
+
+        Args:
+            session_id: Session identifier
+            transport: SessionConversationTransport instance
+        """
+        self._active_transports[session_id] = transport
+        log.debug("Registered conversation transport for session %s", session_id)
+
+    def unregister_conversation_transport(self, session_id: str) -> None:
+        """Unregister a conversation transport.
+
+        Called when conversation delegation completes.
+
+        Args:
+            session_id: Session identifier
+        """
+        self._active_transports.pop(session_id, None)
+        log.debug("Unregistered conversation transport for session %s", session_id)
+
+    async def handle_conversation_input_response(
+        self,
+        session_id: str,
+        response: str,
+    ) -> None:
+        """Handle user's response to a delegated conversation input request.
+
+        This is called when the ACP client sends conversation/input_response
+        after the transport requests input via SessionUpdate.CONVERSATION_INPUT_REQUEST.
+
+        Args:
+            session_id: Session identifier
+            response: User's input response text
+        """
+        transport = self._active_transports.get(session_id)
+        if transport:
+            transport.handle_input_response(response)
+            log.debug("Routed input response to transport for session %s", session_id)
+        else:
+            log.warning("No active transport for session %s, dropping input response", session_id)
+
+    # --- End conversation delegation methods ---
+
     async def ext_method(
         self,
         method: str,
@@ -1373,7 +1466,9 @@ class ActiveContextAgent:
                 "  /clear     - Clear conversation history\n"
                 "  /context   - Show current context objects\n"
                 "  /title     - Set session title\n"
-                "  /dashboard - Open monitoring dashboard (start/stop/status/open)"
+                "  /dashboard - Open monitoring dashboard (start/stop/status/open)\n"
+                "  /shell     - Start interactive shell session\n"
+                "  /mcp       - MCP server management menu"
             )
 
         elif command == "/title":
@@ -1504,6 +1599,66 @@ class ActiveContextAgent:
                     "  status       - Show dashboard status\n"
                     "  open         - Open dashboard in browser (auto-starts if needed)"
                 )
+
+        elif command == "/shell":
+            # Interactive shell session
+            args = parts[1] if len(parts) > 1 else ""
+
+            session = await self._manager.get_session(session_id)
+            if not session:
+                return True, "Session not found."
+
+            from activecontext.handlers import InteractiveShellHandler
+
+            # Parse shell command (optional)
+            shell_args = args.strip().split() if args.strip() else []
+            shell = shell_args[0] if shell_args else None
+            shell_cmd_args = tuple(shell_args[1:]) if len(shell_args) > 1 else ()
+
+            handler = InteractiveShellHandler(
+                shell=shell,
+                args=shell_cmd_args,
+                cwd=session.cwd,
+            )
+
+            try:
+                await session.delegate_conversation(
+                    handler,
+                    originator="shell:interactive",
+                )
+                # Handler sends its own output, just return empty
+                return True, ""
+            except asyncio.CancelledError:
+                return True, "Shell session cancelled."
+            except Exception as e:
+                log.exception("Error in shell session")
+                return True, f"Shell error: {e}"
+
+        elif command == "/mcp":
+            # MCP server management menu
+            session = await self._manager.get_session(session_id)
+            if not session:
+                return True, "Session not found."
+
+            from activecontext.handlers import MCPMenuHandler
+
+            # Get MCP manager from session's timeline
+            mcp_manager = session.timeline._mcp_integration._mcp_client_manager
+
+            mcp_handler = MCPMenuHandler(mcp_manager)
+
+            try:
+                await session.delegate_conversation(
+                    mcp_handler,
+                    originator="mcp:menu",
+                )
+                # Handler sends its own output, just return empty
+                return True, ""
+            except asyncio.CancelledError:
+                return True, "MCP menu cancelled."
+            except Exception as e:
+                log.exception("Error in MCP menu")
+                return True, f"MCP menu error: {e}"
 
         # Unknown command - let it pass through to LLM
         return False, ""
@@ -1739,6 +1894,24 @@ class ActiveContextAgent:
                         acp.update_agent_thought_text(
                             f"Context: {len(handles)} handles"
                         ),
+                    )
+
+            # Conversation delegation updates (Phase 2: ACP Integration)
+            case UpdateKind.CONVERSATION_PROGRESS:
+                current = update.payload.get("current", 0)
+                total = update.payload.get("total", 0)
+                status = update.payload.get("status", "")
+                # Display progress as thought
+                if status:
+                    await self._send_session_update(
+                        session_id,
+                        acp.update_agent_thought_text(f"{status} ({current}/{total})"),
+                    )
+                elif total > 0:
+                    percentage = update.payload.get("percentage", (current / total) * 100)
+                    await self._send_session_update(
+                        session_id,
+                        acp.update_agent_thought_text(f"Progress: {percentage:.0f}%"),
                     )
 
         # Broadcast to dashboard if running

@@ -33,6 +33,8 @@ class UpdateKind(Enum):
     PROJECTION_READY = "projection_ready"
     RESPONSE_CHUNK = "response_chunk"
     ERROR = "error"
+    # Conversation delegation updates (progress bars - no good ACP equivalent)
+    CONVERSATION_PROGRESS = "conversation_progress"  # Progress update
 
 
 class ExecutionStatus(Enum):
