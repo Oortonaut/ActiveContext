@@ -10,9 +10,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 The cwd is `C:\ActiveContext`. Do not use path prefixes in commands.
 
+Prefer Builtins to Bash for reading and writing files.
+
 Prefer Bash to MCPs for simple file operations:
 - `ls`, `dir` for listing files
-- `cat`, `head`, `tail` for reading files
 - `mkdir`, `rm` for file management
 
 ```bash
@@ -574,11 +575,158 @@ Rider logs are at:
 
 ## Guidance
 
-Ask a lot of questions during planning.
+### Starting a Task
 
-Prefer PlantUML (`.puml`) for mid-level design planning and documentation. See `docs/diagrams/` for examples.
+**Before coding, understand the scope:**
 
-When the DSL changes, update `src/activecontext/prompts/` to keep documentation in sync.
+1. **Read the task specification** - Check `.claude/plan.yaml` for existing task definitions
+2. **Identify affected files** - Use search tools to map scope
+3. **Check for conflicts** - Review `git status` and scratchpad for active work
+4. **Plan the approach** - Ask clarifying questions if requirements are ambiguous
+
+**Quick start checklist:**
+
+```bash
+git status                         # Check clean working tree
+git log --oneline -5               # Review recent history
+uv sync --all-extras               # Ensure dependencies are current
+```
+
+### Subtasking and Subagents
+
+**When to decompose tasks:**
+- Task affects more than 3 files in different modules
+- Estimated effort exceeds 30 minutes
+- Clear parallel work opportunities exist
+
+**Using TodoWrite for tracking:**
+
+Use TodoWrite for multi-step tasks with 3+ distinct actions. Mark only one task `in_progress` at a time. Mark tasks complete immediately after finishing.
+
+**Multi-agent coordination:**
+
+For parallel work streams, use the scratchpad system:
+
+```python
+work_on("Implementing feature X", "src/feature/x.py", "tests/test_x.py")
+conflicts = work_check("src/shared.py")
+work_done()
+```
+
+### Testing Discipline
+
+- **Test-first for bugs**: Write a failing test that reproduces the bug before fixing it
+- **Test alongside features**: New functionality requires corresponding tests in the same commit
+- **Run tests before committing**: `uv run pytest -xvs`
+- **Coverage expectations**: New code should have tests; don't decrease overall coverage
+- **Test isolation**: Tests must not depend on external state or execution order
+- **Naming**: `test_<module>.py`, functions as `test_<function>_<scenario>`
+
+### Git Worktrees
+
+**When to use:**
+- Multi-file refactors that may need rollback
+- Experimental features or spikes
+- Parallel work on unrelated features
+
+**Naming convention:**
+```
+../activecontext-<feature>       # Feature work
+../activecontext-spike-<name>    # Experimental/throwaway
+```
+
+**Workflow:**
+
+```bash
+# Create worktree
+git worktree add ../activecontext-oauth -b feature/oauth
+
+# Work in worktree, then merge back
+cd ../activecontext
+git merge feature/oauth
+
+# Cleanup
+git worktree remove ../activecontext-oauth
+git branch -d feature/oauth
+```
+
+**Do NOT use worktrees for:** Quick fixes, single-file changes, documentation-only changes.
+
+### Closing Tasks
+
+**Verification checklist:**
+
+```bash
+uv run pytest -xvs               # All tests pass
+uv run ruff check src/           # No lint errors
+uv run ruff format src/          # Properly formatted
+uv run mypy src/                 # Type checks pass
+```
+
+**Commit practices:**
+- Focus on "why" not "what"
+- Include tests with implementation in the same commit
+- Never commit secrets or `.env` files
+- Update `.claude/plan.yaml` status when completing tracked tasks
+
+### Untracked Work
+
+**Ad-hoc requests** (quick questions, one-off fixes) don't require formal tracking. However:
+- For changes over 50 lines, consider adding to `.claude/plan.yaml` retroactively
+- Document non-obvious decisions in commit messages
+
+**Interruptions:** If interrupted mid-task, commit WIP progress and document where you left off.
+
+### Security Guidelines
+
+| Risk | Mitigation |
+|------|------------|
+| **Injection** | Use argument arrays for shell commands, never string interpolation |
+| **Path Traversal** | Validate paths; use PermissionManager for access control |
+| **Secrets** | Use `fetch_secret()`; never log, hardcode, or commit secrets |
+| **Permissions** | Check existing rules; add minimal required permissions |
+
+```python
+# GOOD - Arguments as array
+shell("pytest", "-v", user_path)
+
+# BAD - String interpolation (injection risk)
+shell(f"pytest -v {user_path}")
+```
+
+### Debugging Workflow
+
+1. **Reproduce first** - Isolate the minimal case that triggers the issue
+2. **Enable logging:**
+   - `ACTIVECONTEXT_DEBUG=1` - Projection output to stderr
+   - `ACTIVECONTEXT_LOG=./debug.log` - Full ACP message traces
+   - Rider logs: `%LOCALAPPDATA%\JetBrains\Rider*/log/acp/`
+3. **Add targeted logging** - Don't shotgun print statements
+4. **Use pytest flags** - `-xvs` for output and stop-on-first-failure
+5. **Async issues** - Check for missing `await`, unclosed resources
+
+### Performance Guidelines
+
+- **Token budget**: Default 16k; set appropriate `tokens` parameter on nodes
+- **Avoid N+1**: Use `asyncio.gather()` for independent parallel operations
+- **Hot paths**: `ProjectionEngine.build()`, `ContextGraph` traversal, `Timeline.execute_statement()`
+- **Profiling**: Use `ACTIVECONTEXT_DEBUG=1` and `ACTIVECONTEXT_LOG`
+
+### Additional Practices
+
+- **PlantUML**: Use `.puml` for design documentation. See `docs/diagrams/`
+- **DSL changes**: Update `src/activecontext/prompts/` to keep docs in sync
+- **Dashboard changes**: When modifying Python that affects session state, projection, or node types, also update `src/activecontext/dashboard/static/`
+
+### Cross-References
+
+| Topic | Documentation |
+|-------|---------------|
+| DSL Functions | `src/activecontext/prompts/dsl_reference.md` |
+| Node States | `src/activecontext/prompts/node_states.md` |
+| Work Coordination | `src/activecontext/prompts/work_coordination.md` |
+| MCP Integration | `src/activecontext/prompts/mcp.md` |
+| ACP Protocol | `docs/acp-protocol.md` |
 
 ## TODO Management
 
