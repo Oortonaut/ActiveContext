@@ -13,12 +13,12 @@ import asyncio
 import time
 import traceback
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable
 from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import dataclass
 from io import StringIO
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Awaitable
+from typing import TYPE_CHECKING, Any
 
 from activecontext.context.graph import ContextGraph
 from activecontext.context.nodes import (
@@ -27,22 +27,16 @@ from activecontext.context.nodes import (
     GroupNode,
     LockNode,
     LockStatus,
-    MCPServerNode,
     ShellNode,
     ShellStatus,
     TextNode,
     TopicNode,
-    WorkNode,
 )
 from activecontext.context.state import Expansion, NotificationLevel, TickFrequency
 from activecontext.context.view import NodeView
-from activecontext.mcp import (
-    MCPClientManager,
-)
-from activecontext.session.lock_manager import LockManager
 from activecontext.session.agent_spawner import AgentSpawner
+from activecontext.session.lock_manager import LockManager
 from activecontext.session.mcp_integration import MCPIntegration
-from activecontext.session.shell_manager import ShellManager
 from activecontext.session.permissions import (
     ImportDenied,
     ImportGuard,
@@ -56,7 +50,6 @@ from activecontext.session.permissions import (
     make_safe_open,
     write_import_to_config,
     write_permission_to_config,
-    write_shell_permission_to_config,
     write_website_permission_to_config,
 )
 from activecontext.session.protocols import (
@@ -70,15 +63,15 @@ from activecontext.session.protocols import (
     WaitCondition,
     WaitMode,
 )
+from activecontext.session.shell_manager import ShellManager
+from activecontext.session.work_coordinator import WorkCoordinator
 from activecontext.session.xml_parser import is_xml_command, parse_xml_to_python
-from activecontext.terminal.result import ShellResult
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from activecontext.agents.handle import AgentHandle
     from activecontext.agents.manager import AgentManager
-    from activecontext.config.schema import FileWatchConfig, MCPConfig, MCPServerConfig
+    from activecontext.config.schema import FileWatchConfig, MCPConfig
     from activecontext.context.buffer import TextBuffer
     from activecontext.coordination.scratchpad import ScratchpadManager
     from activecontext.terminal.protocol import TerminalExecutor
@@ -124,13 +117,15 @@ class _ExecutionRecord:
 
 
 class LazyNodeNamespace(dict[str, Any]):
-    """Dict subclass that falls back to graph lookup for node display IDs.
+    """Dict subclass that falls back to graph lookup for node IDs.
 
-    Allows direct access to nodes by display_id (e.g., text_1, group_2)
-    in the DSL namespace without explicit assignment.
+    Allows direct access to nodes in the DSL namespace without explicit assignment.
+    Node IDs have the format {node_type}_{seq} (e.g., 'text_1', 'group_2').
 
     Returns NodeView wrappers for nodes to enable view-based state management.
     User-defined variables take precedence over node lookups.
+
+    Lookup order: namespace → node_id (O(1)) → KeyError
     """
 
     def __init__(
@@ -148,9 +143,9 @@ class LazyNodeNamespace(dict[str, Any]):
         except KeyError:
             graph = self._graph_getter()
             if graph:
-                node = graph.get_node_by_display_id(key)
+                # Try node_id lookup (O(1))
+                node = graph.get_node(key)
                 if node:
-                    # Return NodeView wrapper for view-based state management
                     return NodeView(node)
             raise
 
@@ -227,9 +222,6 @@ class Timeline:
         # Work coordination scratchpad manager (must be set before _setup_namespace)
         self._scratchpad_manager = scratchpad_manager
 
-        # WorkNode for displaying coordination status (created on first work_on)
-        self._work_node: WorkNode | None = None
-
         # Controlled Python namespace (created before MCP setup)
         self._namespace: dict[str, Any] = {}
 
@@ -263,6 +255,13 @@ class Timeline:
             agent_id=None,  # Set later when spawned
             context_graph=self._context_graph,
             cwd=cwd,
+        )
+
+        # Work coordinator for multi-agent file coordination
+        self._work_coordinator = WorkCoordinator(
+            session_id=session_id,
+            context_graph=self._context_graph,
+            scratchpad_manager=scratchpad_manager,
         )
 
         # Set up namespace with DSL functions
@@ -392,6 +391,9 @@ class Timeline:
             # DAG manipulation
             "link": self._link,
             "unlink": self._unlink,
+            # Traversal control
+            "hide": self._hide,
+            "unhide": self._unhide,
             # Checkpointing
             "checkpoint": self._checkpoint,
             "restore": self._restore,
@@ -429,11 +431,11 @@ class Timeline:
         # Add work coordination functions if scratchpad manager is available
         if self._scratchpad_manager:
             self._namespace.update({
-                "work_on": self._work_on,
-                "work_check": self._work_check,
-                "work_update": self._work_update,
-                "work_done": self._work_done,
-                "work_list": self._work_list,
+                "work_on": self._work_coordinator.work_on,
+                "work_check": self._work_coordinator.work_check,
+                "work_update": self._work_coordinator.work_update,
+                "work_done": self._work_coordinator.work_done,
+                "work_list": self._work_coordinator.work_list,
             })
 
         # Add MCP functions
@@ -1236,6 +1238,100 @@ class Timeline:
         parent_id = parent.node_id if isinstance(parent, ContextNode) else parent
         return self._context_graph.unlink(child_id, parent_id)
 
+    def _hide(self, *nodes: ContextNode | str) -> int:
+        """Hide nodes from projection traversal.
+
+        Sets node expansion to HIDDEN, excluding it from rendering while
+        retaining all state for potential restoration via unhide().
+
+        The previous expansion state is stored in node.tags['_hidden_expansion']
+        so it can be restored later.
+
+        Args:
+            *nodes: One or more nodes or node IDs to hide
+
+        Returns:
+            Number of nodes successfully hidden
+
+        Example:
+            hide(text_1)              # Hide single node
+            hide(text_1, text_2)      # Hide multiple nodes
+            hide("text_1", group_2)   # Mix of IDs and objects
+        """
+        count = 0
+        for node in nodes:
+            # Resolve node ID to node object
+            if isinstance(node, str):
+                resolved = self._context_graph.get_node(node)
+                if resolved is None:
+                    continue
+                node = resolved
+
+            # Skip if already hidden
+            if node.expansion == Expansion.HIDDEN:
+                continue
+
+            # Store previous expansion for restoration
+            node.tags["_hidden_expansion"] = node.expansion.value
+
+            # Set to hidden
+            node.expansion = Expansion.HIDDEN
+            count += 1
+
+        return count
+
+    def _unhide(
+        self,
+        *nodes: ContextNode | str,
+        expansion: Expansion | None = None,
+    ) -> int:
+        """Restore hidden nodes to projection traversal.
+
+        Reverses the effect of hide() by restoring node expansion to its
+        previous state (or a specified expansion level).
+
+        Args:
+            *nodes: One or more nodes or node IDs to restore
+            expansion: Optional expansion to set. If None, restores to the
+                      state before hide() was called, or DETAILS if unknown.
+
+        Returns:
+            Number of nodes successfully restored
+
+        Example:
+            unhide(text_1)                        # Restore to previous state
+            unhide(text_1, text_2)                # Restore multiple
+            unhide(text_1, expansion=Expansion.SUMMARY)  # Force specific expansion
+        """
+        count = 0
+        for node in nodes:
+            # Resolve node ID to node object
+            if isinstance(node, str):
+                resolved = self._context_graph.get_node(node)
+                if resolved is None:
+                    continue
+                node = resolved
+
+            # Determine target expansion
+            if expansion is not None:
+                target = expansion
+            elif "_hidden_expansion" in node.tags:
+                # Restore to previous state
+                target = Expansion(node.tags["_hidden_expansion"])
+                del node.tags["_hidden_expansion"]
+            else:
+                # Default to DETAILS if no stored state
+                target = Expansion.DETAILS
+
+            # Skip if already at target
+            if node.expansion == target:
+                continue
+
+            node.expansion = target
+            count += 1
+
+        return count
+
     def _checkpoint(self, name: str) -> Any:
         """Create a checkpoint of the current DAG structure.
 
@@ -1822,195 +1918,6 @@ class Timeline:
 
         return handle
 
-    # === Work Coordination DSL Functions ===
-
-    def _work_on(
-        self,
-        intent: str,
-        *files: str,
-        mode: str = "write",
-        dependencies: list[str] | None = None,
-    ) -> WorkNode:
-        """Register intent and files being worked on.
-
-        Creates a WorkNode in the context graph to display coordination status.
-        Also registers with the project-wide scratchpad for cross-agent visibility.
-
-        Args:
-            intent: Human-readable description of work
-            *files: File paths being accessed
-            mode: Access mode for files ("read" or "write")
-            dependencies: Additional files needed (read-only)
-
-        Returns:
-            WorkNode for displaying coordination status
-
-        Example:
-            work_on("Implementing OAuth2", "src/auth/oauth.py", "src/auth/config.py")
-        """
-        from activecontext.coordination.schema import FileAccess
-
-        if not self._scratchpad_manager:
-            raise RuntimeError("Scratchpad manager not configured")
-
-        # Build file access list
-        file_accesses = [FileAccess(path=f, mode=mode) for f in files]
-
-        # Register with scratchpad
-        entry = self._scratchpad_manager.register(
-            session_id=self._session_id,
-            intent=intent,
-            files=file_accesses,
-            dependencies=dependencies,
-        )
-
-        # Check for conflicts
-        all_paths = list(files) + (dependencies or [])
-        conflicts = self._scratchpad_manager.get_conflicts(all_paths, mode)
-
-        # Create or update WorkNode
-        if self._work_node is None:
-            node_id = f"work_{uuid.uuid4().hex[:8]}"
-            self._work_node = WorkNode(
-                node_id=node_id,
-                tokens=200,
-                expansion=Expansion.DETAILS,
-                intent=entry.intent,
-                work_status=entry.status,
-                files=[f.to_dict() for f in file_accesses],
-                dependencies=dependencies or [],
-                conflicts=[c.to_dict() for c in conflicts],
-                agent_id=entry.id,
-            )
-            self._context_graph.add_node(self._work_node)
-        else:
-            self._work_node.intent = entry.intent
-            self._work_node.work_status = entry.status
-            self._work_node.files = [f.to_dict() for f in file_accesses]
-            self._work_node.dependencies = dependencies or []
-            self._work_node.set_conflicts([c.to_dict() for c in conflicts])
-            self._work_node.agent_id = entry.id
-
-        return self._work_node
-
-    def _work_check(self, *files: str, mode: str = "write") -> list[dict[str, str]]:
-        """Check for conflicts on files before modifying.
-
-        Args:
-            *files: File paths to check
-            mode: Access mode we want ("read" or "write")
-
-        Returns:
-            List of conflicts: [{agent_id, file, their_mode, their_intent}, ...]
-
-        Example:
-            conflicts = work_check("src/auth/utils.py")
-            if conflicts:
-                print(f"Warning: {conflicts[0]['agent_id']} is working on this")
-        """
-        if not self._scratchpad_manager:
-            return []
-
-        conflicts = self._scratchpad_manager.get_conflicts(list(files), mode)
-        return [c.to_dict() for c in conflicts]
-
-    def _work_update(
-        self,
-        intent: str | None = None,
-        files: list[str] | None = None,
-        mode: str = "write",
-        dependencies: list[str] | None = None,
-        status: str | None = None,
-    ) -> WorkNode | None:
-        """Update current work registration.
-
-        Args:
-            intent: New intent description
-            files: New file list (replaces existing)
-            mode: Access mode for new files
-            dependencies: New dependencies
-            status: New status (active/paused/done)
-
-        Returns:
-            Updated WorkNode, or None if not registered
-        """
-        from activecontext.coordination.schema import FileAccess
-
-        if not self._scratchpad_manager:
-            return None
-
-        # Build file access list if provided
-        file_accesses: list[FileAccess] | None = None
-        if files is not None:
-            file_accesses = [FileAccess(path=f, mode=mode) for f in files]
-
-        # Update scratchpad entry
-        entry = self._scratchpad_manager.update(
-            intent=intent,
-            files=file_accesses,
-            dependencies=dependencies,
-            status=status,
-        )
-
-        if entry is None:
-            return None
-
-        # Update WorkNode
-        if self._work_node:
-            if intent is not None:
-                self._work_node.intent = intent
-            if file_accesses is not None:
-                self._work_node.files = [f.to_dict() for f in file_accesses]
-            if dependencies is not None:
-                self._work_node.dependencies = dependencies
-            if status is not None:
-                self._work_node.work_status = status
-
-            # Refresh conflicts
-            all_paths = [f["path"] for f in self._work_node.files]
-            conflicts = self._scratchpad_manager.get_conflicts(all_paths, mode)
-            self._work_node.set_conflicts([c.to_dict() for c in conflicts])
-
-        return self._work_node
-
-    def _work_done(self) -> None:
-        """Mark work as complete and unregister.
-
-        Removes this agent's entry from the scratchpad and hides the WorkNode.
-        """
-        if not self._scratchpad_manager:
-            return
-
-        self._scratchpad_manager.unregister()
-
-        if self._work_node:
-            self._work_node.work_status = "done"
-            self._work_node.expansion = Expansion.HIDDEN
-
-    def _work_list(self) -> list[dict[str, Any]]:
-        """List all active work entries from all agents.
-
-        Returns:
-            List of work entries with files, intent, status, etc.
-        """
-        if not self._scratchpad_manager:
-            return []
-
-        entries = self._scratchpad_manager.get_all_entries()
-        return [
-            {
-                "agent_id": e.id,
-                "session_id": e.session_id,
-                "intent": e.intent,
-                "status": e.status,
-                "files": [f.to_dict() for f in e.files],
-                "dependencies": e.dependencies,
-                "started_at": e.started_at.isoformat(),
-                "updated_at": e.updated_at.isoformat(),
-            }
-            for e in entries
-        ]
-
     def _wait_message(
         self,
         timeout: float | None = None,
@@ -2233,7 +2140,7 @@ class Timeline:
         excluded = {
             "Expansion", "TickFrequency", "NotificationLevel",
             "text", "group", "topic", "artifact", "markdown", "view",
-            "link", "unlink",
+            "link", "unlink", "hide", "unhide",
             "checkpoint", "restore", "checkpoints", "branch",
             "ls", "show", "ls_permissions", "ls_imports", "ls_shell_permissions",
             "ls_website_permissions",
@@ -2242,6 +2149,7 @@ class Timeline:
             "lock_file", "lock_release",
             "work_on", "work_check", "work_update", "work_done", "work_list",
             "mcp_connect", "mcp_disconnect", "mcp_list", "mcp_tools",
+            "connect", "interact",  # Conversation delegation DSL functions
         }
         return {
             k: v

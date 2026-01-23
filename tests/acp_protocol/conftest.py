@@ -8,19 +8,34 @@ from pathlib import Path
 from typing import AsyncIterator
 
 import pytest
+import pytest_asyncio
 
 from .helpers import ACPTestClient, initialize_agent
 
 
 @pytest.fixture(scope="module")
-def event_loop():
-    """Create event loop for module-scoped async fixtures."""
-    loop = asyncio.new_event_loop()
-    yield loop
-    loop.close()
+def event_loop_policy():
+    """Set event loop policy for Windows."""
+    if sys.platform == "win32":
+        # Use WindowsProactorEventLoopPolicy for subprocess support
+        asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+    return asyncio.get_event_loop_policy()
 
 
 @pytest.fixture(scope="module")
+def event_loop(event_loop_policy):
+    """Create module-scoped event loop."""
+    loop = asyncio.new_event_loop()
+    yield loop
+    # Close all async generators and shutdown asyncgens
+    try:
+        loop.run_until_complete(loop.shutdown_asyncgens())
+    except RuntimeError:
+        pass
+    loop.close()
+
+
+@pytest_asyncio.fixture(scope="module")
 async def agent_process() -> AsyncIterator[asyncio.subprocess.Process]:
     """Start agent subprocess for test module.
 
@@ -54,7 +69,7 @@ async def agent_process() -> AsyncIterator[asyncio.subprocess.Process]:
             await proc.wait()
 
 
-@pytest.fixture(scope="module")
+@pytest_asyncio.fixture(scope="module")
 async def client(agent_process: asyncio.subprocess.Process) -> AsyncIterator[ACPTestClient]:
     """Create test client connected to agent.
 
@@ -74,7 +89,7 @@ async def client(agent_process: asyncio.subprocess.Process) -> AsyncIterator[ACP
     await test_client.close()
 
 
-@pytest.fixture(scope="module")
+@pytest_asyncio.fixture(scope="module")
 async def initialized_client(client: ACPTestClient) -> ACPTestClient:
     """Client that has completed initialize handshake."""
     response = await initialize_agent(client)

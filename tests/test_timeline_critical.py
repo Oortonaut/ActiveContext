@@ -178,7 +178,7 @@ class TestShellExecution:
             ns = timeline.get_namespace()
             shell_node = ns["s"]
 
-            graph = timeline.get_context_graph()
+            graph = timeline.context_graph
             retrieved = graph.get_node(shell_node.node_id)
             assert retrieved is shell_node
         finally:
@@ -193,7 +193,7 @@ class TestShellExecution:
             await timeline.execute_statement('s = shell("echo", ["test"])')
 
             # Cancel all should not raise (it's a sync function returning int)
-            cancelled = timeline.cancel_all_shells()
+            cancelled = timeline._shell_manager.cancel_all()
             assert isinstance(cancelled, int)
         finally:
             await timeline.close()
@@ -240,13 +240,13 @@ class TestLockManagement:
         timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
         try:
             result = await timeline.execute_statement(
-                'lock = lock_file(".test.lock", state=Expansion.DETAILS)'
+                'lock = lock_file(".test.lock", expansion=Expansion.DETAILS)'
             )
             assert result.status.value == "ok"
 
             ns = timeline.get_namespace()
             lock_node = ns["lock"]
-            assert lock_node.state == Expansion.DETAILS
+            assert lock_node.expansion == Expansion.DETAILS
         finally:
             await timeline.close()
 
@@ -260,7 +260,7 @@ class TestLockManagement:
             ns = timeline.get_namespace()
             lock_node = ns["lock"]
 
-            graph = timeline.get_context_graph()
+            graph = timeline.context_graph
             retrieved = graph.get_node(lock_node.node_id)
             assert retrieved is lock_node
         finally:
@@ -274,7 +274,7 @@ class TestLockManagement:
             await timeline.execute_statement('lock = lock_file(".test.lock")')
 
             # Release all should not raise (it's a sync function returning int)
-            released = timeline.release_all_locks()
+            released = timeline._lock_manager.release_all()
             assert isinstance(released, int)
         finally:
             await timeline.close()
@@ -287,7 +287,7 @@ class TestLockManagement:
             await timeline.execute_statement('lock = lock_file(".test.lock")')
 
             # Cancel all should not raise (it's a sync function returning int)
-            cancelled = timeline.cancel_all_locks()
+            cancelled = timeline._lock_manager.cancel_all()
             assert isinstance(cancelled, int)
         finally:
             await timeline.close()
@@ -445,7 +445,7 @@ class TestContextGraph:
         """Test getting the context graph."""
         timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
         try:
-            graph = timeline.get_context_graph()
+            graph = timeline.context_graph
             assert graph is not None
             assert timeline.context_graph is graph
         finally:
@@ -469,7 +469,7 @@ class TestContextGraph:
             assert result.status.value == "ok"
 
             # Verify the graph relationship - topic should be child of group
-            graph = timeline.get_context_graph()
+            graph = timeline.context_graph
             children = graph.get_children(group_node.node_id)
             child_ids = [c.node_id for c in children]
             assert topic_node.node_id in child_ids
@@ -493,7 +493,7 @@ class TestContextGraph:
             # Unlink: unlink(child, parent)
             await timeline.execute_statement("unlink(t, g)")
 
-            graph = timeline.get_context_graph()
+            graph = timeline.context_graph
             children = graph.get_children(group_node.node_id)
             assert topic_node.node_id not in children
         finally:
@@ -515,7 +515,7 @@ class TestCheckpoints:
             await timeline.execute_statement('t = topic("Before")')
             await timeline.execute_statement('checkpoint("cp1")')
 
-            graph = timeline.get_context_graph()
+            graph = timeline.context_graph
             cp = graph.get_checkpoint("cp1")
             assert cp is not None
         finally:
