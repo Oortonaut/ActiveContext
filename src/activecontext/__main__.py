@@ -47,9 +47,30 @@ def _expand_env_vars() -> None:
             log.debug("Expanded env var: %s", key)
 
 
+def _patch_acp_schema() -> None:
+    """Patch ACP schema to match protocol spec.
+    
+    The agent-client-protocol package has mcpServers as REQUIRED in
+    NewSessionRequest, but the ACP spec says it should be OPTIONAL.
+    See: docs/acp-protocol.md - mcpServers has '?' suffix indicating optional.
+    
+    This patch makes mcpServers optional with an empty list default.
+    """
+    from acp.schema import NewSessionRequest
+    
+    field = NewSessionRequest.model_fields.get("mcp_servers")
+    if field and field.is_required():
+        field.default = []
+        NewSessionRequest.model_rebuild(force=True)
+        log.debug("Patched NewSessionRequest.mcp_servers to be optional")
+
+
 async def _main() -> None:
     """Async entry point."""
     import acp
+
+    # Apply spec compliance patches before loading agent
+    _patch_acp_schema()
 
     from activecontext.transport.acp.agent import create_agent
 
