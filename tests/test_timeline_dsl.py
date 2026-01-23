@@ -489,3 +489,243 @@ class TestNamespaceSnapshot:
             assert "group" not in ns
         finally:
             await timeline.close()
+
+
+class TestHideUnhide:
+    """Test hide() and unhide() functions for traversal control."""
+
+    @pytest.fixture
+    def temp_cwd(self, tmp_path: Path) -> Path:
+        return tmp_path
+
+    @pytest.mark.asyncio
+    async def test_hide_single_node(self, temp_cwd: Path) -> None:
+        """Test hide() sets node expansion to HIDDEN."""
+        from activecontext.context.state import Expansion
+
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
+
+        try:
+            await timeline.execute_statement('v = text("test.py")')
+
+            ns = timeline.get_namespace()
+            v = ns["v"]
+            assert v.expansion == Expansion.DETAILS  # Default
+
+            result = await timeline.execute_statement("count = hide(v)")
+            assert result.status.value == "ok"
+
+            ns = timeline.get_namespace()
+            assert ns["count"] == 1
+            assert v.expansion == Expansion.HIDDEN
+        finally:
+            await timeline.close()
+
+    @pytest.mark.asyncio
+    async def test_hide_multiple_nodes(self, temp_cwd: Path) -> None:
+        """Test hide() with multiple nodes."""
+        from activecontext.context.state import Expansion
+
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
+
+        try:
+            await timeline.execute_statement('v1 = text("test1.py")')
+            await timeline.execute_statement('v2 = text("test2.py")')
+
+            result = await timeline.execute_statement("count = hide(v1, v2)")
+            assert result.status.value == "ok"
+
+            ns = timeline.get_namespace()
+            assert ns["count"] == 2
+            assert ns["v1"].expansion == Expansion.HIDDEN
+            assert ns["v2"].expansion == Expansion.HIDDEN
+        finally:
+            await timeline.close()
+
+    @pytest.mark.asyncio
+    async def test_hide_by_id(self, temp_cwd: Path) -> None:
+        """Test hide() with node ID string."""
+        from activecontext.context.state import Expansion
+
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
+
+        try:
+            await timeline.execute_statement('v = text("test.py")')
+
+            ns = timeline.get_namespace()
+            node_id = ns["v"].node_id
+
+            result = await timeline.execute_statement(f'count = hide("{node_id}")')
+            assert result.status.value == "ok"
+
+            ns = timeline.get_namespace()
+            assert ns["count"] == 1
+            assert ns["v"].expansion == Expansion.HIDDEN
+        finally:
+            await timeline.close()
+
+    @pytest.mark.asyncio
+    async def test_hide_stores_previous_expansion(self, temp_cwd: Path) -> None:
+        """Test that hide() stores previous expansion for restoration."""
+        from activecontext.context.state import Expansion
+
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
+
+        try:
+            await timeline.execute_statement('v = text("test.py")')
+            await timeline.execute_statement("v.expansion = Expansion.SUMMARY")
+
+            ns = timeline.get_namespace()
+            v = ns["v"]
+            assert v.expansion == Expansion.SUMMARY
+
+            await timeline.execute_statement("hide(v)")
+
+            assert v.expansion == Expansion.HIDDEN
+            assert v.tags.get("_hidden_expansion") == "summary"
+        finally:
+            await timeline.close()
+
+    @pytest.mark.asyncio
+    async def test_hide_skips_already_hidden(self, temp_cwd: Path) -> None:
+        """Test that hide() skips nodes already HIDDEN."""
+        from activecontext.context.state import Expansion
+
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
+
+        try:
+            await timeline.execute_statement('v = text("test.py")')
+            await timeline.execute_statement("v.expansion = Expansion.HIDDEN")
+
+            result = await timeline.execute_statement("count = hide(v)")
+            assert result.status.value == "ok"
+
+            ns = timeline.get_namespace()
+            assert ns["count"] == 0  # No change
+        finally:
+            await timeline.close()
+
+    @pytest.mark.asyncio
+    async def test_unhide_restores_previous_expansion(self, temp_cwd: Path) -> None:
+        """Test that unhide() restores the expansion from before hide()."""
+        from activecontext.context.state import Expansion
+
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
+
+        try:
+            await timeline.execute_statement('v = text("test.py")')
+            await timeline.execute_statement("v.expansion = Expansion.SUMMARY")
+
+            ns = timeline.get_namespace()
+            v = ns["v"]
+
+            await timeline.execute_statement("hide(v)")
+            assert v.expansion == Expansion.HIDDEN
+
+            result = await timeline.execute_statement("count = unhide(v)")
+            assert result.status.value == "ok"
+
+            ns = timeline.get_namespace()
+            assert ns["count"] == 1
+            assert v.expansion == Expansion.SUMMARY  # Restored
+            assert "_hidden_expansion" not in v.tags  # Cleaned up
+        finally:
+            await timeline.close()
+
+    @pytest.mark.asyncio
+    async def test_unhide_with_explicit_expansion(self, temp_cwd: Path) -> None:
+        """Test unhide() with explicit expansion parameter."""
+        from activecontext.context.state import Expansion
+
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
+
+        try:
+            await timeline.execute_statement('v = text("test.py")')
+            await timeline.execute_statement("hide(v)")
+
+            ns = timeline.get_namespace()
+            v = ns["v"]
+            assert v.expansion == Expansion.HIDDEN
+
+            result = await timeline.execute_statement("count = unhide(v, expansion=Expansion.COLLAPSED)")
+            assert result.status.value == "ok"
+
+            ns = timeline.get_namespace()
+            assert ns["count"] == 1
+            assert v.expansion == Expansion.COLLAPSED
+        finally:
+            await timeline.close()
+
+    @pytest.mark.asyncio
+    async def test_unhide_defaults_to_details(self, temp_cwd: Path) -> None:
+        """Test unhide() defaults to DETAILS if no stored expansion."""
+        from activecontext.context.state import Expansion
+
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
+
+        try:
+            await timeline.execute_statement('v = text("test.py")')
+            # Manually set to HIDDEN without going through hide()
+            await timeline.execute_statement("v.expansion = Expansion.HIDDEN")
+
+            ns = timeline.get_namespace()
+            v = ns["v"]
+
+            result = await timeline.execute_statement("count = unhide(v)")
+            assert result.status.value == "ok"
+
+            ns = timeline.get_namespace()
+            assert ns["count"] == 1
+            assert v.expansion == Expansion.DETAILS  # Default
+        finally:
+            await timeline.close()
+
+    @pytest.mark.asyncio
+    async def test_unhide_multiple_nodes(self, temp_cwd: Path) -> None:
+        """Test unhide() with multiple nodes."""
+        from activecontext.context.state import Expansion
+
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
+
+        try:
+            await timeline.execute_statement('v1 = text("test1.py")')
+            await timeline.execute_statement('v2 = text("test2.py")')
+            await timeline.execute_statement("hide(v1, v2)")
+
+            ns = timeline.get_namespace()
+            assert ns["v1"].expansion == Expansion.HIDDEN
+            assert ns["v2"].expansion == Expansion.HIDDEN
+
+            result = await timeline.execute_statement("count = unhide(v1, v2)")
+            assert result.status.value == "ok"
+
+            ns = timeline.get_namespace()
+            assert ns["count"] == 2
+            assert ns["v1"].expansion == Expansion.DETAILS
+            assert ns["v2"].expansion == Expansion.DETAILS
+        finally:
+            await timeline.close()
+
+    @pytest.mark.asyncio
+    async def test_hide_unhide_roundtrip(self, temp_cwd: Path) -> None:
+        """Test full hide/unhide roundtrip preserves expansion."""
+        from activecontext.context.state import Expansion
+
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
+
+        try:
+            await timeline.execute_statement('v = text("test.py")')
+            await timeline.execute_statement("v.expansion = Expansion.COLLAPSED")
+
+            ns = timeline.get_namespace()
+            v = ns["v"]
+
+            # Remove and verify hidden
+            await timeline.execute_statement("hide(v)")
+            assert v.expansion == Expansion.HIDDEN
+
+            # Unhide and verify restored
+            await timeline.execute_statement("unhide(v)")
+            assert v.expansion == Expansion.COLLAPSED
+        finally:
+            await timeline.close()

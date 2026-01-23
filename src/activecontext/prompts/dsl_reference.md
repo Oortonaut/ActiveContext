@@ -197,6 +197,30 @@ Remove a parent-child relationship.
 unlink(view_node, group_node)
 ```
 
+## Traversal Control
+
+### `hide(*nodes)`
+Hide nodes from projection traversal. Nodes are set to HIDDEN but retain all state for restoration.
+
+```python
+hide(text_1)              # Hide single node
+hide(text_1, text_2)      # Hide multiple nodes
+hide("text_1", group_2)   # Mix of IDs and objects
+```
+
+Returns the count of nodes hidden. The previous expansion state is saved for later restoration via `unhide()`.
+
+### `unhide(*nodes, expansion=None)`
+Restore hidden nodes to projection traversal.
+
+```python
+unhide(text_1)                         # Restore to previous state
+unhide(text_1, text_2)                 # Restore multiple
+unhide(text_1, expansion=Expansion.SUMMARY)  # Force specific expansion
+```
+
+Returns the count of nodes restored. If `expansion` is not specified, restores to the state before `hide()` was called. If the node was never hidden, defaults to `Expansion.DETAILS`.
+
 ## Checkpointing
 
 ### `checkpoint(name)`
