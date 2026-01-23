@@ -10,6 +10,17 @@ import yaml
 
 
 @dataclass
+class ShutdownConfig:
+    """Shutdown timeout configuration."""
+
+    interrupt_timeout: float = 2.0
+    """Seconds to wait after sending interrupt (SIGINT/Ctrl+Break)."""
+
+    terminate_timeout: float = 3.0
+    """Seconds to wait after sending terminate (SIGTERM)."""
+
+
+@dataclass
 class Config:
     """ACP Debug configuration."""
 
@@ -20,6 +31,9 @@ class Config:
 
     # Logging config per method
     log_config: dict[str, str] = field(default_factory=dict)
+
+    # Shutdown configuration
+    shutdown: ShutdownConfig = field(default_factory=ShutdownConfig)
 
 
 def load_config(
@@ -55,10 +69,18 @@ def _load_yaml_config(path: Path) -> Config:
     with open(path) as f:
         data: dict[str, Any] = yaml.safe_load(f) or {}
 
+    # Parse shutdown config
+    shutdown_data = data.get("shutdown", {})
+    shutdown = ShutdownConfig(
+        interrupt_timeout=shutdown_data.get("interrupt_timeout", 2.0),
+        terminate_timeout=shutdown_data.get("terminate_timeout", 3.0),
+    )
+
     return Config(
         extensions=[Path(p) for p in data.get("extensions", [])],
         extensions_path=[Path(p) for p in data.get("extensions_path", [])],
         verbose=data.get("verbose", 0),
         quiet=data.get("quiet", False),
         log_config=data.get("log", {}),
+        shutdown=shutdown,
     )

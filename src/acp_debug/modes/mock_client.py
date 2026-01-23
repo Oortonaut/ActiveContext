@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import platform
 import shlex
 import sys
 from pathlib import Path
@@ -13,12 +14,17 @@ from rich.console import Console
 from acp_debug.extension.chain import ExtensionChain
 from acp_debug.extension.loader import load_extensions
 from acp_debug.extension.mock_client import MockClientBase
+from acp_debug.modes.proxy import graceful_shutdown
 from acp_debug.transport.stdio import JsonRpcMessage, StdioTransport
 
 if TYPE_CHECKING:
     from acp_debug.config import Config
 
 console = Console(stderr=True)
+
+# Windows-specific subprocess creation flags
+_WINDOWS = platform.system() == "Windows"
+_CREATE_NEW_PROCESS_GROUP = 0x00000200 if _WINDOWS else 0
 
 
 async def run_mock_client(config: Config, agent_command: str, script: Path | None) -> int:
@@ -64,12 +70,15 @@ async def run_mock_client(config: Config, agent_command: str, script: Path | Non
         console.print(f"[dim]Spawning agent: {agent_command}[/dim]")
 
     try:
+        # On Windows, create in new process group to enable Ctrl+Break signaling
+        creationflags = _CREATE_NEW_PROCESS_GROUP if _WINDOWS else 0
         process = await asyncio.create_subprocess_exec(
             args[0],
             *args[1:],
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=sys.stderr,
+            creationflags=creationflags,  # type: ignore[arg-type]
         )
     except Exception as e:
         console.print(f"[red]Error spawning agent: {e}[/red]")
@@ -163,13 +172,11 @@ async def run_mock_client(config: Config, agent_command: str, script: Path | Non
 
         chain.shutdown_all()
 
-        # Terminate agent
-        if process.returncode is None:
-            process.terminate()
-            try:
-                await asyncio.wait_for(process.wait(), timeout=5.0)
-            except asyncio.TimeoutError:
-                process.kill()
+        await graceful_shutdown(
+            process,
+            interrupt_timeout=config.shutdown.interrupt_timeout,
+            terminate_timeout=config.shutdown.terminate_timeout,
+        )
 
         await transport.close()
 
