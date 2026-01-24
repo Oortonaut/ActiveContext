@@ -1682,7 +1682,7 @@ class TestShellPermissionRequestFlow:
 
         # Cleanup: cancel all background tasks
         for tl in timelines:
-            for task in tl._shell_tasks.values():
+            for task in tl._shell_manager._shell_tasks.values():
                 if not task.done():
                     task.cancel()
                     try:
