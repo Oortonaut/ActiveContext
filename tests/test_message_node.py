@@ -142,16 +142,6 @@ class TestMessageNodeRender:
         rendered = node.Render()
         assert "Hello, how are you?" in rendered
 
-    def test_render_hidden_expansion(self) -> None:
-        """Test that hidden messages render empty."""
-        node = MessageNode(
-            role="user",
-            content="Hello",
-            originator="user",
-            expansion=Expansion.HIDDEN,
-        )
-        assert node.Render() == ""
-
     def test_render_collapsed_state(self) -> None:
         """Test collapsed state shows metadata only."""
         node = MessageNode(

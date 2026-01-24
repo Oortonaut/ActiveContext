@@ -6,7 +6,6 @@ Controls how a node renders in the projection.
 
 | State | Description | Use Case |
 |-------|-------------|----------|
-| `HIDDEN` | Not rendered at all | Temporary exclusion, completed work |
 | `COLLAPSED` | Metadata only (title, trace count) | Background context, low priority |
 | `SUMMARY` | LLM-generated summary | Groups, large files |
 | `DETAILS` | Full content with child settings | Active work files |
@@ -16,8 +15,23 @@ from activecontext import Expansion
 
 v = text("src/main.py", expansion=Expansion.DETAILS)
 v.expansion = Expansion.SUMMARY  # Reduce detail
-v.expansion = Expansion.HIDDEN   # Hide completely
+v.expansion = Expansion.COLLAPSED  # Show minimal info
 ```
+
+## Visibility (hide/unhide)
+
+Controls whether a node appears in the projection at all.
+
+```python
+hide(text_1)              # Remove from projection (node still ticks)
+unhide(text_1)            # Restore to previous expansion
+unhide(text_1, expand=Expansion.SUMMARY)  # Restore with specific expansion
+```
+
+Hidden nodes:
+- Do not appear in the projection
+- Continue to tick if mode="running"
+- Retain all state for restoration
 
 ## TickFrequency
 

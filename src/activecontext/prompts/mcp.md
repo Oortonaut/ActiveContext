@@ -101,24 +101,26 @@ all_tools = fs.tool_nodes             # Get all tool nodes
 
 # Access via namespace (prefixed names)
 filesystem_read_file.expansion = Expansion.DETAILS
-filesystem_write_file.expansion = Expansion.HIDDEN
+hide(filesystem_write_file)           # Hide from projection
 ```
 
 ### Tool Node Rendering States
 
 Each MCPToolNode has independent state control:
 
-- **HIDDEN**: Not shown in projection
 - **COLLAPSED**: Just the tool name: `` `read_file` ``
 - **SUMMARY**: Name + truncated description
 - **DETAILS**: Full JSON schema documentation
+
+Use `hide()` / `unhide()` to control whether a tool appears at all.
 
 ```python
 # Show full documentation for one tool only
 fs.tool("read_file").expansion = Expansion.DETAILS
 
 # Hide tools you don't need
-fs.tool("delete_file").expansion = Expansion.HIDDEN
+hide(fs.tool("delete_file"))
+unhide(fs.tool("delete_file"))  # Restore later
 ```
 
 ### Reconnection Behavior

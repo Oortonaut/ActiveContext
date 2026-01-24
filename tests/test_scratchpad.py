@@ -380,14 +380,6 @@ class TestWorkNode:
         assert "def67890" in rendered
         assert "src/shared.py" in rendered
 
-    def test_render_hidden(self) -> None:
-        node = WorkNode(
-            node_id="work_123",
-            intent="Test",
-            expansion=Expansion.HIDDEN,
-        )
-        assert node.Render() == ""
-
     def test_to_dict(self) -> None:
         node = WorkNode(
             node_id="work_123",

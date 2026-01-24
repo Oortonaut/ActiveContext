@@ -209,7 +209,7 @@ class WorkCoordinator:
 
         if self._work_node:
             self._work_node.work_status = "done"
-            self._work_node.expansion = Expansion.HIDDEN
+            self._work_node.expansion = Expansion.COLLAPSED
 
     def work_list(self) -> list[dict[str, Any]]:
         """List all active work entries from all agents.

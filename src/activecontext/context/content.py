@@ -1,8 +1,8 @@
 """Shared content data for the split architecture.
 
 ContentData holds the actual content that can be shared across multiple
-AgentViews. Each agent can have a different view (hidden, state) of the
-same underlying content.
+NodeViews. Each view can have different visibility (hide) and expansion
+settings for the same underlying content.
 """
 
 from __future__ import annotations
@@ -102,7 +102,7 @@ class ContentRegistry:
     """Registry for shared content data.
 
     Manages ContentData instances that can be referenced by multiple
-    AgentViews across different agents.
+    NodeViews with different visibility and expansion settings.
     """
 
     def __init__(self) -> None:

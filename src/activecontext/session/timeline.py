@@ -117,7 +117,7 @@ class _ExecutionRecord:
 
 
 class LazyNodeNamespace(dict[str, Any]):
-    """Dict subclass that falls back to graph lookup for node IDs.
+    """Dict subclass that falls back to graph/view lookup for node IDs.
 
     Allows direct access to nodes in the DSL namespace without explicit assignment.
     Node IDs have the format {node_type}_{seq} (e.g., 'text_1', 'group_2').
@@ -125,28 +125,37 @@ class LazyNodeNamespace(dict[str, Any]):
     Returns NodeView wrappers for nodes to enable view-based state management.
     User-defined variables take precedence over node lookups.
 
-    Lookup order: namespace → node_id (O(1)) → KeyError
+    Lookup order: namespace → views dict → graph (create view) → KeyError
     """
 
     def __init__(
         self,
         graph_getter: Callable[[], ContextGraph | None],
+        views_getter: Callable[[], dict[str, NodeView]],
         *args: Any,
         **kwargs: Any,
     ) -> None:
         super().__init__(*args, **kwargs)
         self._graph_getter = graph_getter
+        self._views_getter = views_getter
 
     def __getitem__(self, key: str) -> Any:
         try:
             return super().__getitem__(key)
         except KeyError:
+            # First check views dict
+            views = self._views_getter()
+            if key in views:
+                return views[key]
+
+            # Fall back to graph lookup and create a new view
             graph = self._graph_getter()
             if graph:
-                # Try node_id lookup (O(1))
                 node = graph.get_node(key)
                 if node:
-                    return NodeView(node)
+                    view = NodeView(node)
+                    views[key] = view  # Store for future lookups
+                    return view
             raise
 
 
@@ -224,6 +233,9 @@ class Timeline:
 
         # Controlled Python namespace (created before MCP setup)
         self._namespace: dict[str, Any] = {}
+
+        # View graph: node_id -> NodeView for rendering
+        self._views: dict[str, NodeView] = {}
 
         # MCP integration manager (must be set before _setup_namespace)
         self._mcp_integration = MCPIntegration(
@@ -351,6 +363,11 @@ class Timeline:
     def cwd(self) -> str:
         return self._cwd
 
+    @property
+    def views(self) -> dict[str, NodeView]:
+        """Get the view graph (node_id -> NodeView) for rendering."""
+        return self._views
+
     def _setup_namespace(self) -> None:
         """Initialize the Python namespace with injected functions."""
         # Import builtins we want to expose
@@ -373,7 +390,7 @@ class Timeline:
             # Expose default __import__ for imports to work
             safe_builtins["__import__"] = builtins.__import__
 
-        self._namespace = LazyNodeNamespace(lambda: self._context_graph, {
+        self._namespace = LazyNodeNamespace(lambda: self._context_graph, lambda: self._views, {
             "__builtins__": safe_builtins,
             "__name__": "__activecontext__",
             "__session_id__": self._session_id,
@@ -852,19 +869,19 @@ class Timeline:
         expansion: Expansion = Expansion.DETAILS,
         mode: str = "paused",
         parent: ContextNode | str | None = None,
-    ) -> TextNode:
+    ) -> NodeView:
         """Create a TextNode and add to the context graph.
 
         Args:
             path: File path relative to session cwd
             pos: Start position as "line:col" (1-indexed)
             tokens: Token budget for rendering
-            state: Rendering state (HIDDEN, COLLAPSED, SUMMARY, DETAILS, ALL)
+            expansion: Rendering expansion (COLLAPSED, SUMMARY, DETAILS)
             mode: "paused" or "running"
             parent: Optional parent node or node ID (defaults to current_group if set)
 
         Returns:
-            The created TextNode
+            NodeView wrapping the created TextNode
         """
         node = TextNode(
             path=path,
@@ -890,29 +907,32 @@ class Timeline:
         # Register with file watcher for external change detection
         self._file_watcher.register_path(path, node.node_id)
 
-        return node
+        # Create and store NodeView
+        view = NodeView(node, expand=expansion)
+        self._views[node.node_id] = view
+        return view
 
     def _make_group_node(
         self,
-        *members: ContextNode | str,
+        *members: ContextNode | NodeView | str,
         tokens: int = 500,
         expansion: Expansion = Expansion.SUMMARY,
         mode: str = "paused",
         summary: str | None = None,
-        parent: ContextNode | str | None = None,
-    ) -> GroupNode:
+        parent: ContextNode | NodeView | str | None = None,
+    ) -> NodeView:
         """Create a GroupNode that summarizes its members.
 
         Args:
-            *members: Child nodes or node IDs to include in the group
+            *members: Child nodes, views, or node IDs to include in the group
             tokens: Token budget for summary
-            state: Rendering state (HIDDEN, COLLAPSED, SUMMARY, DETAILS, ALL)
+            expansion: Rendering expansion (COLLAPSED, SUMMARY, DETAILS)
             mode: "paused" or "running"
             summary: Optional pre-computed summary text
-            parent: Optional parent node or node ID (defaults to current_group if set)
+            parent: Optional parent node, view, or node ID (defaults to current_group if set)
 
         Returns:
-            The created GroupNode
+            NodeView wrapping the created GroupNode
         """
         node = GroupNode(
             tokens=tokens,
@@ -932,20 +952,26 @@ class Timeline:
 
         # Link to parent if set
         if effective_parent:
-            parent_id = effective_parent.node_id if isinstance(effective_parent, ContextNode) else effective_parent
+            if isinstance(effective_parent, (NodeView, ContextNode)):
+                parent_id = effective_parent.node_id
+            else:
+                parent_id = effective_parent
             self._context_graph.link(node.node_id, parent_id)
 
         # Link members as children of this group
         for member in members:
-            if isinstance(member, ContextNode):
+            if isinstance(member, (NodeView, ContextNode)):
                 member_id = member.node_id
             else:
                 # member is already a node ID string
                 member_id = member
-            
+
             self._context_graph.link(member_id, node.node_id)
 
-        return node
+        # Create and store NodeView
+        view = NodeView(node, expand=expansion)
+        self._views[node.node_id] = view
+        return view
 
     def _make_topic_node(
         self,
@@ -953,18 +979,18 @@ class Timeline:
         *,
         tokens: int = 1000,
         status: str = "active",
-        parent: ContextNode | str | None = None,
-    ) -> TopicNode:
+        parent: ContextNode | NodeView | str | None = None,
+    ) -> NodeView:
         """Create a TopicNode for conversation segmentation.
 
         Args:
             title: Short title for the topic
             tokens: Token budget for rendering
             status: "active", "resolved", or "deferred"
-            parent: Optional parent node or node ID (defaults to current_group if set)
+            parent: Optional parent node, view, or node ID (defaults to current_group if set)
 
         Returns:
-            The created TopicNode
+            NodeView wrapping the created TopicNode
         """
         node = TopicNode(
             title=title,
@@ -982,10 +1008,16 @@ class Timeline:
 
         # Link to parent if set
         if effective_parent:
-            parent_id = effective_parent.node_id if isinstance(effective_parent, ContextNode) else effective_parent
+            if isinstance(effective_parent, (NodeView, ContextNode)):
+                parent_id = effective_parent.node_id
+            else:
+                parent_id = effective_parent
             self._context_graph.link(node.node_id, parent_id)
 
-        return node
+        # Create and store NodeView
+        view = NodeView(node)
+        self._views[node.node_id] = view
+        return view
 
     def _make_artifact_node(
         self,
@@ -994,8 +1026,8 @@ class Timeline:
         content: str = "",
         language: str | None = None,
         tokens: int = 500,
-        parent: ContextNode | str | None = None,
-    ) -> ArtifactNode:
+        parent: ContextNode | NodeView | str | None = None,
+    ) -> NodeView:
         """Create an ArtifactNode for code/output.
 
         Args:
@@ -1003,10 +1035,10 @@ class Timeline:
             content: The artifact content
             language: Programming language (for code)
             tokens: Token budget
-            parent: Optional parent node or node ID (defaults to current_group if set)
+            parent: Optional parent node, view, or node ID (defaults to current_group if set)
 
         Returns:
-            The created ArtifactNode
+            NodeView wrapping the created ArtifactNode
         """
         node = ArtifactNode(
             artifact_type=artifact_type,
@@ -1025,11 +1057,16 @@ class Timeline:
 
         # Link to parent if set
         if effective_parent:
-            parent_id = effective_parent.node_id if isinstance(effective_parent, ContextNode) else effective_parent
+            if isinstance(effective_parent, (NodeView, ContextNode)):
+                parent_id = effective_parent.node_id
+            else:
+                parent_id = effective_parent
             self._context_graph.link(node.node_id, parent_id)
 
-        return node
-
+        # Create and store NodeView
+        view = NodeView(node)
+        self._views[node.node_id] = view
+        return view
 
 
     def _make_markdown_node(
@@ -1039,8 +1076,8 @@ class Timeline:
         content: str | None = None,
         tokens: int = 2000,
         expansion: Expansion = Expansion.DETAILS,
-        parent: ContextNode | str | None = None,
-    ) -> TextNode:
+        parent: ContextNode | NodeView | str | None = None,
+    ) -> NodeView:
         """Create a tree of TextNodes from a markdown file.
 
         Parses the markdown heading hierarchy into a tree of TextNodes,
@@ -1050,11 +1087,11 @@ class Timeline:
             path: File path relative to session cwd
             content: Markdown content (if None, reads from path)
             tokens: Token budget for root node
-            state: Rendering state (HIDDEN, COLLAPSED, SUMMARY, DETAILS, ALL)
-            parent: Optional parent node or node ID (defaults to current_group if set)
+            expansion: Rendering expansion (COLLAPSED, SUMMARY, DETAILS)
+            parent: Optional parent node, view, or node ID (defaults to current_group if set)
 
         Returns:
-            The root TextNode (children are accessible via children_ids)
+            NodeView wrapping the root TextNode (children are accessible via children_ids)
         """
         import os
 
@@ -1110,7 +1147,10 @@ class Timeline:
                 end_line=len(buffer.lines),
             )
             self._context_graph.add_node(node)
-            return node
+            # Create and store NodeView
+            view = NodeView(node, expand=expansion)
+            self._views[node.node_id] = view
+            return view
 
         # Create TextNode for each heading section
         all_nodes: list[TextNode] = []
@@ -1132,9 +1172,11 @@ class Timeline:
             all_nodes.append(node)
             section_nodes[i] = node
 
-        # Add all nodes to graph first
+        # Add all nodes to graph first and create views
         for node in all_nodes:
             self._context_graph.add_node(node)
+            view = NodeView(node, expand=expansion)
+            self._views[node.node_id] = view
 
         # Build hierarchy based on heading levels
         # Stack: [(node, level)]
@@ -1162,10 +1204,14 @@ class Timeline:
 
         # Link root to parent if set
         if effective_parent:
-            parent_id = effective_parent.node_id if isinstance(effective_parent, ContextNode) else effective_parent
+            if isinstance(effective_parent, (NodeView, ContextNode)):
+                parent_id = effective_parent.node_id
+            else:
+                parent_id = effective_parent
             self._context_graph.link(root.node_id, parent_id)
 
-        return root
+        # Return the root's NodeView
+        return self._views[root.node_id]
 
     def _make_view(
         self,
@@ -1175,7 +1221,7 @@ class Timeline:
         tokens: int = 2000,
         expansion: Expansion = Expansion.DETAILS,
         **kwargs: Any,
-    ) -> TextNode:
+    ) -> NodeView:
         """Dispatcher for creating text views based on media type.
 
         Routes to text() or markdown() based on the media_type parameter.
@@ -1184,11 +1230,11 @@ class Timeline:
             media_type: "text" or "markdown"
             path: File path relative to session cwd
             tokens: Token budget for rendering
-            state: Rendering state
+            expansion: Rendering expansion
             **kwargs: Additional arguments passed to underlying function
 
         Returns:
-            TextNode (or root TextNode for markdown)
+            NodeView wrapping the created node
 
         Raises:
             ValueError: If media_type is not recognized
@@ -1202,53 +1248,69 @@ class Timeline:
 
     def _link(
         self,
-        child: ContextNode | str,
-        parent: ContextNode | str,
+        child: ContextNode | NodeView | str,
+        parent: ContextNode | NodeView | str,
     ) -> bool:
         """Link a child node to a parent node.
 
         A node can have multiple parents (DAG structure).
 
         Args:
-            child: Child node or node ID
-            parent: Parent node or node ID
+            child: Child node, view, or node ID
+            parent: Parent node, view, or node ID
 
         Returns:
             True if link was created, False if failed
         """
-        child_id = child.node_id if isinstance(child, ContextNode) else child
-        parent_id = parent.node_id if isinstance(parent, ContextNode) else parent
+        if isinstance(child, (NodeView, ContextNode)):
+            child_id = child.node_id
+        else:
+            child_id = child
+
+        if isinstance(parent, (NodeView, ContextNode)):
+            parent_id = parent.node_id
+        else:
+            parent_id = parent
+
         return self._context_graph.link(child_id, parent_id)
 
     def _unlink(
         self,
-        child: ContextNode | str,
-        parent: ContextNode | str,
+        child: ContextNode | NodeView | str,
+        parent: ContextNode | NodeView | str,
     ) -> bool:
         """Remove link between child and parent.
 
         Args:
-            child: Child node or node ID
-            parent: Parent node or node ID
+            child: Child node, view, or node ID
+            parent: Parent node, view, or node ID
 
         Returns:
             True if link was removed, False if failed
         """
-        child_id = child.node_id if isinstance(child, ContextNode) else child
-        parent_id = parent.node_id if isinstance(parent, ContextNode) else parent
+        if isinstance(child, (NodeView, ContextNode)):
+            child_id = child.node_id
+        else:
+            child_id = child
+
+        if isinstance(parent, (NodeView, ContextNode)):
+            parent_id = parent.node_id
+        else:
+            parent_id = parent
+
         return self._context_graph.unlink(child_id, parent_id)
 
-    def _hide(self, *nodes: ContextNode | str) -> int:
+    def _hide(self, *nodes: NodeView | ContextNode | str) -> int:
         """Hide nodes from projection traversal.
 
-        Sets node expansion to HIDDEN, excluding it from rendering while
+        Sets view.hide = True, excluding it from rendering while
         retaining all state for potential restoration via unhide().
 
-        The previous expansion state is stored in node.tags['_hidden_expansion']
+        The previous expand state is stored in view.tags['_hidden_expand']
         so it can be restored later.
 
         Args:
-            *nodes: One or more nodes or node IDs to hide
+            *nodes: One or more NodeViews, nodes, or node IDs to hide
 
         Returns:
             Number of nodes successfully hidden
@@ -1259,41 +1321,67 @@ class Timeline:
             hide("text_1", group_2)   # Mix of IDs and objects
         """
         count = 0
-        for node in nodes:
-            # Resolve node ID to node object
-            if isinstance(node, str):
-                resolved = self._context_graph.get_node(node)
+        for item in nodes:
+            # Handle NodeView
+            if isinstance(item, NodeView):
+                view = item
+                if view.hide:
+                    continue  # Already hidden
+                # Store previous expand for restoration
+                view.tags["_hidden_expand"] = view.expand.value
+                view.hide = True
+                count += 1
+            # Handle ContextNode
+            elif isinstance(item, ContextNode):
+                node = item
+                # Create a view wrapper if needed - for now, find in namespace
+                found_view = self._find_view_for_node(node)
+                if found_view is not None:
+                    if found_view.hide:
+                        continue
+                    found_view.tags["_hidden_expand"] = found_view.expand.value
+                    found_view.hide = True
+                    count += 1
+            # Handle string (node ID)
+            elif isinstance(item, str):
+                resolved = self._context_graph.get_node(item)
                 if resolved is None:
                     continue
-                node = resolved
-
-            # Skip if already hidden
-            if node.expansion == Expansion.HIDDEN:
-                continue
-
-            # Store previous expansion for restoration
-            node.tags["_hidden_expansion"] = node.expansion.value
-
-            # Set to hidden
-            node.expansion = Expansion.HIDDEN
-            count += 1
+                found_view = self._find_view_for_node(resolved)
+                if found_view is not None:
+                    if found_view.hide:
+                        continue
+                    found_view.tags["_hidden_expand"] = found_view.expand.value
+                    found_view.hide = True
+                    count += 1
 
         return count
 
+    def _find_view_for_node(self, node: ContextNode) -> NodeView | None:
+        """Find NodeView wrapping a ContextNode.
+
+        Args:
+            node: The ContextNode to find a view for
+
+        Returns:
+            NodeView wrapping the node, or None if not found
+        """
+        return self._views.get(node.node_id)
+
     def _unhide(
         self,
-        *nodes: ContextNode | str,
-        expansion: Expansion | None = None,
+        *nodes: NodeView | ContextNode | str,
+        expand: Expansion | None = None,
     ) -> int:
         """Restore hidden nodes to projection traversal.
 
-        Reverses the effect of hide() by restoring node expansion to its
-        previous state (or a specified expansion level).
+        Reverses the effect of hide() by setting view.hide = False and
+        restoring the previous expand state (or a specified one).
 
         Args:
-            *nodes: One or more nodes or node IDs to restore
-            expansion: Optional expansion to set. If None, restores to the
-                      state before hide() was called, or DETAILS if unknown.
+            *nodes: One or more NodeViews, nodes, or node IDs to restore
+            expand: Optional expand state to set. If None, restores to the
+                   state before hide() was called, or DETAILS if unknown.
 
         Returns:
             Number of nodes successfully restored
@@ -1301,33 +1389,45 @@ class Timeline:
         Example:
             unhide(text_1)                        # Restore to previous state
             unhide(text_1, text_2)                # Restore multiple
-            unhide(text_1, expansion=Expansion.SUMMARY)  # Force specific expansion
+            unhide(text_1, expand=Expansion.SUMMARY)  # Force specific expand
         """
         count = 0
-        for node in nodes:
-            # Resolve node ID to node object
-            if isinstance(node, str):
-                resolved = self._context_graph.get_node(node)
-                if resolved is None:
-                    continue
-                node = resolved
+        for item in nodes:
+            view: NodeView | None = None
 
-            # Determine target expansion
-            if expansion is not None:
-                target = expansion
-            elif "_hidden_expansion" in node.tags:
+            # Handle NodeView
+            if isinstance(item, NodeView):
+                view = item
+            # Handle ContextNode
+            elif isinstance(item, ContextNode):
+                view = self._find_view_for_node(item)
+            # Handle string (node ID)
+            elif isinstance(item, str):
+                resolved = self._context_graph.get_node(item)
+                if resolved is not None:
+                    view = self._find_view_for_node(resolved)
+
+            if view is None:
+                continue
+
+            # Skip if not hidden
+            if not view.hide:
+                continue
+
+            # Determine target expand state
+            if expand is not None:
+                target = expand
+            elif "_hidden_expand" in view.tags:
                 # Restore to previous state
-                target = Expansion(node.tags["_hidden_expansion"])
-                del node.tags["_hidden_expansion"]
+                target = Expansion(view.tags["_hidden_expand"])
+                del view.tags["_hidden_expand"]
             else:
                 # Default to DETAILS if no stored state
                 target = Expansion.DETAILS
 
-            # Skip if already at target
-            if node.expansion == target:
-                continue
-
-            node.expansion = target
+            # Unhide and set expand
+            view.hide = False
+            view.expand = target
             count += 1
 
         return count

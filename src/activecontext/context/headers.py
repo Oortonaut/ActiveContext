@@ -65,9 +65,6 @@ def format_token_info(info: TokenInfo, state: Expansion) -> str:
 
     unit = "bytes" if info.is_bytes else "tokens"
 
-    if state == Expansion.HIDDEN:
-        return ""
-
     if state == Expansion.COLLAPSED:
         # Visible: collapsed only
         # Hidden: summary + detail
@@ -134,9 +131,6 @@ def render_header(
         ALL:       "# main.py:1-50 {#text_1} all (tokens: 18+74+340)\n"
     """
     from .state import Expansion
-
-    if state == Expansion.HIDDEN:
-        return ""
 
     token_str = format_token_info(token_info, state)
 

@@ -20,7 +20,7 @@ if TYPE_CHECKING:
     from activecontext.context.content import ContentRegistry
     from activecontext.context.graph import ContextGraph
     from activecontext.context.nodes import ContextNode
-    from activecontext.context.view import ViewRegistry
+    from activecontext.context.view import NodeView
 
 
 @dataclass
@@ -92,15 +92,14 @@ class ProjectionEngine:
         context_graph: ContextGraph | None = None,
         cwd: str = ".",
         text_buffers: dict[str, Any] | None = None,
-        # Per-agent view support (split architecture)
-        agent_id: str | None = None,
-        view_registry: ViewRegistry | None = None,
+        # View/content separation
+        views: dict[str, NodeView] | None = None,
         content_registry: ContentRegistry | None = None,
     ) -> Projection:
         """Build a projection from current session state.
 
         The projection renders visible nodes from the context graph. Visibility
-        is controlled by node state (HIDDEN, COLLAPSED, SUMMARY, DETAILS, ALL).
+        is controlled by NodeView.hide. Expansion is controlled by NodeView.expand.
         The agent manipulates the path by showing, hiding, expanding, and
         collapsing nodes. All nodes are ticked regardless of visibility.
 
@@ -108,8 +107,7 @@ class ProjectionEngine:
             context_graph: ContextGraph (DAG of nodes)
             cwd: Working directory for file access
             text_buffers: Dict of buffer_id -> TextBuffer for markdown nodes
-            agent_id: Optional agent ID for per-agent view resolution
-            view_registry: Optional ViewRegistry for per-agent visibility
+            views: Dict mapping node_id -> NodeView for visibility/expansion
             content_registry: Optional ContentRegistry for shared content
 
         Returns:
@@ -117,7 +115,7 @@ class ProjectionEngine:
         """
         if context_graph and len(context_graph) > 0:
             # Collect the render path
-            render_path = self._collect_render_path(context_graph)
+            render_path = self._collect_render_path(context_graph, views)
 
             # Render the path
             sections = self._render_path(
@@ -125,8 +123,7 @@ class ProjectionEngine:
                 render_path,
                 cwd,
                 text_buffers=text_buffers,
-                agent_id=agent_id,
-                view_registry=view_registry,
+                views=views,
                 content_registry=content_registry,
             )
 
@@ -144,16 +141,21 @@ class ProjectionEngine:
             handles=handles,
         )
 
-    def _collect_render_path(self, graph: ContextGraph) -> RenderPath:
+    def _collect_render_path(
+        self,
+        graph: ContextGraph,
+        views: dict[str, NodeView] | None = None,
+    ) -> RenderPath:
         """Collect the render path through the graph in document order.
 
         Visibility rules:
-        - HIDDEN state nodes are excluded
+        - Hidden views (view.hide=True) are excluded
         - COLLAPSED/SUMMARY nodes render themselves (not their children)
-        - DETAILS/ALL nodes render children according to child_order
+        - DETAILS nodes render children according to child_order
 
         Args:
             graph: The context graph
+            views: Optional dict mapping node_id -> NodeView for visibility
 
         Returns:
             RenderPath capturing nodes in document order with token totals
@@ -164,11 +166,11 @@ class ProjectionEngine:
         # Start from root context if set, otherwise collect all root nodes
         root = graph.get_root()
         if root is not None:
-            path.total_tokens = self._collect_from_node(graph, root, path, seen)
+            path.total_tokens = self._collect_from_node(graph, root, path, seen, views)
         else:
             # Collect all root nodes (nodes with no parents)
             for node in graph.get_roots():
-                path.total_tokens += self._collect_from_node(graph, node, path, seen)
+                path.total_tokens += self._collect_from_node(graph, node, path, seen, views)
 
         return path
 
@@ -178,6 +180,7 @@ class ProjectionEngine:
         node: ContextNode,
         path: RenderPath,
         seen: set[str],
+        views: dict[str, NodeView] | None = None,
     ) -> int:
         """Recursively collect nodes in document order, computing token totals.
 
@@ -190,12 +193,18 @@ class ProjectionEngine:
             node: Current node to process
             path: RenderPath to append to
             seen: Set of already-seen node IDs
+            views: Optional dict mapping node_id -> NodeView for visibility
 
         Returns:
             Total tokens for this subtree (used for parent's children_tokens)
         """
-        if node.node_id in seen or node.expansion == Expansion.HIDDEN:
+        # Check if hidden via view
+        if node.node_id in seen:
             return 0
+        if views is not None:
+            view = views.get(node.node_id)
+            if view is not None and view.hide:
+                return 0
 
         seen.add(node.node_id)
         path.node_ids.append(node.node_id)
@@ -212,7 +221,7 @@ class ProjectionEngine:
                 child = graph.get_node(child_id)
                 if child:
                     path.edges.append((child_id, node.node_id))
-                    child_tokens = self._collect_from_node(graph, child, path, seen)
+                    child_tokens = self._collect_from_node(graph, child, path, seen, views)
                     if isinstance(child_tokens, int):
                         children_total += child_tokens
 
@@ -235,8 +244,7 @@ class ProjectionEngine:
         cwd: str,
         *,
         text_buffers: dict[str, Any] | None = None,
-        agent_id: str | None = None,
-        view_registry: ViewRegistry | None = None,
+        views: dict[str, NodeView] | None = None,
         content_registry: ContentRegistry | None = None,
     ) -> list[ProjectionSection]:
         """Render the collected path into projection sections.
@@ -246,8 +254,7 @@ class ProjectionEngine:
             path: The render path to render
             cwd: Working directory for file access
             text_buffers: Dict of buffer_id -> TextBuffer for markdown nodes
-            agent_id: Optional agent ID for per-agent view resolution
-            view_registry: Optional ViewRegistry for per-agent visibility
+            views: Dict mapping node_id -> NodeView for visibility/expansion
             content_registry: Optional ContentRegistry for shared content
 
         Returns:
@@ -263,25 +270,22 @@ class ProjectionEngine:
             if node is None:
                 continue
 
-            # Check for per-agent view if available
-            agent_view = None
-            if view_registry and agent_id:
-                agent_view = view_registry.get_by_node(node.node_id)
-                if agent_view and agent_view.agent_id != agent_id:
-                    agent_view = None  # Not this agent's view
+            # Get view for this node (if available)
+            view = views.get(node_id) if views else None
 
-            # Determine visibility settings (per-agent or node default)
-            section: ProjectionSection | None
-            if agent_view:
-                section = self._render_node_with_agent_view(
-                    node,
-                    agent_view,
-                    content_registry,
-                    cwd,
-                    text_buffers=text_buffers,
-                )
-            else:
-                section = self._render_node(node, cwd, text_buffers=text_buffers)
+            # Skip if hidden via view
+            if view is not None and view.hide:
+                continue
+
+            # Get expand state from view or node
+            expand = view.expand if view is not None else node.expansion
+
+            section = self._render_node(
+                node,
+                cwd,
+                text_buffers=text_buffers,
+                expand=expand,
+            )
 
             if section:
                 sections.append(section)
@@ -294,22 +298,21 @@ class ProjectionEngine:
         cwd: str,
         *,
         text_buffers: dict[str, Any] | None = None,
+        expand: Expansion | None = None,
     ) -> ProjectionSection | None:
-        """Render a single node using its default settings.
+        """Render a single node.
 
         Args:
             node: The context node to render
             cwd: Working directory for file access
             text_buffers: Dict of buffer_id -> TextBuffer for markdown nodes
+            expand: Expansion state to render with (uses node.expansion if not provided)
 
         Returns:
             ProjectionSection or None if node should be skipped
         """
-        # Skip hidden nodes
-        if node.expansion == Expansion.HIDDEN:
-            return None
-
-        content = node.Render(cwd=cwd, text_buffers=text_buffers)
+        effective_expand = expand if expand is not None else node.expansion
+        content = node.Render(cwd=cwd, text_buffers=text_buffers, expand=effective_expand)
         media_type = getattr(node, "media_type", MediaType.TEXT)
         tokens_used = count_tokens(content, media_type)
 
@@ -318,88 +321,7 @@ class ProjectionEngine:
             source_id=node.node_id,
             content=content,
             tokens_used=tokens_used,
-            expansion=node.expansion,
+            expansion=effective_expand,
             metadata=node.GetDigest(),
         )
 
-    def _render_node_with_agent_view(
-        self,
-        node: ContextNode,
-        agent_view: Any,
-        content_registry: ContentRegistry | None,
-        cwd: str,
-        *,
-        text_buffers: dict[str, Any] | None = None,
-    ) -> ProjectionSection:
-        """Render a node using agent-specific view settings.
-
-        Args:
-            node: The context node to render
-            agent_view: AgentView with visibility settings
-            content_registry: Optional ContentRegistry for shared content
-            cwd: Working directory for file access
-            text_buffers: Dict of buffer_id -> TextBuffer for markdown nodes
-
-        Returns:
-            ProjectionSection
-        """
-        if agent_view.hidden:
-            # Hidden content shows token placeholder
-            content = self._render_hidden_placeholder(node, content_registry)
-            tokens_used = 10  # Minimal tokens for placeholder
-            expansion = agent_view.expansion
-        elif content_registry and hasattr(node, "content_id") and node.content_id:
-            # Render via AgentView + ContentData
-            content_data = content_registry.get(node.content_id)
-            if content_data:
-                content = agent_view.render(content_data, budget=agent_view.tokens)
-                tokens_used = count_tokens(content, MediaType.TEXT)
-                expansion = agent_view.expansion
-            else:
-                # Content not found, render node normally
-                content = node.Render(cwd=cwd, text_buffers=text_buffers)
-                media_type = getattr(node, "media_type", MediaType.TEXT)
-                tokens_used = count_tokens(content, media_type)
-                expansion = agent_view.expansion
-        else:
-            # AgentView without ContentData - use node's Render
-            content = node.Render(cwd=cwd, text_buffers=text_buffers)
-            media_type = getattr(node, "media_type", MediaType.TEXT)
-            tokens_used = count_tokens(content, media_type)
-            expansion = agent_view.expansion
-
-        return ProjectionSection(
-            section_type=node.node_type,
-            source_id=node.node_id,
-            content=content,
-            tokens_used=tokens_used,
-            expansion=expansion,
-            metadata=node.GetDigest(),
-        )
-
-    def _render_hidden_placeholder(
-        self,
-        node: ContextNode,
-        content_registry: ContentRegistry | None,
-    ) -> str:
-        """Render a placeholder for hidden content.
-
-        Shows the node type and token count without revealing content.
-
-        Args:
-            node: The context node
-            content_registry: Optional ContentRegistry for token info
-
-        Returns:
-            Placeholder string like "[file: 500 tokens]"
-        """
-        # Try to get token count from ContentData if available
-        if content_registry and hasattr(node, "content_id") and node.content_id:
-            content_data = content_registry.get(node.content_id)
-            if content_data:
-                return f"[{content_data.content_type}: {content_data.token_count} tokens]"
-
-        # Fall back to node info
-        node_type = node.node_type
-        tokens = node.tokens
-        return f"[{node_type}: {tokens} tokens]"

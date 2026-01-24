@@ -141,11 +141,13 @@ class TestCollectRenderPath:
         assert "root" in path.root_ids
 
     def test_collect_render_path_excludes_hidden(self, projection_engine):
-        """Test that HIDDEN nodes are excluded from render path."""
+        """Test that hidden views are excluded from render path."""
+        from activecontext.context.view import NodeView
+
         graph = ContextGraph()
 
         hidden_node = create_mock_context_node("hidden", "view", mode="running")
-        hidden_node.expansion = Expansion.HIDDEN
+        hidden_node.expansion = Expansion.COLLAPSED
 
         visible_node = create_mock_context_node("visible", "view", mode="running")
         visible_node.expansion = Expansion.DETAILS
@@ -153,7 +155,13 @@ class TestCollectRenderPath:
         graph.add_node(hidden_node)
         graph.add_node(visible_node)
 
-        path = projection_engine._collect_render_path(graph)
+        # Create views dict with hidden node marked as hidden
+        views = {
+            "hidden": NodeView(hidden_node, hide=True),
+            "visible": NodeView(visible_node, hide=False),
+        }
+
+        path = projection_engine._collect_render_path(graph, views)
 
         assert "visible" in path.node_ids
         assert "hidden" not in path.node_ids
@@ -204,11 +212,13 @@ class TestRenderPathRendering:
         assert "paused_root" in section_ids
 
     def test_render_path_excludes_hidden(self, projection_engine):
-        """Test that HIDDEN nodes are excluded from rendered sections."""
+        """Test that hidden views are excluded from rendered sections."""
+        from activecontext.context.view import NodeView
+
         graph = ContextGraph()
 
         hidden_node = create_mock_context_node("hidden", "view", mode="running")
-        hidden_node.expansion = Expansion.HIDDEN
+        hidden_node.expansion = Expansion.COLLAPSED
         hidden_node.Render = Mock(return_value="Hidden content")
         hidden_node.clear_pending_traces = Mock()
 
@@ -220,8 +230,14 @@ class TestRenderPathRendering:
         graph.add_node(hidden_node)
         graph.add_node(visible_node)
 
-        path = projection_engine._collect_render_path(graph)
-        sections = projection_engine._render_path(graph, path, cwd=".")
+        # Create views dict with hidden node marked as hidden
+        views = {
+            "hidden": NodeView(hidden_node, hide=True),
+            "visible": NodeView(visible_node, hide=False),
+        }
+
+        path = projection_engine._collect_render_path(graph, views)
+        sections = projection_engine._render_path(graph, path, cwd=".", views=views)
 
         # Only visible node should be rendered
         assert len(sections) == 1
@@ -235,8 +251,13 @@ class TestRenderPathRendering:
         running_node = mock_graph.get_node("running1")
         paused_node = mock_graph.get_node("paused_root")
 
-        running_node.Render.assert_called_once_with(cwd="/test", text_buffers=None)
-        paused_node.Render.assert_called_once_with(cwd="/test", text_buffers=None)
+        # Render is called with expand param (from view or node.expansion)
+        running_node.Render.assert_called_once_with(
+            cwd="/test", text_buffers=None, expand=Expansion.DETAILS
+        )
+        paused_node.Render.assert_called_once_with(
+            cwd="/test", text_buffers=None, expand=Expansion.SUMMARY
+        )
 
     def test_render_empty_path_returns_empty_sections(self, projection_engine):
         """Test rendering empty path returns no sections."""

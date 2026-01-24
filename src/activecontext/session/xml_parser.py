@@ -295,7 +295,7 @@ def _format_value(val: str) -> str:
         return "False"
 
     # Check for Expansion enum values
-    expansion_values = {"hidden", "collapsed", "summary", "details"}
+    expansion_values = {"collapsed", "summary", "details"}
     if val.lower() in expansion_values:
         return f"Expansion.{val.upper()}"
 

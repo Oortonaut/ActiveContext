@@ -13,17 +13,30 @@ from enum import Enum
 from typing import Any
 
 
+class Visibility(Enum):
+    """Visibility state for context nodes.
+
+    Controls whether a node appears in projections:
+    - HIDE: Not shown in projection (but still ticked if running)
+    - SHOW: Shown in projection (rendering controlled by Expansion)
+    """
+
+    HIDE = "hide"
+    SHOW = "show"
+
+    def __str__(self) -> str:
+        return self.value
+
+
 class Expansion(Enum):
     """Rendering state for context nodes.
 
-    States control how nodes appear in projections:
-    - HIDDEN: Not shown in projection (but still ticked if running)
+    States control how visible nodes appear in projections:
     - COLLAPSED: Title and metadata only (size, trace count)
     - SUMMARY: LLM-generated summary (default for groups)
     - DETAILS: Full view with child settings (default for views)
     """
 
-    HIDDEN = "hidden"
     COLLAPSED = "collapsed"
     SUMMARY = "summary"
     DETAILS = "details"

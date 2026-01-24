@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import TYPE_CHECKING, Any
 
-from activecontext.context.state import Expansion, NotificationLevel, TickFrequency
+from activecontext.context.state import Expansion, NotificationLevel, TickFrequency, Visibility
 from activecontext.context.traceable import trace_all_fields
 
 if TYPE_CHECKING:
@@ -209,21 +209,22 @@ class ContextNode(ABC):
         self,
         cwd: str = ".",
         text_buffers: dict[str, Any] | None = None,
+        expand: Expansion | None = None,
     ) -> str:
-        """Render this node's content based on current state.
+        """Render this node's content based on expansion state.
 
         Dispatches to RenderCollapsed, RenderSummary, or RenderDetail based
-        on the node's state. Subclasses should override those methods instead.
+        on the expansion state. Subclasses should override those methods instead.
 
         Args:
             cwd: Working directory for file access
             text_buffers: Optional dict of buffer_id -> TextBuffer for markdown nodes
+            expand: Expansion state to render with (uses node.expansion if not provided)
         """
-        if self.expansion == Expansion.HIDDEN:
-            return ""
-        elif self.expansion == Expansion.COLLAPSED:
+        effective_expand = expand if expand is not None else self.expansion
+        if effective_expand == Expansion.COLLAPSED:
             return self.RenderCollapsed(cwd=cwd, text_buffers=text_buffers)
-        elif self.expansion == Expansion.SUMMARY:
+        elif effective_expand == Expansion.SUMMARY:
             return self.RenderSummary(cwd=cwd, text_buffers=text_buffers)
         else:  # DETAILS
             return self.RenderDetail(include_summary=False, cwd=cwd, text_buffers=text_buffers)

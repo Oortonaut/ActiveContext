@@ -134,11 +134,6 @@ class TestMCPToolNodeRender:
             tokens=200,
         )
 
-    def test_render_hidden(self, tool_node):
-        """Test HIDDEN state returns empty string."""
-        tool_node.expansion = Expansion.HIDDEN
-        assert tool_node.Render() == ""
-
     def test_render_collapsed(self, tool_node):
         """Test COLLAPSED state shows just tool name."""
         tool_node.expansion = Expansion.COLLAPSED

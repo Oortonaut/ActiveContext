@@ -45,11 +45,20 @@ Controls rendering detail level for context nodes.
 ```python
 from activecontext import Expansion
 
-Expansion.HIDDEN     # Not shown in projection (but still ticked if running)
 Expansion.COLLAPSED  # Title and metadata only (~50 tokens)
 Expansion.SUMMARY    # LLM-generated summary
 Expansion.DETAILS    # Full view with child settings
+```
 
+### Visibility (hide/unhide)
+
+Control whether a node appears in the projection.
+
+```python
+hide(text_1)                           # Hide from projection (but still ticked)
+hide(text_1, text_2, group_1)          # Hide multiple nodes
+unhide(text_1)                         # Restore to previous expansion
+unhide(text_1, expand=Expansion.SUMMARY)  # Restore with specific expansion
 ```
 
 ### TickFrequency
@@ -197,10 +206,10 @@ Remove a parent-child relationship.
 unlink(view_node, group_node)
 ```
 
-## Traversal Control
+## Visibility Control
 
 ### `hide(*nodes)`
-Hide nodes from projection traversal. Nodes are set to HIDDEN but retain all state for restoration.
+Hide nodes from projection rendering. Nodes continue to tick but don't appear in the projection.
 
 ```python
 hide(text_1)              # Hide single node
@@ -210,16 +219,16 @@ hide("text_1", group_2)   # Mix of IDs and objects
 
 Returns the count of nodes hidden. The previous expansion state is saved for later restoration via `unhide()`.
 
-### `unhide(*nodes, expansion=None)`
-Restore hidden nodes to projection traversal.
+### `unhide(*nodes, expand=None)`
+Restore hidden nodes to projection rendering.
 
 ```python
-unhide(text_1)                         # Restore to previous state
+unhide(text_1)                         # Restore to previous expand state
 unhide(text_1, text_2)                 # Restore multiple
-unhide(text_1, expansion=Expansion.SUMMARY)  # Force specific expansion
+unhide(text_1, expand=Expansion.SUMMARY)  # Force specific expansion
 ```
 
-Returns the count of nodes restored. If `expansion` is not specified, restores to the state before `hide()` was called. If the node was never hidden, defaults to `Expansion.DETAILS`.
+Returns the count of nodes restored. If `expand` is not specified, restores to the state before `hide()` was called. If the node was never hidden, defaults to `Expansion.DETAILS`.
 
 ## Checkpointing
 

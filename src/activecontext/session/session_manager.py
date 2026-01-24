@@ -313,7 +313,7 @@ class Session:
         self._alerts_group = GroupNode(
             node_id="alerts",
             tokens=500,
-            expansion=Expansion.HIDDEN,  # Hidden when empty, DETAILS when has content
+            expansion=Expansion.COLLAPSED,  # Collapsed when empty, DETAILS when has content
             mode="running",
             tick_frequency=TickFrequency.turn(),
         )
@@ -1391,7 +1391,7 @@ class Session:
             context_graph.link(alert_node.node_id, self._alerts_group.node_id)
 
         # Update group visibility based on content
-        self._alerts_group.expansion = Expansion.DETAILS if notifications else Expansion.HIDDEN
+        self._alerts_group.expansion = Expansion.DETAILS if notifications else Expansion.COLLAPSED
 
     def get_projection(self) -> Projection:
         """Build the LLM projection from current session state.
@@ -1403,6 +1403,7 @@ class Session:
             context_graph=self._timeline.context_graph,
             cwd=self._cwd,
             text_buffers=self._text_buffers,
+            views=self._timeline.views,
         )
 
     def clear_message_history(self) -> None:

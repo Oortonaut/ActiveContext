@@ -607,14 +607,13 @@ class TestStateTypes:
 
     def test_node_state_enum_values(self):
         """Test Expansion enum values."""
-        assert Expansion.HIDDEN.value == "hidden"
         assert Expansion.COLLAPSED.value == "collapsed"
         assert Expansion.SUMMARY.value == "summary"
         assert Expansion.DETAILS.value == "details"
 
     def test_node_state_string_representation(self):
         """Test Expansion string representation."""
-        assert str(Expansion.HIDDEN) == "hidden"
+        assert str(Expansion.COLLAPSED) == "collapsed"
         assert str(Expansion.SUMMARY) == "summary"
         assert str(Expansion.DETAILS) == "details"
 

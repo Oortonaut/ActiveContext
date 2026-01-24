@@ -510,14 +510,15 @@ class TestHideUnhide:
 
             ns = timeline.get_namespace()
             v = ns["v"]
-            assert v.expansion == Expansion.DETAILS  # Default
+            assert v.expand == Expansion.DETAILS  # Default
+            assert v.hide is False
 
             result = await timeline.execute_statement("count = hide(v)")
             assert result.status.value == "ok"
 
             ns = timeline.get_namespace()
             assert ns["count"] == 1
-            assert v.expansion == Expansion.HIDDEN
+            assert v.hide is True
         finally:
             await timeline.close()
 
@@ -537,8 +538,8 @@ class TestHideUnhide:
 
             ns = timeline.get_namespace()
             assert ns["count"] == 2
-            assert ns["v1"].expansion == Expansion.HIDDEN
-            assert ns["v2"].expansion == Expansion.HIDDEN
+            assert ns["v1"].hide is True
+            assert ns["v2"].hide is True
         finally:
             await timeline.close()
 
@@ -560,7 +561,7 @@ class TestHideUnhide:
 
             ns = timeline.get_namespace()
             assert ns["count"] == 1
-            assert ns["v"].expansion == Expansion.HIDDEN
+            assert ns["v"].hide is True
         finally:
             await timeline.close()
 
@@ -573,35 +574,35 @@ class TestHideUnhide:
 
         try:
             await timeline.execute_statement('v = text("test.py")')
-            await timeline.execute_statement("v.expansion = Expansion.SUMMARY")
+            await timeline.execute_statement("v.expand = Expansion.SUMMARY")
 
             ns = timeline.get_namespace()
             v = ns["v"]
-            assert v.expansion == Expansion.SUMMARY
+            assert v.expand == Expansion.SUMMARY
 
             await timeline.execute_statement("hide(v)")
 
-            assert v.expansion == Expansion.HIDDEN
-            assert v.tags.get("_hidden_expansion") == "summary"
+            assert v.hide is True
+            assert v.tags.get("_hidden_expand") == "summary"
         finally:
             await timeline.close()
 
     @pytest.mark.asyncio
     async def test_hide_skips_already_hidden(self, temp_cwd: Path) -> None:
-        """Test that hide() skips nodes already HIDDEN."""
+        """Test that hide() skips nodes already hidden."""
         from activecontext.context.state import Expansion
 
         timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
 
         try:
             await timeline.execute_statement('v = text("test.py")')
-            await timeline.execute_statement("v.expansion = Expansion.HIDDEN")
+            await timeline.execute_statement("hide(v)")  # Hide first
 
-            result = await timeline.execute_statement("count = hide(v)")
+            result = await timeline.execute_statement("count = hide(v)")  # Try again
             assert result.status.value == "ok"
 
             ns = timeline.get_namespace()
-            assert ns["count"] == 0  # No change
+            assert ns["count"] == 0  # No change (already hidden)
         finally:
             await timeline.close()
 
@@ -614,27 +615,28 @@ class TestHideUnhide:
 
         try:
             await timeline.execute_statement('v = text("test.py")')
-            await timeline.execute_statement("v.expansion = Expansion.SUMMARY")
+            await timeline.execute_statement("v.expand = Expansion.SUMMARY")
 
             ns = timeline.get_namespace()
             v = ns["v"]
 
             await timeline.execute_statement("hide(v)")
-            assert v.expansion == Expansion.HIDDEN
+            assert v.hide is True
 
             result = await timeline.execute_statement("count = unhide(v)")
             assert result.status.value == "ok"
 
             ns = timeline.get_namespace()
             assert ns["count"] == 1
-            assert v.expansion == Expansion.SUMMARY  # Restored
-            assert "_hidden_expansion" not in v.tags  # Cleaned up
+            assert v.hide is False
+            assert v.expand == Expansion.SUMMARY  # Restored
+            assert "_hidden_expand" not in v.tags  # Cleaned up
         finally:
             await timeline.close()
 
     @pytest.mark.asyncio
     async def test_unhide_with_explicit_expansion(self, temp_cwd: Path) -> None:
-        """Test unhide() with explicit expansion parameter."""
+        """Test unhide() with explicit expand parameter."""
         from activecontext.context.state import Expansion
 
         timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
@@ -645,14 +647,15 @@ class TestHideUnhide:
 
             ns = timeline.get_namespace()
             v = ns["v"]
-            assert v.expansion == Expansion.HIDDEN
+            assert v.hide is True
 
-            result = await timeline.execute_statement("count = unhide(v, expansion=Expansion.COLLAPSED)")
+            result = await timeline.execute_statement("count = unhide(v, expand=Expansion.COLLAPSED)")
             assert result.status.value == "ok"
 
             ns = timeline.get_namespace()
             assert ns["count"] == 1
-            assert v.expansion == Expansion.COLLAPSED
+            assert v.hide is False
+            assert v.expand == Expansion.COLLAPSED
         finally:
             await timeline.close()
 
@@ -665,8 +668,8 @@ class TestHideUnhide:
 
         try:
             await timeline.execute_statement('v = text("test.py")')
-            # Manually set to HIDDEN without going through hide()
-            await timeline.execute_statement("v.expansion = Expansion.HIDDEN")
+            # Manually set hide without going through hide()
+            await timeline.execute_statement("v.hide = True")
 
             ns = timeline.get_namespace()
             v = ns["v"]
@@ -676,7 +679,8 @@ class TestHideUnhide:
 
             ns = timeline.get_namespace()
             assert ns["count"] == 1
-            assert v.expansion == Expansion.DETAILS  # Default
+            assert v.hide is False
+            assert v.expand == Expansion.DETAILS  # Default
         finally:
             await timeline.close()
 
@@ -693,16 +697,18 @@ class TestHideUnhide:
             await timeline.execute_statement("hide(v1, v2)")
 
             ns = timeline.get_namespace()
-            assert ns["v1"].expansion == Expansion.HIDDEN
-            assert ns["v2"].expansion == Expansion.HIDDEN
+            assert ns["v1"].hide is True
+            assert ns["v2"].hide is True
 
             result = await timeline.execute_statement("count = unhide(v1, v2)")
             assert result.status.value == "ok"
 
             ns = timeline.get_namespace()
             assert ns["count"] == 2
-            assert ns["v1"].expansion == Expansion.DETAILS
-            assert ns["v2"].expansion == Expansion.DETAILS
+            assert ns["v1"].hide is False
+            assert ns["v2"].hide is False
+            assert ns["v1"].expand == Expansion.DETAILS
+            assert ns["v2"].expand == Expansion.DETAILS
         finally:
             await timeline.close()
 
@@ -715,17 +721,18 @@ class TestHideUnhide:
 
         try:
             await timeline.execute_statement('v = text("test.py")')
-            await timeline.execute_statement("v.expansion = Expansion.COLLAPSED")
+            await timeline.execute_statement("v.expand = Expansion.COLLAPSED")
 
             ns = timeline.get_namespace()
             v = ns["v"]
 
-            # Remove and verify hidden
+            # Hide and verify
             await timeline.execute_statement("hide(v)")
-            assert v.expansion == Expansion.HIDDEN
+            assert v.hide is True
 
             # Unhide and verify restored
             await timeline.execute_statement("unhide(v)")
-            assert v.expansion == Expansion.COLLAPSED
+            assert v.hide is False
+            assert v.expand == Expansion.COLLAPSED
         finally:
             await timeline.close()

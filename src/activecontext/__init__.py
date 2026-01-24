@@ -22,7 +22,7 @@ from activecontext.session import (
     Timeline,
     UpdateKind,
 )
-from activecontext.context.state import Expansion, NotificationLevel, TickFrequency
+from activecontext.context.state import Expansion, NotificationLevel, TickFrequency, Visibility
 from activecontext.terminal import ShellResult
 from activecontext.transport import ActiveContext, AsyncSession
 
@@ -34,6 +34,7 @@ __all__ = [
     "Expansion",
     "NotificationLevel",
     "TickFrequency",
+    "Visibility",
     # Config
     "Config",
     "load_config",
