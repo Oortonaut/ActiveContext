@@ -555,7 +555,7 @@ class DashboardClient {
         items.forEach(item => {
             const li = document.createElement('li');
             const nodeId = item.id || item.node_id;
-            const currentExpansion = item.expansion || 'details';
+            const currentExpansion = item.expansion || 'all';
             const isHidden = item.hidden || false;
 
             // Add hidden class for styling
@@ -582,9 +582,10 @@ class DashboardClient {
                         ${eyeIcon}
                     </button>
                     <select class="node-expansion-select" data-node-id="${nodeId}" title="Change expansion level" ${isHidden ? 'disabled' : ''}>
-                        <option value="collapsed" ${currentExpansion === 'collapsed' ? 'selected' : ''}>Collapsed</option>
-                        <option value="summary" ${currentExpansion === 'summary' ? 'selected' : ''}>Summary</option>
-                        <option value="details" ${currentExpansion === 'details' ? 'selected' : ''}>Details</option>
+                        <option value="header" ${currentExpansion === 'header' ? 'selected' : ''}>Header</option>
+                        <option value="content" ${currentExpansion === 'content' ? 'selected' : ''}>Content</option>
+                        <option value="index" ${currentExpansion === 'index' ? 'selected' : ''}>Index</option>
+                        <option value="all" ${currentExpansion === 'all' ? 'selected' : ''}>All</option>
                     </select>
                 </div>
             `;
@@ -818,7 +819,7 @@ class DashboardClient {
                 data.sections.forEach((section, index) => {
                 const sectionItem = document.createElement('div');
                 const nodeId = section.source_id;
-                const currentExpansion = section.expansion || 'details';
+                const currentExpansion = section.expansion || 'all';
                 const isHidden = section.hidden || false;
 
                 sectionItem.className = 'section-item';
@@ -839,9 +840,10 @@ class DashboardClient {
                                 ${eyeIcon}
                             </button>
                             <select class="section-expansion-select" data-node-id="${nodeId}" title="Change expansion level" ${isHidden ? 'disabled' : ''}>
-                                <option value="collapsed" ${currentExpansion === 'collapsed' ? 'selected' : ''}>Collapsed</option>
-                                <option value="summary" ${currentExpansion === 'summary' ? 'selected' : ''}>Summary</option>
-                                <option value="details" ${currentExpansion === 'details' ? 'selected' : ''}>Details</option>
+                                <option value="header" ${currentExpansion === 'header' ? 'selected' : ''}>Header</option>
+                                <option value="content" ${currentExpansion === 'content' ? 'selected' : ''}>Content</option>
+                                <option value="index" ${currentExpansion === 'index' ? 'selected' : ''}>Index</option>
+                                <option value="all" ${currentExpansion === 'all' ? 'selected' : ''}>All</option>
                             </select>
                         </div>
                     </div>

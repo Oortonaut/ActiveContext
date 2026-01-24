@@ -321,7 +321,7 @@ async def _handle_set_expansion(
         return
 
     old_expansion = node.expansion
-    node.SetExpansion(new_expansion)
+    node.expansion = new_expansion
 
     # Broadcast update to all dashboard clients
     await broadcast_update(

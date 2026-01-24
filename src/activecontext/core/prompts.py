@@ -99,7 +99,7 @@ def build_user_message(prompt: str, projection: Projection | None = None) -> str
             if obj_type == "text":
                 parts.append(
                     f"- `{handle_id}`: view of {digest.get('path', '?')} "
-                    f"(state={digest.get('state', 'details')}, tokens={digest.get('tokens', 0)})"
+                    f"(state={digest.get('state', 'all')}, tokens={digest.get('tokens', 0)})"
                 )
             elif obj_type == "group":
                 parts.append(

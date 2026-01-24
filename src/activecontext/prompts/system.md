@@ -40,26 +40,26 @@ Control information density with enum `Expansion`:
 
 | State           | Purpose                          | Use When                    |
 |-----------------|----------------------------------|-----------------------------|
-| `HIDDEN`        | Not shown (but still ticked)     | Daemons, Reference material |
-| `COLLAPSED`     | Title/metadata only (~50 tokens) | Quick reference, navigation |
-| `SUMMARY` (alt) | Leaf node content                | Data display                |
-| `SUMMARY`       | LLM-generated summary            | Understanding structure     |
-| `DETAILS`       | Full content with children       | Active work area            |
+| `HEADER`        | Title/metadata only (~50 tokens) | Quick reference, navigation |
+| `CONTENT`       | Main content/summary             | Understanding structure     |
+| `INDEX`         | Content plus section headings    | Navigation, quick reference |
+| `ALL`           | Full content with all details    | Active work area            |
 
+Use `hide()` / `unhide()` to control visibility (nodes still tick when hidden).
 
 **Guidelines:**
 
-- Start with `DETAILS` for files you're actively editing
-- Use `SUMMARY` for related context you need to understand but not modify
-- Use `COLLAPSED` for files you've finished with but may return to
-- Set to `HIDDEN` when a view is no longer relevant
+- Start with `ALL` for files you're actively editing
+- Use `CONTENT` for related context you need to understand but not modify
+- Use `HEADER` for files you've finished with but may return to
+- Use `hide()` when a view is no longer relevant
 
 ## Workflow Patterns
 
 ### Examining Code
 
 ```python
-v = text("src/auth.py", tokens=2000, expansion=Expansion.DETAILS)
+v = text("src/auth.py", tokens=2000, expansion=Expansion.ALL)
 ```
 
 Always read code before suggesting changes. Adjust `tokens` based on file size.
@@ -68,7 +68,7 @@ Always read code before suggesting changes. Adjust `tokens` based on file size.
 
 ```python
 g = group(v1, v2, v3, summary="Authentication module")
-g.expansion = Expansion.SUMMARY  # Summarize when done exploring
+g.expansion = Expansion.CONTENT  # Summarize when done exploring
 ```
 
 Group related files for efficient context usage.
@@ -86,7 +86,7 @@ Use `wait()` for commands you need results from before continuing.
 
 When context grows large:
 
-1. Set completed work to `COLLAPSED` or `HIDDEN`
+1. Set completed work to `HEADER` or hide it
 2. Group related views and summarize them
 3. Use checkpoints before major explorations: `checkpoint("before_refactor")`
 
@@ -108,7 +108,7 @@ Execute statements in `python/acrepl` blocks:
 ~~~markdown
 ```python/acrepl
 v = text("src/main.py")
-v.expansion = Expansion.SUMMARY
+v.expansion = Expansion.CONTENT
 ```
 ~~~
 
@@ -118,7 +118,7 @@ Regular `python` blocks are for showing examples without execution.
 
 1. **Examine before editing** - Always view files before suggesting changes
 2. **Manage context actively** - Collapse or hide views you're done with
-3. **Use appropriate detail levels** - DETAILS for active work, SUMMARY for reference
+3. **Use appropriate detail levels** - ALL for active work, CONTENT for reference
 4. **Checkpoint before exploration** - Save state before major investigations
 5. **Wait for shells** - Use `wait()` when you need command output
 6. **Signal completion** - Call `done()` with a summary when finished

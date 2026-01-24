@@ -5,8 +5,8 @@ This module converts XML tags to equivalent Python statements.
 
 Syntax examples:
     <!-- Object constructors (name becomes variable) -->
-    <view name="v" path="main.py" tokens="2000" expansion="details"/>
-    <group name="g" tokens="300" expansion="summary">
+    <view name="v" path="main.py" tokens="2000" expansion="all"/>
+    <group name="g" tokens="300" expansion="content">
         <member ref="v"/>
         <member ref="w"/>
     </group>
@@ -284,7 +284,7 @@ def _format_value(val: str) -> str:
     Attempts to preserve type:
     - Numbers remain unquoted
     - Booleans (true/false) become True/False
-    - Expansion values (hidden, collapsed, summary, details) become Expansion.HIDDEN, etc.
+    - Expansion values (header, content, index, all) become Expansion.HEADER, etc.
     - TickFrequency patterns (turn, async, never, period:N) become TickFrequency.turn(), etc.
     - Everything else is quoted as string
     """
@@ -295,7 +295,7 @@ def _format_value(val: str) -> str:
         return "False"
 
     # Check for Expansion enum values
-    expansion_values = {"collapsed", "summary", "details"}
+    expansion_values = {"header", "content", "index", "all"}
     if val.lower() in expansion_values:
         return f"Expansion.{val.upper()}"
 

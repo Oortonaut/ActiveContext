@@ -65,15 +65,15 @@ def format_token_info(info: TokenInfo, state: Expansion) -> str:
 
     unit = "bytes" if info.is_bytes else "tokens"
 
-    if state == Expansion.COLLAPSED:
-        # Visible: collapsed only
-        # Hidden: summary + detail
+    if state == Expansion.HEADER:
+        # Visible: header only
+        # Hidden: content + detail
         visible = info.collapsed
         hidden = info.summary + info.detail
         result = f"{unit}: {visible}/{hidden}"
 
-    elif state == Expansion.SUMMARY:
-        # Visible: collapsed + summary
+    elif state == Expansion.CONTENT:
+        # Visible: header + content
         # Hidden: detail
         visible_str = (
             f"{info.collapsed}+{info.summary}"
@@ -83,7 +83,7 @@ def format_token_info(info: TokenInfo, state: Expansion) -> str:
         hidden = info.detail
         result = f"{unit}: {visible_str}/{hidden}"
 
-    elif state == Expansion.DETAILS:
+    elif state in (Expansion.INDEX, Expansion.ALL):
         # All visible
         if info.summary > 0:
             result = f"{unit}: {info.collapsed}+{info.summary}+{info.detail}"
@@ -139,13 +139,13 @@ def render_header(
     if notification_level and notification_level != "ignore":
         brief = f"{brief} {notification_level}"
 
-    if state == Expansion.COLLAPSED:
-        # Level 3 heading for collapsed nodes
+    if state == Expansion.HEADER:
+        # Level 3 heading for header-only nodes
         return f"### {name} {{#{display_id}}} {brief} {token_str}\n"
 
-    if state == Expansion.SUMMARY:
-        # Level 2 heading for summary
+    if state == Expansion.CONTENT:
+        # Level 2 heading for content
         return f"## {name} {{#{display_id}}} {brief} {token_str}\n"
 
-    # Level 1 heading for DETAILS, ALL
+    # Level 1 heading for INDEX, ALL
     return f"# {name} {{#{display_id}}} {brief} {token_str}\n"

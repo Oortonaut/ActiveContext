@@ -18,8 +18,8 @@ Every node has a display ID (e.g., `text_1`, `group_2`) that can be used directl
 
 ```python/acrepl
 v = text("src/main.py")    # Creates text_1
-text_1.expansion = Expansion.SUMMARY  # Both work
-v.expansion = Expansion.SUMMARY       # Same effect
+text_1.expansion = Expansion.CONTENT  # Both work
+v.expansion = Expansion.CONTENT       # Same effect
 ```
 
 Display IDs follow the pattern `{type}_{sequence}`. Useful when you need to reference a node without storing it in a variable.
@@ -36,7 +36,7 @@ A **text view** is a window into a file. The view appears in your context on the
 | `pos`     | `"1:0"`    | Start position as `"line:col"`                   |
 | `end_pos` | `None`     | End position as `"line:col"` (limits view range) |
 | `tokens`  | `2000`     | Token budget for content                         |
-| `expansion` | `DETAILS` | Rendering expansion (HIDDEN, COLLAPSED, SUMMARY, DETAILS) |
+| `expansion` | `ALL` | Rendering expansion (HEADER, CONTENT, INDEX, ALL) |
 | `mode`    | `"paused"` | `"paused"` or `"running"`                        |
 
 ### Text Methods
@@ -45,7 +45,7 @@ A **text view** is a window into a file. The view appears in your context on the
 v.SetPos("50:0")      # Jump to line 50
 v.SetEndPos("100:0")  # Limit view to lines 50-100
 v.tokens = 500        # Reduce token budget
-v.expansion = Expansion.SUMMARY  # Switch to summary view
+v.expansion = Expansion.CONTENT  # Switch to content view
 v.Run()               # Enable auto-updates each turn
 v.Pause()             # Disable auto-updates
 ```
@@ -72,7 +72,7 @@ Each heading section becomes a separate TextNode with its line range.
 A **group** summarizes multiple views:
 
 ```python/acrepl
-g = group(v1, v2, v3, tokens=500, expansion=Expansion.SUMMARY)
+g = group(v1, v2, v3, tokens=500, expansion=Expansion.CONTENT)
 ```
 
 Groups are useful for maintaining awareness of related files without consuming too many tokens.
@@ -110,7 +110,7 @@ utils = text("src/utils.py", tokens=1000)
 config = text("config.yaml", tokens=500)
 
 # Group them for a summary
-overview = group(main, utils, config, expansion=Expansion.SUMMARY)
+overview = group(main, utils, config, expansion=Expansion.CONTENT)
 ```
 
 ## How Context Works

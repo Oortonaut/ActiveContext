@@ -100,7 +100,7 @@ class TestMessageNodeSerialization:
             "content": "Response",
             "originator": "agent",
             "tokens": 500,
-            "state": "details",
+            "state": "all",
             "mode": "paused",
         }
         node = MessageNode._from_dict(data)
@@ -143,12 +143,12 @@ class TestMessageNodeRender:
         assert "Hello, how are you?" in rendered
 
     def test_render_collapsed_state(self) -> None:
-        """Test collapsed state shows metadata only."""
+        """Test header state shows metadata only."""
         node = MessageNode(
             role="user",
             content="Hello, world!",
             originator="user",
-            expansion=Expansion.COLLAPSED,
+            expansion=Expansion.HEADER,
         )
         rendered = node.Render()
         assert "User" in rendered  # Title case in new header format

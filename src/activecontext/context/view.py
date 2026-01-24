@@ -30,7 +30,7 @@ class NodeView:
     Attributes:
         _node: The underlying ContextNode (content)
         _hide: Whether this view is hidden from projection
-        _expand: Expansion state for rendering (COLLAPSED, SUMMARY, DETAILS)
+        _expand: Expansion state for rendering (HEADER, CONTENT, INDEX, ALL)
         _tags: View-specific metadata (e.g., _hidden_expansion for unhide restoration)
     """
 
@@ -116,9 +116,9 @@ class NodeView:
             return 0
 
         node = self._node
-        if self._expand == Expansion.COLLAPSED:
+        if self._expand == Expansion.HEADER:
             return node.header_tokens
-        elif self._expand == Expansion.SUMMARY:
+        elif self._expand == Expansion.CONTENT:
             return node.header_tokens + getattr(node, "summary_tokens", 0)
         else:  # DETAILS
             return node.header_tokens + getattr(node, "content_tokens", node.tokens)
@@ -138,7 +138,7 @@ class NodeView:
         """Set expansion state (fluent API).
 
         Args:
-            expand: New expansion state (COLLAPSED, SUMMARY, DETAILS)
+            expand: New expansion state (HEADER, CONTENT, INDEX, ALL)
         """
         self.expand = expand
         return self

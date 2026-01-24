@@ -240,13 +240,13 @@ class TestLockManagement:
         timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
         try:
             result = await timeline.execute_statement(
-                'lock = lock_file(".test.lock", expansion=Expansion.DETAILS)'
+                'lock = lock_file(".test.lock", expansion=Expansion.ALL)'
             )
             assert result.status.value == "ok"
 
             ns = timeline.get_namespace()
             lock_node = ns["lock"]
-            assert lock_node.expansion == Expansion.DETAILS
+            assert lock_node.expansion == Expansion.ALL
         finally:
             await timeline.close()
 

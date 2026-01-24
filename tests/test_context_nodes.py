@@ -37,7 +37,7 @@ class TestTextNodeSerialization:
         node = TextNode(
             node_id="view1",
             path="src/main.py",
-            expansion=Expansion.DETAILS,
+            expansion=Expansion.ALL,
         )
 
         data = node.to_dict()
@@ -45,7 +45,7 @@ class TestTextNodeSerialization:
         assert data["node_type"] == "text"
         assert data["node_id"] == "view1"
         assert data["path"] == "src/main.py"
-        assert data["expansion"] == "details"
+        assert data["expansion"] == "all"
         # TextNode doesn't serialize _content - it's loaded from disk
 
     def test_from_dict_basic(self):
@@ -54,7 +54,7 @@ class TestTextNodeSerialization:
             "node_type": "text",
             "node_id": "view1",
             "path": "src/main.py",
-            "expansion": "details",
+            "expansion": "all",
             "tokens": 100,
             "pos": "1:0",
         }
@@ -63,14 +63,14 @@ class TestTextNodeSerialization:
 
         assert node.node_id == "view1"
         assert node.path == "src/main.py"
-        assert node.expansion == Expansion.DETAILS
+        assert node.expansion == Expansion.ALL
 
     def test_roundtrip(self):
         """Test TextNode serialization round-trip."""
         original = TextNode(
             node_id="view1",
             path="src/main.py",
-            expansion=Expansion.DETAILS,
+            expansion=Expansion.ALL,
             pos="10:5",
         )
 
@@ -88,7 +88,7 @@ class TestTextNodeSerialization:
             "node_type": "text",
             "node_id": "view1",
             "path": "test.py",
-            "expansion": "collapsed",
+            "expansion": "header",
         }
 
         node = ContextNode.from_dict(data)
@@ -110,7 +110,7 @@ class TestGroupNodeSerialization:
         node = GroupNode(
             node_id="group1",
             summary_prompt="Summarize these files",
-            expansion=Expansion.SUMMARY,
+            expansion=Expansion.CONTENT,
             cached_summary="A group of related files",
         )
 
@@ -119,7 +119,7 @@ class TestGroupNodeSerialization:
         assert data["node_type"] == "group"
         assert data["node_id"] == "group1"
         assert data["summary_prompt"] == "Summarize these files"
-        assert data["expansion"] == "summary"
+        assert data["expansion"] == "content"
         assert data["cached_summary"] == "A group of related files"
 
     def test_from_dict_basic(self):
@@ -128,7 +128,7 @@ class TestGroupNodeSerialization:
             "node_type": "group",
             "node_id": "group1",
             "summary_prompt": "Test prompt",
-            "expansion": "summary",
+            "expansion": "content",
             "cached_summary": "Test summary",
         }
 
@@ -136,7 +136,7 @@ class TestGroupNodeSerialization:
 
         assert node.node_id == "group1"
         assert node.summary_prompt == "Test prompt"
-        assert node.expansion == Expansion.SUMMARY
+        assert node.expansion == Expansion.CONTENT
         assert node.cached_summary == "Test summary"
 
     def test_roundtrip(self):
@@ -144,7 +144,7 @@ class TestGroupNodeSerialization:
         original = GroupNode(
             node_id="group1",
             summary_prompt="Summarize the auth module",
-            expansion=Expansion.DETAILS,
+            expansion=Expansion.ALL,
             cached_summary="Authentication implementation",
         )
 
@@ -161,7 +161,7 @@ class TestGroupNodeSerialization:
         data = {
             "node_type": "group",
             "node_id": "group1",
-            "expansion": "collapsed",
+            "expansion": "header",
         }
 
         node = ContextNode.from_dict(data)
@@ -182,7 +182,7 @@ class TestTopicNodeSerialization:
         node = TopicNode(
             node_id="topic1",
             title="Authentication Implementation",
-            expansion=Expansion.COLLAPSED,
+            expansion=Expansion.HEADER,
         )
 
         data = node.to_dict()
@@ -196,7 +196,7 @@ class TestTopicNodeSerialization:
         original = TopicNode(
             node_id="topic1",
             title="Bug Fix Discussion",
-            expansion=Expansion.DETAILS,
+            expansion=Expansion.ALL,
         )
 
         data = original.to_dict()
@@ -212,7 +212,7 @@ class TestTopicNodeSerialization:
             "node_type": "topic",
             "node_id": "topic1",
             "title": "Test Topic",
-            "expansion": "collapsed",
+            "expansion": "header",
         }
 
         node = ContextNode.from_dict(data)
@@ -235,7 +235,7 @@ class TestArtifactNodeSerialization:
             content="def foo(): pass",
             artifact_type="code",
             language="python",
-            expansion=Expansion.DETAILS,
+            expansion=Expansion.ALL,
         )
 
         data = node.to_dict()
@@ -253,7 +253,7 @@ class TestArtifactNodeSerialization:
             content="Error: Connection refused",
             artifact_type="error",
             language="text",
-            expansion=Expansion.DETAILS,
+            expansion=Expansion.ALL,
         )
 
         data = original.to_dict()
@@ -271,7 +271,7 @@ class TestArtifactNodeSerialization:
             "node_id": "artifact1",
             "content": "test",
             "artifact_type": "output",
-            "expansion": "details",
+            "expansion": "all",
         }
 
         node = ContextNode.from_dict(data)
@@ -293,7 +293,7 @@ class TestShellNodeSerialization:
             node_id="shell1",
             command="pytest",
             args=["-v", "tests/"],
-            expansion=Expansion.DETAILS,
+            expansion=Expansion.ALL,
             output="All tests passed",
             exit_code=0,
         )
@@ -313,7 +313,7 @@ class TestShellNodeSerialization:
             node_id="shell1",
             command="git",
             args=["status"],
-            expansion=Expansion.DETAILS,
+            expansion=Expansion.ALL,
             output="On branch main",
             exit_code=0,
         )
@@ -334,7 +334,7 @@ class TestShellNodeSerialization:
             "node_id": "shell1",
             "command": "ls",
             "args": ["-la"],
-            "expansion": "collapsed",
+            "expansion": "header",
         }
 
         node = ContextNode.from_dict(data)
@@ -355,7 +355,7 @@ class TestLockNodeSerialization:
         node = LockNode(
             node_id="lock1",
             lockfile="src/config.py.lock",
-            expansion=Expansion.COLLAPSED,
+            expansion=Expansion.HEADER,
         )
 
         data = node.to_dict()
@@ -370,7 +370,7 @@ class TestLockNodeSerialization:
             node_id="lock1",
             lockfile="src/main.py.lock",
             timeout=60.0,
-            expansion=Expansion.DETAILS,
+            expansion=Expansion.ALL,
         )
 
         data = original.to_dict()
@@ -386,7 +386,7 @@ class TestLockNodeSerialization:
             "node_type": "lock",
             "node_id": "lock1",
             "lockfile": "test.py.lock",
-            "expansion": "collapsed",
+            "expansion": "header",
         }
 
         node = ContextNode.from_dict(data)
@@ -406,7 +406,7 @@ class TestSessionNodeSerialization:
         """Test SessionNode serialization to dict."""
         node = SessionNode(
             node_id="session1",
-            expansion=Expansion.COLLAPSED,
+            expansion=Expansion.HEADER,
             turn_count=5,
             total_statements_executed=25,
         )
@@ -422,7 +422,7 @@ class TestSessionNodeSerialization:
         """Test SessionNode serialization round-trip."""
         original = SessionNode(
             node_id="session1",
-            expansion=Expansion.DETAILS,
+            expansion=Expansion.ALL,
             turn_count=10,
             total_tokens_consumed=5000,
         )
@@ -438,7 +438,7 @@ class TestSessionNodeSerialization:
         data = {
             "node_type": "session",
             "node_id": "session1",
-            "expansion": "collapsed",
+            "expansion": "header",
         }
 
         node = ContextNode.from_dict(data)
@@ -459,7 +459,7 @@ class TestMCPServerNodeSerialization:
         node = MCPServerNode(
             node_id="mcp1",
             server_name="filesystem",
-            expansion=Expansion.COLLAPSED,
+            expansion=Expansion.HEADER,
             tools=[{"name": "read_file", "description": "Read a file"}],
         )
 
@@ -475,7 +475,7 @@ class TestMCPServerNodeSerialization:
         original = MCPServerNode(
             node_id="mcp1",
             server_name="github",
-            expansion=Expansion.DETAILS,
+            expansion=Expansion.ALL,
             tools=[
                 {"name": "list_repos", "description": "List repositories"},
                 {"name": "create_issue", "description": "Create an issue"},
@@ -495,7 +495,7 @@ class TestMCPServerNodeSerialization:
             "node_type": "mcp_server",
             "node_id": "mcp1",
             "server_name": "test",
-            "expansion": "collapsed",
+            "expansion": "header",
         }
 
         node = ContextNode.from_dict(data)
@@ -515,7 +515,7 @@ class TestMCPManagerNodeSerialization:
         """Test MCPManagerNode serialization to dict."""
         node = MCPManagerNode(
             node_id="mcp_manager",
-            expansion=Expansion.COLLAPSED,
+            expansion=Expansion.HEADER,
         )
 
         data = node.to_dict()
@@ -527,7 +527,7 @@ class TestMCPManagerNodeSerialization:
         """Test MCPManagerNode serialization round-trip."""
         original = MCPManagerNode(
             node_id="mcp_manager",
-            expansion=Expansion.DETAILS,
+            expansion=Expansion.ALL,
         )
 
         data = original.to_dict()
@@ -541,7 +541,7 @@ class TestMCPManagerNodeSerialization:
         data = {
             "node_type": "mcp_manager",
             "node_id": "mcp_manager",
-            "expansion": "collapsed",
+            "expansion": "header",
         }
 
         node = ContextNode.from_dict(data)
@@ -563,7 +563,7 @@ class TestAgentNodeSerialization:
             node_id="agent1",
             agent_id="child-agent-123",
             agent_type="researcher",
-            expansion=Expansion.DETAILS,
+            expansion=Expansion.ALL,
             agent_state="running",
             task="Research the API",
         )
@@ -583,7 +583,7 @@ class TestAgentNodeSerialization:
             node_id="agent1",
             agent_id="worker-456",
             agent_type="coder",
-            expansion=Expansion.DETAILS,
+            expansion=Expansion.ALL,
             agent_state="completed",
             task="Implement feature X",
         )
@@ -604,7 +604,7 @@ class TestAgentNodeSerialization:
             "node_id": "agent1",
             "agent_id": "test-agent",
             "agent_type": "helper",
-            "expansion": "collapsed",
+            "expansion": "header",
         }
 
         node = ContextNode.from_dict(data)
@@ -627,13 +627,13 @@ class TestContextGraphSerialization:
         # Create graph with various node types
         graph = ContextGraph()
 
-        view = TextNode(node_id="view1", path="main.py", expansion=Expansion.DETAILS)
+        view = TextNode(node_id="view1", path="main.py", expansion=Expansion.ALL)
         graph.add_node(view)
 
-        group = GroupNode(node_id="group1", expansion=Expansion.SUMMARY, cached_summary="Code files")
+        group = GroupNode(node_id="group1", expansion=Expansion.CONTENT, cached_summary="Code files")
         graph.add_node(group)
 
-        topic = TopicNode(node_id="topic1", title="Discussion", expansion=Expansion.COLLAPSED)
+        topic = TopicNode(node_id="topic1", title="Discussion", expansion=Expansion.HEADER)
         graph.add_node(topic)
         graph.link("topic1", "group1")  # topic is child of group (link(child, parent))
 

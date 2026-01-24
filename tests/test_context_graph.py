@@ -607,15 +607,17 @@ class TestStateTypes:
 
     def test_node_state_enum_values(self):
         """Test Expansion enum values."""
-        assert Expansion.COLLAPSED.value == "collapsed"
-        assert Expansion.SUMMARY.value == "summary"
-        assert Expansion.DETAILS.value == "details"
+        assert Expansion.HEADER.value == "header"
+        assert Expansion.CONTENT.value == "content"
+        assert Expansion.INDEX.value == "index"
+        assert Expansion.ALL.value == "all"
 
     def test_node_state_string_representation(self):
         """Test Expansion string representation."""
-        assert str(Expansion.COLLAPSED) == "collapsed"
-        assert str(Expansion.SUMMARY) == "summary"
-        assert str(Expansion.DETAILS) == "details"
+        assert str(Expansion.HEADER) == "header"
+        assert str(Expansion.CONTENT) == "content"
+        assert str(Expansion.INDEX) == "index"
+        assert str(Expansion.ALL) == "all"
 
     def test_tick_frequency_turn(self):
         """Test TickFrequency.turn() factory."""

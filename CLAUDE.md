@@ -592,6 +592,32 @@ git log --oneline -5               # Review recent history
 uv sync --all-extras               # Ensure dependencies are current
 ```
 
+### Use Static Analysis Tools
+
+Static analysis tools exist for a reason. Use them early and often - they catch errors faster than manual searching or running tests.
+
+**Before large refactors** (renaming, moving code, changing signatures):
+```bash
+uv run mypy src/                   # Type errors reveal all affected call sites
+uv run ruff check src/             # Catches unused imports, undefined names
+```
+
+**When searching for usages:**
+```bash
+# Grep finds string occurrences, but mypy finds semantic errors
+uv run mypy src/ 2>&1 | grep "some_function"  # All type-incorrect usages
+
+# For enum/constant renames, mypy will error on every invalid usage
+uv run mypy src/ 2>&1 | head -50   # See all breakages at once
+```
+
+**After making changes:**
+```bash
+uv run mypy src/ && uv run ruff check src/   # Verify no new errors
+```
+
+The pattern: **mypy first, grep second, tests third**. Type errors tell you exactly which files need updating. Don't manually search through files when the type checker can enumerate every affected location.
+
 ### Subtasking and Subagents
 
 **When to decompose tasks:**

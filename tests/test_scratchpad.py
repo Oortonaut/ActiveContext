@@ -336,7 +336,7 @@ class TestWorkNode:
         node = WorkNode(
             node_id="work_123",
             intent="Implementing a very long feature description that should be truncated",
-            expansion=Expansion.COLLAPSED,
+            expansion=Expansion.HEADER,
             files=[{"path": "src/main.py", "mode": "write"}],
         )
         rendered = node.Render()
@@ -347,7 +347,7 @@ class TestWorkNode:
         node = WorkNode(
             node_id="work_123",
             intent="Test work",
-            expansion=Expansion.DETAILS,
+            expansion=Expansion.ALL,
             agent_id="abc12345",
             files=[
                 {"path": "src/main.py", "mode": "write"},
@@ -365,7 +365,7 @@ class TestWorkNode:
         node = WorkNode(
             node_id="work_123",
             intent="Test",
-            expansion=Expansion.DETAILS,
+            expansion=Expansion.ALL,
             conflicts=[
                 {
                     "agent_id": "def67890",
@@ -408,7 +408,7 @@ class TestWorkNode:
             "dependencies": [],
             "conflicts": [],
             "agent_id": "abc12345",
-            "state": "details",
+            "state": "all",
             "tokens": 200,
         }
         node = WorkNode._from_dict(d)

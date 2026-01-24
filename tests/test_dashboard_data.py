@@ -112,8 +112,8 @@ def mock_section():
     section.section_type = "context"
     section.source_id = "node-1"
     section.tokens_used = 500
-    section.state = MagicMock()
-    section.state.name = "ALL"
+    section.expansion = MagicMock()
+    section.expansion.value = "all"
     section.content = "section content"
     return section
 
@@ -577,7 +577,7 @@ class TestGetProjectionData:
         assert section["type"] == "context"
         assert section["source_id"] == "node-1"
         assert section["tokens_used"] == 500
-        assert section["state"] == "all"
+        assert section["expansion"] == "all"
 
     def test_returns_total_tokens_used(self, mock_session):
         """Should return total tokens across all sections."""
@@ -585,15 +585,15 @@ class TestGetProjectionData:
         section1.section_type = "system"
         section1.source_id = "sys"
         section1.tokens_used = 200
-        section1.state = MagicMock()
-        section1.state.name = "DETAILS"
+        section1.expansion = MagicMock()
+        section1.expansion.value = "all"
 
         section2 = MagicMock()
         section2.section_type = "context"
         section2.source_id = "ctx"
         section2.tokens_used = 800
-        section2.state = MagicMock()
-        section2.state.name = "ALL"
+        section2.expansion = MagicMock()
+        section2.expansion.value = "all"
 
         projection = mock_session.get_projection.return_value
         projection.sections = [section1, section2]
@@ -603,20 +603,20 @@ class TestGetProjectionData:
         assert result["total_used"] == 1000
         assert len(result["sections"]) == 2
 
-    def test_handles_section_without_state(self, mock_session):
-        """Should handle sections with None state."""
+    def test_handles_section_without_expansion(self, mock_session):
+        """Should handle sections with None expansion."""
         section = MagicMock()
         section.section_type = "context"
         section.source_id = "node-1"
         section.tokens_used = 100
-        section.state = None
+        section.expansion = None
 
         projection = mock_session.get_projection.return_value
         projection.sections = [section]
 
         result = get_projection_data(mock_session)
 
-        assert result["sections"][0]["state"] == "details"  # Default
+        assert result["sections"][0]["expansion"] == "all"  # Default
 
     def test_handles_exception(self, mock_session):
         """Should return empty result on exception."""

@@ -58,7 +58,7 @@ class MCPIntegration:
         url: str | None = None,
         env: dict[str, str] | None = None,
         tokens: int = 1000,
-        expansion: Expansion = Expansion.DETAILS,
+        expansion: Expansion = Expansion.ALL,
     ) -> MCPServerNode:
         """Connect to an MCP server.
 

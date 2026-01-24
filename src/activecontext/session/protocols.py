@@ -201,7 +201,7 @@ class ProjectionSection:
     source_id: str
     content: str
     tokens_used: int
-    expansion: Expansion = Expansion.DETAILS
+    expansion: Expansion = Expansion.ALL
     metadata: dict[str, Any] = field(default_factory=dict)
 
 

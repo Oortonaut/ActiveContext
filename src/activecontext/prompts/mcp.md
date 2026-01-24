@@ -4,7 +4,7 @@ Connect to external MCP servers to access their tools and resources.
 
 ## Connecting to Servers
 
-### `mcp_connect(name, *, command=None, url=None, env=None, tokens=1000, expansion=Expansion.DETAILS)`
+### `mcp_connect(name, *, command=None, url=None, env=None, tokens=1000, expansion=Expansion.ALL)`
 Connect to an MCP server. Returns an MCPServerNode.
 
 ```python
@@ -75,14 +75,14 @@ fs_tools = mcp_tools("filesystem")
 
 When connected, the MCPServerNode appears in your context with tool documentation:
 
-- **COLLAPSED**: `MCP: filesystem [OK] (5 tools)`
-- **SUMMARY**: Server + tool names list
-- **DETAILS**: Full documentation with parameter schemas
+- **HEADER**: `MCP: filesystem [OK] (5 tools)`
+- **CONTENT**: Server + tool names list
+- **ALL**: Full documentation with parameter schemas
 
 ```python
 fs = mcp_connect("filesystem")
-fs.expansion = Expansion.DETAILS    # Full tool documentation
-fs.expansion = Expansion.SUMMARY    # Just tool names
+fs.expansion = Expansion.ALL      # Full tool documentation
+fs.expansion = Expansion.CONTENT  # Just tool names
 ```
 
 ## Tool Child Nodes
@@ -100,7 +100,7 @@ tool = fs.tool("read_file")           # Get single tool node
 all_tools = fs.tool_nodes             # Get all tool nodes
 
 # Access via namespace (prefixed names)
-filesystem_read_file.expansion = Expansion.DETAILS
+filesystem_read_file.expansion = Expansion.ALL
 hide(filesystem_write_file)           # Hide from projection
 ```
 
@@ -108,15 +108,15 @@ hide(filesystem_write_file)           # Hide from projection
 
 Each MCPToolNode has independent state control:
 
-- **COLLAPSED**: Just the tool name: `` `read_file` ``
-- **SUMMARY**: Name + truncated description
-- **DETAILS**: Full JSON schema documentation
+- **HEADER**: Just the tool name: `` `read_file` ``
+- **CONTENT**: Name + truncated description
+- **ALL**: Full JSON schema documentation
 
 Use `hide()` / `unhide()` to control whether a tool appears at all.
 
 ```python
 # Show full documentation for one tool only
-fs.tool("read_file").expansion = Expansion.DETAILS
+fs.tool("read_file").expansion = Expansion.ALL
 
 # Hide tools you don't need
 hide(fs.tool("delete_file"))

@@ -510,7 +510,7 @@ class TestHideUnhide:
 
             ns = timeline.get_namespace()
             v = ns["v"]
-            assert v.expand == Expansion.DETAILS  # Default
+            assert v.expand == Expansion.ALL  # Default
             assert v.hide is False
 
             result = await timeline.execute_statement("count = hide(v)")
@@ -574,16 +574,16 @@ class TestHideUnhide:
 
         try:
             await timeline.execute_statement('v = text("test.py")')
-            await timeline.execute_statement("v.expand = Expansion.SUMMARY")
+            await timeline.execute_statement("v.expand = Expansion.CONTENT")
 
             ns = timeline.get_namespace()
             v = ns["v"]
-            assert v.expand == Expansion.SUMMARY
+            assert v.expand == Expansion.CONTENT
 
             await timeline.execute_statement("hide(v)")
 
             assert v.hide is True
-            assert v.tags.get("_hidden_expand") == "summary"
+            assert v.tags.get("_hidden_expand") == "content"
         finally:
             await timeline.close()
 
@@ -615,7 +615,7 @@ class TestHideUnhide:
 
         try:
             await timeline.execute_statement('v = text("test.py")')
-            await timeline.execute_statement("v.expand = Expansion.SUMMARY")
+            await timeline.execute_statement("v.expand = Expansion.CONTENT")
 
             ns = timeline.get_namespace()
             v = ns["v"]
@@ -629,7 +629,7 @@ class TestHideUnhide:
             ns = timeline.get_namespace()
             assert ns["count"] == 1
             assert v.hide is False
-            assert v.expand == Expansion.SUMMARY  # Restored
+            assert v.expand == Expansion.CONTENT  # Restored
             assert "_hidden_expand" not in v.tags  # Cleaned up
         finally:
             await timeline.close()
@@ -649,13 +649,13 @@ class TestHideUnhide:
             v = ns["v"]
             assert v.hide is True
 
-            result = await timeline.execute_statement("count = unhide(v, expand=Expansion.COLLAPSED)")
+            result = await timeline.execute_statement("count = unhide(v, expand=Expansion.HEADER)")
             assert result.status.value == "ok"
 
             ns = timeline.get_namespace()
             assert ns["count"] == 1
             assert v.hide is False
-            assert v.expand == Expansion.COLLAPSED
+            assert v.expand == Expansion.HEADER
         finally:
             await timeline.close()
 
@@ -680,7 +680,7 @@ class TestHideUnhide:
             ns = timeline.get_namespace()
             assert ns["count"] == 1
             assert v.hide is False
-            assert v.expand == Expansion.DETAILS  # Default
+            assert v.expand == Expansion.ALL  # Default
         finally:
             await timeline.close()
 
@@ -707,8 +707,8 @@ class TestHideUnhide:
             assert ns["count"] == 2
             assert ns["v1"].hide is False
             assert ns["v2"].hide is False
-            assert ns["v1"].expand == Expansion.DETAILS
-            assert ns["v2"].expand == Expansion.DETAILS
+            assert ns["v1"].expand == Expansion.ALL
+            assert ns["v2"].expand == Expansion.ALL
         finally:
             await timeline.close()
 
@@ -721,7 +721,7 @@ class TestHideUnhide:
 
         try:
             await timeline.execute_statement('v = text("test.py")')
-            await timeline.execute_statement("v.expand = Expansion.COLLAPSED")
+            await timeline.execute_statement("v.expand = Expansion.HEADER")
 
             ns = timeline.get_namespace()
             v = ns["v"]
@@ -733,6 +733,6 @@ class TestHideUnhide:
             # Unhide and verify restored
             await timeline.execute_statement("unhide(v)")
             assert v.hide is False
-            assert v.expand == Expansion.COLLAPSED
+            assert v.expand == Expansion.HEADER
         finally:
             await timeline.close()

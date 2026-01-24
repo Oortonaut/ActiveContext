@@ -100,7 +100,7 @@ def traceable(
         @trace_all_fields
         @dataclass
         class MyNode(ContextNode):
-            expansion: Expansion = traceable(default=Expansion.DETAILS)
+            expansion: Expansion = traceable(default=Expansion.ALL)
             children: list[str] = traceable(default_factory=list)
 
     Args:

@@ -6,16 +6,17 @@ Controls how a node renders in the projection.
 
 | State | Description | Use Case |
 |-------|-------------|----------|
-| `COLLAPSED` | Metadata only (title, trace count) | Background context, low priority |
-| `SUMMARY` | LLM-generated summary | Groups, large files |
-| `DETAILS` | Full content with child settings | Active work files |
+| `HEADER` | Metadata only (title, trace count) | Background context, low priority |
+| `CONTENT` | Main content/summary | Groups, large files |
+| `INDEX` | Content plus section headings | Navigation, quick reference |
+| `ALL` | Full content with all details | Active work files |
 
 ```python
 from activecontext import Expansion
 
-v = text("src/main.py", expansion=Expansion.DETAILS)
-v.expansion = Expansion.SUMMARY  # Reduce detail
-v.expansion = Expansion.COLLAPSED  # Show minimal info
+v = text("src/main.py", expansion=Expansion.ALL)
+v.expansion = Expansion.CONTENT  # Reduce detail
+v.expansion = Expansion.HEADER   # Show minimal info
 ```
 
 ## Visibility (hide/unhide)
@@ -25,7 +26,7 @@ Controls whether a node appears in the projection at all.
 ```python
 hide(text_1)              # Remove from projection (node still ticks)
 unhide(text_1)            # Restore to previous expansion
-unhide(text_1, expand=Expansion.SUMMARY)  # Restore with specific expansion
+unhide(text_1, expand=Expansion.CONTENT)  # Restore with specific expansion
 ```
 
 Hidden nodes:
@@ -60,7 +61,7 @@ All context nodes support method chaining:
 
 ```python
 v = text("src/main.py")
-v.expansion = Expansion.DETAILS
+v.expansion = Expansion.ALL
 v.tokens = 2000
 v.Run(TickFrequency.turn())
 

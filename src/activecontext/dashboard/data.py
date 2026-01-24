@@ -142,7 +142,7 @@ def get_projection_data(session: Session) -> dict[str, Any]:
                     "type": section.section_type,
                     "source_id": section.source_id,
                     "tokens_used": section.tokens_used,
-                    "state": section.state.name.lower() if section.state else "details",
+                    "expansion": section.expansion.value if section.expansion else "all",
                 })
                 total_used += section.tokens_used
             except Exception:
@@ -228,7 +228,7 @@ def get_rendered_projection_data(session: Session) -> dict[str, Any]:
                     "source_id": section.source_id,
                     "content": section.content,
                     "tokens_used": section.tokens_used,
-                    "state": section.state.name.lower() if section.state else "details",
+                    "expansion": section.expansion.value if section.expansion else "all",
                 })
             except Exception:
                 _log.debug("Failed to process rendered section", exc_info=True)

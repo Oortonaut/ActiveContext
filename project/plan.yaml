@@ -2253,6 +2253,51 @@ tasks:
   failures: []
   subtasks: []
 
+- id: dash-001
+  title: Dashboard View System
+  description: |
+    Add view management to dashboard context graph card.
+
+    UI Components:
+    - View dropdown: "Agent View (Live)" + saved views
+    - Clone button: Snapshot current hide/expand state with name
+    - Read button: Copy agent's live state TO selected view
+    - Write button: Apply selected view's state TO agent
+    - Delete button: Remove selected view
+
+    Backend (src/activecontext/dashboard/):
+    - views.py (new): ViewManager class for named snapshots
+    - data.py: get_current_view_snapshot(), apply_view_snapshot()
+    - routes.py: WebSocket commands (clone_view, read_view, write_view, delete_view)
+
+    Frontend (src/activecontext/dashboard/static/):
+    - index.html: View controls in context card header
+    - dashboard.js: View management methods
+    - dashboard.css: View control styling
+
+    Leverages existing NodeView architecture (hide/expand state per node).
+  status: pending
+  stream: C
+  depends_on: []
+  blocks: []
+  estimate:
+    points: 5
+    confidence: high
+    rationale: Clear UI, follows existing dashboard patterns, NodeView already exists
+  execution:
+    agent_id: null
+    session_id: null
+    attempt: 0
+    max_attempts: 3
+    started: null
+    completed: null
+  actual:
+    tokens: {input: 0, output: 0, cache_read: 0, cache_create: 0}
+    cost_usd: 0.0
+    wall_time_seconds: 0
+  failures: []
+  subtasks: []
+
 velocity:
   history:
   - date: '2026-01-20'

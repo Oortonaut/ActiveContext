@@ -60,7 +60,7 @@ class LockManager:
         timeout: float = 30.0,
         *,
         tokens: int = 200,
-        expansion: Expansion = Expansion.COLLAPSED,
+        expansion: Expansion = Expansion.HEADER,
     ) -> LockNode:
         """Acquire an exclusive file lock asynchronously, returning a LockNode.
 

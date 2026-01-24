@@ -130,7 +130,7 @@ class Session:
                 # Shouldn't happen, but create fresh if somehow wrong type
                 self._root_context = GroupNode(
                     node_id="context",
-                    expansion=Expansion.DETAILS,
+                    expansion=Expansion.ALL,
                     mode="running",
                     tick_frequency=TickFrequency.turn(),
                 )
@@ -142,7 +142,7 @@ class Session:
             # All other nodes become children of this root
             self._root_context = GroupNode(
                 node_id="context",
-                expansion=Expansion.DETAILS,
+                expansion=Expansion.ALL,
                 mode="running",
                 tick_frequency=TickFrequency.turn(),
             )
@@ -215,7 +215,7 @@ class Session:
             path="system_prompt",
             content=SYSTEM_PROMPT,
             tokens=2000,  # Base system prompt is smaller than full combined prompt
-            expansion=Expansion.DETAILS,  # Fully expanded
+            expansion=Expansion.ALL,  # Fully expanded
         )
 
         # Link root node to root context for document ordering
@@ -289,7 +289,7 @@ class Session:
         self._mcp_manager_node = MCPManagerNode(
             node_id="mcp_manager",
             tokens=300,
-            expansion=Expansion.SUMMARY,
+            expansion=Expansion.CONTENT,
             mode="running",
             tick_frequency=TickFrequency.turn(),
         )
@@ -301,7 +301,7 @@ class Session:
         self._user_messages_group = GroupNode(
             node_id="user_messages",
             tokens=2000,
-            expansion=Expansion.DETAILS,  # Visible in projection
+            expansion=Expansion.ALL,  # Visible in projection
             mode="running",
             tick_frequency=TickFrequency.turn(),
         )
@@ -313,7 +313,7 @@ class Session:
         self._alerts_group = GroupNode(
             node_id="alerts",
             tokens=500,
-            expansion=Expansion.COLLAPSED,  # Collapsed when empty, DETAILS when has content
+            expansion=Expansion.HEADER,  # Header when empty, ALL when has content
             mode="running",
             tick_frequency=TickFrequency.turn(),
         )
@@ -884,7 +884,7 @@ class Session:
             role="user",
             content=content,
             originator="user",
-            expansion=Expansion.DETAILS,
+            expansion=Expansion.ALL,
             mode="running",
         )
 
@@ -1384,14 +1384,14 @@ class Session:
                 node_id=f"alert_{i}",
                 content=notif.header,
                 artifact_type="notification",
-                expansion=Expansion.DETAILS,
+                expansion=Expansion.ALL,
                 tags={"level": notif.level, "source": notif.node_id},
             )
             context_graph.add_node(alert_node)
             context_graph.link(alert_node.node_id, self._alerts_group.node_id)
 
         # Update group visibility based on content
-        self._alerts_group.expansion = Expansion.DETAILS if notifications else Expansion.COLLAPSED
+        self._alerts_group.expansion = Expansion.ALL if notifications else Expansion.HEADER
 
     def get_projection(self) -> Projection:
         """Build the LLM projection from current session state.
@@ -1479,7 +1479,7 @@ class Session:
                 role="user",  # Result flows back as user input
                 originator=originator,
                 content=str(result),
-                expansion=Expansion.DETAILS,
+                expansion=Expansion.ALL,
             )
             self.timeline.context_graph.add_node(result_node)
 
@@ -1491,7 +1491,7 @@ class Session:
                 role="user",
                 originator=originator,
                 content="[Cancelled]",
-                expansion=Expansion.DETAILS,
+                expansion=Expansion.ALL,
             )
             self.timeline.context_graph.add_node(cancel_node)
             raise
@@ -1706,7 +1706,7 @@ class Session:
 
                 # Use forward slashes for cross-platform compatibility
                 safe_path = rel_path.replace("\\", "/")
-                source = f'guide = markdown("{safe_path}", tokens=1500, expansion=Expansion.DETAILS)'
+                source = f'guide = markdown("{safe_path}", tokens=1500, expansion=Expansion.ALL)'
                 await self._timeline.execute_statement(source)
                 break
 

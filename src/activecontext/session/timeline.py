@@ -866,7 +866,7 @@ class Timeline:
         *,
         pos: str = "1:0",
         tokens: int = 2000,
-        expansion: Expansion = Expansion.DETAILS,
+        expansion: Expansion = Expansion.ALL,
         mode: str = "paused",
         parent: ContextNode | str | None = None,
     ) -> NodeView:
@@ -876,7 +876,7 @@ class Timeline:
             path: File path relative to session cwd
             pos: Start position as "line:col" (1-indexed)
             tokens: Token budget for rendering
-            expansion: Rendering expansion (COLLAPSED, SUMMARY, DETAILS)
+            expansion: Rendering expansion (HEADER, CONTENT, INDEX, ALL)
             mode: "paused" or "running"
             parent: Optional parent node or node ID (defaults to current_group if set)
 
@@ -916,7 +916,7 @@ class Timeline:
         self,
         *members: ContextNode | NodeView | str,
         tokens: int = 500,
-        expansion: Expansion = Expansion.SUMMARY,
+        expansion: Expansion = Expansion.CONTENT,
         mode: str = "paused",
         summary: str | None = None,
         parent: ContextNode | NodeView | str | None = None,
@@ -926,7 +926,7 @@ class Timeline:
         Args:
             *members: Child nodes, views, or node IDs to include in the group
             tokens: Token budget for summary
-            expansion: Rendering expansion (COLLAPSED, SUMMARY, DETAILS)
+            expansion: Rendering expansion (HEADER, CONTENT, INDEX, ALL)
             mode: "paused" or "running"
             summary: Optional pre-computed summary text
             parent: Optional parent node, view, or node ID (defaults to current_group if set)
@@ -1075,7 +1075,7 @@ class Timeline:
         *,
         content: str | None = None,
         tokens: int = 2000,
-        expansion: Expansion = Expansion.DETAILS,
+        expansion: Expansion = Expansion.ALL,
         parent: ContextNode | NodeView | str | None = None,
     ) -> NodeView:
         """Create a tree of TextNodes from a markdown file.
@@ -1087,7 +1087,7 @@ class Timeline:
             path: File path relative to session cwd
             content: Markdown content (if None, reads from path)
             tokens: Token budget for root node
-            expansion: Rendering expansion (COLLAPSED, SUMMARY, DETAILS)
+            expansion: Rendering expansion (HEADER, CONTENT, INDEX, ALL)
             parent: Optional parent node, view, or node ID (defaults to current_group if set)
 
         Returns:
@@ -1219,7 +1219,7 @@ class Timeline:
         path: str,
         *,
         tokens: int = 2000,
-        expansion: Expansion = Expansion.DETAILS,
+        expansion: Expansion = Expansion.ALL,
         **kwargs: Any,
     ) -> NodeView:
         """Dispatcher for creating text views based on media type.
@@ -1389,7 +1389,7 @@ class Timeline:
         Example:
             unhide(text_1)                        # Restore to previous state
             unhide(text_1, text_2)                # Restore multiple
-            unhide(text_1, expand=Expansion.SUMMARY)  # Force specific expand
+            unhide(text_1, expand=Expansion.CONTENT)  # Force specific expand
         """
         count = 0
         for item in nodes:
@@ -1422,8 +1422,8 @@ class Timeline:
                 target = Expansion(view.tags["_hidden_expand"])
                 del view.tags["_hidden_expand"]
             else:
-                # Default to DETAILS if no stored state
-                target = Expansion.DETAILS
+                # Default to ALL if no stored state
+                target = Expansion.ALL
 
             # Unhide and set expand
             view.hide = False

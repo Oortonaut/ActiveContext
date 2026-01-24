@@ -78,7 +78,7 @@ class SessionConversationTransport:
             role="user",  # All non-agent messages use role="user"
             originator=originator or self._originator,
             content=text,
-            expansion=Expansion.DETAILS,
+            expansion=Expansion.ALL,
         )
         self._session.timeline.context_graph.add_node(node)
 
@@ -162,7 +162,7 @@ class SessionConversationTransport:
                 role="user",
                 originator=self._originator,
                 content=prompt,
-                expansion=Expansion.DETAILS,
+                expansion=Expansion.ALL,
             )
             self._session.timeline.context_graph.add_node(prompt_node)
 
@@ -184,7 +184,7 @@ class SessionConversationTransport:
             role="user",
             originator="user",  # Response always from user
             content=response,
-            expansion=Expansion.DETAILS,
+            expansion=Expansion.ALL,
         )
         self._session.timeline.context_graph.add_node(response_node)
 

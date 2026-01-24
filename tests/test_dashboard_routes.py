@@ -106,7 +106,7 @@ def mock_projection_data():
                 "type": "context",
                 "source_id": "node-1",
                 "tokens_used": 500,
-                "state": "details",
+                "state": "all",
             }
         ],
     }
@@ -1104,7 +1104,7 @@ class TestWebSocketEndpoint:
                 websocket.send_json({
                     "type": "set_expansion",
                     "node_id": "nonexistent",
-                    "expansion": "collapsed",
+                    "expansion": "header",
                 })
 
                 # Should receive error
@@ -1118,7 +1118,7 @@ class TestWebSocketEndpoint:
 
         # Configure mock node
         mock_node = MagicMock()
-        mock_node.expansion = Expansion.DETAILS
+        mock_node.expansion = Expansion.ALL
         mock_node.node_type = "text"
         mock_node.GetDigest.return_value = {"id": "node-1", "type": "text"}
 
@@ -1171,15 +1171,15 @@ class TestWebSocketEndpoint:
                     websocket.send_json({
                         "type": "set_expansion",
                         "node_id": "node-1",
-                        "expansion": "collapsed",
+                        "expansion": "header",
                     })
 
                     # Should receive confirmation
                     response = websocket.receive_json()
                     assert response["type"] == "expansion_changed"
                     assert response["node_id"] == "node-1"
-                    assert response["old_expansion"] == "details"
-                    assert response["new_expansion"] == "collapsed"
+                    assert response["old_expansion"] == "all"
+                    assert response["new_expansion"] == "header"
 
     def test_websocket_handles_session_not_found_on_init(self):
         """WebSocket should handle session not found during init."""

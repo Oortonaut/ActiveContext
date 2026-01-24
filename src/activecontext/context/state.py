@@ -31,15 +31,17 @@ class Visibility(Enum):
 class Expansion(Enum):
     """Rendering state for context nodes.
 
-    States control how visible nodes appear in projections:
-    - COLLAPSED: Title and metadata only (size, trace count)
-    - SUMMARY: LLM-generated summary (default for groups)
-    - DETAILS: Full view with child settings (default for views)
+    States control how visible nodes appear in projections (ordered by verbosity):
+    - HEADER: Title and metadata only (size, trace count)
+    - CONTENT: Main content/summary (default for groups)
+    - INDEX: Content plus section headings without recursing
+    - ALL: Everything including index and full details (default for views)
     """
 
-    COLLAPSED = "collapsed"
-    SUMMARY = "summary"
-    DETAILS = "details"
+    HEADER = "header"
+    CONTENT = "content"
+    INDEX = "index"
+    ALL = "all"
 
     def __str__(self) -> str:
         return self.value

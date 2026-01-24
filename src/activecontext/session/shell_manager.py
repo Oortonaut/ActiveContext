@@ -76,7 +76,7 @@ class ShellManager:
         timeout: float | None = 30.0,
         *,
         tokens: int = 2000,
-        expansion: Expansion = Expansion.DETAILS,
+        expansion: Expansion = Expansion.ALL,
     ) -> ShellNode:
         """Execute a shell command asynchronously, returning a ShellNode.
 
