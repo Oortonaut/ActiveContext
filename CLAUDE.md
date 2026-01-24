@@ -195,8 +195,8 @@ Models are auto-discovered from available API keys. The first available model be
 
 | Variable | Description |
 |----------|-------------|
-| `ACTIVECONTEXT_LOG` | File path for diagnostic logs. Logs all ACP messages with timestamps. |
-| `ACTIVECONTEXT_DEBUG` | Set to any value to print projection contents to stderr. |
+| `AC_LOG` | File path for diagnostic logs. Logs all ACP messages with timestamps. |
+| `AC_DEBUG` | Set to any value to print projection contents to stderr. |
 
 Example ACP config with logging:
 ```json
@@ -207,7 +207,7 @@ Example ACP config with logging:
       "args": ["-m", "activecontext"],
       "env": {
         "ANTHROPIC_API_KEY": "sk-...",
-        "ACTIVECONTEXT_LOG": "C:\\Users\\You\\activecontext.log"
+        "AC_LOG": "C:\\Users\\You\\activecontext.log"
       }
     }
   }
@@ -724,8 +724,8 @@ shell(f"pytest -v {user_path}")
 
 1. **Reproduce first** - Isolate the minimal case that triggers the issue
 2. **Enable logging:**
-   - `ACTIVECONTEXT_DEBUG=1` - Projection output to stderr
-   - `ACTIVECONTEXT_LOG=./debug.log` - Full ACP message traces
+   - `AC_DEBUG=1` - Projection output to stderr
+   - `AC_LOG=./debug.log` - Full ACP message traces
    - Rider logs: `%LOCALAPPDATA%\JetBrains\Rider*/log/acp/`
 3. **Add targeted logging** - Don't shotgun print statements
 4. **Use pytest flags** - `-xvs` for output and stop-on-first-failure
@@ -736,7 +736,7 @@ shell(f"pytest -v {user_path}")
 - **Token budget**: Default 16k; set appropriate `tokens` parameter on nodes
 - **Avoid N+1**: Use `asyncio.gather()` for independent parallel operations
 - **Hot paths**: `ProjectionEngine.build()`, `ContextGraph` traversal, `Timeline.execute_statement()`
-- **Profiling**: Use `ACTIVECONTEXT_DEBUG=1` and `ACTIVECONTEXT_LOG`
+- **Profiling**: Use `AC_DEBUG=1` and `AC_LOG`
 
 ### Additional Practices
 

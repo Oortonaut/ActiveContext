@@ -113,8 +113,8 @@ Debug options:
 
 | Variable | Description |
 |----------|-------------|
-| `ACTIVECONTEXT_LOG` | File path for diagnostic logs |
-| `ACTIVECONTEXT_DEBUG` | Print projection contents to stderr |
+| `AC_LOG` | File path for diagnostic logs |
+| `AC_DEBUG` | Print projection contents to stderr |
 
 ## Development
 

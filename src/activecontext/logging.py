@@ -1,7 +1,7 @@
 """Logging configuration for ActiveContext.
 
 Uses Python's standard logging module with support for:
-- File logging via config or ACTIVECONTEXT_LOG environment variable
+- File logging via config or AC_LOG environment variable
 - Log level configuration via config
 - Stderr fallback when no log file is configured
 - Structured format with timestamps
@@ -60,7 +60,7 @@ def setup_logging(config: LoggingConfig | None = None) -> None:
 
     # Determine log file path (config already includes env var via loader)
     # Fallback to env var directly if no config provided
-    log_path = config.file if config and config.file else os.environ.get("ACTIVECONTEXT_LOG")
+    log_path = config.file if config and config.file else os.environ.get("AC_LOG")
 
     if log_path:
         # Expand ~ in path

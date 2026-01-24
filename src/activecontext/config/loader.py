@@ -87,8 +87,8 @@ def env_overrides() -> dict[str, Any]:
     """
     overrides: dict[str, Any] = {}
 
-    # Logging from ACTIVECONTEXT_LOG
-    log_path = os.environ.get("ACTIVECONTEXT_LOG")
+    # Logging from AC_LOG
+    log_path = os.environ.get("AC_LOG")
     if log_path:
         if "logging" not in overrides:
             overrides["logging"] = {}

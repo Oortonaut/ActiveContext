@@ -938,14 +938,40 @@ class Session:
         # If no mcp_manager node was saved, one was already created in __init__
 
         # Link session's user_messages group to the restored graph's node (if exists)
+        # Or create it if missing (backward compat for sessions saved before startup completed)
         restored_user_messages = context_graph.get_node("user_messages")
         if isinstance(restored_user_messages, GroupNode):
             session._user_messages_group = restored_user_messages
+        else:
+            # Create missing user_messages group for backward compatibility
+            session._user_messages_group = GroupNode(
+                node_id="user_messages",
+                tokens=2000,
+                expansion=Expansion.ALL,
+                mode="running",
+                tick_frequency=TickFrequency.turn(),
+            )
+            session._timeline.context_graph.add_node(session._user_messages_group)
+            session._timeline.context_graph.link("user_messages", "context")
+            log.debug("Created missing user_messages group for restored session")
 
         # Link session's alerts group to the restored graph's node (if exists)
+        # Or create it if missing (backward compat)
         restored_alerts = context_graph.get_node("alerts")
         if isinstance(restored_alerts, GroupNode):
             session._alerts_group = restored_alerts
+        else:
+            # Create missing alerts group for backward compatibility
+            session._alerts_group = GroupNode(
+                node_id="alerts",
+                tokens=500,
+                expansion=Expansion.HEADER,
+                mode="running",
+                tick_frequency=TickFrequency.turn(),
+            )
+            session._timeline.context_graph.add_node(session._alerts_group)
+            session._timeline.context_graph.link("alerts", "context")
+            log.debug("Created missing alerts group for restored session")
 
         # Restore text buffers for virtual content (system prompts)
         session._restore_system_prompt_buffer()
@@ -1097,7 +1123,7 @@ class Session:
             projection_content = projection.render()
 
             # Debug logging
-            if os.environ.get("ACTIVECONTEXT_DEBUG"):
+            if os.environ.get("AC_DEBUG"):
                 tokens_est = len(projection_content) // 4 if projection_content else 0
                 log.debug("=== ITERATION %d ===", iteration)
                 log.debug("=== PROJECTION (%d tokens) ===", tokens_est)
@@ -1794,6 +1820,13 @@ class Session:
         await self._setup_mcp_autoconnect()
 
         self._startup_done = True
+
+        # Save session after startup to persist metadata nodes (user_messages, alerts, etc.)
+        # These nodes are created during startup but the session may have just been loaded
+        try:
+            self.save()
+        except Exception as e:
+            log.warning("Failed to save session after startup: %s", e)
 
     async def _setup_initial_context(self) -> None:
         """Set up initial context for a new session (non-yielding version).

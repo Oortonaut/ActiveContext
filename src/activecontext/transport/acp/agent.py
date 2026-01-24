@@ -49,9 +49,15 @@ def _find_jetbrains_chat_uuid() -> str | None:
     one to determine which chat is currently being used.
 
     This is a workaround for JetBrains IDEs not passing chat UUID in session/new.
+    Only enabled when AC_CLIENT_JETBRAINS=1 env var is set (in acp.json).
     """
     import os
     from pathlib import Path
+
+    # Only run this hack if explicitly enabled via env var
+    # Set this in the JetBrains acp.json env block
+    if not os.environ.get("AC_CLIENT_JETBRAINS"):
+        return None
 
     # Find JetBrains task history directory
     localappdata = os.environ.get("LOCALAPPDATA")
@@ -722,6 +728,7 @@ class ActiveContextAgent:
 
             # Try to find JetBrains IDE chat UUID from filesystem
             # This allows session resumption even though JetBrains doesn't call session/load
+            # Only enabled when AC_CLIENT_JETBRAINS=1 is set in acp.json env
             jetbrains_uuid = _find_jetbrains_chat_uuid()
             session = None
 

@@ -1086,7 +1086,7 @@ package "Session Updates (Notifications)" {
       "args": ["-m", "activecontext"],
       "env": {
         "ANTHROPIC_API_KEY": "sk-...",
-        "ACTIVECONTEXT_LOG": "C:\\Users\\You\\activecontext.log"
+        "AC_LOG": "C:\\Users\\You\\activecontext.log"
       },
       "use_idea_mcp": false,
       "use_custom_mcp": true

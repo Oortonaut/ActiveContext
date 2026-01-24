@@ -305,7 +305,7 @@ class Agent(Script):
             projection_content = projection.render()
 
             # Debug logging
-            if os.environ.get("ACTIVECONTEXT_DEBUG"):
+            if os.environ.get("AC_DEBUG"):
                 tokens_est = len(projection_content) // 4 if projection_content else 0
                 log.debug("=== ITERATION %d ===", iteration)
                 log.debug("=== PROJECTION (%d tokens) ===", tokens_est)
