@@ -1,0 +1,2281 @@
+project:
+  name: activecontext
+  goal: Agent loop architecture where an LLM controls a structured, reversible working
+    context through a Python statement timeline
+  created: '2026-01-21T18:29:58.625011+00:00'
+  status: active
+tasks:
+- id: node-001
+  title: Originator Field Migration
+  description: 'Move `actor` field from MessageNode to base ContextNode class.
+
+    Rename to `originator` (arbitrary string reference).
+
+    Support node ID, filename, or arbitrary text as originator value.
+
+    Update MessageNode, display_label, effective_role.
+
+    Add originator to change notification payloads.
+
+    '
+  status: completed
+  stream: A
+  depends_on: []
+  blocks: []
+  estimate:
+    points: 3
+    confidence: high
+    rationale: Field migration with method updates
+  execution:
+    agent_id: opus-4e7b2a
+    session_id: sess-f3d91c8x
+    attempt: 1
+    max_attempts: 3
+    started: '2026-01-21T18:45:00Z'
+    completed: '2026-01-21T19:05:00Z'
+  actual:
+    tokens:
+      input: 0
+      output: 0
+      cache_read: 0
+      cache_create: 0
+    cost_usd: 0.0
+    wall_time_seconds: 0
+  failures: []
+  subtasks: []
+- id: node-002
+  title: Text Node Manipulation
+  description: 'Add replace_lines(line_no, num_removed, lines) method to TextNode.
+
+    Register file change callback, track nodes per file path.
+
+    Filter nodes by displayed range on change, emit notifications.
+
+    Add file change diffing for traces and notifications.
+
+    '
+  status: pending
+  stream: A
+  depends_on: []
+  blocks:
+  - node-003
+  estimate:
+    points: 5
+    confidence: medium
+    rationale: Complex file watching and notification logic
+  execution:
+    agent_id: null
+    session_id: null
+    attempt: 0
+    max_attempts: 3
+    started: null
+    completed: null
+  actual:
+    tokens:
+      input: 0
+      output: 0
+      cache_read: 0
+      cache_create: 0
+    cost_usd: 0.0
+    wall_time_seconds: 0
+  failures: []
+  subtasks: []
+- id: node-003
+  title: MarkdownNode Enhancements
+  description: 'Parse markdown list items into child nodes (ordered/unordered).
+
+    Nested list items become nested child nodes.
+
+    Individual list items can have independent NodeState.
+
+    Update parsed text nodes when markdown source changes.
+
+    '
+  status: pending
+  stream: A
+  depends_on:
+  - node-002
+  blocks: []
+  estimate:
+    points: 5
+    confidence: medium
+    rationale: Recursive parsing with state management
+  execution:
+    agent_id: null
+    session_id: null
+    attempt: 0
+    max_attempts: 3
+    started: null
+    completed: null
+  actual:
+    tokens:
+      input: 0
+      output: 0
+      cache_read: 0
+      cache_create: 0
+    cost_usd: 0.0
+    wall_time_seconds: 0
+  failures: []
+  subtasks: []
+- id: node-004
+  title: New Node Types
+  description: 'FileSystemNode: Directory tree view with filtering, collapse/expand.
+
+    ClockNode: Timer/countdown with tick-driven updates.
+
+    FunctionDocNode: Extract and display function signatures + docstrings.
+
+    '
+  status: pending
+  stream: A
+  depends_on: []
+  blocks: []
+  estimate:
+    points: 8
+    confidence: medium
+    rationale: Three new node types with distinct behaviors
+  execution:
+    agent_id: null
+    session_id: null
+    attempt: 0
+    max_attempts: 3
+    started: null
+    completed: null
+  actual:
+    tokens:
+      input: 0
+      output: 0
+      cache_read: 0
+      cache_create: 0
+    cost_usd: 0.0
+    wall_time_seconds: 0
+  failures: []
+  subtasks: []
+- id: node-005
+  title: Node Help System
+  description: |
+    Add self-documenting .help() method to ContextNode and all subclasses.
+    Critical dependency for plugin system (plugin-006).
+
+    Core Implementation:
+    - Add .help() method to ContextNode base class
+    - Returns or creates a HelpNode child attached to the calling node
+    - HelpNode renders documentation based on its parent's type
+    - Calling .help() on hidden HelpNode unhides it
+
+    HelpNode class (new node type):
+    - node_type = "help"
+    - parent_node_type: str (the type being documented)
+    - Renders documentation extracted from parent class
+
+    Documentation Extraction:
+    - Parse class docstring for overview
+    - Extract __init__ signature for constructor params
+    - Identify "agent-facing" methods (public, non-underscore)
+    - Parse method docstrings for descriptions
+    - Generate usage examples from method signatures
+
+    Rendering States:
+    - COLLAPSED: "{NodeType} Help - 5 methods"
+    - SUMMARY: Overview + list of key methods with one-liners
+    - DETAILS: Full documentation with signatures, params, examples
+
+    Unified `exposed` Marker:
+    - Replace traceable.py with simpler exposed.py
+    - EXPOSED = {"field", "method"} class attribute
+    - @exposed decorator adds to EXPOSED set
+    - get_exposed(cls) -> set[str]
+    - Used for both tracing and help - single source of truth
+
+    DSL Integration:
+    - help(node) function: Equivalent to node.help()
+    - help("node_type") function: Show help for a type without instance
+    - help() with no args: Show general DSL reference
+  status: pending
+  stream: A
+  depends_on: []
+  blocks:
+  - plugin-006
+  estimate:
+    points: 5
+    confidence: medium
+    rationale: HelpNode class, docstring extraction, template rendering
+  execution:
+    agent_id: null
+    session_id: null
+    attempt: 0
+    max_attempts: 3
+    started: null
+    completed: null
+  actual:
+    tokens:
+      input: 0
+      output: 0
+      cache_read: 0
+      cache_create: 0
+    cost_usd: 0.0
+    wall_time_seconds: 0
+  failures: []
+  subtasks:
+  - id: node-005-a
+    title: Create HelpNode class in context/nodes.py
+    description: |
+      New node type for rendering documentation.
+      Fields: parent_node_type, cached_content, method_count.
+      Implement RenderCollapsed, RenderSummary, RenderDetail.
+    status: pending
+  - id: node-005-b
+    title: Add .help() method to ContextNode base class
+    description: |
+      Returns existing HelpNode child or creates new one.
+      If HelpNode exists but is HIDDEN, unhide it.
+      Registers HelpNode in node registry.
+    status: pending
+  - id: node-005-c
+    title: Implement DocExtractor utility class
+    description: |
+      Create context/doc_extractor.py with DocExtractor class.
+      extract_class_doc(cls) -> ClassDoc dataclass.
+      extract_method_doc(method) -> MethodDoc dataclass.
+      Uses inspect module for signatures, docstring parsing.
+    status: pending
+  - id: node-005-d
+    title: Add help() DSL functions
+    description: |
+      help(node) -> node.help()
+      help("type_name") -> create standalone HelpNode for type
+      help() -> return general DSL reference node
+    status: pending
+  - id: node-005-e
+    title: Simplify traceable to exposed marker
+    description: |
+      Replace traceable.py with simpler exposed.py.
+      Just a marker - no field() wrapper, no default= params.
+
+      Design:
+      - EXPOSED class attribute: set of field/method names
+      - @exposed decorator: adds name to EXPOSED set
+      - get_exposed(cls) -> set[str]: returns all exposed names
+
+      Used for both tracing and help documentation.
+      Update all node classes. Remove traceable() complexity.
+    status: pending
+  - id: node-005-f
+    title: Tests for help system
+    description: |
+      Test HelpNode rendering at all states.
+      Test .help() creates/unhides correctly.
+      Test DocExtractor with various docstring formats.
+      Test help() DSL functions.
+      Test exposed() for both tracing and help generation.
+    status: pending
+- id: test-000a
+  title: Agent Notification System
+  description: 'Implemented NotificationLevel enum, message queue, propagation, and
+    Alerts group.
+
+    Full notification infrastructure for agent-to-user communication.
+
+    '
+  status: completed
+  stream: B
+  depends_on: []
+  blocks: []
+  estimate:
+    points: 5
+    confidence: high
+    rationale: Notification infrastructure
+  execution:
+    agent_id: historical
+    session_id: historical
+    attempt: 1
+    max_attempts: 3
+    started: '2026-01-20T00:00:00Z'
+    completed: '2026-01-20T23:59:00Z'
+  actual:
+    tokens:
+      input: 0
+      output: 0
+      cache_read: 0
+      cache_create: 0
+    cost_usd: 0.0
+    wall_time_seconds: 0
+  failures: []
+  subtasks: []
+- id: test-000b
+  title: MCP Tool Node Implementation
+  description: 'Create MCPToolNode class in context/nodes.py.
+
+    Show individual tool details as child nodes of MCPServerNode.
+
+    Each tool node displays name, description, and parameter schema.
+
+    Diff-and-update on reconnection with traces for removed tools.
+
+    DSL access via server.tool() and namespace {server}_{tool}.
+
+    Tests for MCPToolNode (26 new tests).
+
+    '
+  status: completed
+  stream: B
+  depends_on: []
+  blocks: []
+  estimate:
+    points: 3
+    confidence: high
+    rationale: Node type implementation with tests
+  execution:
+    agent_id: historical
+    session_id: historical
+    attempt: 1
+    max_attempts: 3
+    started: '2026-01-20T00:00:00Z'
+    completed: '2026-01-20T23:59:00Z'
+  actual:
+    tokens:
+      input: 0
+      output: 0
+      cache_read: 0
+      cache_create: 0
+    cost_usd: 0.0
+    wall_time_seconds: 0
+  failures: []
+  subtasks: []
+- id: test-001
+  title: MCP Integration Testing
+  description: 'Test server connection lifecycle (connect/reconnect/disconnect).
+
+    Test tool invocation with various parameter types.
+
+    Test error handling and timeout scenarios.
+
+    Test permission boundary enforcement.
+
+    '
+  status: pending
+  stream: B
+  depends_on: []
+  blocks: []
+  estimate:
+    points: 5
+    confidence: medium
+    rationale: Integration tests require mock servers
+  execution:
+    agent_id: null
+    session_id: null
+    attempt: 0
+    max_attempts: 3
+    started: null
+    completed: null
+  actual:
+    tokens:
+      input: 0
+      output: 0
+      cache_read: 0
+      cache_create: 0
+    cost_usd: 0.0
+    wall_time_seconds: 0
+  failures: []
+  subtasks: []
+- id: test-002
+  title: Node Manipulation Testing
+  description: 'Test DAG link/unlink operations.
+
+    Test checkpoint/restore/branch cycles.
+
+    Test state transitions (HIDDEN→COLLAPSED→SUMMARY→DETAILS→ALL).
+
+    Test group summarization triggers.
+
+    '
+  status: pending
+  stream: B
+  depends_on: []
+  blocks: []
+  estimate:
+    points: 5
+    confidence: high
+    rationale: Clear test scenarios, existing test patterns
+  execution:
+    agent_id: null
+    session_id: null
+    attempt: 0
+    max_attempts: 3
+    started: null
+    completed: null
+  actual:
+    tokens:
+      input: 0
+      output: 0
+      cache_read: 0
+      cache_create: 0
+    cost_usd: 0.0
+    wall_time_seconds: 0
+  failures: []
+  subtasks: []
+- id: test-003
+  title: Test Coverage - Dashboard
+  description: 'Dashboard coverage is 0% (447 statements).
+
+    Decide: test or remove.
+
+    If testing: WebSocket multiplexing, concurrent sessions, race conditions.
+
+    '
+  status: pending
+  stream: B
+  depends_on: []
+  blocks: []
+  estimate:
+    points: 8
+    confidence: low
+    rationale: Large module, decision needed first
+  execution:
+    agent_id: null
+    session_id: null
+    attempt: 0
+    max_attempts: 3
+    started: null
+    completed: null
+  actual:
+    tokens:
+      input: 0
+      output: 0
+      cache_read: 0
+      cache_create: 0
+    cost_usd: 0.0
+    wall_time_seconds: 0
+  failures: []
+  subtasks: []
+- id: test-004
+  title: Test Coverage - Timeline
+  description: 'session/timeline.py at 49% coverage (540 statements missing).
+
+    Core execution engine - critical path.
+
+    '
+  status: pending
+  stream: B
+  depends_on: []
+  blocks: []
+  estimate:
+    points: 8
+    confidence: medium
+    rationale: Core module, complex state machine
+  execution:
+    agent_id: null
+    session_id: null
+    attempt: 0
+    max_attempts: 3
+    started: null
+    completed: null
+  actual:
+    tokens:
+      input: 0
+      output: 0
+      cache_read: 0
+      cache_create: 0
+    cost_usd: 0.0
+    wall_time_seconds: 0
+  failures: []
+  subtasks: []
+- id: test-005
+  title: Test Coverage - ACP Agent
+  description: 'transport/acp/agent.py at 21% coverage (512 statements missing).
+
+    ACP protocol handler - critical for IDE integration.
+
+    '
+  status: pending
+  stream: B
+  depends_on: []
+  blocks: []
+  estimate:
+    points: 8
+    confidence: medium
+    rationale: Protocol handler, needs mock transport
+  execution:
+    agent_id: null
+    session_id: null
+    attempt: 0
+    max_attempts: 3
+    started: null
+    completed: null
+  actual:
+    tokens:
+      input: 0
+      output: 0
+      cache_read: 0
+      cache_create: 0
+    cost_usd: 0.0
+    wall_time_seconds: 0
+  failures: []
+  subtasks: []
+- id: test-006
+  title: Test Coverage - Quick Wins
+  description: 'clean.py: 0% (31 statements) - simple deletion logic.
+
+    mcp/transport.py: 16% (27 statements).
+
+    agents/registry.py: 33% (28 statements).
+
+    '
+  status: pending
+  stream: B
+  depends_on: []
+  blocks: []
+  estimate:
+    points: 3
+    confidence: high
+    rationale: Small, simple modules
+  execution:
+    agent_id: null
+    session_id: null
+    attempt: 0
+    max_attempts: 3
+    started: null
+    completed: null
+  actual:
+    tokens:
+      input: 0
+      output: 0
+      cache_read: 0
+      cache_create: 0
+    cost_usd: 0.0
+    wall_time_seconds: 0
+  failures: []
+  subtasks: []
+- id: doc-001
+  title: ACP Protocol Documentation
+  description: 'Diagram Agent Client Protocol from primary sources (JetBrains spec,
+    acp-sdk).
+
+    Document message flow: initialize → prompt → response → cancel.
+
+    Document session lifecycle and state transitions.
+
+    Capture known quirks and implementation notes.
+
+    '
+  status: pending
+  stream: C
+  depends_on: []
+  blocks: []
+  estimate:
+    points: 5
+    confidence: medium
+    rationale: Research and diagramming required
+  execution:
+    agent_id: null
+    session_id: null
+    attempt: 0
+    max_attempts: 3
+    started: null
+    completed: null
+  actual:
+    tokens:
+      input: 0
+      output: 0
+      cache_read: 0
+      cache_create: 0
+    cost_usd: 0.0
+    wall_time_seconds: 0
+  failures: []
+  subtasks: []
+- id: doc-002
+  title: Prompt Cleanup
+  description: 'Review dsl_reference.md for accuracy against current implementation.
+
+    Update examples to use current API patterns.
+
+    Remove deprecated function references.
+
+    Add missing DSL functions to reference.
+
+    '
+  status: pending
+  stream: C
+  depends_on: []
+  blocks: []
+  estimate:
+    points: 3
+    confidence: high
+    rationale: Audit and update existing docs
+  execution:
+    agent_id: null
+    session_id: null
+    attempt: 0
+    max_attempts: 3
+    started: null
+    completed: null
+  actual:
+    tokens:
+      input: 0
+      output: 0
+      cache_read: 0
+      cache_create: 0
+    cost_usd: 0.0
+    wall_time_seconds: 0
+  failures: []
+  subtasks: []
+- id: doc-003
+  title: Markdown Test Fixtures
+  description: 'Add test cases for collapsed/summarized TextNodes.
+
+    Verify render_tags output for all node states.
+
+    Add test cases for MarkdownNode list item child nodes.
+
+    Demonstrate all TextNode visibility states side-by-side.
+
+    '
+  status: pending
+  stream: C
+  depends_on:
+  - node-003
+  blocks: []
+  estimate:
+    points: 3
+    confidence: high
+    rationale: Golden file tests, clear scope
+  execution:
+    agent_id: null
+    session_id: null
+    attempt: 0
+    max_attempts: 3
+    started: null
+    completed: null
+  actual:
+    tokens:
+      input: 0
+      output: 0
+      cache_read: 0
+      cache_create: 0
+    cost_usd: 0.0
+    wall_time_seconds: 0
+  failures: []
+  subtasks: []
+- id: repl-001
+  title: Node Lookup
+  description: 'Add node lookup by name (e.g., get("my_view") or nodes["my_view"]).
+
+    Support fuzzy/partial name matching.
+
+    '
+  status: pending
+  stream: D
+  depends_on: []
+  blocks: []
+  estimate:
+    points: 3
+    confidence: high
+    rationale: Namespace extension, clear API
+  execution:
+    agent_id: null
+    session_id: null
+    attempt: 0
+    max_attempts: 3
+    started: null
+    completed: null
+  actual:
+    tokens:
+      input: 0
+      output: 0
+      cache_read: 0
+      cache_create: 0
+    cost_usd: 0.0
+    wall_time_seconds: 0
+  failures: []
+  subtasks: []
+- id: repl-002
+  title: Traversal Control
+  description: 'Add remove(node) DSL function to exclude node from traversal.
+
+    Removed nodes skip rendering but retain state for potential restoration.
+
+    '
+  status: completed
+  stream: D
+  depends_on: []
+  blocks: []
+  estimate:
+    points: 2
+    confidence: high
+    rationale: Simple traversal flag
+  execution:
+    agent_id: claude-opus-4-5
+    session_id: current
+    attempt: 1
+    max_attempts: 3
+    started: '2026-01-22T00:15:00Z'
+    completed: '2026-01-22T00:35:00Z'
+  actual:
+    tokens:
+      input: 0
+      output: 0
+      cache_read: 0
+      cache_create: 0
+    cost_usd: 0.0
+    wall_time_seconds: 0
+  failures: []
+  subtasks: []
+- id: repl-003
+  title: Cross-Platform Path Roots
+  description: 'Register path roots automatically (~, $HOME, %USERPROFILE%, {home},
+    $CWD, {PROJECT}).
+
+    Normalize paths so agent doesn''t need to know which OS it''s on.
+
+    '
+  status: completed
+  stream: D
+  depends_on: []
+  blocks: []
+  estimate:
+    points: 3
+    confidence: medium
+    rationale: Platform detection and path normalization
+  execution:
+    agent_id: claude-opus-4-5
+    session_id: current
+    attempt: 1
+    max_attempts: 3
+    started: '2026-01-22T00:00:00Z'
+    completed: '2026-01-22T00:10:00Z'
+  actual:
+    tokens:
+      input: 0
+      output: 0
+      cache_read: 0
+      cache_create: 0
+    cost_usd: 0.0
+    wall_time_seconds: 0
+  failures: []
+  subtasks:
+  - id: repl-003-a
+    title: Implement @prompts/ prefix for bundled reference prompts
+    status: completed
+  - id: repl-003-b
+    title: Register path roots automatically (~, $HOME, %USERPROFILE%, {home}, $CWD,
+      {PROJECT})
+    status: completed
+  - id: repl-003-c
+    title: Normalize paths for cross-platform compatibility
+    status: completed
+- id: repl-004
+  title: REPL Output
+  description: 'Automatically print function call results. Already implemented at
+    timeline.py:3303-3304.
+
+    '
+  status: completed
+  stream: D
+  depends_on: []
+  blocks: []
+  estimate:
+    points: 1
+    confidence: high
+    rationale: Simple exec wrapper modification
+  execution:
+    agent_id: null
+    session_id: null
+    attempt: 0
+    max_attempts: 3
+    started: null
+    completed: null
+  actual:
+    tokens:
+      input: 0
+      output: 0
+      cache_read: 0
+      cache_create: 0
+    cost_usd: 0.0
+    wall_time_seconds: 0
+  failures: []
+  subtasks: []
+- id: p2-001
+  title: Security Review
+  description: 'Comprehensive security audit of permission system (file, shell, import,
+    web).
+
+    Review path traversal prevention, shell command injection.
+
+    Review MCP server permission boundaries.
+
+    Validate sandbox isolation guarantees.
+
+    Check for sensitive data exposure in logs/projections.
+
+    '
+  status: pending
+  stream: null
+  priority: P2
+  depends_on: []
+  blocks: []
+  estimate:
+    points: 8
+    confidence: low
+    rationale: Security audit scope can expand
+  execution:
+    agent_id: null
+    session_id: null
+    attempt: 0
+    max_attempts: 3
+    started: null
+    completed: null
+  actual:
+    tokens:
+      input: 0
+      output: 0
+      cache_read: 0
+      cache_create: 0
+    cost_usd: 0.0
+    wall_time_seconds: 0
+  failures: []
+  subtasks: []
+- id: p2-002
+  title: Summarization Pipeline
+  description: 'Implement LLM-based summarization for TextNodes.
+
+    Add summary caching to avoid redundant LLM calls.
+
+    Support incremental summarization for large files.
+
+    Add summarize() DSL function.
+
+    '
+  status: pending
+  stream: null
+  priority: P2
+  depends_on: []
+  blocks: []
+  estimate:
+    points: 8
+    confidence: medium
+    rationale: LLM integration with caching
+  execution:
+    agent_id: null
+    session_id: null
+    attempt: 0
+    max_attempts: 3
+    started: null
+    completed: null
+  actual:
+    tokens:
+      input: 0
+      output: 0
+      cache_read: 0
+      cache_create: 0
+    cost_usd: 0.0
+    wall_time_seconds: 0
+  failures: []
+  subtasks: []
+- id: p2-003
+  title: Agent Extensions
+  description: 'Expose async agent loop extension API (message queueing, out-of-band
+    status).
+
+    Add promptCapabilities: text, image, audio, resource, resource_link.
+
+    Add mime type support in dashboard and agent consumption.
+
+    Implement ACP plan mode protocol support.
+
+    '
+  status: pending
+  stream: null
+  priority: P2
+  depends_on: []
+  blocks: []
+  estimate:
+    points: 8
+    confidence: medium
+    rationale: Protocol extensions, multiple capabilities
+  execution:
+    agent_id: null
+    session_id: null
+    attempt: 0
+    max_attempts: 3
+    started: null
+    completed: null
+  actual:
+    tokens:
+      input: 0
+      output: 0
+      cache_read: 0
+      cache_create: 0
+    cost_usd: 0.0
+    wall_time_seconds: 0
+  failures: []
+  subtasks: []
+- id: p2-004
+  title: Subagent Testing
+  description: 'Test spawn/pause/terminate lifecycle.
+
+    Test message passing between parent and child.
+
+    Test resource cleanup on termination.
+
+    '
+  status: pending
+  stream: null
+  priority: P2
+  depends_on: []
+  blocks: []
+  estimate:
+    points: 5
+    confidence: medium
+    rationale: Process lifecycle testing
+  execution:
+    agent_id: null
+    session_id: null
+    attempt: 0
+    max_attempts: 3
+    started: null
+    completed: null
+  actual:
+    tokens:
+      input: 0
+      output: 0
+      cache_read: 0
+      cache_create: 0
+    cost_usd: 0.0
+    wall_time_seconds: 0
+  failures: []
+  subtasks: []
+- id: p3-001
+  title: Code Quality Cleanup
+  description: 'Identify overly complex functions (cyclomatic complexity > 10).
+
+    Extract helper functions where appropriate.
+
+    Run static analysis to find unreachable code.
+
+    Remove unused imports and variables.
+
+    '
+  status: pending
+  stream: null
+  priority: P3
+  depends_on: []
+  blocks: []
+  estimate:
+    points: 5
+    confidence: medium
+    rationale: Codebase-wide cleanup
+  execution:
+    agent_id: null
+    session_id: null
+    attempt: 0
+    max_attempts: 3
+    started: null
+    completed: null
+  actual:
+    tokens:
+      input: 0
+      output: 0
+      cache_read: 0
+      cache_create: 0
+    cost_usd: 0.0
+    wall_time_seconds: 0
+  failures: []
+  subtasks: []
+- id: p3-002
+  title: Infrastructure Improvements
+  description: 'Terminal capability detection (color, unicode, size) with graceful
+    degradation.
+
+    PTY support for interactive commands.
+
+    Design hook points (pre/post command, state change, tick boundary).
+
+    Document known Rider quirks and workarounds.
+
+    '
+  status: pending
+  stream: null
+  priority: P3
+  depends_on: []
+  blocks: []
+  estimate:
+    points: 8
+    confidence: low
+    rationale: Platform-specific complexity
+  execution:
+    agent_id: null
+    session_id: null
+    attempt: 0
+    max_attempts: 3
+    started: null
+    completed: null
+  actual:
+    tokens:
+      input: 0
+      output: 0
+      cache_read: 0
+      cache_create: 0
+    cost_usd: 0.0
+    wall_time_seconds: 0
+  failures: []
+  subtasks: []
+- id: skill-001
+  title: Skill Schema and Loader
+  description: 'Create src/activecontext/skills/ module with:
+
+    - schema.py: SkillManifest dataclass (name, description, allowed_tools, metadata)
+
+    - loader.py: Parse SKILL.md YAML frontmatter, validate structure
+
+    - Scan ~/.claude/skills/ directory for available skills
+
+    - Handle missing/malformed skill files gracefully
+
+    '
+  status: pending
+  stream: A
+  depends_on: []
+  blocks:
+  - skill-002
+  - skill-003
+  estimate:
+    points: 3
+    confidence: high
+    rationale: YAML parsing, dataclass definition, directory scanning
+  execution:
+    agent_id: null
+    session_id: null
+    attempt: 0
+    max_attempts: 3
+    started: null
+    completed: null
+  actual:
+    tokens:
+      input: 0
+      output: 0
+      cache_read: 0
+      cache_create: 0
+    cost_usd: 0.0
+    wall_time_seconds: 0
+  failures: []
+  subtasks: []
+- id: skill-002
+  title: Skill Slash Command Handler
+  description: 'Extend transport/acp/agent.py to handle /skill invocations:
+
+    - Detect "/skill {name}" and "/skill {name} {args}" patterns
+
+    - Load skill via SkillLoader from skill-001
+
+    - Return skill content for injection into context
+
+    - Add skill commands to _get_available_commands() for IDE autocomplete
+
+    - Handle unknown skill errors gracefully
+
+    '
+  status: pending
+  stream: A
+  depends_on:
+  - skill-001
+  blocks:
+  - skill-004
+  estimate:
+    points: 3
+    confidence: high
+    rationale: Slash command pattern already exists, extend it
+  execution:
+    agent_id: null
+    session_id: null
+    attempt: 0
+    max_attempts: 3
+    started: null
+    completed: null
+  actual:
+    tokens:
+      input: 0
+      output: 0
+      cache_read: 0
+      cache_create: 0
+    cost_usd: 0.0
+    wall_time_seconds: 0
+  failures: []
+  subtasks: []
+- id: skill-003
+  title: Skill Context Injection
+  description: 'Inject skill content into session context:
+
+    - Add skill SKILL.md content as MessageNode or TextNode
+
+    - Skill appears in projection for LLM to reference
+
+    - Support skill references/ directory loading on demand
+
+    - Handle HIDDEN/SUMMARY/DETAILS states for skill nodes
+
+    '
+  status: pending
+  stream: A
+  depends_on:
+  - skill-001
+  blocks:
+  - skill-004
+  estimate:
+    points: 5
+    confidence: medium
+    rationale: Context graph integration, node rendering
+  execution:
+    agent_id: null
+    session_id: null
+    attempt: 0
+    max_attempts: 3
+    started: null
+    completed: null
+  actual:
+    tokens:
+      input: 0
+      output: 0
+      cache_read: 0
+      cache_create: 0
+    cost_usd: 0.0
+    wall_time_seconds: 0
+  failures: []
+  subtasks: []
+- id: skill-004
+  title: Skill Manager
+  description: 'Create src/activecontext/skills/manager.py:
+
+    - SkillManager class tracks active skills per session
+
+    - activate_skill(name) / deactivate_skill(name) methods
+
+    - List active skills, handle duplicates
+
+    - Persist active skills in session state (optional)
+
+    - Integrate with SessionManager for lifecycle
+
+    '
+  status: pending
+  stream: A
+  depends_on:
+  - skill-002
+  - skill-003
+  blocks:
+  - skill-005
+  estimate:
+    points: 3
+    confidence: high
+    rationale: State management, list operations
+  execution:
+    agent_id: null
+    session_id: null
+    attempt: 0
+    max_attempts: 3
+    started: null
+    completed: null
+  actual:
+    tokens:
+      input: 0
+      output: 0
+      cache_read: 0
+      cache_create: 0
+    cost_usd: 0.0
+    wall_time_seconds: 0
+  failures: []
+  subtasks: []
+- id: skill-005
+  title: Skill Namespace Extension
+  description: 'Extend session/timeline.py _setup_namespace():
+
+    - Load skill-provided Python functions from skills/scripts/
+
+    - Register in namespace with optional prefix (skill_funcname)
+
+    - Respect allowed_tools from skill manifest for sandboxing
+
+    - Handle import errors gracefully
+
+    '
+  status: pending
+  stream: A
+  depends_on:
+  - skill-004
+  blocks:
+  - skill-006
+  estimate:
+    points: 5
+    confidence: medium
+    rationale: Dynamic function loading, permission scoping
+  execution:
+    agent_id: null
+    session_id: null
+    attempt: 0
+    max_attempts: 3
+    started: null
+    completed: null
+  actual:
+    tokens:
+      input: 0
+      output: 0
+      cache_read: 0
+      cache_create: 0
+    cost_usd: 0.0
+    wall_time_seconds: 0
+  failures: []
+  subtasks: []
+- id: test-007
+  title: Real Filesystem Test Infrastructure
+  description: "Set up infrastructure for testing against real filesystems:\n- Create\
+    \ tests/fixtures/skills/ with version-controlled test skills\n  - valid-skill/\
+    \ (well-formed SKILL.md)\n  - invalid-frontmatter/ (malformed YAML)\n  - missing-required/\
+    \ (missing name/description)\n  - with-scripts/ (skill with scripts/ directory)\n\
+    \  - with-references/ (skill with references/ directory)\n- Add file watcher integration\
+    \ tests (inotify/ReadDirectoryChangesW)\n- Cross-platform path tests (Windows\
+    \ backslash, Unix forward slash)\n- Path normalization tests (UNC paths, drive\
+    \ letters, symlinks)\n- Fixture helper: point skill loader at tests/fixtures/\
+    \ instead of ~/.claude/\n"
+  status: pending
+  stream: B
+  depends_on: []
+  blocks:
+  - skill-006
+  estimate:
+    points: 5
+    confidence: high
+    rationale: Fixture creation, platform-specific file watching
+  execution:
+    agent_id: null
+    session_id: null
+    attempt: 0
+    max_attempts: 3
+    started: null
+    completed: null
+  actual:
+    tokens:
+      input: 0
+      output: 0
+      cache_read: 0
+      cache_create: 0
+    cost_usd: 0.0
+    wall_time_seconds: 0
+  failures: []
+  subtasks: []
+- id: skill-006
+  title: Skills Integration Tests
+  description: 'Comprehensive tests for skills subsystem using real filesystem:
+
+    - Use tests/fixtures/skills/ for version-controlled test skills
+
+    - Test skill discovery against real fixture directory
+
+    - Test SKILL.md parsing (valid/invalid frontmatter fixtures)
+
+    - Test /skill command handling
+
+    - Test skill context injection and rendering
+
+    - Test multi-skill activation/deactivation
+
+    - Test namespace function registration
+
+    - Cross-platform path handling (Windows/Unix)
+
+    '
+  status: pending
+  stream: B
+  depends_on:
+  - skill-005
+  - test-007
+  blocks: []
+  estimate:
+    points: 5
+    confidence: high
+    rationale: Clear test scenarios, real fixtures
+  execution:
+    agent_id: null
+    session_id: null
+    attempt: 0
+    max_attempts: 3
+    started: null
+    completed: null
+  actual:
+    tokens:
+      input: 0
+      output: 0
+      cache_read: 0
+      cache_create: 0
+    cost_usd: 0.0
+    wall_time_seconds: 0
+  failures: []
+  subtasks: []
+- id: cg-001
+  title: Fix type annotation errors (any vs Any)
+  description: 'In src/activecontext/context/state.py lines 193, 195, 201:
+
+    - Replace `dict[str, any]` with `dict[str, Any]`
+
+    - Add `from typing import Any` import if missing
+
+
+    This is a simple find/replace but blocks type checking.
+
+    '
+  status: completed
+  stream: E
+  priority: P0
+  depends_on: []
+  blocks:
+  - cg-008
+  estimate:
+    points: 1
+    confidence: high
+    rationale: Simple type annotation fix
+  execution:
+    agent_id: external
+    session_id: code-guardian-audit
+    attempt: 1
+    max_attempts: 3
+    started: '2026-01-21T19:30:00Z'
+    completed: '2026-01-21T19:30:00Z'
+  actual:
+    tokens:
+      input: 0
+      output: 0
+      cache_read: 0
+      cache_create: 0
+    cost_usd: 0.0
+    wall_time_seconds: 0
+  failures: []
+  subtasks: []
+- id: cg-002
+  title: Fix undefined name errors (forward references)
+  description: "Multiple files have undefined name errors due to missing imports:\n\
+    \n1. src/activecontext/session/timeline.py:\n   - Line 280: TextBuffer not defined\n\
+    \   - Lines 2303, 2351: AgentHandle not defined\n   - Add TYPE_CHECKING imports\
+    \ or forward references\n\n2. src/activecontext/coordination/schema.py:\n   -\
+    \ Lines 79-80: AgentEntry, AgentMessage not defined\n   - These are used in Scratchpad\
+    \ dataclass before being defined\n   - Reorder class definitions or use forward\
+    \ references\n\n3. src/activecontext/session/session_manager.py:\n   - Lines 326,\
+    \ 337, 349, 371: TextBuffer not defined\n"
+  status: completed
+  stream: E
+  priority: P0
+  depends_on: []
+  blocks:
+  - cg-008
+  estimate:
+    points: 2
+    confidence: high
+    rationale: Import reorganization, forward references
+  execution:
+    agent_id: external
+    session_id: code-guardian-audit
+    attempt: 1
+    max_attempts: 3
+    started: '2026-01-21T19:30:00Z'
+    completed: '2026-01-21T19:32:00Z'
+  actual:
+    tokens:
+      input: 0
+      output: 0
+      cache_read: 0
+      cache_create: 0
+    cost_usd: 0.0
+    wall_time_seconds: 0
+  failures: []
+  subtasks: []
+- id: cg-003
+  title: Add logging to silent exception handlers
+  description: '40+ instances of `except Exception: pass/continue` that silently swallow
+    errors.
+
+
+    Priority files (most silent handlers):
+
+    - src/activecontext/dashboard/data.py: 10 instances
+
+    - src/activecontext/transport/acp/agent.py: 8 instances
+
+    - src/activecontext/mcp/client.py: 5 instances
+
+
+    For each:
+
+    - Add `_log.debug()` or `_log.warning()` with exception info
+
+    - Consider if specific exception types would be more appropriate
+
+
+    Note: Some silent handlers are intentional (e.g., cleanup code).
+
+    Use judgment - log at debug level for expected failures.
+
+    '
+  status: completed
+  stream: E
+  priority: P1
+  depends_on: []
+  blocks: []
+  estimate:
+    points: 3
+    confidence: medium
+    rationale: Many files, need judgment on each handler
+  execution:
+    agent_id: external
+    session_id: code-guardian-audit
+    attempt: 1
+    max_attempts: 3
+    started: '2026-01-21T19:35:00Z'
+    completed: '2026-01-21T19:42:00Z'
+  actual:
+    tokens:
+      input: 0
+      output: 0
+      cache_read: 0
+      cache_create: 0
+    cost_usd: 0.0
+    wall_time_seconds: 0
+  failures: []
+  subtasks: []
+- id: cg-004
+  title: Remove unused variables and imports
+  description: "Ruff F841/F401 violations:\n\n1. src/activecontext/agents/handle.py\
+    \ lines 138, 155, 172:\n   - `loop = asyncio.get_running_loop()` assigned but\
+    \ never used\n   - Remove variable assignment, keep the get_running_loop() call\
+    \ if needed\n\n2. src/activecontext/context/nodes.py line 28:\n   - `tokens_to_chars`\
+    \ imported but unused\n   - Remove from import statement\n\n3. src/activecontext/__main__.py\
+    \ line 80:\n   - `sys.stderr = open(os.devnull, \"w\")` without context manager\n\
+    \   - Use proper resource management\n"
+  status: completed
+  stream: E
+  priority: P1
+  depends_on: []
+  blocks: []
+  estimate:
+    points: 1
+    confidence: high
+    rationale: Simple deletions
+  execution:
+    agent_id: external
+    session_id: code-guardian-audit
+    attempt: 1
+    max_attempts: 3
+    started: '2026-01-21T19:33:00Z'
+    completed: '2026-01-21T19:35:00Z'
+  actual:
+    tokens:
+      input: 0
+      output: 0
+      cache_read: 0
+      cache_create: 0
+    cost_usd: 0.0
+    wall_time_seconds: 0
+  failures: []
+  subtasks: []
+- id: cg-005
+  title: Fix LoadSessionResponse keyword arg errors
+  description: 'src/activecontext/transport/acp/agent.py lines 848, 911:
+
+    - Unexpected keyword argument "session_id" for LoadSessionResponse
+
+    - Check acp-sdk LoadSessionResponse signature
+
+    - Either remove the arg or update to correct parameter name
+
+    '
+  status: completed
+  stream: E
+  priority: P1
+  depends_on: []
+  blocks: []
+  estimate:
+    points: 1
+    confidence: high
+    rationale: API signature fix
+  execution:
+    agent_id: external
+    session_id: code-guardian-audit
+    attempt: 1
+    max_attempts: 3
+    started: '2026-01-21T19:30:00Z'
+    completed: '2026-01-21T19:40:00Z'
+  actual:
+    tokens:
+      input: 0
+      output: 0
+      cache_read: 0
+      cache_create: 0
+    cost_usd: 0.0
+    wall_time_seconds: 0
+  failures: []
+  subtasks: []
+- id: cg-006
+  title: Decompose Timeline class (God class)
+  description: "Timeline class is 3,461 lines with 80+ methods. Split into focused\
+    \ collaborators:\n\nProposed extraction:\n1. ShellManager: _shell, _shell_background_task,\
+    \ process_pending_shell_results,\n   cancel_shell, cancel_all_shells (~200 lines)\n\
+    2. LockManager: _lock_file, _lock_background_task, _lock_release,\n   process_pending_lock_results,\
+    \ cancel_lock, cancel_all_locks (~150 lines)\n3. WorkCoordinator: _work_on, _work_check,\
+    \ _work_update, _work_done,\n   _work_list (~100 lines)\n4. AgentSpawner: _spawn_agent,\
+    \ _spawn_agent_async, _send_message,\n   _send_update, _recv_messages, etc. (~200\
+    \ lines)\n5. MCPIntegration: _mcp_connect, _mcp_disconnect, _mcp_list, _mcp_tools,\n\
+    \   _mcp_cleanup (~150 lines)\n\nKeep in Timeline: namespace setup, statement\
+    \ execution, core tick logic.\n\nApproach:\n- Create each manager as a separate\
+    \ class\n- Inject into Timeline via constructor\n- Timeline delegates to managers\n\
+    - Preserve existing public API\n"
+  status: completed
+  stream: E
+  priority: P2
+  depends_on:
+  - cg-001
+  - cg-002
+  blocks: []
+  estimate:
+    points: 13
+    confidence: low
+    rationale: Large refactoring, many call sites, risk of regressions
+  execution:
+    agent_id: claude-sonnet-4-5
+    session_id: current
+    attempt: 1
+    max_attempts: 3
+    started: '2026-01-22T00:09:18.079775+00:00'
+    completed: '2026-01-23T23:00:00Z'
+  actual:
+    tokens:
+      input: 0
+      output: 0
+      cache_read: 0
+      cache_create: 0
+    cost_usd: 0.0
+    wall_time_seconds: 0
+  failures: []
+  subtasks: []
+- id: cg-007
+  title: Reduce Session class responsibilities
+  description: "Session class is 1,285 lines with 50+ methods. Consider splitting:\n\
+    \nProposed extraction:\n1. SessionRenderer: _build_projection_engine, get_projection\
+    \ (~100 lines)\n2. AgentLoopRunner: run_agent_loop, _has_pending_work,\n   _process_next_message,\
+    \ stop_agent_loop, wake (~200 lines)\n\nLower priority than Timeline - Session\
+    \ is more cohesive.\n"
+  status: pending
+  stream: E
+  priority: P2
+  depends_on:
+  - cg-006
+  blocks: []
+  estimate:
+    points: 8
+    confidence: low
+    rationale: Depends on Timeline refactoring patterns
+  execution:
+    agent_id: null
+    session_id: null
+    attempt: 0
+    max_attempts: 3
+    started: null
+    completed: null
+  actual:
+    tokens:
+      input: 0
+      output: 0
+      cache_read: 0
+      cache_create: 0
+    cost_usd: 0.0
+    wall_time_seconds: 0
+  failures: []
+  subtasks: []
+- id: cg-008
+  title: Address remaining mypy errors
+  description: 'After P0 fixes, address remaining 35+ mypy errors:
+
+
+    Categories:
+
+    - Type narrowing issues (union-attr errors)
+
+    - Missing type parameters for generic types
+
+    - Incompatible types in assignments
+
+    - Returning Any from typed functions
+
+
+    Files with most errors:
+
+    - session/timeline.py: 10 errors
+
+    - transport/acp/agent.py: 8 errors
+
+    - core/llm/discovery.py: 4 errors
+
+    - mcp/client.py: 4 errors
+
+
+    Run: `uv run mypy src/activecontext --strict`
+
+    '
+  status: pending
+  stream: E
+  priority: P2
+  depends_on:
+  - cg-001
+  - cg-002
+  blocks: []
+  estimate:
+    points: 5
+    confidence: medium
+    rationale: Many small fixes across files
+  execution:
+    agent_id: null
+    session_id: null
+    attempt: 0
+    max_attempts: 3
+    started: null
+    completed: null
+  actual:
+    tokens:
+      input: 0
+      output: 0
+      cache_read: 0
+      cache_create: 0
+    cost_usd: 0.0
+    wall_time_seconds: 0
+  failures: []
+  subtasks: []
+- id: cg-009
+  title: Minor linting fixes
+  description: "Low-priority ruff warnings:\n\n1. Line length violations (E501):\n\
+    \   - src/activecontext/config/schema.py:120 (127 chars)\n   - src/activecontext/context/graph.py:440\
+    \ (102 chars)\n\n2. Ternary simplifications (SIM108):\n   - src/activecontext/context/headers.py:81\n\
+    \   - src/activecontext/context/markdown_parser.py:161\n\nRun: `uv run ruff check\
+    \ src/ --fix` for auto-fixable issues\n"
+  status: pending
+  stream: E
+  priority: P3
+  depends_on: []
+  blocks: []
+  estimate:
+    points: 1
+    confidence: high
+    rationale: Auto-fixable or trivial
+  execution:
+    agent_id: null
+    session_id: null
+    attempt: 0
+    max_attempts: 3
+    started: null
+    completed: null
+  actual:
+    tokens:
+      input: 0
+      output: 0
+      cache_read: 0
+      cache_create: 0
+    cost_usd: 0.0
+    wall_time_seconds: 0
+  failures: []
+  subtasks: []
+- id: plugin-001
+  title: NodeTypeRegistry - Core Registry Pattern
+  description: |
+    Create src/activecontext/context/registry.py with NodeTypeRegistry class.
+
+    Pattern after AgentTypeRegistry:
+    - __init__: Register all builtin types from nodes.py
+    - get(node_type: str) -> type[ContextNode] | None
+    - register(node_type: str, cls: type[ContextNode])
+    - unregister(node_type: str) -> bool
+    - list_types() -> list[tuple[str, type[ContextNode]]]
+    - is_builtin(node_type: str) -> bool
+
+    Refactor ContextNode.from_dict() to use registry lookup instead of if-elif chain.
+    Ensure backwards compatibility with existing serialized sessions.
+  status: pending
+  stream: A
+  depends_on: []
+  blocks:
+  - plugin-002
+  - plugin-003
+  estimate:
+    points: 5
+    confidence: high
+    rationale: Registry pattern well-understood, similar to AgentTypeRegistry
+  execution:
+    agent_id: null
+    session_id: null
+    attempt: 0
+    max_attempts: 3
+    started: null
+    completed: null
+  actual:
+    tokens:
+      input: 0
+      output: 0
+      cache_read: 0
+      cache_create: 0
+    cost_usd: 0.0
+    wall_time_seconds: 0
+  failures: []
+  subtasks: []
+- id: plugin-002
+  title: Plugin Discovery and Loading
+  description: |
+    Add plugin loading capabilities to NodeTypeRegistry:
+
+    - load_from_directory(path: Path) -> list[str]: Load plugin modules from directory
+    - load_from_module(module_path: str) -> str | None: Load single plugin module
+    - discover_plugins() -> list[PluginInfo]: Find available plugins without loading
+
+    Plugin locations (scanned in order):
+    1. ~/.ac/plugins/nodes/  (user plugins)
+    2. project/.ac/plugins/nodes/  (project plugins)
+
+    Plugin module format:
+    - Python file with class extending ContextNode
+    - Class must define node_type property returning unique string
+    - Optional: plugin_info dict with name, description, version, author
+
+    Validation:
+    - Check class extends ContextNode
+    - Check node_type is unique (not already registered)
+    - Check required methods are implemented
+  status: pending
+  stream: A
+  depends_on:
+  - plugin-001
+  blocks:
+  - plugin-004
+  estimate:
+    points: 5
+    confidence: medium
+    rationale: Dynamic import with importlib, validation logic
+  execution:
+    agent_id: null
+    session_id: null
+    attempt: 0
+    max_attempts: 3
+    started: null
+    completed: null
+  actual:
+    tokens:
+      input: 0
+      output: 0
+      cache_read: 0
+      cache_create: 0
+    cost_usd: 0.0
+    wall_time_seconds: 0
+  failures: []
+  subtasks: []
+- id: plugin-003
+  title: Plugin Unloading and Lifecycle
+  description: |
+    Add plugin unloading and lifecycle management:
+
+    - unload_plugin(node_type: str) -> bool: Unload a plugin
+    - reload_plugin(node_type: str) -> bool: Reload a plugin module
+    - get_plugin_info(node_type: str) -> PluginInfo | None
+
+    Unload considerations:
+    - Cannot unload builtin types
+    - Check if any nodes of this type exist in active graphs
+    - Option: force=True to unload even with active nodes
+    - On unload: nodes become "orphaned" with degraded rendering
+
+    PluginInfo dataclass:
+    - node_type: str
+    - name: str
+    - description: str
+    - version: str
+    - author: str
+    - source_path: Path
+    - is_builtin: bool
+    - is_loaded: bool
+  status: pending
+  stream: A
+  depends_on:
+  - plugin-001
+  blocks:
+  - plugin-004
+  estimate:
+    points: 3
+    confidence: medium
+    rationale: Lifecycle management, orphan handling
+  execution:
+    agent_id: null
+    session_id: null
+    attempt: 0
+    max_attempts: 3
+    started: null
+    completed: null
+  actual:
+    tokens:
+      input: 0
+      output: 0
+      cache_read: 0
+      cache_create: 0
+    cost_usd: 0.0
+    wall_time_seconds: 0
+  failures: []
+  subtasks: []
+- id: plugin-004
+  title: PluginManagerNode - Context Node for Plugin Management
+  description: |
+    Create PluginManagerNode in context/nodes.py:
+
+    - Structural node (like MCPManagerNode) for plugin management
+    - Auto-created as child of session node
+    - node_type = "plugin_manager"
+
+    Rendering:
+    - COLLAPSED: "Plugins: 14 builtin, 2 loaded"
+    - SUMMARY: List of loaded plugin types with one-line descriptions
+    - DETAILS: Full plugin info including source paths, versions
+
+    Child nodes:
+    - Each loaded plugin can have a PluginInfoNode child
+    - PluginInfoNode shows detailed plugin documentation
+
+    Methods:
+    - load(node_type: str): Load a discovered plugin
+    - unload(node_type: str): Unload a plugin
+    - available() -> list[str]: List available (discovered) plugins
+    - loaded() -> list[str]: List loaded plugins
+  status: pending
+  stream: A
+  depends_on:
+  - plugin-002
+  - plugin-003
+  blocks:
+  - plugin-005
+  estimate:
+    points: 5
+    confidence: high
+    rationale: Similar to MCPManagerNode pattern
+  execution:
+    agent_id: null
+    session_id: null
+    attempt: 0
+    max_attempts: 3
+    started: null
+    completed: null
+  actual:
+    tokens:
+      input: 0
+      output: 0
+      cache_read: 0
+      cache_create: 0
+    cost_usd: 0.0
+    wall_time_seconds: 0
+  failures: []
+  subtasks: []
+- id: plugin-005
+  title: Plugin DSL Functions
+  description: |
+    Add DSL functions for plugin management in session/timeline.py:
+
+    - plugin_load(node_type: str) -> PluginInfoNode: Load and return info node
+    - plugin_unload(node_type: str) -> bool: Unload a plugin
+    - plugin_list() -> list[str]: List loaded plugin types
+    - plugin_available() -> list[str]: List discovered but not loaded plugins
+    - plugin_info(node_type: str) -> PluginInfoNode: Get info for any type
+
+    Integration:
+    - Access via plugins.load(), plugins.unload(), etc.
+    - Or standalone functions: plugin_load(), plugin_unload()
+
+    Error handling:
+    - PluginNotFoundError for unknown plugins
+    - PluginLoadError for load failures
+    - PluginInUseError for unload of in-use plugins
+  status: pending
+  stream: A
+  depends_on:
+  - plugin-004
+  blocks:
+  - plugin-006
+  estimate:
+    points: 3
+    confidence: high
+    rationale: DSL function pattern well-established
+  execution:
+    agent_id: null
+    session_id: null
+    attempt: 0
+    max_attempts: 3
+    started: null
+    completed: null
+  actual:
+    tokens:
+      input: 0
+      output: 0
+      cache_read: 0
+      cache_create: 0
+    cost_usd: 0.0
+    wall_time_seconds: 0
+  failures: []
+  subtasks: []
+- id: plugin-006
+  title: Plugin Self-Documentation
+  description: |
+    Integrate plugins with Node Help System (node-005):
+
+    - Each plugin node type gets auto-generated .help() content
+    - Extract from class docstrings, method signatures
+    - Show in PluginInfoNode rendering
+
+    Documentation sources (priority order):
+    1. Explicit plugin_info dict in module
+    2. Class docstring
+    3. Method docstrings for Render*, GetDigest, etc.
+
+    Generated help content:
+    - SUMMARY: One-line description + node_type string
+    - DETAILS: Full API including constructor args, methods, rendering
+
+    Integration with node-005:
+    - Plugin types support same .help() method as builtin types
+    - Help content cached after first generation
+  status: pending
+  stream: A
+  depends_on:
+  - plugin-005
+  - node-005
+  blocks:
+  - plugin-007
+  estimate:
+    points: 3
+    confidence: medium
+    rationale: Docstring extraction, template generation
+  execution:
+    agent_id: null
+    session_id: null
+    attempt: 0
+    max_attempts: 3
+    started: null
+    completed: null
+  actual:
+    tokens:
+      input: 0
+      output: 0
+      cache_read: 0
+      cache_create: 0
+    cost_usd: 0.0
+    wall_time_seconds: 0
+  failures: []
+  subtasks: []
+- id: plugin-007
+  title: Plugin Integration Tests
+  description: |
+    Comprehensive tests for plugin system:
+
+    Test fixtures in tests/fixtures/plugins/nodes/:
+    - valid_plugin.py: Well-formed plugin
+    - invalid_no_node_type.py: Missing node_type property
+    - invalid_not_subclass.py: Doesn't extend ContextNode
+    - duplicate_type.py: Conflicts with builtin type
+
+    Test scenarios:
+    - Registry initialization with all builtin types
+    - Plugin discovery from fixture directory
+    - Plugin loading and registration
+    - Plugin unloading (clean and with active nodes)
+    - Serialization/deserialization with plugin types
+    - PluginManagerNode rendering at all states
+    - DSL function access and error handling
+    - Help generation for plugin types
+  status: pending
+  stream: B
+  depends_on:
+  - plugin-006
+  blocks: []
+  estimate:
+    points: 5
+    confidence: high
+    rationale: Clear test scenarios, fixture-based
+  execution:
+    agent_id: null
+    session_id: null
+    attempt: 0
+    max_attempts: 3
+    started: null
+    completed: null
+  actual:
+    tokens:
+      input: 0
+      output: 0
+      cache_read: 0
+      cache_create: 0
+    cost_usd: 0.0
+    wall_time_seconds: 0
+  failures: []
+  subtasks: []
+
+# ============================================================================
+# LSP Support - Language Server Protocol for document sync and IDE integration
+# Stream F: Transport layer extension
+# ============================================================================
+
+- id: lsp-001
+  title: LSP Message Framing Layer
+  description: |
+    Create src/activecontext/transport/lsp/framing.py:
+
+    - parse_header(stream) -> dict: Parse Content-Length header
+    - read_message(stream) -> dict: Read framed JSON-RPC message
+    - write_message(stream, msg) -> None: Write with Content-Length framing
+    - LSPFramingError for malformed messages
+
+    Header format: Content-Length: N\r\n\r\n{json}
+    Async read/write with proper buffering for partial messages.
+  status: pending
+  stream: F
+  depends_on: []
+  blocks: [lsp-002, lsp-003]
+  estimate:
+    points: 3
+    confidence: high
+    rationale: Well-defined protocol, similar to existing JSON-RPC handling
+  execution:
+    agent_id: null
+    session_id: null
+    attempt: 0
+    max_attempts: 3
+    started: null
+    completed: null
+  actual:
+    tokens: {input: 0, output: 0, cache_read: 0, cache_create: 0}
+    cost_usd: 0.0
+    wall_time_seconds: 0
+  failures: []
+  subtasks: []
+
+- id: lsp-002
+  title: Transport Multiplexer
+  description: |
+    Create src/activecontext/transport/multiplexer.py:
+
+    Detect and route ACP vs LSP messages on shared stdio transport.
+    - LSP: starts with "Content-Length:" header
+    - ACP: newline-delimited JSON (no header)
+
+    MultiplexedTransport class with protocol detection and routing.
+    Modes: "acp" (default) | "lsp" | "multiplexed" (both)
+  status: pending
+  stream: F
+  depends_on: [lsp-001]
+  blocks: [lsp-004]
+  estimate:
+    points: 5
+    confidence: medium
+    rationale: Protocol detection requires careful buffering
+  execution:
+    agent_id: null
+    session_id: null
+    attempt: 0
+    max_attempts: 3
+    started: null
+    completed: null
+  actual:
+    tokens: {input: 0, output: 0, cache_read: 0, cache_create: 0}
+    cost_usd: 0.0
+    wall_time_seconds: 0
+  failures: []
+  subtasks: []
+
+- id: lsp-003
+  title: LSP Server Core
+  description: |
+    Create src/activecontext/transport/lsp/server.py:
+
+    LSPServer class implementing core lifecycle:
+    - initialize/initialized handshake
+    - shutdown/exit
+    - Capability negotiation (textDocumentSync, workspace folders)
+    - Request dispatch and $/cancelRequest support
+    - JSON-RPC error handling
+  status: pending
+  stream: F
+  depends_on: [lsp-001]
+  blocks: [lsp-004, lsp-005]
+  estimate:
+    points: 5
+    confidence: high
+    rationale: Well-documented protocol, clear message structure
+  execution:
+    agent_id: null
+    session_id: null
+    attempt: 0
+    max_attempts: 3
+    started: null
+    completed: null
+  actual:
+    tokens: {input: 0, output: 0, cache_read: 0, cache_create: 0}
+    cost_usd: 0.0
+    wall_time_seconds: 0
+  failures: []
+  subtasks: []
+
+- id: lsp-004
+  title: Document Synchronization
+  description: |
+    Add document sync handlers to LSPServer:
+
+    - textDocument/didOpen: Store document, create/update TextNode
+    - textDocument/didChange: Apply incremental changes
+    - textDocument/didClose: Remove from tracking
+    - textDocument/didSave: Optional notification
+
+    DocumentStore class for version-tracked document state.
+    Integration with ContextGraph to auto-create/update TextNodes.
+  status: pending
+  stream: F
+  depends_on: [lsp-002, lsp-003]
+  blocks: [lsp-006]
+  estimate:
+    points: 8
+    confidence: medium
+    rationale: Core feature, requires careful state management
+  execution:
+    agent_id: null
+    session_id: null
+    attempt: 0
+    max_attempts: 3
+    started: null
+    completed: null
+  actual:
+    tokens: {input: 0, output: 0, cache_read: 0, cache_create: 0}
+    cost_usd: 0.0
+    wall_time_seconds: 0
+  failures: []
+  subtasks: []
+
+- id: lsp-005
+  title: SessionUpdate to LSP Translator
+  description: |
+    Create src/activecontext/transport/lsp/update_translator.py:
+
+    Convert SessionUpdate stream to LSP notifications:
+    - RESPONSE_CHUNK → $/progress or $/activeContext/output
+    - STATEMENT_EXECUTING → $/progress (begin)
+    - STATEMENT_EXECUTED → $/progress (end)
+    - PROJECTION_READY → $/activeContext/projectionReady
+    - NODE_CHANGED → $/activeContext/nodeChanged
+    - ERROR → window/showMessage
+
+    Custom $/activeContext/* methods for aware clients.
+  status: pending
+  stream: F
+  depends_on: [lsp-003]
+  blocks: [lsp-006]
+  estimate:
+    points: 5
+    confidence: high
+    rationale: Clear mapping, follows existing _emit_update pattern
+  execution:
+    agent_id: null
+    session_id: null
+    attempt: 0
+    max_attempts: 3
+    started: null
+    completed: null
+  actual:
+    tokens: {input: 0, output: 0, cache_read: 0, cache_create: 0}
+    cost_usd: 0.0
+    wall_time_seconds: 0
+  failures: []
+  subtasks: []
+
+- id: lsp-006
+  title: LSP Configuration and Entry Point
+  description: |
+    Add LSPConfig to config/schema.py:
+    - enabled: bool
+    - mode: "lsp" | "multiplexed"
+    - sync_kind: 1 (Full) | 2 (Incremental)
+    - auto_create_nodes: bool
+
+    Update __main__.py:
+    - --lsp flag for LSP-only mode
+    - --multiplexed flag for ACP+LSP mode
+    - Wire LSPServer with SessionManager
+  status: pending
+  stream: F
+  depends_on: [lsp-004, lsp-005]
+  blocks: [lsp-007]
+  estimate:
+    points: 3
+    confidence: high
+    rationale: Config pattern established, entry point modification
+  execution:
+    agent_id: null
+    session_id: null
+    attempt: 0
+    max_attempts: 3
+    started: null
+    completed: null
+  actual:
+    tokens: {input: 0, output: 0, cache_read: 0, cache_create: 0}
+    cost_usd: 0.0
+    wall_time_seconds: 0
+  failures: []
+  subtasks: []
+
+- id: lsp-007
+  title: LSP Integration Tests
+  description: |
+    Create tests/lsp/ with comprehensive tests:
+    - test_framing.py: Content-Length parsing, partial messages
+    - test_server.py: Lifecycle, capabilities, cancellation
+    - test_document_sync.py: didOpen/didChange/didClose, TextNode integration
+    - test_multiplexer.py: Protocol detection, mode switching
+    - test_update_translator.py: SessionUpdate → LSP mapping
+  status: pending
+  stream: F
+  depends_on: [lsp-006]
+  blocks: []
+  estimate:
+    points: 8
+    confidence: medium
+    rationale: Comprehensive test suite, mock transports needed
+  execution:
+    agent_id: null
+    session_id: null
+    attempt: 0
+    max_attempts: 3
+    started: null
+    completed: null
+  actual:
+    tokens: {input: 0, output: 0, cache_read: 0, cache_create: 0}
+    cost_usd: 0.0
+    wall_time_seconds: 0
+  failures: []
+  subtasks: []
+
+velocity:
+  history:
+  - date: '2026-01-20'
+    points_completed: 8
+    tokens:
+      input: 0
+      output: 0
+      cache_read: 0
+    cost_usd: 0.0
+    wall_time_minutes: 0
+    tasks_completed: 2
+    notes: Agent Notification System + MCP Tool Node Implementation
+  rolling:
+    points_per_hour: null
+    tokens_per_point: null
+    cost_per_point_usd: null
+    wall_time_per_point_minutes: null
+pricing:
+  claude-opus-4-5-20251101:
+    input_per_mtok: 15.0
+    output_per_mtok: 75.0
+    cache_read_per_mtok: 1.5
+  claude-sonnet-4-5-20250929:
+    input_per_mtok: 3.0
+    output_per_mtok: 15.0
+    cache_read_per_mtok: 0.3

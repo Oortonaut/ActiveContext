@@ -579,7 +579,7 @@ Rider logs are at:
 
 **Before coding, understand the scope:**
 
-1. **Read the task specification** - Check `.claude/plan.yaml` for existing task definitions
+1. **Read the task specification** - Check `project/plan.yaml` for existing task definitions
 2. **Identify affected files** - Use search tools to map scope
 3. **Check for conflicts** - Review `git status` and scratchpad for active work
 4. **Plan the approach** - Ask clarifying questions if requirements are ambiguous
@@ -667,12 +667,12 @@ uv run mypy src/                 # Type checks pass
 - Focus on "why" not "what"
 - Include tests with implementation in the same commit
 - Never commit secrets or `.env` files
-- Update `.claude/plan.yaml` status when completing tracked tasks
+- Update `project/plan.yaml` status when completing tracked tasks
 
 ### Untracked Work
 
 **Ad-hoc requests** (quick questions, one-off fixes) don't require formal tracking. However:
-- For changes over 50 lines, consider adding to `.claude/plan.yaml` retroactively
+- For changes over 50 lines, consider adding to `project/plan.yaml` retroactively
 - Document non-obvious decisions in commit messages
 
 **Interruptions:** If interrupted mid-task, commit WIP progress and document where you left off.
@@ -730,4 +730,4 @@ shell(f"pytest -v {user_path}")
 
 ## TODO Management
 
-See `.claude/plan.yaml` for the development roadmap.
+See `project/plan.yaml` for the development roadmap.
