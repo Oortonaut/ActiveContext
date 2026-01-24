@@ -42,6 +42,7 @@ from activecontext.context.nodes import (
     SessionNode,
     ShellNode,
     ShellStatus,
+    TaskNode,
     TextNode,
     TopicNode,
     TraceNode,
@@ -107,4 +108,5 @@ __all__ = [
     "SessionNode",
     "WorkNode",
     "AgentNode",
+    "TaskNode",
 ]

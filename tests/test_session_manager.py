@@ -754,3 +754,95 @@ class TestJetBrainsUUIDDetection:
             # If we got a result, it should look like a UUID
             assert len(result) == 36
             assert result.count("-") == 4
+
+
+# =============================================================================
+# Multi-Task Orchestration Tests
+# =============================================================================
+
+
+class TestMultiTaskOrchestration:
+    """Tests for multi-task management in Session."""
+
+    @pytest.mark.asyncio
+    async def test_list_tasks_returns_primary_agent(self, test_session):
+        """Test that list_tasks includes the primary agent."""
+        tasks = test_session.list_tasks()
+        assert len(tasks) == 1
+        assert test_session.session_id in tasks
+
+    @pytest.mark.asyncio
+    async def test_get_task_returns_primary_agent(self, test_session):
+        """Test that get_task returns the primary agent."""
+        task = test_session.get_task(test_session.session_id)
+        assert task is not None
+        assert task.task_type == "agent"
+
+    @pytest.mark.asyncio
+    async def test_get_task_returns_none_for_unknown(self, test_session):
+        """Test that get_task returns None for unknown ID."""
+        task = test_session.get_task("nonexistent-task-id")
+        assert task is None
+
+    @pytest.mark.asyncio
+    async def test_create_script_task(self, test_session):
+        """Test creating a script task."""
+        task = test_session.create_task("script", task_id="test-script")
+        assert task.task_id == "test-script"
+        assert task.task_type == "script"
+        assert "test-script" in test_session.list_tasks()
+
+    @pytest.mark.asyncio
+    async def test_create_agent_task(self, test_session):
+        """Test creating an agent task."""
+        task = test_session.create_task("agent", task_id="test-agent")
+        assert task.task_id == "test-agent"
+        assert task.task_type == "agent"
+        assert "test-agent" in test_session.list_tasks()
+
+    @pytest.mark.asyncio
+    async def test_create_blocking_conversation_task(self, test_session):
+        """Test creating a blocking conversation task."""
+        task = test_session.create_task(
+            "blocking_conversation",
+            task_id="test-conv",
+            name="Test Conversation",
+        )
+        assert task.task_id == "test-conv"
+        assert task.task_type == "blocking_conversation"
+        assert "test-conv" in test_session.list_tasks()
+
+    @pytest.mark.asyncio
+    async def test_create_task_unknown_type_raises(self, test_session):
+        """Test that creating an unknown task type raises ValueError."""
+        with pytest.raises(ValueError, match="Unknown task type"):
+            test_session.create_task("unknown_type")
+
+    @pytest.mark.asyncio
+    async def test_remove_task(self, test_session):
+        """Test removing a task."""
+        task = test_session.create_task("script", task_id="to-remove")
+        assert "to-remove" in test_session.list_tasks()
+
+        removed = await test_session.remove_task("to-remove")
+        assert removed is True
+        assert "to-remove" not in test_session.list_tasks()
+
+    @pytest.mark.asyncio
+    async def test_remove_nonexistent_task(self, test_session):
+        """Test removing a nonexistent task returns False."""
+        removed = await test_session.remove_task("does-not-exist")
+        assert removed is False
+
+    @pytest.mark.asyncio
+    async def test_multiple_tasks_coexist(self, test_session):
+        """Test that multiple tasks can coexist."""
+        test_session.create_task("script", task_id="script-1")
+        test_session.create_task("script", task_id="script-2")
+        test_session.create_task("blocking_conversation", task_id="conv-1")
+
+        tasks = test_session.list_tasks()
+        assert len(tasks) == 4  # primary + 3 created
+        assert "script-1" in tasks
+        assert "script-2" in tasks
+        assert "conv-1" in tasks

@@ -26,12 +26,18 @@ from activecontext.context.nodes import (
 from activecontext.context.state import Expansion, TickFrequency
 from activecontext.core.projection_engine import ProjectionEngine
 from activecontext.logging import get_logger
+from activecontext.session.agent import Agent
 from activecontext.session.permissions import ImportGuard, PermissionManager, ShellPermissionManager
 from activecontext.session.protocols import (
+    IOMode,
     Projection,
     SessionUpdate,
+    TaskProtocol,
+    TaskStatus,
     UpdateKind,
 )
+from activecontext.session.script import Script
+from activecontext.session.tasks import BlockingConversationTask
 from activecontext.session.storage import (
     generate_default_title,
     get_session_path,
@@ -89,7 +95,6 @@ class Session:
     ) -> None:
         self._session_id = session_id
         self._cwd = cwd
-        self._timeline = timeline
         self._llm = llm
         self._config = config
         self._cancelled = False
@@ -110,7 +115,26 @@ class Session:
 
         # Text buffer storage - Session owns this, timeline references it
         self._text_buffers: dict[str, TextBuffer] = {}
-        self._timeline._text_buffers = self._text_buffers
+        timeline._text_buffers = self._text_buffers
+
+        # Wrap Timeline in an Agent - Session owns Tasks, Agent owns Timeline
+        # Agent extends Script with LLM integration
+        # For backward compat, we also keep a direct _timeline reference
+        self._primary_agent = Agent(
+            agent_id=session_id,
+            context_graph=timeline.context_graph,
+            cwd=cwd,
+            llm=llm,
+            timeline=timeline,
+            config=config,
+        )
+        self._primary_script = self._primary_agent  # Alias for Script API
+        self._timeline = timeline  # Backward compat alias
+
+        # Task registry for multi-task support (Phase 5)
+        self._tasks: dict[str, Script | BlockingConversationTask] = {
+            session_id: self._primary_agent
+        }
 
         # Check if we're restoring from a saved session (context graph already has nodes)
         existing_context = self._timeline.context_graph.get_node("context")
@@ -158,19 +182,19 @@ class Session:
         self._session_node: SessionNode | None = None
         self._mcp_manager_node: MCPManagerNode | None = None
 
-        # Register set_title callback with timeline
-        self._timeline.set_title_callback(self.set_title)
+        # Register set_title callback with timeline (via Script)
+        self._primary_script.set_title_callback(self.set_title)
 
         # Register path resolver callback with timeline for @prompts/ etc.
-        self._timeline._path_resolver = self.resolve_path
+        self._primary_script.set_path_resolver(self.resolve_path)
 
         # Register conversation delegation callback with timeline for interact()/connect() DSL
-        self._timeline._delegate_conversation = self.delegate_conversation
-        self._timeline._create_conversation_handle = self.create_conversation_handle
+        self._primary_script.set_delegate_conversation(self.delegate_conversation)
+        self._primary_script.set_create_conversation_handle(self.create_conversation_handle)
 
         # Configure file watcher from config
         if self._config and self._config.session:
-            self._timeline.configure_file_watcher(self._config.session.file_watch)
+            self._primary_script.configure_file_watcher(self._config.session.file_watch)
 
         # Event-driven agent loop infrastructure
         self._wake_event = asyncio.Event()
@@ -191,6 +215,12 @@ class Session:
         self._emit_update_callback: Any | None = None  # async (SessionUpdate) -> None
         self._register_transport_callback: Any | None = None  # (session_id, transport) -> None
         self._unregister_transport_callback: Any | None = None  # (session_id) -> None
+
+        # Set up Agent callbacks for LLM integration
+        # Note: session_node is set later in _create_metadata_nodes
+        self._primary_agent.set_tick_callback(self.tick)
+        self._primary_agent.set_projection_callback(self.get_projection)
+        self._primary_agent.set_add_node_callback(self.add_node)
 
     def _add_system_prompt_node(self) -> None:
         """Add the system prompt as a fully expanded TextNode tree.
@@ -279,6 +309,9 @@ class Session:
         self._timeline.context_graph.add_node(self._session_node)
         self._timeline.context_graph.link("session", "context")
 
+        # Set Agent's session_node reference for recording statistics
+        self._primary_agent.set_session_node(self._session_node)
+
         # Create MCPManagerNode singleton for tracking MCP server connections
         self._mcp_manager_node = MCPManagerNode(
             node_id="mcp_manager",
@@ -323,16 +356,120 @@ class Session:
         return self._timeline
 
     @property
+    def primary_script(self) -> Script:
+        """Get the primary script (main execution context)."""
+        return self._primary_script
+
+    @property
+    def primary_agent(self) -> Agent:
+        """Get the primary agent (main LLM execution context)."""
+        return self._primary_agent
+
+    def get_task(self, task_id: str) -> Script | BlockingConversationTask | None:
+        """Get a task by ID.
+
+        Args:
+            task_id: Task identifier
+
+        Returns:
+            Task if found, None otherwise
+        """
+        return self._tasks.get(task_id)
+
+    def list_tasks(self) -> list[str]:
+        """List all task IDs."""
+        return list(self._tasks.keys())
+
+    def create_task(
+        self,
+        task_type: str,
+        task_id: str | None = None,
+        **kwargs: Any,
+    ) -> Script | BlockingConversationTask:
+        """Create a new task of the specified type.
+
+        Args:
+            task_type: Type of task to create:
+                - "script": Basic Script with Timeline
+                - "agent": Agent with LLM integration
+                - "blocking_conversation": Sync request/response
+            task_id: Optional custom task ID
+            **kwargs: Type-specific arguments
+
+        Returns:
+            The created task
+
+        Raises:
+            ValueError: If task_type is unknown
+        """
+        if task_type == "script":
+            task = Script(
+                script_id=task_id,
+                context_graph=self._timeline.context_graph,
+                cwd=self._cwd,
+                config=self._config,
+            )
+            self._tasks[task.task_id] = task
+            return task
+
+        elif task_type == "agent":
+            # Create an agent with LLM integration
+            agent = Agent(
+                agent_id=task_id,
+                context_graph=self._timeline.context_graph,
+                cwd=self._cwd,
+                llm=kwargs.get("llm") or self._llm,
+                config=self._config,
+            )
+            # Set up callbacks similar to primary agent
+            agent.set_tick_callback(self.tick)
+            agent.set_projection_callback(self.get_projection)
+            agent.set_add_node_callback(self.add_node)
+            self._tasks[agent.task_id] = agent
+            return agent
+
+        elif task_type == "blocking_conversation":
+            conv_task = BlockingConversationTask(
+                task_id=task_id,
+                name=kwargs.get("name", ""),
+                response_callback=kwargs.get("response_callback"),
+            )
+            self._tasks[conv_task.task_id] = conv_task
+            return conv_task
+
+        else:
+            raise ValueError(f"Unknown task type: {task_type}")
+
+    async def remove_task(self, task_id: str) -> bool:
+        """Remove and stop a task.
+
+        Args:
+            task_id: ID of task to remove
+
+        Returns:
+            True if task was found and removed, False otherwise
+        """
+        task = self._tasks.pop(task_id, None)
+        if task is None:
+            return False
+
+        # Stop the task if it's running
+        await task.stop()
+        return True
+
+    @property
     def cwd(self) -> str:
         return self._cwd
 
     @property
     def llm(self) -> LLMProvider | None:
-        return self._llm
+        """Get the LLM provider (delegates to Agent)."""
+        return self._primary_agent.llm
 
     def set_llm(self, llm: LLMProvider | None) -> None:
         """Set or update the LLM provider."""
-        self._llm = llm
+        self._llm = llm  # Keep for backward compat
+        self._primary_agent.set_llm(llm)  # Sync with Agent
 
     @property
     def title(self) -> str:

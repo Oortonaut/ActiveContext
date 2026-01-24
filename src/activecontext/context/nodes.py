@@ -734,6 +734,7 @@ class TextNode(ContextNode):
         buffer_id: Optional reference to a shared TextBuffer in Session
         start_line: Start line when using TextBuffer (1-indexed)
         end_line: End line when using TextBuffer (1-indexed, inclusive)
+        indent: Indentation level for rendering (e.g., for nested list items)
     """
 
     path: str = ""
@@ -745,6 +746,9 @@ class TextNode(ContextNode):
     buffer_id: str | None = None
     start_line: int = 1
     end_line: int | None = None
+
+    # Indentation for markdown list processing
+    indent: int = 0
 
     def __post_init__(self) -> None:
         """Auto-detect media type from file extension and set originator."""
@@ -770,6 +774,7 @@ class TextNode(ContextNode):
             "mode": self.mode,
             "version": self.version,
             "media_type": self.media_type.value,
+            "indent": self.indent,
         }
 
     def RenderDetail(
@@ -953,6 +958,7 @@ class TextNode(ContextNode):
                 "pos": self.pos,
                 "end_pos": self.end_pos,
                 "media_type": self.media_type.value,
+                "indent": self.indent,
             }
         )
         return data
@@ -990,6 +996,7 @@ class TextNode(ContextNode):
             pos=data.get("pos", "1:0"),
             end_pos=data.get("end_pos"),
             media_type=media_type,
+            indent=data.get("indent", 0),
         )
         return node
 
@@ -3933,4 +3940,191 @@ class TraceNode(ContextNode):
             merged_values=data.get("merged_values", []),
             # trace_target not deserialized (runtime reference)
             child_traces=[cls._from_dict(t) for t in data.get("child_traces", [])],
+        )
+
+
+@dataclass
+class TaskNode(ContextNode):
+    """Represents a task in the context graph.
+
+    TaskNodes track the status and metadata of concurrent tasks
+    within a session. They provide visibility into running agents,
+    blocking conversations, and streaming tasks.
+
+    Attributes:
+        task_id: Unique identifier for the task
+        task_type: Type of task (e.g., "agent", "mcp_menu", "shell_session")
+        io_mode: I/O mode ("sync", "async", "streaming")
+        status: Current task status (pending, running, paused, done, failed)
+        created_at: When the task was created
+        started_at: When the task started running (if applicable)
+        completed_at: When the task completed (if applicable)
+        metadata: Additional task-specific metadata
+    """
+
+    task_id: str = field(default_factory=lambda: f"task_{uuid.uuid4().hex[:8]}")
+    task_type: str = "script"
+    io_mode: str = "async"
+    status: str = "pending"  # pending, running, paused, done, failed
+    created_at: float = field(default_factory=lambda: time.time())
+    started_at: float | None = None
+    completed_at: float | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def node_type(self) -> str:
+        return "task"
+
+    def GetDigest(self) -> dict[str, Any]:
+        """Return metadata digest for this task."""
+        duration = None
+        if self.started_at:
+            if self.completed_at:
+                duration = self.completed_at - self.started_at
+            else:
+                duration = time.time() - self.started_at
+
+        return {
+            "id": self.node_id,
+            "type": self.node_type,
+            "task_id": self.task_id,
+            "task_type": self.task_type,
+            "io_mode": self.io_mode,
+            "status": self.status,
+            "duration": duration,
+            "tokens": self.tokens,
+            "expansion": self.expansion.value,
+            "mode": self.mode,
+        }
+
+    def RenderSummary(
+        self,
+        cwd: str = ".",
+        text_buffers: dict[str, Any] | None = None,
+    ) -> str:
+        """Render task summary."""
+        lines = [f"Task: {self.task_id}"]
+        lines.append(f"  Type: {self.task_type}")
+        lines.append(f"  Status: {self.status}")
+        lines.append(f"  I/O Mode: {self.io_mode}")
+
+        if self.metadata:
+            for key, value in self.metadata.items():
+                lines.append(f"  {key}: {value}")
+
+        return "\n".join(lines)
+
+    def RenderDetail(
+        self,
+        include_summary: bool = False,
+        cwd: str = ".",
+        text_buffers: dict[str, Any] | None = None,
+    ) -> str:
+        """Render detailed task info."""
+        lines = [f"Task: {self.task_id}"]
+        lines.append(f"  Type: {self.task_type}")
+        lines.append(f"  Status: {self.status}")
+        lines.append(f"  I/O Mode: {self.io_mode}")
+
+        # Timing info
+        if self.created_at:
+            from datetime import datetime
+
+            created = datetime.fromtimestamp(self.created_at)
+            lines.append(f"  Created: {created.isoformat()}")
+
+        if self.started_at:
+            from datetime import datetime
+
+            started = datetime.fromtimestamp(self.started_at)
+            lines.append(f"  Started: {started.isoformat()}")
+
+        if self.completed_at:
+            from datetime import datetime
+
+            completed = datetime.fromtimestamp(self.completed_at)
+            lines.append(f"  Completed: {completed.isoformat()}")
+
+            if self.started_at:
+                duration = self.completed_at - self.started_at
+                lines.append(f"  Duration: {duration:.2f}s")
+
+        if self.metadata:
+            lines.append("  Metadata:")
+            for key, value in self.metadata.items():
+                lines.append(f"    {key}: {value}")
+
+        return "\n".join(lines)
+
+    def update_status(self, status: str) -> None:
+        """Update task status with timing."""
+        old_status = self.status
+        self.status = status
+
+        if status == "running" and not self.started_at:
+            self.started_at = time.time()
+        elif status in ("done", "failed") and not self.completed_at:
+            self.completed_at = time.time()
+
+        self._mark_changed(f"status: {old_status} -> {status}")
+
+    def get_display_name(self) -> str:
+        """Display name for the task."""
+        return f"Task[{self.task_type}:{self.task_id[:8]}]"
+
+    def get_token_breakdown(self, cwd: str = ".") -> TokenInfo:
+        """Return token counts for collapsed/summary/detail."""
+        from activecontext.core.tokens import count_tokens
+
+        from .headers import TokenInfo
+
+        # Collapsed: task status line
+        collapsed_text = f"[Task: {self.task_type} | {self.status}]\n"
+        collapsed_tokens = count_tokens(collapsed_text)
+
+        # Summary includes basic info
+        summary_text = self.RenderSummary(cwd=cwd)
+        summary_tokens = count_tokens(summary_text)
+
+        return TokenInfo(
+            collapsed=collapsed_tokens,
+            summary=summary_tokens,
+            detail=self.tokens,
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize to dictionary."""
+        base = super().to_dict()
+        base.update({
+            "task_id": self.task_id,
+            "task_type": self.task_type,
+            "io_mode": self.io_mode,
+            "status": self.status,
+            "created_at": self.created_at,
+            "started_at": self.started_at,
+            "completed_at": self.completed_at,
+            "metadata": self.metadata,
+        })
+        return base
+
+    @classmethod
+    def _from_dict(cls, data: dict[str, Any]) -> TaskNode:
+        """Deserialize from dictionary."""
+        tick_freq_data = data.get("tick_frequency")
+        tick_frequency = TickFrequency.from_dict(tick_freq_data) if tick_freq_data else None
+
+        return cls(
+            node_id=data.get("node_id", ""),
+            tokens=data.get("tokens", 100),
+            expansion=Expansion(data.get("expansion", Expansion.CONTENT.value)),
+            mode=data.get("mode", "running"),
+            tick_frequency=tick_frequency,
+            task_id=data.get("task_id", ""),
+            task_type=data.get("task_type", "script"),
+            io_mode=data.get("io_mode", "async"),
+            status=data.get("status", "pending"),
+            created_at=data.get("created_at", 0.0),
+            started_at=data.get("started_at"),
+            completed_at=data.get("completed_at"),
+            metadata=data.get("metadata", {}),
         )

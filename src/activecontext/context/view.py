@@ -217,3 +217,160 @@ class NodeView:
     def __hash__(self) -> int:
         """Hash by underlying node ID."""
         return hash(self._node.node_id)
+
+
+class ChoiceView(NodeView):
+    """View that shows only one selected child in DETAILS mode.
+
+    ChoiceView provides dropdown-like selection behavior for any node with children.
+    This is a view-layer concern - any node can become a "choice" by wrapping it
+    in ChoiceView.
+
+    Behavior:
+    - INDEX mode: Shows all children normally
+    - DETAILS mode (Expansion.ALL): Shows only selected child, others hidden
+    - Brief: Renders as "selected [A | B | C]"
+
+    Example:
+        # Wrap any node in ChoiceView
+        choice = ChoiceView(group_node, selected_id="child-b")
+
+        # Select different option (fluent API)
+        choice.select("option-2")
+
+    Attributes:
+        _selected_id: ID of the currently selected child (or None)
+    """
+
+    __slots__ = ("_selected_id",)
+
+    _selected_id: str | None
+
+    def __init__(
+        self,
+        node: ContextNode,
+        selected_id: str | None = None,
+        hide: bool = False,
+        expand: Expansion | None = None,
+    ) -> None:
+        """Create a choice view wrapping a node.
+
+        Args:
+            node: The ContextNode to wrap
+            selected_id: ID of the initially selected child (or None)
+            hide: Whether the view is hidden (default False)
+            expand: Expansion state (default: uses node.expansion)
+        """
+        super().__init__(node, hide=hide, expand=expand)
+        object.__setattr__(self, "_selected_id", selected_id)
+
+    @property
+    def selected_id(self) -> str | None:
+        """ID of the currently selected child."""
+        return self._selected_id
+
+    @selected_id.setter
+    def selected_id(self, value: str | None) -> None:
+        """Set the selected child ID."""
+        object.__setattr__(self, "_selected_id", value)
+
+    def select(self, child_id: str) -> ChoiceView:
+        """Select a child by ID (fluent API).
+
+        Args:
+            child_id: ID of the child to select
+
+        Returns:
+            Self for method chaining
+        """
+        self._selected_id = child_id
+        return self
+
+    def apply_selection(self, views: dict[str, NodeView]) -> None:
+        """Hide non-selected children when in DETAILS mode.
+
+        This method should be called by the projection engine before rendering.
+        It sets hide=True on all child views except the selected one.
+
+        Args:
+            views: Dict mapping node_id -> NodeView for all views
+        """
+        if self._expand != Expansion.ALL:
+            return  # Only filter in DETAILS mode
+
+        # Get child IDs from the node's child_order or children_ids
+        node = self._node
+        child_order = getattr(node, "child_order", None)
+        if child_order is not None:
+            # child_order might be a LinkedChildOrder with to_list() or a regular list
+            if hasattr(child_order, "to_list"):
+                child_ids = child_order.to_list()
+            else:
+                child_ids = list(child_order)
+        else:
+            child_ids = list(getattr(node, "children_ids", set()))
+
+        for child_id in child_ids:
+            if child_id in views:
+                views[child_id].hide = (child_id != self._selected_id)
+
+    def get_options(self) -> list[str]:
+        """Get titles of all child options.
+
+        Returns:
+            List of child titles in child_order order
+        """
+        node = self._node
+        graph = getattr(node, "_graph", None)
+        if graph is None:
+            return []
+
+        # Get child IDs in order
+        child_order = getattr(node, "child_order", None)
+        if child_order is not None:
+            if hasattr(child_order, "to_list"):
+                child_ids = child_order.to_list()
+            else:
+                child_ids = list(child_order)
+        else:
+            child_ids = list(getattr(node, "children_ids", set()))
+
+        # Get titles for each child
+        titles = []
+        for child_id in child_ids:
+            child = graph.get_node(child_id)
+            if child:
+                title = getattr(child, "title", None) or child_id
+                titles.append(title)
+        return titles
+
+    def render_brief(self) -> str:
+        """Render as 'selected [A | B | C]'.
+
+        Returns:
+            Brief string showing selected option and all choices
+        """
+        options = self.get_options()
+        if not options:
+            return "[No options]"
+
+        # Get the selected child's title
+        selected_title = None
+        if self._selected_id:
+            node = self._node
+            graph = getattr(node, "_graph", None)
+            if graph:
+                selected_child = graph.get_node(self._selected_id)
+                if selected_child:
+                    selected_title = getattr(selected_child, "title", None) or self._selected_id
+
+        if selected_title is None:
+            selected_title = options[0] if options else "?"
+
+        return f"{selected_title} [{' | '.join(options)}]"
+
+    def __repr__(self) -> str:
+        """Return string representation."""
+        hide_str = ", hide=True" if self._hide else ""
+        selected_str = f", selected={self._selected_id!r}" if self._selected_id else ""
+        return f"ChoiceView({self._node!r}, expand={self._expand.value}{hide_str}{selected_str})"

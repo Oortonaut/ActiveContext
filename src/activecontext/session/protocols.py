@@ -63,6 +63,24 @@ class EventResponse(Enum):
     QUEUE = "queue"  # Queue event for processing on next wake
 
 
+class TaskStatus(Enum):
+    """Status of a task in the session."""
+
+    PENDING = "pending"  # Created but not started
+    RUNNING = "running"  # Currently executing
+    PAUSED = "paused"  # Temporarily stopped
+    DONE = "done"  # Completed successfully
+    FAILED = "failed"  # Completed with error
+
+
+class IOMode(Enum):
+    """I/O mode for tasks."""
+
+    SYNC = "sync"  # Request/Response (blocking)
+    ASYNC = "async"  # Message queue (non-blocking)
+    STREAMING = "streaming"  # Stream/Events
+
+
 @dataclass(slots=True)
 class EventHandler:
     """Handler configuration for an event type.
@@ -399,6 +417,63 @@ class SessionManagerProtocol(Protocol):
         Args:
             session_id: Session to close
         """
+        ...
+
+
+# -----------------------------------------------------------------------------
+# Task Protocol
+# -----------------------------------------------------------------------------
+
+
+@runtime_checkable
+class TaskProtocol(Protocol):
+    """Protocol for tasks in a session.
+
+    Tasks are concurrent units of work within a session. They can be:
+    - Script: REPL with event loop (owns Timeline)
+    - Agent: Script with LLM integration
+    - BlockingConversationTask: Sync request/response (e.g., MCP menu)
+    - StreamingTask: Event-driven monitoring (e.g., file watcher)
+    """
+
+    @property
+    def task_id(self) -> str:
+        """Unique identifier for this task."""
+        ...
+
+    @property
+    def task_type(self) -> str:
+        """Type of task (e.g., 'script', 'agent', 'mcp_menu')."""
+        ...
+
+    @property
+    def io_mode(self) -> IOMode:
+        """I/O mode for this task."""
+        ...
+
+    @property
+    def status(self) -> TaskStatus:
+        """Current status of the task."""
+        ...
+
+    async def start(self) -> None:
+        """Start the task."""
+        ...
+
+    async def pause(self) -> None:
+        """Pause the task (if supported)."""
+        ...
+
+    async def resume(self) -> None:
+        """Resume a paused task."""
+        ...
+
+    async def stop(self) -> None:
+        """Stop and clean up the task."""
+        ...
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize task state for persistence."""
         ...
 
 
