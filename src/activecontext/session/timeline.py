@@ -89,15 +89,11 @@ if TYPE_CHECKING:
 
     # Type for website permission requester callback:
     # async (session_id, url, method) -> (granted, persist)
-    WebsitePermissionRequester = Callable[
-        [str, str, str], "asyncio.Future[tuple[bool, bool]]"
-    ]
+    WebsitePermissionRequester = Callable[[str, str, str], "asyncio.Future[tuple[bool, bool]]"]
 
     # Type for import permission requester callback:
     # async (session_id, module) -> (granted, persist, include_submodules)
-    ImportPermissionRequester = Callable[
-        [str, str], "asyncio.Future[tuple[bool, bool, bool]]"
-    ]
+    ImportPermissionRequester = Callable[[str, str], "asyncio.Future[tuple[bool, bool, bool]]"]
 
 
 @dataclass
@@ -113,7 +109,6 @@ class _ExecutionRecord:
     stderr: str
     exception: dict[str, Any] | None
     state_trace: NamespaceTrace
-
 
 
 class LazyNodeNamespace(dict[str, Any]):
@@ -279,8 +274,6 @@ class Timeline:
         # Set up namespace with DSL functions
         self._setup_namespace()
 
-
-
         # Max output capture per statement
         self._max_stdout = 50000
         self._max_stderr = 10000
@@ -313,6 +306,7 @@ class Timeline:
 
         # File watcher for detecting external file changes
         from activecontext.watching import FileWatcher
+
         self._file_watcher = FileWatcher(
             cwd=Path(cwd),
             poll_interval=1.0,
@@ -344,7 +338,8 @@ class Timeline:
         if not config.enabled:
             # Disable file watching - replace with a no-op watcher
             from activecontext.watching import FileWatcher
-            self._file_watcher = FileWatcher(cwd=Path(self._cwd), poll_interval=float('inf'))
+
+            self._file_watcher = FileWatcher(cwd=Path(self._cwd), poll_interval=float("inf"))
             return
 
         self._file_watcher.poll_interval = config.poll_interval
@@ -374,9 +369,7 @@ class Timeline:
         import builtins
 
         safe_builtins = {
-            name: getattr(builtins, name)
-            for name in dir(builtins)
-            if not name.startswith("_")
+            name: getattr(builtins, name) for name in dir(builtins) if not name.startswith("_")
         }
 
         # Wrap open() with permission checks if permission_manager is provided
@@ -390,78 +383,86 @@ class Timeline:
             # Expose default __import__ for imports to work
             safe_builtins["__import__"] = builtins.__import__
 
-        self._namespace = LazyNodeNamespace(lambda: self._context_graph, lambda: self._views, {
-            "__builtins__": safe_builtins,
-            "__name__": "__activecontext__",
-            "__session_id__": self._session_id,
-            # Type enums for LLM use
-            "Expansion": Expansion,
-            "TickFrequency": TickFrequency,
-            "NotificationLevel": NotificationLevel,
-            # Context node constructors
-            "text": self._make_text_node,
-            "group": self._make_group_node,
-            "topic": self._make_topic_node,
-            "artifact": self._make_artifact_node,
-            "markdown": self._make_markdown_node,
-            "view": self._make_view,
-            # DAG manipulation
-            "link": self._link,
-            "unlink": self._unlink,
-            # Traversal control
-            "hide": self._hide,
-            "unhide": self._unhide,
-            # Checkpointing
-            "checkpoint": self._checkpoint,
-            "restore": self._restore,
-            "checkpoints": self._list_checkpoints,
-            "branch": self._branch,
-            # Utility functions
-            "ls": self._ls_handles,
-            "show": self._show_handle,
-            "ls_permissions": self._ls_permissions,
-            "ls_imports": self._ls_imports,
-            "ls_shell_permissions": self._ls_shell_permissions,
-            "ls_website_permissions": self._ls_website_permissions,
-            # Shell execution
-            "shell": self._shell_manager.execute,
-            # HTTP/HTTPS requests
-            "fetch": self._fetch,
-            # Agent control
-            "done": self._done,
-            # Session title
-            "set_title": self._set_title,
-            # Notification control
-            "notify": self._set_notify,
-            # Async wait control
-            "wait": self._wait,
-            "wait_all": self._wait_all,
-            "wait_any": self._wait_any,
-            # Conversation delegation
-            "interact": self._interact,
-            "connect": self._connect,
-            # File locking
-            "lock_file": self._lock_manager.acquire,
-            "lock_release": self._lock_manager.release,
-        })
+        self._namespace = LazyNodeNamespace(
+            lambda: self._context_graph,
+            lambda: self._views,
+            {
+                "__builtins__": safe_builtins,
+                "__name__": "__activecontext__",
+                "__session_id__": self._session_id,
+                # Type enums for LLM use
+                "Expansion": Expansion,
+                "TickFrequency": TickFrequency,
+                "NotificationLevel": NotificationLevel,
+                # Context node constructors
+                "text": self._make_text_node,
+                "group": self._make_group_node,
+                "topic": self._make_topic_node,
+                "artifact": self._make_artifact_node,
+                "markdown": self._make_markdown_node,
+                "view": self._make_view,
+                # DAG manipulation
+                "link": self._link,
+                "unlink": self._unlink,
+                # Traversal control
+                "hide": self._hide,
+                "unhide": self._unhide,
+                # Checkpointing
+                "checkpoint": self._checkpoint,
+                "restore": self._restore,
+                "checkpoints": self._list_checkpoints,
+                "branch": self._branch,
+                # Utility functions
+                "ls": self._ls_handles,
+                "show": self._show_handle,
+                "ls_permissions": self._ls_permissions,
+                "ls_imports": self._ls_imports,
+                "ls_shell_permissions": self._ls_shell_permissions,
+                "ls_website_permissions": self._ls_website_permissions,
+                # Shell execution
+                "shell": self._shell_manager.execute,
+                # HTTP/HTTPS requests
+                "fetch": self._fetch,
+                # Agent control
+                "done": self._done,
+                # Session title
+                "set_title": self._set_title,
+                # Notification control
+                "notify": self._set_notify,
+                # Async wait control
+                "wait": self._wait,
+                "wait_all": self._wait_all,
+                "wait_any": self._wait_any,
+                # Conversation delegation
+                "interact": self._interact,
+                "connect": self._connect,
+                # File locking
+                "lock_file": self._lock_manager.acquire,
+                "lock_release": self._lock_manager.release,
+            },
+        )
 
         # Add work coordination functions if scratchpad manager is available
         if self._scratchpad_manager:
-            self._namespace.update({
-                "work_on": self._work_coordinator.work_on,
-                "work_check": self._work_coordinator.work_check,
-                "work_update": self._work_coordinator.work_update,
-                "work_done": self._work_coordinator.work_done,
-                "work_list": self._work_coordinator.work_list,
-            })
+            self._namespace.update(
+                {
+                    "work_on": self._work_coordinator.work_on,
+                    "work_check": self._work_coordinator.work_check,
+                    "work_update": self._work_coordinator.work_update,
+                    "work_done": self._work_coordinator.work_done,
+                    "work_list": self._work_coordinator.work_list,
+                }
+            )
 
         # Add MCP functions
-        self._namespace.update({
-            "mcp_connect": self._mcp_integration.connect,
-            "mcp_disconnect": self._mcp_integration.disconnect,
-            "mcp_list": self._mcp_integration.list_connections,
-            "mcp_tools": self._mcp_integration.list_tools,
-        })
+        self._namespace.update(
+            {
+                "mcp_connect": self._mcp_integration.connect,
+                "mcp_disconnect": self._mcp_integration.disconnect,
+                "mcp_list": self._mcp_integration.list_connections,
+                "mcp_tools": self._mcp_integration.list_tools,
+            }
+        )
 
         # Inject connected MCP server proxies into namespace
         self._namespace.update(self._mcp_integration.generate_namespace_bindings())
@@ -486,15 +487,17 @@ class Timeline:
         self._namespace["wait_message"] = self._wait_message
 
         # Add non-agent event system functions
-        self._namespace.update({
-            # Event system
-            "event_response": self._event_response,
-            "wait": self._wait_event,
-            "EventResponse": EventResponse,
-            # File watching
-            "wait_file_change": self._wait_file_change,
-            "on_file_change": self._on_file_change,
-        })
+        self._namespace.update(
+            {
+                # Event system
+                "event_response": self._event_response,
+                "wait": self._wait_event,
+                "EventResponse": EventResponse,
+                # File watching
+                "wait_file_change": self._wait_file_change,
+                "on_file_change": self._on_file_change,
+            }
+        )
 
     def _setup_default_event_handlers(self) -> None:
         """Set up default event handlers for built-in events."""
@@ -650,11 +653,14 @@ class Timeline:
 
         # Create one-time wake handler
         handler_key = f"{event_name}:{target_id}" if target_id else event_name
-        default_prompt = self._event_handlers.get(event_name, EventHandler(
-            event_name=event_name,
-            response=EventResponse.QUEUE,
-            prompt_template=f"Event {event_name} occurred",
-        )).prompt_template
+        default_prompt = self._event_handlers.get(
+            event_name,
+            EventHandler(
+                event_name=event_name,
+                response=EventResponse.QUEUE,
+                prompt_template=f"Event {event_name} occurred",
+            ),
+        ).prompt_template
 
         self._event_handlers[handler_key] = EventHandler(
             event_name=event_name,
@@ -901,7 +907,11 @@ class Timeline:
 
         # Link to parent if set
         if effective_parent:
-            parent_id = effective_parent.node_id if isinstance(effective_parent, ContextNode) else effective_parent
+            parent_id = (
+                effective_parent.node_id
+                if isinstance(effective_parent, ContextNode)
+                else effective_parent
+            )
             self._context_graph.link(node.node_id, parent_id)
 
         # Register with file watcher for external change detection
@@ -1067,7 +1077,6 @@ class Timeline:
         view = NodeView(node)
         self._views[node.node_id] = view
         return view
-
 
     def _make_markdown_node(
         self,
@@ -1489,8 +1498,6 @@ class Timeline:
         digest = obj.GetDigest() if hasattr(obj, "GetDigest") else str(obj)
         return f"[{digest}]"
 
-
-
     def process_pending_shell_results(self) -> list[str]:
         """Process pending shell results and update nodes.
 
@@ -1501,13 +1508,9 @@ class Timeline:
         """
         return self._shell_manager.process_pending_results()
 
-
-
     # =========================================================================
     # File locking DSL functions
     # =========================================================================
-
-
 
     async def close(self) -> None:
         """Clean up all background tasks and resources.
@@ -1619,9 +1622,7 @@ class Timeline:
                     if granted:
                         if persist:
                             # "Allow always" - write to config file
-                            write_website_permission_to_config(
-                                Path(self._cwd), url, method
-                            )
+                            write_website_permission_to_config(Path(self._cwd), url, method)
                             # Reload config to pick up new rule
                             from activecontext.config import load_config
 
@@ -1796,10 +1797,7 @@ class Timeline:
             timeout_prompt: Prompt injected if timeout expires.
             failure_prompt: Prompt injected if any node fails.
         """
-        node_ids = [
-            n.node_id if isinstance(n, ContextNode) else n
-            for n in nodes
-        ]
+        node_ids = [n.node_id if isinstance(n, ContextNode) else n for n in nodes]
         self._wait_condition = WaitCondition(
             node_ids=node_ids,
             mode=WaitMode.ALL,
@@ -1834,10 +1832,7 @@ class Timeline:
             failure_prompt: Prompt injected if any node fails.
             cancel_others: If True, cancel remaining nodes when first completes.
         """
-        node_ids = [
-            n.node_id if isinstance(n, ContextNode) else n
-            for n in nodes
-        ]
+        node_ids = [n.node_id if isinstance(n, ContextNode) else n for n in nodes]
         self._wait_condition = WaitCondition(
             node_ids=node_ids,
             mode=WaitMode.ANY,
@@ -2056,10 +2051,6 @@ class Timeline:
     # Multi-Agent DSL Functions
     # =========================================================================
 
-
-
-
-
     def is_waiting(self) -> bool:
         """Check if a wait condition is active."""
         return self._wait_condition is not None
@@ -2104,7 +2095,12 @@ class Timeline:
         # Check for failures (ShellNode or LockNode)
         failed_nodes: list[ShellNode | LockNode] = []
         for n in nodes:
-            if isinstance(n, ShellNode) and n.shell_status == ShellStatus.FAILED or isinstance(n, LockNode) and n.lock_status in (LockStatus.ERROR, LockStatus.TIMEOUT):
+            if (
+                isinstance(n, ShellNode)
+                and n.shell_status == ShellStatus.FAILED
+                or isinstance(n, LockNode)
+                and n.lock_status in (LockStatus.ERROR, LockStatus.TIMEOUT)
+            ):
                 failed_nodes.append(n)
 
         if failed_nodes and condition.failure_prompt:
@@ -2160,9 +2156,7 @@ class Timeline:
         elif condition.mode == WaitMode.MESSAGE:
             # Wait for incoming message
             if self._agent_manager and condition.agent_id:
-                messages = self._agent_manager.get_messages(
-                    condition.agent_id, status="pending"
-                )
+                messages = self._agent_manager.get_messages(condition.agent_id, status="pending")
                 if messages:
                     msg = messages[0]
                     # Mark as delivered
@@ -2238,23 +2232,53 @@ class Timeline:
         """Create a shallow snapshot of user-defined namespace entries."""
         # Exclude injected DSL functions and types
         excluded = {
-            "Expansion", "TickFrequency", "NotificationLevel",
-            "text", "group", "topic", "artifact", "markdown", "view",
-            "link", "unlink", "hide", "unhide",
-            "checkpoint", "restore", "checkpoints", "branch",
-            "ls", "show", "ls_permissions", "ls_imports", "ls_shell_permissions",
+            "Expansion",
+            "TickFrequency",
+            "NotificationLevel",
+            "text",
+            "group",
+            "topic",
+            "artifact",
+            "markdown",
+            "view",
+            "link",
+            "unlink",
+            "hide",
+            "unhide",
+            "checkpoint",
+            "restore",
+            "checkpoints",
+            "branch",
+            "ls",
+            "show",
+            "ls_permissions",
+            "ls_imports",
+            "ls_shell_permissions",
             "ls_website_permissions",
-            "shell", "fetch", "done", "set_title", "notify",
-            "wait", "wait_all", "wait_any",
-            "lock_file", "lock_release",
-            "work_on", "work_check", "work_update", "work_done", "work_list",
-            "mcp_connect", "mcp_disconnect", "mcp_list", "mcp_tools",
-            "connect", "interact",  # Conversation delegation DSL functions
+            "shell",
+            "fetch",
+            "done",
+            "set_title",
+            "notify",
+            "wait",
+            "wait_all",
+            "wait_any",
+            "lock_file",
+            "lock_release",
+            "work_on",
+            "work_check",
+            "work_update",
+            "work_done",
+            "work_list",
+            "mcp_connect",
+            "mcp_disconnect",
+            "mcp_list",
+            "mcp_tools",
+            "connect",
+            "interact",  # Conversation delegation DSL functions
         }
         return {
-            k: v
-            for k, v in self._namespace.items()
-            if not k.startswith("__") and k not in excluded
+            k: v for k, v in self._namespace.items() if not k.startswith("__") and k not in excluded
         }
 
     async def _await_namespace_coroutines(self) -> None:
@@ -2316,9 +2340,7 @@ class Timeline:
         # Execute with permission request retry loop
         max_permission_retries = 3  # Prevent infinite permission loops
         for _attempt in range(max_permission_retries):
-            result = await self._execute_statement_inner(
-                source, statement_id, execution_id
-            )
+            result = await self._execute_statement_inner(source, statement_id, execution_id)
 
             # Check if we got a PermissionDenied error
             if (
@@ -2387,9 +2409,11 @@ class Timeline:
                     # Try to request permission if requester is available
                     if self._import_permission_requester and self._import_guard:
                         # Request permission from user via ACP
-                        granted, persist, include_submodules = await self._import_permission_requester(
-                            self._session_id, module
-                        )
+                        (
+                            granted,
+                            persist,
+                            include_submodules,
+                        ) = await self._import_permission_requester(self._session_id, module)
 
                         if granted:
                             # User granted permission

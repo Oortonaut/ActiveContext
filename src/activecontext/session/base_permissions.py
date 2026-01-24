@@ -10,9 +10,10 @@ from __future__ import annotations
 
 import logging
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
+from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Generic, TypeVar
+from typing import TYPE_CHECKING, Any, Generic, TypeVar
 
 import yaml
 
@@ -105,9 +106,7 @@ def write_permission_to_config_generic(
     key_value = entry.get(strategy.key_field)
 
     # Check for duplicates
-    existing_keys = {
-        p.get(strategy.key_field) for p in section[list_key] if isinstance(p, dict)
-    }
+    existing_keys = {p.get(strategy.key_field) for p in section[list_key] if isinstance(p, dict)}
     if key_value in existing_keys:
         _log.debug("Permission already exists: %s=%s", strategy.key_field, key_value)
         return
@@ -125,23 +124,17 @@ def write_permission_to_config_generic(
 # Pre-defined strategies for each permission type
 
 
-def _build_file_permission_entry(
-    pattern: str, access: str
-) -> dict[str, Any]:
+def _build_file_permission_entry(pattern: str, access: str) -> dict[str, Any]:
     """Build a file permission entry."""
     return {"pattern": pattern, "access": access}
 
 
-def _build_shell_permission_entry(
-    pattern: str, allow: bool
-) -> dict[str, Any]:
+def _build_shell_permission_entry(pattern: str, allow: bool) -> dict[str, Any]:
     """Build a shell permission entry."""
     return {"pattern": pattern, "allow": allow}
 
 
-def _build_import_entry(
-    module: str, allow_submodules: bool = False
-) -> dict[str, Any]:
+def _build_import_entry(module: str, allow_submodules: bool = False) -> dict[str, Any]:
     """Build an import permission entry."""
     entry: dict[str, Any] = {"module": module}
     if allow_submodules:

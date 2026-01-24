@@ -229,9 +229,7 @@ class FileWatcher:
 
         return events
 
-    def _check_file(
-        self, path: Path, watched: WatchedFile
-    ) -> FileChangeEvent | None:
+    def _check_file(self, path: Path, watched: WatchedFile) -> FileChangeEvent | None:
         """Check a single file for changes.
 
         Args:

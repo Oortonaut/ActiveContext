@@ -54,9 +54,7 @@ if TYPE_CHECKING:
 
     # Type for file permission requester callback:
     # async (session_id, path, mode) -> (granted, persist)
-    PermissionRequester = Callable[
-        [str, str, str], Coroutine[Any, Any, tuple[bool, bool]]
-    ]
+    PermissionRequester = Callable[[str, str, str], Coroutine[Any, Any, tuple[bool, bool]]]
 
     # Type for shell permission requester callback:
     # async (session_id, command, args) -> (granted, persist)
@@ -66,15 +64,11 @@ if TYPE_CHECKING:
 
     # Type for website permission requester callback:
     # async (session_id, url, method) -> (granted, persist)
-    WebsitePermissionRequester = Callable[
-        [str, str, str], Coroutine[Any, Any, tuple[bool, bool]]
-    ]
+    WebsitePermissionRequester = Callable[[str, str, str], Coroutine[Any, Any, tuple[bool, bool]]]
 
     # Type for import permission requester callback:
     # async (session_id, module) -> (granted, persist, include_submodules)
-    ImportPermissionRequester = Callable[
-        [str, str], Coroutine[Any, Any, tuple[bool, bool, bool]]
-    ]
+    ImportPermissionRequester = Callable[[str, str], Coroutine[Any, Any, tuple[bool, bool, bool]]]
 
 
 class Session:
@@ -763,6 +757,7 @@ class Session:
         # Note: We don't re-execute, just record the sources
         for source in data.timeline:
             from activecontext.session.protocols import Statement
+
             stmt = Statement(
                 statement_id=str(uuid.uuid4()),
                 index=len(timeline._statements),
@@ -954,9 +949,7 @@ class Session:
         iteration = 0
 
         # Add initial user message to context graph (will appear in projection)
-        self._add_message(
-            Message(role=Role.USER, content=content, originator="user")
-        )
+        self._add_message(Message(role=Role.USER, content=content, originator="user"))
 
         while iteration < max_iterations:
             iteration += 1
@@ -1055,9 +1048,7 @@ class Session:
                 result_content = "Execution results:\n" + "\n".join(execution_results)
             else:
                 result_content = "Code executed successfully."
-            self._add_message(
-                Message(role=Role.USER, content=result_content, originator="system")
-            )
+            self._add_message(Message(role=Role.USER, content=result_content, originator="system"))
 
     async def _prompt_direct(self, content: str) -> AsyncIterator[SessionUpdate]:
         """Process prompt in direct execution mode (no LLM)."""
@@ -1179,7 +1170,9 @@ class Session:
             elif node.tick_frequency.mode == "periodic":
                 # Periodic tick: check interval
                 if node.tick_frequency.interval is None:
-                    log.warning("Periodic tick frequency without interval for node %s", node.node_id)
+                    log.warning(
+                        "Periodic tick frequency without interval for node %s", node.node_id
+                    )
                     continue
 
                 if timestamp - node.updated_at >= node.tick_frequency.interval:
@@ -1584,9 +1577,7 @@ class Session:
 
         # Determine base statements: project override or package defaults
         base_statements = (
-            startup_config.statements
-            if startup_config.statements
-            else PACKAGE_DEFAULT_STARTUP
+            startup_config.statements if startup_config.statements else PACKAGE_DEFAULT_STARTUP
         )
 
         # Execute base statements
@@ -1681,8 +1672,6 @@ class Session:
         # Consume the startup generator to run all statements
         async for _ in self.startup():
             pass
-
-
 
     async def _load_context_guide(self) -> None:
         """Load the context guide as a MarkdownNode if it exists.
@@ -1818,9 +1807,7 @@ class SessionManager:
         # Create website permission manager from config
         from activecontext.session.permissions import WebsitePermissionManager
 
-        website_permission_manager = WebsitePermissionManager.from_config(
-            sandbox_config, Path(cwd)
-        )
+        website_permission_manager = WebsitePermissionManager.from_config(sandbox_config, Path(cwd))
 
         # Create import guard from config
         import_config = sandbox_config.imports if sandbox_config else None
@@ -1864,7 +1851,12 @@ class SessionManager:
 
         # Register for config reload to update permissions
         unregister = self._setup_permission_reload(
-            session_id, cwd, permission_manager, shell_permission_manager, website_permission_manager, import_guard
+            session_id,
+            cwd,
+            permission_manager,
+            shell_permission_manager,
+            website_permission_manager,
+            import_guard,
         )
         self._reload_unregisters[session_id] = unregister
 

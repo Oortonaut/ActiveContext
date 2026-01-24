@@ -76,9 +76,7 @@ def format_token_info(info: TokenInfo, state: Expansion) -> str:
         # Visible: header + content
         # Hidden: detail
         visible_str = (
-            f"{info.collapsed}+{info.summary}"
-            if info.summary > 0
-            else f"{info.collapsed}+0"
+            f"{info.collapsed}+{info.summary}" if info.summary > 0 else f"{info.collapsed}+0"
         )
         hidden = info.detail
         result = f"{unit}: {visible_str}/{hidden}"

@@ -145,9 +145,11 @@ class LockManager:
                     # Platform-specific locking
                     if sys.platform == "win32":
                         import msvcrt
+
                         msvcrt.locking(lock_fd.fileno(), msvcrt.LK_NBLCK, 1)
                     else:
                         import fcntl
+
                         fcntl.flock(lock_fd.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
 
                     # Lock acquired - store file handle for later release
@@ -225,12 +227,14 @@ class LockManager:
             # Release the lock
             if sys.platform == "win32":
                 import msvcrt
+
                 try:
                     msvcrt.locking(lock_fd.fileno(), msvcrt.LK_UNLCK, 1)
                 except OSError:
                     pass  # May already be released
             else:
                 import fcntl
+
                 try:
                     fcntl.flock(lock_fd.fileno(), fcntl.LOCK_UN)
                 except OSError:

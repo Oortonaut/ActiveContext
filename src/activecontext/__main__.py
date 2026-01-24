@@ -20,27 +20,27 @@ log = get_logger()
 
 def _expand_env_vars() -> None:
     """Expand ${VAR_NAME} references in environment variables.
-    
+
     This allows acp.json to use:
         "env": { "OPENAI_API_KEY": "${OPENAI_API_KEY}" }
-    
+
     To pull from the system environment.
     """
     import re
-    
-    pattern = re.compile(r'\$\{([^}]+)\}')
-    
+
+    pattern = re.compile(r"\$\{([^}]+)\}")
+
     # Iterate over a copy since we're modifying os.environ
     for key, value in list(os.environ.items()):
         if not isinstance(value, str):
             continue
-            
+
         # Find all ${VAR_NAME} patterns
         def replace_var(match: re.Match[str]) -> str:
             var_name = match.group(1)
             # Get from original environment (not the modified one)
             return os.environ.get(var_name, match.group(0))
-        
+
         expanded = pattern.sub(replace_var, value)
         if expanded != value:
             os.environ[key] = expanded
@@ -63,8 +63,6 @@ def _patch_acp_schema() -> None:
         field.default = []
         NewSessionRequest.model_rebuild(force=True)
         log.debug("Patched NewSessionRequest.mcp_servers to be optional")
-
-
 
 
 async def _main() -> None:
@@ -102,6 +100,7 @@ def main() -> None:
     if not sys.stdin.isatty():
         sys.stderr = open(os.devnull, "w")  # noqa: SIM115 - intentionally kept open for process lifetime
         import logging
+
         logging.getLogger().addHandler(logging.NullHandler())
         logging.getLogger().setLevel(logging.CRITICAL + 1)  # Silence everything
 

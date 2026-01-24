@@ -255,15 +255,17 @@ class AgentSpawner:
         result: list[dict[str, Any]] = []
         for msg in messages:
             self._agent_manager.mark_message_read(msg.id)
-            result.append({
-                "id": msg.id,
-                "sender": msg.sender,
-                "content": msg.content,
-                "node_refs": msg.node_refs,
-                "created_at": msg.created_at.isoformat(),
-                "reply_to": msg.reply_to,
-                "metadata": msg.metadata,
-            })
+            result.append(
+                {
+                    "id": msg.id,
+                    "sender": msg.sender,
+                    "content": msg.content,
+                    "node_refs": msg.node_refs,
+                    "created_at": msg.created_at.isoformat(),
+                    "reply_to": msg.reply_to,
+                    "metadata": msg.metadata,
+                }
+            )
 
         return result
 
@@ -423,15 +425,17 @@ class AgentSpawner:
         if self._agent_manager is None:
             return
 
-        namespace.update({
-            "spawn": self.spawn,
-            "send": self.send_message,
-            "send_update": self.send_update,
-            "recv": self.recv_messages,
-            "agents": self.list_agents,
-            "agent_status": self.get_agent_status,
-            "pause_agent": self.pause_agent,
-            "resume_agent": self.resume_agent,
-            "terminate_agent": self.terminate_agent,
-            "get_shared_node": self.get_shared_node,
-        })
+        namespace.update(
+            {
+                "spawn": self.spawn,
+                "send": self.send_message,
+                "send_update": self.send_update,
+                "recv": self.recv_messages,
+                "agents": self.list_agents,
+                "agent_status": self.get_agent_status,
+                "pause_agent": self.pause_agent,
+                "resume_agent": self.resume_agent,
+                "terminate_agent": self.terminate_agent,
+                "get_shared_node": self.get_shared_node,
+            }
+        )

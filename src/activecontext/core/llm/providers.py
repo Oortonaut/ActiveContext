@@ -21,7 +21,9 @@ class ModelConfig:
     name: str
     description: str
     context_length: int
-    capabilities: list[str] = field(default_factory=list)  # tool_use, image_input, image_generation, chat, thinking
+    capabilities: list[str] = field(
+        default_factory=list
+    )  # tool_use, image_input, image_generation, chat, thinking
 
 
 @dataclass

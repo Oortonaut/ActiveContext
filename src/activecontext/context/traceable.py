@@ -256,9 +256,7 @@ def trace_all_fields(cls: type[T]) -> type[T]:
         return cls
 
     # Get original __setattr__ or use object's
-    original_setattr = (
-        cls.__setattr__ if hasattr(cls, "__setattr__") else object.__setattr__
-    )
+    original_setattr = cls.__setattr__ if hasattr(cls, "__setattr__") else object.__setattr__
 
     # Build traced fields set and formatter map
     traced_fields: set[str] = set()

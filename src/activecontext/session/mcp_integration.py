@@ -104,9 +104,7 @@ class MCPIntegration:
             for server_config in self._mcp_client_manager.config.servers:
                 if server_config.name == name:
                     if server_config.connect == MCPConnectMode.NEVER:
-                        raise ValueError(
-                            f"MCP server '{name}' is disabled (connect=never)"
-                        )
+                        raise ValueError(f"MCP server '{name}' is disabled (connect=never)")
                     break
 
         # Connect via MCPClientManager

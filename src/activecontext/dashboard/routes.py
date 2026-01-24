@@ -219,10 +219,12 @@ def _register_routes(app: FastAPI) -> None:
                         await websocket.send_json(init_data)
                     except Exception as e:
                         log.exception(f"Failed to send initial state for session {session_id}: {e}")
-                        await websocket.send_json({
-                            "type": "error",
-                            "message": f"Failed to load session data: {e}",
-                        })
+                        await websocket.send_json(
+                            {
+                                "type": "error",
+                                "message": f"Failed to load session data: {e}",
+                            }
+                        )
 
             # Keep connection alive and handle incoming messages
             while True:
@@ -238,10 +240,12 @@ def _register_routes(app: FastAPI) -> None:
                             cmd = json.loads(data)
                             await _handle_websocket_command(websocket, session_id, cmd)
                         except json.JSONDecodeError:
-                            await websocket.send_json({
-                                "type": "error",
-                                "message": "Invalid JSON",
-                            })
+                            await websocket.send_json(
+                                {
+                                    "type": "error",
+                                    "message": "Invalid JSON",
+                                }
+                            )
                 except WebSocketDisconnect:
                     break
 
@@ -260,10 +264,12 @@ async def _handle_websocket_command(
     if cmd_type == "set_expansion":
         await _handle_set_expansion(websocket, session_id, cmd)
     else:
-        await websocket.send_json({
-            "type": "error",
-            "message": f"Unknown command type: {cmd_type}",
-        })
+        await websocket.send_json(
+            {
+                "type": "error",
+                "message": f"Unknown command type: {cmd_type}",
+            }
+        )
 
 
 async def _handle_set_expansion(
@@ -274,28 +280,34 @@ async def _handle_set_expansion(
     """Handle node expansion change request."""
     manager = get_manager()
     if not manager:
-        await websocket.send_json({
-            "type": "error",
-            "message": "Dashboard not initialized",
-        })
+        await websocket.send_json(
+            {
+                "type": "error",
+                "message": "Dashboard not initialized",
+            }
+        )
         return
 
     session = await manager.get_session(session_id)
     if not session:
-        await websocket.send_json({
-            "type": "error",
-            "message": f"Session not found: {session_id}",
-        })
+        await websocket.send_json(
+            {
+                "type": "error",
+                "message": f"Session not found: {session_id}",
+            }
+        )
         return
 
     node_id = cmd.get("node_id")
     new_expansion_str = cmd.get("expansion")
 
     if not node_id or not new_expansion_str:
-        await websocket.send_json({
-            "type": "error",
-            "message": "Missing node_id or expansion",
-        })
+        await websocket.send_json(
+            {
+                "type": "error",
+                "message": "Missing node_id or expansion",
+            }
+        )
         return
 
     # Validate expansion
@@ -303,10 +315,12 @@ async def _handle_set_expansion(
         new_expansion = Expansion(new_expansion_str)
     except ValueError:
         valid_expansions = ", ".join(s.value for s in Expansion)
-        await websocket.send_json({
-            "type": "error",
-            "message": f"Invalid expansion: {new_expansion_str}. Valid: {valid_expansions}",
-        })
+        await websocket.send_json(
+            {
+                "type": "error",
+                "message": f"Invalid expansion: {new_expansion_str}. Valid: {valid_expansions}",
+            }
+        )
         return
 
     # Get node and apply expansion change
@@ -314,10 +328,12 @@ async def _handle_set_expansion(
     node = graph.get_node(node_id)
 
     if not node:
-        await websocket.send_json({
-            "type": "error",
-            "message": f"Node not found: {node_id}",
-        })
+        await websocket.send_json(
+            {
+                "type": "error",
+                "message": f"Node not found: {node_id}",
+            }
+        )
         return
 
     old_expansion = node.expansion
@@ -339,12 +355,14 @@ async def _handle_set_expansion(
     )
 
     # Confirm to requesting client
-    await websocket.send_json({
-        "type": "expansion_changed",
-        "node_id": node_id,
-        "old_expansion": old_expansion.value,
-        "new_expansion": new_expansion.value,
-    })
+    await websocket.send_json(
+        {
+            "type": "expansion_changed",
+            "node_id": node_id,
+            "old_expansion": old_expansion.value,
+            "new_expansion": new_expansion.value,
+        }
+    )
 
 
 async def broadcast_update(

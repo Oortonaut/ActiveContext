@@ -129,9 +129,7 @@ class MCPMenuHandler:
         connected = [c for c in connections if c.status == MCPConnectionStatus.CONNECTED]
 
         if connected:
-            await transport.send_output(
-                f"Status: {len(connected)} server(s) connected\n"
-            )
+            await transport.send_output(f"Status: {len(connected)} server(s) connected\n")
         else:
             await transport.send_output("Status: No servers connected\n")
 
@@ -155,9 +153,7 @@ class MCPMenuHandler:
         """List available servers from config."""
         if not self._mcp.config or not self._mcp.config.servers:
             await transport.send_output("\nNo servers configured.\n")
-            await transport.send_output(
-                "Add servers to your config.yaml under 'mcp.servers'.\n"
-            )
+            await transport.send_output("Add servers to your config.yaml under 'mcp.servers'.\n")
             return
 
         await transport.send_output("\nConfigured Servers:\n")
@@ -170,9 +166,7 @@ class MCPMenuHandler:
                 status = "○ Available"
 
             transport_type = server.transport
-            await transport.send_output(
-                f"  {status}: {server.name} ({transport_type})\n"
-            )
+            await transport.send_output(f"  {status}: {server.name} ({transport_type})\n")
 
     async def _connect_server(self, transport: ConversationTransport) -> str | None:
         """Connect to a server interactively."""
@@ -226,9 +220,7 @@ class MCPMenuHandler:
         try:
             conn = await self._mcp.connect(name=server_name)
             await transport.send_progress(1, 1, status="Connected")
-            await transport.send_output(
-                f" Connected! ({len(conn.tools)} tools available)\n"
-            )
+            await transport.send_output(f" Connected! ({len(conn.tools)} tools available)\n")
             return server_name
         except Exception as e:
             await transport.send_output(f" Failed: {e}\n")
@@ -237,9 +229,7 @@ class MCPMenuHandler:
     async def _disconnect_server(self, transport: ConversationTransport) -> str | None:
         """Disconnect from a server interactively."""
         connections = self._mcp.list_connections()
-        connected = [
-            c.name for c in connections if c.status == MCPConnectionStatus.CONNECTED
-        ]
+        connected = [c.name for c in connections if c.status == MCPConnectionStatus.CONNECTED]
 
         if not connected:
             await transport.send_output("\nNo servers to disconnect.\n")
@@ -288,9 +278,7 @@ class MCPMenuHandler:
     async def _view_tools(self, transport: ConversationTransport) -> str | None:
         """View tools from a connected server."""
         connections = self._mcp.list_connections()
-        connected = [
-            c for c in connections if c.status == MCPConnectionStatus.CONNECTED
-        ]
+        connected = [c for c in connections if c.status == MCPConnectionStatus.CONNECTED]
 
         if not connected:
             await transport.send_output("\nNo servers connected.\n")
@@ -298,9 +286,7 @@ class MCPMenuHandler:
 
         await transport.send_output("\nConnected servers:\n")
         for i, conn in enumerate(connected, 1):
-            await transport.send_output(
-                f"  {i}. {conn.name} ({len(conn.tools)} tools)\n"
-            )
+            await transport.send_output(f"  {i}. {conn.name} ({len(conn.tools)} tools)\n")
 
         try:
             choice = await transport.request_input(

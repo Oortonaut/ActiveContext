@@ -20,7 +20,9 @@ if TYPE_CHECKING:
     from activecontext.terminal.protocol import TerminalExecutor
 
     # Type alias for shell permission requester callback
-    ShellPermissionRequester = Any  # Callable[[str, str, list[str] | None], Awaitable[tuple[bool, bool]]]
+    ShellPermissionRequester = (
+        Any  # Callable[[str, str, list[str] | None], Awaitable[tuple[bool, bool]]]
+    )
 
 
 class ShellManager:
@@ -172,9 +174,7 @@ class ShellManager:
                                 write_shell_permission_to_config,
                             )
 
-                            write_shell_permission_to_config(
-                                Path(self._cwd), command, args
-                            )
+                            write_shell_permission_to_config(Path(self._cwd), command, args)
                             # Reload config to pick up new rule
                             from activecontext.config import load_config
 

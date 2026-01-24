@@ -4,6 +4,7 @@ __version__ = "0.1.0"
 
 # Public API
 from activecontext.config import Config, get_config, load_config
+from activecontext.context.state import Expansion, NotificationLevel, TickFrequency, Visibility
 from activecontext.core import LiteLLMProvider, LLMProvider, Message, Role
 from activecontext.mcp import (
     MCPClientManager,
@@ -22,7 +23,6 @@ from activecontext.session import (
     Timeline,
     UpdateKind,
 )
-from activecontext.context.state import Expansion, NotificationLevel, TickFrequency, Visibility
 from activecontext.terminal import ShellResult
 from activecontext.transport import ActiveContext, AsyncSession
 

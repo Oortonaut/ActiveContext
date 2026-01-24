@@ -222,9 +222,7 @@ class InteractiveShellHandler:
                 "reason": "error",
             }
         except PermissionError:
-            await transport.send_output(
-                f"\nError: Permission denied: {shell_cmd[0]}\n"
-            )
+            await transport.send_output(f"\nError: Permission denied: {shell_cmd[0]}\n")
             return {
                 "exit_code": 126,
                 "shell": shell_display,

@@ -128,10 +128,7 @@ class ProjectionEngine:
             )
 
             # Build handles dict from graph
-            handles = {
-                node.node_id: node.GetDigest()
-                for node in context_graph
-            }
+            handles = {node.node_id: node.GetDigest() for node in context_graph}
         else:
             sections = []
             handles = {}
@@ -324,4 +321,3 @@ class ProjectionEngine:
             expansion=effective_expand,
             metadata=node.GetDigest(),
         )
-

@@ -81,9 +81,7 @@ class ConnectionManager:
         """Close all WebSocket connections gracefully."""
         async with self._lock:
             all_connections = [
-                (session_id, ws)
-                for session_id, conns in self._connections.items()
-                for ws in conns
+                (session_id, ws) for session_id, conns in self._connections.items() for ws in conns
             ]
             self._connections.clear()
 

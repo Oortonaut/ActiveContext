@@ -161,6 +161,7 @@ class ContentRegistry:
 
 # Factory functions for creating ContentData from different sources
 
+
 def content_from_file(
     path: str,
     content: str,

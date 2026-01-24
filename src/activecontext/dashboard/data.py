@@ -53,7 +53,7 @@ def get_session_summary(
 
 def get_context_data(session: Session) -> dict[str, Any]:
     """Get all context objects organized by type with hierarchy info.
-    
+
     Returns all node types dynamically - no filtering.
     """
     try:
@@ -109,15 +109,17 @@ def get_timeline_data(session: Session) -> dict[str, Any]:
                 executions = executions_dict.get(stmt.statement_id, [])
                 latest = executions[-1] if executions else None
 
-                statement_list.append({
-                    "statement_id": stmt.statement_id,
-                    "index": stmt.index,
-                    "source": stmt.source,
-                    "timestamp": stmt.timestamp,
-                    "status": latest.status.value if latest else "pending",
-                    "duration_ms": latest.duration_ms if latest else 0,
-                    "has_error": latest.exception is not None if latest else False,
-                })
+                statement_list.append(
+                    {
+                        "statement_id": stmt.statement_id,
+                        "index": stmt.index,
+                        "source": stmt.source,
+                        "timestamp": stmt.timestamp,
+                        "status": latest.status.value if latest else "pending",
+                        "duration_ms": latest.duration_ms if latest else 0,
+                        "has_error": latest.exception is not None if latest else False,
+                    }
+                )
             except Exception:
                 _log.debug("Failed to process statement", exc_info=True)
                 continue
@@ -138,12 +140,14 @@ def get_projection_data(session: Session) -> dict[str, Any]:
 
         for section in projection.sections:
             try:
-                sections.append({
-                    "type": section.section_type,
-                    "source_id": section.source_id,
-                    "tokens_used": section.tokens_used,
-                    "expansion": section.expansion.value if section.expansion else "all",
-                })
+                sections.append(
+                    {
+                        "type": section.section_type,
+                        "source_id": section.source_id,
+                        "tokens_used": section.tokens_used,
+                        "expansion": section.expansion.value if section.expansion else "all",
+                    }
+                )
                 total_used += section.tokens_used
             except Exception:
                 _log.debug("Failed to process projection section", exc_info=True)
@@ -163,13 +167,13 @@ def get_projection_data(session: Session) -> dict[str, Any]:
 
 def get_message_history_data(session: Session) -> dict[str, Any]:
     """Get the exact message history for display.
-    
+
     Returns the full conversation history from session._message_history,
     which contains the exact messages for replay and debugging.
     This is separate from the rendered conversation sent to the LLM.
     """
     messages: list[dict[str, Any]] = []
-    
+
     try:
         conversation = getattr(session, "_message_history", [])
         for i, msg in enumerate(conversation):
@@ -204,7 +208,7 @@ def get_message_history_data(session: Session) -> dict[str, Any]:
                 continue
     except Exception:
         _log.debug("Failed to get message history", exc_info=True)
-    
+
     return {"messages": messages, "count": len(messages)}
 
 
@@ -223,19 +227,22 @@ def get_rendered_projection_data(session: Session) -> dict[str, Any]:
         sections: list[dict[str, Any]] = []
         for section in projection.sections:
             try:
-                sections.append({
-                    "type": section.section_type,
-                    "source_id": section.source_id,
-                    "content": section.content,
-                    "tokens_used": section.tokens_used,
-                    "expansion": section.expansion.value if section.expansion else "all",
-                })
+                sections.append(
+                    {
+                        "type": section.section_type,
+                        "source_id": section.source_id,
+                        "content": section.content,
+                        "tokens_used": section.tokens_used,
+                        "expansion": section.expansion.value if section.expansion else "all",
+                    }
+                )
             except Exception:
                 _log.debug("Failed to process rendered section", exc_info=True)
                 continue
 
         # Count total tokens
         from activecontext.core.tokens import count_tokens
+
         total_tokens = count_tokens(rendered)
 
         return {

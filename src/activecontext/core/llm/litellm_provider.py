@@ -76,9 +76,7 @@ class LiteLLMProvider:
         """Build kwargs for litellm call."""
         kwargs: dict[str, Any] = {
             "model": self._model,
-            "messages": [
-                {"role": m.role.value, "content": m.content} for m in messages
-            ],
+            "messages": [{"role": m.role.value, "content": m.content} for m in messages],
             "max_tokens": max_tokens,
             "stream": stream,
             **self._kwargs,
@@ -92,7 +90,6 @@ class LiteLLMProvider:
             kwargs["stop"] = stop
 
         return kwargs
-
 
     async def complete(
         self,

@@ -100,9 +100,7 @@ class PermissionManager:
 
         # Auto-grant cwd access if configured
         if config.allow_cwd:
-            mode: Literal["read", "write", "all"] = (
-                "all" if config.allow_cwd_write else "read"
-            )
+            mode: Literal["read", "write", "all"] = "all" if config.allow_cwd_write else "read"
             rules.append(
                 PermissionRule(
                     pattern=str(cwd_path / "**"),
@@ -339,19 +337,19 @@ def write_permission_to_config(cwd: Path, pattern: str, mode: str) -> None:
 
     # Check if rule already exists
     existing_patterns = {
-        p.get("pattern")
-        for p in data["sandbox"]["file_permissions"]
-        if isinstance(p, dict)
+        p.get("pattern") for p in data["sandbox"]["file_permissions"] if isinstance(p, dict)
     }
     if pattern in existing_patterns:
         _log.debug("Permission rule already exists: %s", pattern)
         return
 
     # Add new permission
-    data["sandbox"]["file_permissions"].append({
-        "pattern": pattern,
-        "mode": mode,
-    })
+    data["sandbox"]["file_permissions"].append(
+        {
+            "pattern": pattern,
+            "mode": mode,
+        }
+    )
 
     # Write back with proper YAML formatting
     with open(config_path, "w") as f:
@@ -375,7 +373,9 @@ class ShellPermissionDenied(Exception):
 
     command: str  # The command (e.g., "rm", "git")
     full_command: str  # Full command string for display
-    command_args: list[str] | None = None  # Command arguments (renamed to avoid conflict with Exception.args)
+    command_args: list[str] | None = (
+        None  # Command arguments (renamed to avoid conflict with Exception.args)
+    )
 
     def __str__(self) -> str:
         return f"Shell command denied: {self.full_command}"
@@ -518,9 +518,7 @@ class TypeValidator:
                 if self.permission_manager:
                     path = self._resolve_path(value)
                     return (
-                        self.permission_manager.check_access(str(path), "write")
-                        if path
-                        else False
+                        self.permission_manager.check_access(str(path), "write") if path else False
                     )
                 return True
 
@@ -571,9 +569,7 @@ class MatchResult:
 class PatternMatcher:
     """Matches command strings against typed patterns."""
 
-    def __init__(
-        self, cwd: Path, permission_manager: PermissionManager | None = None
-    ) -> None:
+    def __init__(self, cwd: Path, permission_manager: PermissionManager | None = None) -> None:
         """Initialize the pattern matcher.
 
         Args:
@@ -583,9 +579,7 @@ class PatternMatcher:
         self.cwd = cwd
         self.validator = TypeValidator(cwd, permission_manager)
 
-    def match(
-        self, pattern: str, command: str, args: list[str] | None
-    ) -> MatchResult:
+    def match(self, pattern: str, command: str, args: list[str] | None) -> MatchResult:
         """Match a command against a pattern.
 
         Args:
@@ -606,9 +600,7 @@ class PatternMatcher:
                 return MatchResult(matched=True)
             return MatchResult(matched=False)
 
-    def _match_typed(
-        self, pattern: str, command: str, args: list[str] | None
-    ) -> MatchResult:
+    def _match_typed(self, pattern: str, command: str, args: list[str] | None) -> MatchResult:
         """Match using typed placeholder system.
 
         Args:
@@ -743,8 +735,7 @@ class ShellPermissionManager:
             )
 
         rules = [
-            ShellPermissionRule(pattern=p.pattern, allow=p.allow)
-            for p in config.shell_permissions
+            ShellPermissionRule(pattern=p.pattern, allow=p.allow) for p in config.shell_permissions
         ]
 
         return cls(
@@ -760,9 +751,7 @@ class ShellPermissionManager:
         Args:
             config: New sandbox configuration.
         """
-        new_manager = ShellPermissionManager.from_config(
-            config, self.cwd, self.permission_manager
-        )
+        new_manager = ShellPermissionManager.from_config(config, self.cwd, self.permission_manager)
         self.rules = new_manager.rules
         self.deny_by_default = new_manager.deny_by_default
         _log.debug("Shell permissions reloaded: %d rules", len(self.rules))
@@ -903,19 +892,19 @@ def write_shell_permission_to_config(
 
     # Check if rule already exists
     existing_patterns = {
-        p.get("pattern")
-        for p in data["sandbox"]["shell_permissions"]
-        if isinstance(p, dict)
+        p.get("pattern") for p in data["sandbox"]["shell_permissions"] if isinstance(p, dict)
     }
     if pattern in existing_patterns:
         _log.debug("Shell permission rule already exists: %s", pattern)
         return
 
     # Add new permission
-    data["sandbox"]["shell_permissions"].append({
-        "pattern": pattern,
-        "allow": True,
-    })
+    data["sandbox"]["shell_permissions"].append(
+        {
+            "pattern": pattern,
+            "allow": True,
+        }
+    )
 
     # Write back with proper YAML formatting
     with open(config_path, "w") as f:
@@ -953,7 +942,9 @@ class ImportGuard:
     allow_submodules: bool = True
     allow_all: bool = False
     _temporary_grants: set[str] = field(default_factory=set)  # module names
-    _temporary_submodule_grants: set[str] = field(default_factory=set)  # modules with submodule access
+    _temporary_submodule_grants: set[str] = field(
+        default_factory=set
+    )  # modules with submodule access
 
     @classmethod
     def from_config(cls, config: ImportConfig | None) -> ImportGuard:
@@ -1059,9 +1050,7 @@ class ImportGuard:
         self._temporary_grants.add(module)
         if include_submodules:
             self._temporary_submodule_grants.add(module)
-        _log.debug(
-            "Temporary import grant added: %s (submodules=%s)", module, include_submodules
-        )
+        _log.debug("Temporary import grant added: %s (submodules=%s)", module, include_submodules)
 
     def clear_temporary_grants(self) -> None:
         """Clear all temporary grants."""
@@ -1139,9 +1128,7 @@ def make_safe_import(import_guard: ImportGuard) -> Any:
     return safe_import
 
 
-def write_import_to_config(
-    cwd: Path, module: str, include_submodules: bool = False
-) -> None:
+def write_import_to_config(cwd: Path, module: str, include_submodules: bool = False) -> None:
     """Append an import permission to .ac/config.yaml.
 
     Creates the config file and directory if they don't exist.
@@ -1418,9 +1405,7 @@ class URLPatternMatcher:
         captures: dict[str, str] = {}
 
         # Find all placeholders in pattern
-        placeholder_pattern = re.compile(
-            r"\{([a-zA-Z_][a-zA-Z0-9_]*):([a-zA-Z_][a-zA-Z0-9_]*)\}"
-        )
+        placeholder_pattern = re.compile(r"\{([a-zA-Z_][a-zA-Z0-9_]*):([a-zA-Z_][a-zA-Z0-9_]*)\}")
         placeholders: list[tuple[str, str]] = []  # (name, type)
 
         # Build regex pattern by replacing placeholders
@@ -1587,9 +1572,7 @@ def make_safe_fetch(website_permission_manager: WebsitePermissionManager) -> Any
     return safe_fetch
 
 
-def write_website_permission_to_config(
-    cwd: Path, url: str, method: str = "GET"
-) -> None:
+def write_website_permission_to_config(cwd: Path, url: str, method: str = "GET") -> None:
     """Write permission to .ac/config.yaml."""
     config_path = cwd / ".ac" / "config.yaml"
     config_path.parent.mkdir(parents=True, exist_ok=True)

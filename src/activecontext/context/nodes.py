@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import TYPE_CHECKING, Any
 
-from activecontext.context.state import Expansion, NotificationLevel, TickFrequency, Visibility
+from activecontext.context.state import Expansion, NotificationLevel, TickFrequency
 from activecontext.context.traceable import trace_all_fields
 
 if TYPE_CHECKING:
@@ -34,22 +34,22 @@ from activecontext.core.tokens import MediaType, detect_media_type
 class ShellStatus(Enum):
     """Status of a shell command execution."""
 
-    PENDING = "pending"      # Created, not yet started
-    RUNNING = "running"      # Subprocess is executing
+    PENDING = "pending"  # Created, not yet started
+    RUNNING = "running"  # Subprocess is executing
     COMPLETED = "completed"  # Finished successfully (exit_code == 0)
-    FAILED = "failed"        # Finished with error (exit_code != 0)
-    TIMEOUT = "timeout"      # Killed due to timeout
+    FAILED = "failed"  # Finished with error (exit_code != 0)
+    TIMEOUT = "timeout"  # Killed due to timeout
     CANCELLED = "cancelled"  # Cancelled by user
 
 
 class LockStatus(Enum):
     """Status of a file lock."""
 
-    PENDING = "pending"      # Waiting to acquire lock
-    ACQUIRED = "acquired"    # Lock held
-    TIMEOUT = "timeout"      # Failed to acquire within timeout
-    RELEASED = "released"    # Lock released
-    ERROR = "error"          # Error during lock operation
+    PENDING = "pending"  # Waiting to acquire lock
+    ACQUIRED = "acquired"  # Lock held
+    TIMEOUT = "timeout"  # Failed to acquire within timeout
+    RELEASED = "released"  # Lock released
+    ERROR = "error"  # Error during lock operation
 
 
 if TYPE_CHECKING:
@@ -722,7 +722,6 @@ class ContextNode(ABC):
             self._graph._running_nodes.discard(self.node_id)
 
 
-
 @dataclass
 class TextNode(ContextNode):
     """View of a file or file region as text.
@@ -948,12 +947,14 @@ class TextNode(ContextNode):
     def to_dict(self) -> dict[str, Any]:
         """Serialize TextNode to dict."""
         data = super().to_dict()
-        data.update({
-            "path": self.path,
-            "pos": self.pos,
-            "end_pos": self.end_pos,
-            "media_type": self.media_type.value,
-        })
+        data.update(
+            {
+                "path": self.path,
+                "pos": self.pos,
+                "end_pos": self.end_pos,
+                "media_type": self.media_type.value,
+            }
+        )
         return data
 
     @classmethod
@@ -1022,7 +1023,7 @@ class GroupNode(ContextNode):
                 child_order_list = self.child_order.to_list()
             else:
                 child_order_list = list(self.child_order) if self.child_order else None
-        
+
         return {
             "id": self.node_id,
             "type": self.node_type,
@@ -1139,12 +1140,14 @@ class GroupNode(ContextNode):
     def to_dict(self) -> dict[str, Any]:
         """Serialize GroupNode to dict."""
         data = super().to_dict()
-        data.update({
-            "summary_prompt": self.summary_prompt,
-            "cached_summary": self.cached_summary,
-            "summary_stale": self.summary_stale,
-            "last_child_versions": self.last_child_versions,
-        })
+        data.update(
+            {
+                "summary_prompt": self.summary_prompt,
+                "cached_summary": self.cached_summary,
+                "summary_stale": self.summary_stale,
+                "last_child_versions": self.last_child_versions,
+            }
+        )
         return data
 
     @classmethod
@@ -1290,11 +1293,13 @@ class TopicNode(ContextNode):
     def to_dict(self) -> dict[str, Any]:
         """Serialize TopicNode to dict."""
         data = super().to_dict()
-        data.update({
-            "title": self.title,
-            "message_indices": self.message_indices,
-            "status": self.status,
-        })
+        data.update(
+            {
+                "title": self.title,
+                "message_indices": self.message_indices,
+                "status": self.status,
+            }
+        )
         return data
 
     @classmethod
@@ -1428,12 +1433,14 @@ class ArtifactNode(ContextNode):
     def to_dict(self) -> dict[str, Any]:
         """Serialize ArtifactNode to dict."""
         data = super().to_dict()
-        data.update({
-            "artifact_type": self.artifact_type,
-            "content": self.content,
-            "language": self.language,
-            "source_statement_id": self.source_statement_id,
-        })
+        data.update(
+            {
+                "artifact_type": self.artifact_type,
+                "content": self.content,
+                "language": self.language,
+                "source_statement_id": self.source_statement_id,
+            }
+        )
         return data
 
     @classmethod
@@ -1573,7 +1580,9 @@ class ShellNode(ContextNode):
         output_text = self.output
         if len(output_text) + len(header) > char_budget:
             available = char_budget - len(header) - 30
-            output_text = output_text[:available] + f"\n... [truncated, {len(self.output)} total chars]"
+            output_text = (
+                output_text[:available] + f"\n... [truncated, {len(self.output)} total chars]"
+            )
 
         result = header + output_text
         if not result.endswith("\n"):
@@ -1660,7 +1669,9 @@ class ShellNode(ContextNode):
 
     def get_display_name(self) -> str:
         """Return 'Shell: command [STATUS]' format."""
-        cmd_display = self.full_command[:40] + "..." if len(self.full_command) > 40 else self.full_command
+        cmd_display = (
+            self.full_command[:40] + "..." if len(self.full_command) > 40 else self.full_command
+        )
         return f"Shell: {cmd_display} [{self.shell_status.value.upper()}]"
 
     def get_token_breakdown(self, cwd: str = ".") -> TokenInfo:
@@ -1685,17 +1696,19 @@ class ShellNode(ContextNode):
     def to_dict(self) -> dict[str, Any]:
         """Serialize ShellNode to dict."""
         data = super().to_dict()
-        data.update({
-            "command": self.command,
-            "args": self.args,
-            "shell_status": self.shell_status.value,
-            "exit_code": self.exit_code,
-            "output": self.output,
-            "truncated": self.truncated,
-            "signal": self.signal,
-            "duration_ms": self.duration_ms,
-            "started_at_exec": self.started_at_exec,
-        })
+        data.update(
+            {
+                "command": self.command,
+                "args": self.args,
+                "shell_status": self.shell_status.value,
+                "exit_code": self.exit_code,
+                "output": self.output,
+                "truncated": self.truncated,
+                "signal": self.signal,
+                "duration_ms": self.duration_ms,
+                "started_at_exec": self.started_at_exec,
+            }
+        )
         return data
 
     @classmethod
@@ -1889,14 +1902,16 @@ class LockNode(ContextNode):
     def to_dict(self) -> dict[str, Any]:
         """Serialize LockNode to dict."""
         data = super().to_dict()
-        data.update({
-            "lockfile": self.lockfile,
-            "lock_status": self.lock_status.value,
-            "timeout": self.timeout,
-            "error_message": self.error_message,
-            "acquired_at": self.acquired_at,
-            "holder_pid": self.holder_pid,
-        })
+        data.update(
+            {
+                "lockfile": self.lockfile,
+                "lock_status": self.lock_status.value,
+                "timeout": self.timeout,
+                "error_message": self.error_message,
+                "acquired_at": self.acquired_at,
+                "holder_pid": self.holder_pid,
+            }
+        )
         return data
 
     @classmethod
@@ -2034,7 +2049,9 @@ class SessionNode(ContextNode):
                 f"Tokens: {last_tokens:,} this turn "
                 f"(avg: {self.token_avg:,.0f}, range: {self.token_min:,}-{self.token_max:,})\n"
             )
-        parts.append(f"Total: {self.total_tokens_consumed:,} tokens across {self.turn_count} turns\n")
+        parts.append(
+            f"Total: {self.total_tokens_consumed:,} tokens across {self.turn_count} turns\n"
+        )
 
         return "".join(parts)
 
@@ -2183,7 +2200,9 @@ class SessionNode(ContextNode):
         from .headers import TokenInfo
 
         # Collapsed: session metadata line
-        collapsed_text = f"[Session: Turn {self.turn_count} | {self.total_tokens_consumed:,} tokens]\n"
+        collapsed_text = (
+            f"[Session: Turn {self.turn_count} | {self.total_tokens_consumed:,} tokens]\n"
+        )
         collapsed_tokens = count_tokens(collapsed_text)
 
         # Session node has statistics as detail
@@ -2196,24 +2215,26 @@ class SessionNode(ContextNode):
     def to_dict(self) -> dict[str, Any]:
         """Serialize SessionNode to dict."""
         data = super().to_dict()
-        data.update({
-            "token_history": self.token_history,
-            "token_min": self.token_min,
-            "token_max": self.token_max,
-            "token_avg": self.token_avg,
-            "turn_durations_ms": self.turn_durations_ms,
-            "time_min_ms": self.time_min_ms,
-            "time_max_ms": self.time_max_ms,
-            "total_statements_executed": self.total_statements_executed,
-            "total_tokens_consumed": self.total_tokens_consumed,
-            "session_start_time": self.session_start_time,
-            "turn_count": self.turn_count,
-            "node_count_by_type": self.node_count_by_type,
-            "running_node_count": self.running_node_count,
-            "graph_depth": self.graph_depth,
-            "recent_actions": self.recent_actions,
-            "history_depth": self.history_depth,
-        })
+        data.update(
+            {
+                "token_history": self.token_history,
+                "token_min": self.token_min,
+                "token_max": self.token_max,
+                "token_avg": self.token_avg,
+                "turn_durations_ms": self.turn_durations_ms,
+                "time_min_ms": self.time_min_ms,
+                "time_max_ms": self.time_max_ms,
+                "total_statements_executed": self.total_statements_executed,
+                "total_tokens_consumed": self.total_tokens_consumed,
+                "session_start_time": self.session_start_time,
+                "turn_count": self.turn_count,
+                "node_count_by_type": self.node_count_by_type,
+                "running_node_count": self.running_node_count,
+                "graph_depth": self.graph_depth,
+                "recent_actions": self.recent_actions,
+                "history_depth": self.history_depth,
+            }
+        )
         return data
 
     @classmethod
@@ -2256,7 +2277,6 @@ class SessionNode(ContextNode):
             history_depth=data.get("history_depth", 10),
         )
         return node
-
 
 
 @dataclass
@@ -2446,12 +2466,14 @@ class MessageNode(ContextNode):
     def to_dict(self) -> dict[str, Any]:
         """Serialize MessageNode to dict."""
         data = super().to_dict()
-        data.update({
-            "role": self.role,
-            "content": self.content,
-            "tool_name": self.tool_name,
-            "tool_args": self.tool_args,
-        })
+        data.update(
+            {
+                "role": self.role,
+                "content": self.content,
+                "tool_name": self.tool_name,
+                "tool_args": self.tool_args,
+            }
+        )
         return data
 
     @classmethod
@@ -2485,6 +2507,7 @@ class MessageNode(ContextNode):
         )
         return node
 
+
 @dataclass
 class WorkNode(ContextNode):
     """Represents this agent's work coordination entry.
@@ -2506,7 +2529,9 @@ class WorkNode(ContextNode):
     work_status: str = "active"  # active, paused, done
     files: list[dict[str, str]] = field(default_factory=list)  # [{path, mode}]
     dependencies: list[str] = field(default_factory=list)
-    conflicts: list[dict[str, str]] = field(default_factory=list)  # [{agent_id, file, their_mode, their_intent}]
+    conflicts: list[dict[str, str]] = field(
+        default_factory=list
+    )  # [{agent_id, file, their_mode, their_intent}]
     agent_id: str = ""
 
     @property
@@ -2648,14 +2673,16 @@ class WorkNode(ContextNode):
     def to_dict(self) -> dict[str, Any]:
         """Serialize WorkNode to dict."""
         data = super().to_dict()
-        data.update({
-            "intent": self.intent,
-            "work_status": self.work_status,
-            "files": self.files,
-            "dependencies": self.dependencies,
-            "conflicts": self.conflicts,
-            "agent_id": self.agent_id,
-        })
+        data.update(
+            {
+                "intent": self.intent,
+                "work_status": self.work_status,
+                "files": self.files,
+                "dependencies": self.dependencies,
+                "conflicts": self.conflicts,
+                "agent_id": self.agent_id,
+            }
+        )
         return data
 
     @classmethod
@@ -2939,9 +2966,7 @@ class MCPServerNode(ContextNode):
                         node.input_schema = tool_data["input_schema"]
                         changed = True
                     if changed:
-                        node._mark_changed(
-                            description=f"Tool '{tool_name}' schema updated"
-                        )
+                        node._mark_changed(description=f"Tool '{tool_name}' schema updated")
 
         # Update resources and prompts (no child nodes for these yet)
         self.resources = [
@@ -3001,14 +3026,17 @@ class MCPServerNode(ContextNode):
 
         # Fire event if callback is set
         if self._on_result_callback:
-            self._on_result_callback("mcp_result", {
-                "call_id": call_id,
-                "server_name": self.server_name,
-                "tool_name": tool_name,
-                "result": result,
-                "error": error,
-                "duration_ms": duration_ms,
-            })
+            self._on_result_callback(
+                "mcp_result",
+                {
+                    "call_id": call_id,
+                    "server_name": self.server_name,
+                    "tool_name": tool_name,
+                    "result": result,
+                    "error": error,
+                    "duration_ms": duration_ms,
+                },
+            )
 
     def get_pending_count(self) -> int:
         """Get the number of pending async calls."""
@@ -3054,15 +3082,17 @@ class MCPServerNode(ContextNode):
     def to_dict(self) -> dict[str, Any]:
         """Serialize MCPServerNode to dict."""
         data = super().to_dict()
-        data.update({
-            "server_name": self.server_name,
-            "status": self.status,
-            "error_message": self.error_message,
-            "tools": self.tools,
-            "resources": self.resources,
-            "prompts": self.prompts,
-            "_tool_nodes": self._tool_nodes,
-        })
+        data.update(
+            {
+                "server_name": self.server_name,
+                "status": self.status,
+                "error_message": self.error_message,
+                "tools": self.tools,
+                "resources": self.resources,
+                "prompts": self.prompts,
+                "_tool_nodes": self._tool_nodes,
+            }
+        )
         return data
 
     @classmethod
@@ -3239,12 +3269,14 @@ class MCPToolNode(ContextNode):
     def to_dict(self) -> dict[str, Any]:
         """Serialize MCPToolNode to dict."""
         data = super().to_dict()
-        data.update({
-            "tool_name": self.tool_name,
-            "server_name": self.server_name,
-            "description": self.description,
-            "input_schema": self.input_schema,
-        })
+        data.update(
+            {
+                "tool_name": self.tool_name,
+                "server_name": self.server_name,
+                "description": self.description,
+                "input_schema": self.input_schema,
+            }
+        )
         return data
 
     @classmethod
@@ -3523,9 +3555,6 @@ class MCPManagerNode(ContextNode):
         return node
 
 
-
-
-
 @dataclass
 class AgentNode(ContextNode):
     """Represents an agent in the context (self or another agent).
@@ -3649,15 +3678,17 @@ class AgentNode(ContextNode):
     def to_dict(self) -> dict[str, Any]:
         """Serialize AgentNode to dict."""
         data = super().to_dict()
-        data.update({
-            "agent_id": self.agent_id,
-            "agent_type": self.agent_type,
-            "relation": self.relation,
-            "task": self.task,
-            "agent_state": self.agent_state,
-            "session_id": self.session_id,
-            "message_count": self.message_count,
-        })
+        data.update(
+            {
+                "agent_id": self.agent_id,
+                "agent_type": self.agent_type,
+                "relation": self.relation,
+                "task": self.task,
+                "agent_state": self.agent_state,
+                "session_id": self.session_id,
+                "message_count": self.message_count,
+            }
+        )
         return data
 
     @classmethod
@@ -3723,8 +3754,12 @@ class TraceNode(ContextNode):
     curr_value: str = ""  # Current value (stringified)
 
     # Trace merging support
-    merged_values: list[str] = field(default_factory=list)  # For same field: list of additional curr values
-    trace_target: ContextNode | None = field(default=None, repr=False)  # Target node for merge lookup
+    merged_values: list[str] = field(
+        default_factory=list
+    )  # For same field: list of additional curr values
+    trace_target: ContextNode | None = field(
+        default=None, repr=False
+    )  # Target node for merge lookup
     child_traces: list[TraceNode] = field(default_factory=list)  # Child traces when merged
 
     @property

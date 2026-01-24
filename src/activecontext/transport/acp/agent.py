@@ -93,6 +93,8 @@ def _find_jetbrains_chat_uuid() -> str | None:
             return chat_uuid
 
     return None
+
+
 from activecontext.session.protocols import UpdateKind
 from activecontext.session.session_manager import Session, SessionManager
 from activecontext.session.storage import list_sessions as list_sessions_from_disk
@@ -170,7 +172,10 @@ class ActiveContextAgent:
 
         # Conversation delegation (Phase 2 - ACP Integration)
         from activecontext.session.coordinator import SessionConversationTransport
-        self._active_transports: dict[str, SessionConversationTransport] = {}  # session_id -> transport
+
+        self._active_transports: dict[
+            str, SessionConversationTransport
+        ] = {}  # session_id -> transport
 
     def _load_modes_from_config(self) -> None:
         """Load session modes from config if available."""
@@ -281,9 +286,7 @@ class ActiveContextAgent:
         # Schedule flush if not already scheduled
         async with self._chunk_lock:
             if session_id not in self._flush_tasks and session_id not in self._closed_sessions:
-                self._flush_tasks[session_id] = asyncio.create_task(
-                    self._delayed_flush(session_id)
-                )
+                self._flush_tasks[session_id] = asyncio.create_task(self._delayed_flush(session_id))
 
     async def _delayed_flush(self, session_id: str) -> None:
         """Flush after delay (Nagle timer)."""
@@ -336,18 +339,14 @@ class ActiveContextAgent:
             status="pending",
             content=[
                 helpers.tool_content(
-                    helpers.text_block(
-                        f"The agent wants to {mode} the file:\n{path}"
-                    )
+                    helpers.text_block(f"The agent wants to {mode} the file:\n{path}")
                 )
             ],
         )
 
         options = [
             PermissionOption(option_id="allow_once", name="Allow once", kind="allow_once"),
-            PermissionOption(
-                option_id="allow_always", name="Allow always", kind="allow_always"
-            ),
+            PermissionOption(option_id="allow_always", name="Allow always", kind="allow_always"),
             PermissionOption(option_id="deny", name="Deny", kind="reject_once"),
         ]
 
@@ -407,18 +406,14 @@ class ActiveContextAgent:
             status="pending",
             content=[
                 helpers.tool_content(
-                    helpers.text_block(
-                        f"The agent wants to run:\n```\n{full_command}\n```"
-                    )
+                    helpers.text_block(f"The agent wants to run:\n```\n{full_command}\n```")
                 )
             ],
         )
 
         options = [
             PermissionOption(option_id="allow_once", name="Allow once", kind="allow_once"),
-            PermissionOption(
-                option_id="allow_always", name="Allow always", kind="allow_always"
-            ),
+            PermissionOption(option_id="allow_always", name="Allow always", kind="allow_always"),
             PermissionOption(option_id="deny", name="Deny", kind="reject_once"),
         ]
 
@@ -444,7 +439,6 @@ class ActiveContextAgent:
         except Exception as e:
             log.error("Shell permission request failed: %s", e)
             return (False, False)
-
 
     # --- End shell permission requests ---
 
@@ -490,9 +484,7 @@ class ActiveContextAgent:
 
         options = [
             PermissionOption(option_id="allow_once", name="Allow once", kind="allow_once"),
-            PermissionOption(
-                option_id="allow_always", name="Allow always", kind="allow_always"
-            ),
+            PermissionOption(option_id="allow_always", name="Allow always", kind="allow_always"),
             PermissionOption(option_id="deny", name="Deny", kind="reject_once"),
         ]
 
@@ -566,10 +558,14 @@ class ActiveContextAgent:
         options = [
             PermissionOption(option_id="allow_once", name="Allow once", kind="allow_once"),
             PermissionOption(
-                option_id="allow_always", name="Allow always (this module only)", kind="allow_always"
+                option_id="allow_always",
+                name="Allow always (this module only)",
+                kind="allow_always",
             ),
             PermissionOption(
-                option_id="allow_always_submodules", name="Allow always (+ submodules)", kind="allow_always"
+                option_id="allow_always_submodules",
+                name="Allow always (+ submodules)",
+                kind="allow_always",
             ),
             PermissionOption(option_id="deny", name="Deny", kind="reject_once"),
         ]
@@ -628,51 +624,61 @@ class ActiveContextAgent:
 
             # Terminal capability
             terminal = getattr(client_capabilities, "terminal", False)
-            caps_list.append({
-                "name": "terminal",
-                "label": "Terminal",
-                "enabled": bool(terminal),
-                "description": "Execute terminal commands",
-            })
+            caps_list.append(
+                {
+                    "name": "terminal",
+                    "label": "Terminal",
+                    "enabled": bool(terminal),
+                    "description": "Execute terminal commands",
+                }
+            )
 
             # File system capabilities
             fs = getattr(client_capabilities, "fs", None)
             if fs:
-                caps_list.append({
-                    "name": "fs.read_text_file",
-                    "label": "File Read",
-                    "enabled": bool(getattr(fs, "read_text_file", False)),
-                    "description": "Read text files",
-                })
-                caps_list.append({
-                    "name": "fs.write_text_file",
-                    "label": "File Write",
-                    "enabled": bool(getattr(fs, "write_text_file", False)),
-                    "description": "Write text files",
-                })
+                caps_list.append(
+                    {
+                        "name": "fs.read_text_file",
+                        "label": "File Read",
+                        "enabled": bool(getattr(fs, "read_text_file", False)),
+                        "description": "Read text files",
+                    }
+                )
+                caps_list.append(
+                    {
+                        "name": "fs.write_text_file",
+                        "label": "File Write",
+                        "enabled": bool(getattr(fs, "write_text_file", False)),
+                        "description": "Write text files",
+                    }
+                )
                 # Include fs._meta extensions
                 fs_meta = getattr(fs, "field_meta", None)
                 if fs_meta:
                     for key, value in fs_meta.items():
-                        caps_list.append({
-                            "name": f"fs._meta.{key}",
-                            "label": key,
-                            "enabled": bool(value) if isinstance(value, bool) else True,
-                            "value": value if not isinstance(value, bool) else None,
-                            "description": f"Extension: {key}",
-                        })
+                        caps_list.append(
+                            {
+                                "name": f"fs._meta.{key}",
+                                "label": key,
+                                "enabled": bool(value) if isinstance(value, bool) else True,
+                                "value": value if not isinstance(value, bool) else None,
+                                "description": f"Extension: {key}",
+                            }
+                        )
 
             # Include top-level _meta extensions
             meta = getattr(client_capabilities, "field_meta", None)
             if meta:
                 for key, value in meta.items():
-                    caps_list.append({
-                        "name": f"_meta.{key}",
-                        "label": key,
-                        "enabled": bool(value) if isinstance(value, bool) else True,
-                        "value": value if not isinstance(value, bool) else None,
-                        "description": f"Extension: {key}",
-                    })
+                    caps_list.append(
+                        {
+                            "name": f"_meta.{key}",
+                            "label": key,
+                            "enabled": bool(value) if isinstance(value, bool) else True,
+                            "value": value if not isinstance(value, bool) else None,
+                            "description": f"Extension: {key}",
+                        }
+                    )
 
             self._client_info["capabilities"] = caps_list
 
@@ -800,7 +806,9 @@ class ActiveContextAgent:
 
             model_ids = [m.model_id for m in models_state.available_models] if models_state else []
             mode_ids = [m.id for m in modes_state.available_modes]
-            log.info("  Models (%d): %s", len(model_ids), ", ".join(model_ids) if model_ids else "none")
+            log.info(
+                "  Models (%d): %s", len(model_ids), ", ".join(model_ids) if model_ids else "none"
+            )
             log.info("  Modes (%d): %s", len(mode_ids), ", ".join(mode_ids))
 
             # Start the agent loop for async prompt processing
@@ -822,7 +830,7 @@ class ActiveContextAgent:
             # Log the full error with traceback
             log.error("Failed to create session: %s", e)
             log.error("%s", traceback.format_exc())
-            
+
             # Return proper ACP error to the IDE instead of hanging
             raise acp.RequestError(
                 code=-32603,  # Internal error
@@ -1070,9 +1078,7 @@ class ActiveContextAgent:
 
             # Handle slash commands synchronously (they don't go through the queue)
             if content.strip().startswith("/"):
-                handled, response = await self._handle_slash_command(
-                    content.strip(), session_id
-                )
+                handled, response = await self._handle_slash_command(content.strip(), session_id)
                 if handled:
                     if response:
                         await self._send_session_update(
@@ -1144,9 +1150,7 @@ class ActiveContextAgent:
 
         # Handle slash commands before LLM sees them
         if content.strip().startswith("/"):
-            handled, response = await self._handle_slash_command(
-                content.strip(), session_id
-            )
+            handled, response = await self._handle_slash_command(content.strip(), session_id)
             if handled:
                 if response:
                     await self._send_session_update(
@@ -1161,9 +1165,7 @@ class ActiveContextAgent:
         ) -> None:
             """Send thought update before MCP tool invocation."""
             # Format arguments for display (truncate long values)
-            args_preview = ", ".join(
-                f"{k}={repr(v)[:50]}" for k, v in list(arguments.items())[:3]
-            )
+            args_preview = ", ".join(f"{k}={repr(v)[:50]}" for k, v in list(arguments.items())[:3])
             if len(arguments) > 3:
                 args_preview += ", ..."
             await self._send_session_update(
@@ -1370,6 +1372,7 @@ class ActiveContextAgent:
         Args:
             session: Session instance to configure
         """
+
         # Set update callback for SessionConversationTransport
         async def emit_update(update: Any) -> None:
             """Emit a SessionUpdate to the ACP client."""
@@ -1451,9 +1454,7 @@ class ActiveContextAgent:
         """Handle extension notifications."""
         log.debug("Received extension notification: %s", method)
 
-    async def _handle_slash_command(
-        self, content: str, session_id: str
-    ) -> tuple[bool, str]:
+    async def _handle_slash_command(self, content: str, session_id: str) -> tuple[bool, str]:
         """Handle slash commands before they reach the LLM.
 
         Returns:
@@ -1732,9 +1733,7 @@ class ActiveContextAgent:
                                 tool_call_id=tool_call_id,
                                 status="failed",
                                 content=[
-                                    helpers.tool_content(
-                                        helpers.text_block(f"Error: {err_msg}")
-                                    )
+                                    helpers.tool_content(helpers.text_block(f"Error: {err_msg}"))
                                 ],
                             ),
                         )
@@ -1824,6 +1823,7 @@ class ActiveContextAgent:
             self._queue_update(session_id, update)
             # Still broadcast to dashboard even when queueing
             from activecontext.dashboard import broadcast_update, is_dashboard_running
+
             if is_dashboard_running():
                 await broadcast_update(
                     session_id,
@@ -1895,9 +1895,7 @@ class ActiveContextAgent:
                 if handles:
                     await self._send_session_update(
                         session_id,
-                        acp.update_agent_thought_text(
-                            f"Context: {len(handles)} handles"
-                        ),
+                        acp.update_agent_thought_text(f"Context: {len(handles)} handles"),
                     )
 
             # Conversation delegation updates (Phase 2: ACP Integration)
@@ -1981,6 +1979,7 @@ class ActiveContextAgent:
             except Exception as e:
                 log.error("Agent loop error for session %s: %s", session_id, e)
                 import traceback
+
                 log.error("%s", traceback.format_exc())
             finally:
                 self._agent_loop_tasks.pop(session_id, None)

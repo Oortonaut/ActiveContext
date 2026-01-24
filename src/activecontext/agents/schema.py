@@ -58,9 +58,7 @@ class AgentMessage:
             node_refs=data.get("node_refs", []),
             created_at=datetime.fromisoformat(data["created_at"]),
             delivered_at=(
-                datetime.fromisoformat(data["delivered_at"])
-                if data.get("delivered_at")
-                else None
+                datetime.fromisoformat(data["delivered_at"]) if data.get("delivered_at") else None
             ),
             status=data.get("status", "pending"),
             reply_to=data.get("reply_to"),

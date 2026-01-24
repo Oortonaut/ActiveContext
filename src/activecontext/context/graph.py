@@ -20,7 +20,6 @@ if TYPE_CHECKING:
     from activecontext.context.nodes import ContextNode
 
 
-
 @dataclass
 class _ChildOrderNode:
     """Node in the doubly-linked child order list."""
@@ -481,9 +480,7 @@ class ContextGraph:
             node_type: Type identifier (e.g., "text", "group", "shell").
         """
         return [
-            self._nodes[nid]
-            for nid in self._by_type.get(node_type, set())
-            if nid in self._nodes
+            self._nodes[nid] for nid in self._by_type.get(node_type, set()) if nid in self._nodes
         ]
 
     def get_traces_for_node(self, node_id: str) -> list[ContextNode]:
@@ -521,11 +518,7 @@ class ContextGraph:
         if node.trace_sink and node.trace_sink.node_id in self._nodes:
             for child_id in node.trace_sink.children_ids:
                 child = self._nodes.get(child_id)
-                if (
-                    child
-                    and child.node_type == "trace"
-                    and getattr(child, "node", None) == node_id
-                ):
+                if child and child.node_type == "trace" and getattr(child, "node", None) == node_id:
                     traces.append(child)
 
         # Sort by new_version descending (newest first)

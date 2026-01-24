@@ -155,11 +155,13 @@ class MCPConnection:
                 if isinstance(block, types.TextContent):
                     content.append({"type": "text", "text": block.text})
                 elif isinstance(block, types.ImageContent):
-                    content.append({
-                        "type": "image",
-                        "data": block.data,
-                        "mime_type": block.mimeType,
-                    })
+                    content.append(
+                        {
+                            "type": "image",
+                            "data": block.data,
+                            "mime_type": block.mimeType,
+                        }
+                    )
                 elif isinstance(block, types.EmbeddedResource):
                     res = block.resource
                     resource_dict: dict[str, Any] = {
@@ -351,9 +353,7 @@ class ServerProxy:
             self._tool_methods[tool.name] = method
             setattr(self, tool.name, method)
 
-    def _make_tool_method(
-        self, tool: MCPToolInfo
-    ) -> Callable[..., Awaitable[MCPToolResult]]:
+    def _make_tool_method(self, tool: MCPToolInfo) -> Callable[..., Awaitable[MCPToolResult]]:
         """Create an async method for calling a tool."""
         from activecontext.mcp.hooks import get_pre_call_hook
         from activecontext.mcp.permissions import MCPPermissionDenied

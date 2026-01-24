@@ -81,8 +81,7 @@ class Checkpoint:
             "created_at": self.created_at,
             "edges": self.edges,
             "group_states": {
-                node_id: state.to_dict()
-                for node_id, state in self.group_states.items()
+                node_id: state.to_dict() for node_id, state in self.group_states.items()
             },
             "root_ids": list(self.root_ids),
         }

@@ -66,9 +66,7 @@ class ScratchpadManager:
         with open(self._path, "w", encoding="utf-8") as f:
             yaml.safe_dump(scratchpad.to_dict(), f, default_flow_style=False)
 
-    def _atomic_update(
-        self, modifier: Callable[[Scratchpad], Scratchpad]
-    ) -> Scratchpad:
+    def _atomic_update(self, modifier: Callable[[Scratchpad], Scratchpad]) -> Scratchpad:
         """Read-modify-write with file locking."""
         self._path.parent.mkdir(parents=True, exist_ok=True)
         lock = FileLock(self._lock_path, timeout=10)
@@ -119,13 +117,9 @@ class ScratchpadManager:
         def modifier(scratchpad: Scratchpad) -> Scratchpad:
             # Remove stale entries
             threshold = now - timedelta(seconds=300)
-            scratchpad.entries = [
-                e for e in scratchpad.entries if e.heartbeat_at > threshold
-            ]
+            scratchpad.entries = [e for e in scratchpad.entries if e.heartbeat_at > threshold]
             # Remove existing entry for this agent
-            scratchpad.entries = [
-                e for e in scratchpad.entries if e.id != self._agent_id
-            ]
+            scratchpad.entries = [e for e in scratchpad.entries if e.id != self._agent_id]
             # Add new entry
             scratchpad.entries.append(entry)
             return scratchpad
@@ -209,9 +203,7 @@ class ScratchpadManager:
         self._agent_id = None
         self._session_id = None
 
-    def get_conflicts(
-        self, paths: list[str], mode: str = "write"
-    ) -> list[Conflict]:
+    def get_conflicts(self, paths: list[str], mode: str = "write") -> list[Conflict]:
         """Check if given paths conflict with other agents.
 
         A conflict occurs when:
@@ -332,9 +324,7 @@ class ScratchpadManager:
         def modifier(scratchpad: Scratchpad) -> Scratchpad:
             nonlocal removed_count
             original_count = len(scratchpad.entries)
-            scratchpad.entries = [
-                e for e in scratchpad.entries if e.heartbeat_at > threshold
-            ]
+            scratchpad.entries = [e for e in scratchpad.entries if e.heartbeat_at > threshold]
             removed_count = original_count - len(scratchpad.entries)
             return scratchpad
 
@@ -446,9 +436,7 @@ class ScratchpadManager:
             scratchpad.agents = [a for a in scratchpad.agents if a.id != agent_id]
             # Also clean up messages for this agent
             scratchpad.messages = [
-                m
-                for m in scratchpad.messages
-                if m.sender != agent_id and m.recipient != agent_id
+                m for m in scratchpad.messages if m.sender != agent_id and m.recipient != agent_id
             ]
             return scratchpad
 
@@ -571,9 +559,7 @@ class ScratchpadManager:
         def modifier(scratchpad: Scratchpad) -> Scratchpad:
             nonlocal deleted_count
             original_count = len(scratchpad.messages)
-            scratchpad.messages = [
-                m for m in scratchpad.messages if m.created_at > threshold
-            ]
+            scratchpad.messages = [m for m in scratchpad.messages if m.created_at > threshold]
             deleted_count = original_count - len(scratchpad.messages)
             return scratchpad
 

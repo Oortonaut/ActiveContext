@@ -50,16 +50,16 @@ class WaitMode(Enum):
     """Mode for wait conditions."""
 
     SINGLE = "single"  # Wait for a single node
-    ALL = "all"        # Wait for all nodes
-    ANY = "any"        # Wait for any node (first to complete)
+    ALL = "all"  # Wait for all nodes
+    ANY = "any"  # Wait for any node (first to complete)
     MESSAGE = "message"  # Wait for incoming message
-    AGENT = "agent"    # Wait for agent to complete
+    AGENT = "agent"  # Wait for agent to complete
 
 
 class EventResponse(Enum):
     """Response type for event handlers."""
 
-    WAKE = "wake"    # Wake agent immediately when event occurs
+    WAKE = "wake"  # Wake agent immediately when event occurs
     QUEUE = "queue"  # Queue event for processing on next wake
 
 
@@ -185,11 +185,13 @@ class WaitCondition:
         if self.timeout is None:
             return False
         import time
+
         return (time.time() - self.started_at) >= self.timeout
 
     def elapsed_seconds(self) -> float:
         """Get elapsed time since wait started."""
         import time
+
         return time.time() - self.started_at
 
 

@@ -43,8 +43,6 @@ class SessionModeConfig:
     description: str = ""
 
 
-
-
 # Package default startup statements - load reference prompts as independent trees
 # Note: context_guide is handled separately by _load_context_guide() which supports
 # project-specific overrides via CONTEXT_GUIDE.md in cwd
@@ -218,7 +216,6 @@ class SandboxConfig:
     allow_localhost: bool = False  # Auto-grant access to localhost  # Deny unlisted shell commands
 
 
-
 @dataclass
 class UserConfig:
     """User identity configuration.
@@ -288,7 +285,6 @@ class MCPConfig:
     allow_dynamic_servers: bool = True  # Allow mcp_connect() with inline config
 
 
-
 @dataclass
 class ACPConfig:
     """ACP transport configuration.
@@ -304,6 +300,7 @@ class ACPConfig:
     """
 
     out_of_band_update: bool = False
+
 
 @dataclass
 class Config:

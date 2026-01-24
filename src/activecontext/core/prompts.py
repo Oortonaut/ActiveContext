@@ -102,9 +102,7 @@ def build_user_message(prompt: str, projection: Projection | None = None) -> str
                     f"(state={digest.get('state', 'all')}, tokens={digest.get('tokens', 0)})"
                 )
             elif obj_type == "group":
-                parts.append(
-                    f"- `{handle_id}`: group with {digest.get('member_count', 0)} members"
-                )
+                parts.append(f"- `{handle_id}`: group with {digest.get('member_count', 0)} members")
         parts.append("")
 
     parts.append(prompt)

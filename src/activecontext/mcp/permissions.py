@@ -77,9 +77,7 @@ class MCPPermissionManager:
 
         return not self.deny_by_default
 
-    def grant_temporary(
-        self, server_name: str, tool_name: str | None = None
-    ) -> None:
+    def grant_temporary(self, server_name: str, tool_name: str | None = None) -> None:
         """Grant temporary access for a tool or all tools on a server.
 
         Args:
@@ -94,9 +92,7 @@ class MCPPermissionManager:
             self._temporary_grants.add(f"{server_name}.*")
             _log.debug(f"Granted temporary access to all {server_name} tools")
 
-    def revoke_temporary(
-        self, server_name: str, tool_name: str | None = None
-    ) -> None:
+    def revoke_temporary(self, server_name: str, tool_name: str | None = None) -> None:
         """Revoke temporary access."""
         if tool_name:
             self._temporary_grants.discard(f"{server_name}.{tool_name}")

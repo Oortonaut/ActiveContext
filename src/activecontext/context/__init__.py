@@ -48,12 +48,12 @@ from activecontext.context.nodes import (
     WorkNode,
 )
 from activecontext.context.traceable import (
+    format_value,
+    get_traceable_fields,
+    is_traceable,
+    register_formatter,
     trace_all_fields,
     traceable,
-    format_value,
-    register_formatter,
-    is_traceable,
-    get_traceable_fields,
 )
 from activecontext.context.view import NodeView
 

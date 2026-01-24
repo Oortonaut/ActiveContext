@@ -40,9 +40,7 @@ async def create_transport(
     """
     if config.transport == "stdio":
         if not config.command:
-            raise ValueError(
-                f"stdio transport requires 'command' for server '{config.name}'"
-            )
+            raise ValueError(f"stdio transport requires 'command' for server '{config.name}'")
 
         from mcp.client.stdio import StdioServerParameters, stdio_client
 
@@ -59,9 +57,7 @@ async def create_transport(
 
     elif config.transport == "streamable-http":
         if not config.url:
-            raise ValueError(
-                f"streamable-http transport requires 'url' for server '{config.name}'"
-            )
+            raise ValueError(f"streamable-http transport requires 'url' for server '{config.name}'")
 
         from mcp.client.streamable_http import streamablehttp_client
 
@@ -69,9 +65,7 @@ async def create_transport(
 
     elif config.transport == "sse":
         if not config.url:
-            raise ValueError(
-                f"sse transport requires 'url' for server '{config.name}'"
-            )
+            raise ValueError(f"sse transport requires 'url' for server '{config.name}'")
 
         from mcp.client.sse import sse_client
 
