@@ -135,10 +135,14 @@ class TestMCPToolNodeRender:
         )
 
     def test_render_collapsed(self, tool_node):
-        """Test COLLAPSED state shows just tool name."""
+        """Test COLLAPSED state shows tool name + brief + ID + tokens."""
         tool_node.expansion = Expansion.HEADER
         result = tool_node.Render()
-        assert result == "`read_file`\n"
+        # Format: ### `tool_name` description... | {#id} (X/Y tokens)
+        assert "### `read_file`" in result
+        assert "Read contents of a file" in result
+        assert f"{{#{tool_node.display_id}}}" in result
+        assert "tokens)" in result
 
     def test_render_summary(self, tool_node):
         """Test SUMMARY state shows name and truncated description."""

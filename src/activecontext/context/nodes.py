@@ -3233,8 +3233,18 @@ class MCPToolNode(ContextNode):
         cwd: str = ".",
         text_buffers: dict[str, Any] | None = None,
     ) -> str:
-        """Render collapsed: just tool name."""
-        return f"`{self.tool_name}`\n"
+        """Render collapsed: tool name + brief description + ID + tokens."""
+        # Truncate description for header
+        desc = self.description
+        if len(desc) > 60:
+            desc = desc[:60] + "..."
+
+        # Get token info
+        token_info = self.get_token_breakdown(cwd)
+        visible = token_info.collapsed
+        total = token_info.collapsed + token_info.summary + token_info.detail
+
+        return f"### `{self.tool_name}` {desc} | {{#{self.display_id}}} ({visible}/{total} tokens)\n"
 
     def RenderSummary(
         self,
