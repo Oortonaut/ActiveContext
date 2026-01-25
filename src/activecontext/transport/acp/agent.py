@@ -960,8 +960,10 @@ class ActiveContextAgent:
             # No cwd available, return empty
             return acp.schema.ListSessionsResponse(sessions=[])
 
-        # Get persisted sessions from disk
-        persisted = list_sessions_from_disk(target_cwd)
+        # Run synchronous disk I/O in thread pool to avoid blocking event loop.
+        # This is important when there are many session files to load.
+        import asyncio
+        persisted = await asyncio.to_thread(list_sessions_from_disk, target_cwd)
 
         # Build session info list
         sessions = []

@@ -9,13 +9,21 @@ for a session. It manages:
 
 from __future__ import annotations
 
+import ast
 import asyncio
 import time
 import traceback
 import uuid
+from types import FunctionType
 from collections.abc import AsyncIterator, Awaitable
 from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import dataclass
+
+# Module-level lock for stdout/stderr redirection.
+# redirect_stdout is NOT async-safe: when multiple async tasks use it concurrently,
+# they corrupt each other's contexts because sys.stdout is a global.
+# This lock ensures only one task at a time can capture output.
+_stdout_redirect_lock = asyncio.Lock()
 from io import StringIO
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -2339,6 +2347,7 @@ class Timeline:
 
         # Execute with permission request retry loop
         max_permission_retries = 3  # Prevent infinite permission loops
+        result: ExecutionResult | None = None
         for _attempt in range(max_permission_retries):
             result = await self._execute_statement_inner(source, statement_id, execution_id)
 
@@ -2456,6 +2465,8 @@ class Timeline:
             return result
 
         # Max retries exceeded - should not normally happen
+        # result is guaranteed to be set since max_permission_retries > 0
+        assert result is not None, "Permission retry loop must execute at least once"
         return result
 
     async def _execute_statement_inner(
@@ -2471,23 +2482,68 @@ class Timeline:
         started_at = time.time()
         status = ExecutionStatus.OK
         exception_info: dict[str, Any] | None = None
+        result = None
+        was_expression = False
+
+        # CO_COROUTINE flag indicates code contains top-level await
+        CO_COROUTINE = 0x80
 
         try:
-            with redirect_stdout(stdout_capture), redirect_stderr(stderr_capture):
-                # Use exec for statements, eval for expressions
-                try:
-                    # Try as expression first
-                    result = eval(source, self._namespace)
-                    # Handle coroutines (e.g., from shell())
-                    if asyncio.iscoroutine(result):
-                        result = await result
-                    if result is not None:
+            # Phase 1: Compile and execute with stdout capture (short lock)
+            # The lock ensures redirect_stdout is async-safe across concurrent tasks.
+            # Use PyCF_ALLOW_TOP_LEVEL_AWAIT to support 'await' in DSL code.
+            coro_to_await = None
+
+            async with _stdout_redirect_lock:
+                with redirect_stdout(stdout_capture), redirect_stderr(stderr_capture):
+                    try:
+                        # Try as expression first
+                        compiled = compile(
+                            source,
+                            "<dsl>",
+                            "eval",
+                            flags=ast.PyCF_ALLOW_TOP_LEVEL_AWAIT,
+                        )
+                        if compiled.co_flags & CO_COROUTINE:
+                            # Expression contains await - eval returns coroutine
+                            result = eval(compiled, self._namespace)
+                            coro_to_await = result
+                        else:
+                            result = eval(compiled, self._namespace)
+                        was_expression = True
+                    except SyntaxError:
+                        # Fall back to exec for statements
+                        compiled = compile(
+                            source,
+                            "<dsl>",
+                            "exec",
+                            flags=ast.PyCF_ALLOW_TOP_LEVEL_AWAIT,
+                        )
+                        if compiled.co_flags & CO_COROUTINE:
+                            # Statement contains await - create function and call it
+                            func = FunctionType(compiled, self._namespace)
+                            coro_to_await = func()
+                        else:
+                            exec(compiled, self._namespace)
+                        was_expression = False
+
+            # Phase 2: Await any coroutine OUTSIDE the lock
+            # Long-running operations (like mcp_connect) must not hold the lock.
+            if coro_to_await is not None:
+                result = await coro_to_await
+            elif asyncio.iscoroutine(result):
+                result = await result
+
+            # Phase 3: After exec, handle namespace coroutines OUTSIDE the lock
+            if not was_expression:
+                await self._await_namespace_coroutines()
+
+            # Phase 4: Print result with brief lock
+            if result is not None:
+                async with _stdout_redirect_lock:
+                    with redirect_stdout(stdout_capture):
                         print(repr(result))
-                except SyntaxError:
-                    # Fall back to exec for statements
-                    exec(source, self._namespace)
-                    # After exec, check for coroutines in new namespace entries
-                    await self._await_namespace_coroutines()
+
         except PermissionDenied as e:
             # Special handling for permission denied - include metadata for retry
             status = ExecutionStatus.ERROR
