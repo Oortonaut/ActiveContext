@@ -5,7 +5,7 @@ Provides a web-based dashboard for real-time monitoring of ActiveContext session
 Usage:
     The dashboard is started via the /dashboard slash command in the ACP transport.
 
-    /dashboard start [port]  - Start dashboard server (default port: 8765)
+    /dashboard start [port]  - Start dashboard server (default port: 31993)
     /dashboard stop          - Stop dashboard server
     /dashboard status        - Show dashboard status
     /dashboard [open]        - Open dashboard in browser (auto-starts if needed)

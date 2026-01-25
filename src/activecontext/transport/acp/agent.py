@@ -1539,7 +1539,7 @@ class ActiveContextAgent:
             )
 
             if subcommand == "start":
-                port = 8765  # default
+                port = 31993  # default
                 if len(subcommand_parts) > 1:
                     try:
                         port = int(subcommand_parts[1])
@@ -1587,7 +1587,7 @@ class ActiveContextAgent:
                     # Auto-start with default port
                     try:
                         await start_dashboard(
-                            port=8765,
+                            port=31993,
                             manager=self._manager,
                             get_current_model=lambda: self._current_model_id,
                             sessions_model=self._sessions_model,
@@ -1606,7 +1606,7 @@ class ActiveContextAgent:
             else:
                 return True, (
                     "Usage: /dashboard [subcommand]\n"
-                    "  start [port] - Start dashboard server (default port: 8765)\n"
+                    "  start [port] - Start dashboard server (default port: 31993)\n"
                     "  stop         - Stop dashboard server\n"
                     "  status       - Show dashboard status\n"
                     "  open         - Open dashboard in browser (auto-starts if needed)"
