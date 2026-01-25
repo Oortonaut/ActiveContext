@@ -239,7 +239,7 @@ def parse_markdown(content: str) -> ParseResult:
     return parser.parse(content)
 
 
-def render_with_tags(content: str, result: ParseResult) -> str:
+def render_with_tags(content: str, result: ParseResult, base_id: str = "") -> str:
     """Render markdown content with heading annotations.
 
     Replaces each heading line with annotated version including
@@ -248,6 +248,8 @@ def render_with_tags(content: str, result: ParseResult) -> str:
     Args:
         content: Original markdown content
         result: ParseResult from parsing the content
+        base_id: Base identifier for node IDs (e.g., filename without extension).
+                 If provided, IDs become "{base_id}_{i}". If empty, uses "text_{i}".
 
     Returns:
         Content with heading lines annotated
@@ -256,7 +258,10 @@ def render_with_tags(content: str, result: ParseResult) -> str:
 
     for i, section in enumerate(result.sections):
         line_idx = section.start_line - 1  # 0-indexed
-        node_id = f"text_{i}"
+        if base_id:
+            node_id = f"{base_id}_{i}"
+        else:
+            node_id = f"text_{i}"
         lines[line_idx] = section.render_heading(result.total_lines, node_id)
 
     return "\n".join(lines)

@@ -762,6 +762,36 @@ class TextNode(ContextNode):
     def node_type(self) -> str:
         return "text"
 
+    @property
+    def markdown_heading_id(self) -> str:
+        """Return ID for markdown heading annotations based on filename.
+
+        Format: "{filename_stem}_{sequence}" e.g., "dsl_reference_1", "system_prompt_3"
+        Falls back to display_id if path is empty.
+        """
+        import re
+        from pathlib import Path
+
+        if not self.path:
+            return self.display_id
+
+        # Extract filename stem (without extension)
+        stem = Path(self.path).stem
+
+        # Handle @prompts/ prefix - extract just the filename
+        if stem.startswith("@"):
+            stem = stem.lstrip("@")
+
+        # Sanitize to valid identifier (replace non-alphanumeric with underscore)
+        stem = re.sub(r"[^a-zA-Z0-9]", "_", stem)
+        stem = re.sub(r"_+", "_", stem).strip("_")
+
+        # Use lowercase for consistency
+        stem = stem.lower()
+
+        seq = self.display_sequence or 0
+        return f"{stem}_{seq}"
+
     def GetDigest(self) -> dict[str, Any]:
         return {
             "id": self.node_id,
@@ -853,8 +883,9 @@ class TextNode(ContextNode):
             level = self.tags["level"]
             prefix = "#" * level
 
-            # Format: ## Heading {#text_1}
-            output_parts.append(f"{prefix} {heading} {{#{self.display_id}}}\n")
+            # Format: ## Heading {#dsl_reference_1}
+            # Use markdown_heading_id which is based on the filename
+            output_parts.append(f"{prefix} {heading} {{#{self.markdown_heading_id}}}\n")
 
             # Render remaining lines (skip the heading line itself)
             for i, line in enumerate(lines):
@@ -977,10 +1008,20 @@ class TextNode(ContextNode):
         except ValueError:
             media_type = MediaType.TEXT
 
+        # Convert child_order from list to LinkedChildOrder if needed
+        child_order_data = data.get("child_order")
+        child_order = None
+        if child_order_data:
+            if isinstance(child_order_data, list):
+                child_order = LinkedChildOrder.from_list(child_order_data)
+            else:
+                child_order = child_order_data
+
         node = cls(
             node_id=data["node_id"],
             parent_ids=set(data.get("parent_ids", [])),
             children_ids=set(data.get("children_ids", [])),
+            child_order=child_order,
             tokens=data.get("tokens", 1000),
             expansion=Expansion(data.get("expansion", "all")),
             mode=data.get("mode", "paused"),
