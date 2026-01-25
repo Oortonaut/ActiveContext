@@ -2433,14 +2433,15 @@ class MessageNode(ContextNode):
         cwd: str = ".",
         text_buffers: dict[str, Any] | None = None,
     ) -> str:
-        """Render summary: truncated content preview."""
+        """Render summary: header + truncated content preview."""
+        header = self.render_header(cwd=cwd)
         char_budget = self.tokens * 4
         content = self._get_formatted_content(char_budget)
         preview_len = min(200, len(content))
         preview = content[:preview_len]
         if len(content) > preview_len:
             preview += "..."
-        return preview + "\n"
+        return header + preview + "\n"
 
     def RenderDetail(
         self,
@@ -2448,18 +2449,19 @@ class MessageNode(ContextNode):
         cwd: str = ".",
         text_buffers: dict[str, Any] | None = None,
     ) -> str:
-        """Render detail: full content within budget.
+        """Render detail: header + full content within budget.
 
         Note: Block merging happens in ProjectionEngine._render_messages()
         which groups adjacent same-role messages before rendering.
         """
+        header = self.render_header(cwd=cwd)
         char_budget = self.tokens * 4
         content = self._get_formatted_content(char_budget)
 
         if len(content) > char_budget:
             content = content[: char_budget - 20] + "\n... [truncated]"
 
-        return content + "\n"
+        return header + content + "\n"
 
     def _format_tool_call(self) -> str:
         """Format a tool call message."""
