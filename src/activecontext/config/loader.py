@@ -238,7 +238,7 @@ def dict_to_config(data: dict[str, Any]) -> Config:
             MCPServerConfig(
                 name=s.get("name", ""),
                 command=s.get("command"),
-                args=s.get("args", []),
+                extra_args=s.get("extra_args", []),
                 env=s.get("env", {}),
                 url=s.get("url"),
                 headers=s.get("headers", {}),
