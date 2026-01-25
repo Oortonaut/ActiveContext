@@ -294,9 +294,9 @@ class TestBackwardCompatibility:
         clear_secret_cache()  # Clear cache to pick up monkeypatched env
         assert fetch_secret("ANTHROPIC_API_KEY") == "test-key"
 
-    def test_activecontext_log_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Test ACTIVECONTEXT_LOG env var is respected."""
-        monkeypatch.setenv("ACTIVECONTEXT_LOG", "/tmp/test.log")
+    def test_ac_log_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test AC_LOG env var is respected."""
+        monkeypatch.setenv("AC_LOG", "/tmp/test.log")
 
         config = load_config()
         assert config.logging.file == "/tmp/test.log"
