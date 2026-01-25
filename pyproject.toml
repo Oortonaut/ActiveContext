@@ -6,7 +6,7 @@ readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "Apache-2.0" }
 authors = [
-    { name = "ActiveContext Contributors" }
+    { name = "Acy James Stapp dba Oort Heavy Industries" }
 ]
 dependencies = [
     "agent-client-protocol>=0.1",
