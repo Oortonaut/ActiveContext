@@ -234,6 +234,42 @@ nested:
         assert config.extra["custom_field"] == "custom_value"
         assert config.extra["nested"]["field"] == "value"
 
+    def test_mcp_servers_from_config(self, temp_config_dir: Path) -> None:
+        """Test loading MCP server config with extra_args."""
+        config_file = temp_config_dir / "config.yaml"
+        config_file.write_text(
+            """
+mcp:
+  allow_dynamic_servers: true
+  servers:
+    - name: task-graph
+      transport: stdio
+      command: ["task-graph-mcp"]
+      extra_args: ["--log", "/tmp/task-graph.log"]
+      connect: auto
+    - name: rider
+      url: "http://127.0.0.1:64342/sse"
+      transport: sse
+      connect: manual
+"""
+        )
+        config = load_config(session_root=str(temp_config_dir.parent))
+        assert config.mcp.allow_dynamic_servers is True
+        assert len(config.mcp.servers) == 2
+
+        # Check stdio server with extra_args
+        task_graph = config.mcp.servers[0]
+        assert task_graph.name == "task-graph"
+        assert task_graph.command == ["task-graph-mcp"]
+        assert task_graph.extra_args == ["--log", "/tmp/task-graph.log"]
+        assert task_graph.transport == "stdio"
+
+        # Check SSE server
+        rider = config.mcp.servers[1]
+        assert rider.name == "rider"
+        assert rider.url == "http://127.0.0.1:64342/sse"
+        assert rider.transport == "sse"
+
 
 class TestBackwardCompatibility:
     """Test backward compatibility with environment variables."""
