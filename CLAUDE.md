@@ -648,6 +648,75 @@ work_done()
 - **Test isolation**: Tests must not depend on external state or execution order
 - **Naming**: `test_<module>.py`, functions as `test_<function>_<scenario>`
 
+#### Testing for User Mistakes
+
+**Always test for conceivable user errors**, not just the happy path. Users will:
+
+1. **Misread documentation**: If docs show `await func()`, users will copy it even if the system handles async automatically. Test that wrong usage produces helpful errors.
+
+2. **Apply patterns from other contexts**: Users familiar with async Python will write `await` everywhere. Users from other languages may pass wrong types, use wrong syntax, or misunderstand APIs.
+
+3. **Make typos and near-misses**: Test common misspellings, wrong argument order, missing required args, extra args.
+
+4. **Hit edge cases**: Empty inputs, None values, very large inputs, special characters, unicode, paths with spaces.
+
+5. **Violate implicit assumptions**: If code assumes a file exists, test when it doesn't. If code assumes a connection is open, test when it's closed.
+
+**Test Pattern for User-Facing APIs:**
+
+```python
+class TestMyFunction:
+    """Tests for my_function()."""
+
+    # Happy path
+    async def test_basic_usage(self):
+        """Test normal expected usage."""
+        result = my_function("valid_input")
+        assert result.success
+
+    # User mistakes - these are REQUIRED for user-facing APIs
+    async def test_wrong_type_gives_helpful_error(self):
+        """Test that passing wrong type gives clear error."""
+        result = my_function(123)  # User passes int instead of str
+        assert "expected string" in result.error.lower()
+
+    async def test_common_misuse_gives_helpful_error(self):
+        """Test that common misuse patterns give clear errors."""
+        # If users might write 'await my_function()' but shouldn't:
+        result = execute('x = await my_function()')
+        assert "do not use await" in result.error.lower()
+
+    async def test_empty_input(self):
+        """Test empty/None input handling."""
+        result = my_function("")
+        # Either works or gives clear error - never crashes
+
+    async def test_missing_required_arg(self):
+        """Test that missing args give clear error."""
+        with pytest.raises(TypeError, match="required.*argument"):
+            my_function()  # Missing required arg
+```
+
+**Documentation Tests:**
+
+If documentation shows example code, that code MUST be tested:
+
+```python
+def test_documentation_examples_work():
+    """Verify all examples from docs actually work."""
+    # Example from dsl_reference.md
+    result = execute('v = text("main.py", tokens=2000)')
+    assert result.status == "ok"
+```
+
+**Error Message Quality:**
+
+Test that error messages are actionable:
+- Include what went wrong
+- Include what the user provided
+- Include what was expected
+- Include how to fix it (when possible)
+
 ### Git Worktrees
 
 **When to use:**

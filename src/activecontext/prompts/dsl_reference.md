@@ -284,10 +284,15 @@ s.output         # stdout/stderr
 Make an HTTP/HTTPS request (requires permission).
 
 ```python
+response = fetch("https://api.example.com/data")
+response = fetch("https://api.example.com/post", method="POST", data=payload)
+response = fetch("https://api.example.com/api", method="POST", json={"key": "value"})
+
+# You can also use await explicitly if preferred:
 response = await fetch("https://api.example.com/data")
-response = await fetch("https://api.example.com/post", method="POST", data=payload)
-response = await fetch("https://api.example.com/api", method="POST", json={"key": "value"})
 ```
+
+> **Note**: The DSL supports top-level `await`. You can write `result = await func()` or just `result = func()` - both work. When you omit `await`, the Timeline automatically awaits coroutines stored in the namespace.
 
 ## File Locking
 

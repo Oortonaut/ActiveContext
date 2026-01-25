@@ -166,7 +166,11 @@ Run pip install"""
 
     @pytest.mark.asyncio
     async def test_markdown_nodes_render_with_display_id(self, temp_cwd: Path) -> None:
-        """Test that markdown nodes render headings with {#text_N} annotations."""
+        """Test that markdown nodes render headings with filename-based annotations.
+
+        Headings are annotated with {#filename_N} where filename is derived from
+        the markdown file path (e.g., test.md -> test_1, test_2, etc.).
+        """
         timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
 
         try:
@@ -372,6 +376,7 @@ class TestWaitConditions:
             # Check that wait condition was set with ANY mode
             assert timeline._wait_condition is not None
             from activecontext.session.timeline import WaitMode
+
             assert timeline._wait_condition.mode == WaitMode.ANY
         finally:
             await timeline.close()
@@ -734,5 +739,116 @@ class TestHideUnhide:
             await timeline.execute_statement("unhide(v)")
             assert v.hide is False
             assert v.expand == Expansion.HEADER
+        finally:
+            await timeline.close()
+
+
+class TestTopLevelAwait:
+    """Test that top-level 'await' works in DSL code.
+
+    The DSL uses PyCF_ALLOW_TOP_LEVEL_AWAIT to support await expressions
+    and statements directly, without requiring users to define async functions.
+    """
+
+    @pytest.fixture
+    def temp_cwd(self, tmp_path: Path) -> Path:
+        return tmp_path
+
+    @pytest.mark.asyncio
+    async def test_await_expression_works(self, temp_cwd: Path) -> None:
+        """Test that 'await' in expression context works."""
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
+
+        try:
+            # Add an async function to the namespace
+            async def async_func():
+                return 42
+
+            timeline._namespace["async_func"] = async_func
+
+            result = await timeline.execute_statement("x = await async_func()")
+
+            assert result.status.value == "ok"
+            assert timeline._namespace.get("x") == 42
+        finally:
+            await timeline.close()
+
+    @pytest.mark.asyncio
+    async def test_await_with_asyncio_sleep(self, temp_cwd: Path) -> None:
+        """Test that 'await asyncio.sleep()' works."""
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
+
+        try:
+            # Import asyncio first (or add to namespace)
+            timeline._namespace["asyncio"] = asyncio
+
+            result = await timeline.execute_statement(
+                "result = await asyncio.sleep(0.001, result='done')"
+            )
+
+            assert result.status.value == "ok"
+            assert timeline._namespace.get("result") == "done"
+        finally:
+            await timeline.close()
+
+    @pytest.mark.asyncio
+    async def test_multiline_with_await(self, temp_cwd: Path) -> None:
+        """Test that multiline code with 'await' works."""
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
+
+        try:
+
+            async def get_value():
+                return "hello"
+
+            timeline._namespace["get_value"] = get_value
+
+            source = """x = await get_value()
+y = x.upper()"""
+
+            result = await timeline.execute_statement(source)
+
+            assert result.status.value == "ok"
+            assert timeline._namespace.get("x") == "hello"
+            assert timeline._namespace.get("y") == "HELLO"
+        finally:
+            await timeline.close()
+
+    @pytest.mark.asyncio
+    async def test_await_undefined_function_gives_name_error(self, temp_cwd: Path) -> None:
+        """Test that awaiting undefined function gives clear NameError."""
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
+
+        try:
+            result = await timeline.execute_statement("x = await undefined_func()")
+
+            assert result.status.value == "error"
+            assert result.exception is not None
+            assert result.exception["type"] == "NameError"
+            assert "undefined_func" in result.exception["message"]
+        finally:
+            await timeline.close()
+
+    @pytest.mark.asyncio
+    async def test_await_inside_function_definition(self, temp_cwd: Path) -> None:
+        """Test that 'await' inside async function definition works."""
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
+
+        try:
+            # Add asyncio to namespace
+            timeline._namespace["asyncio"] = asyncio
+
+            # Define an async function that uses await internally
+            source = """
+async def my_async_func():
+    return await asyncio.sleep(0.001, result='inner')
+"""
+            result = await timeline.execute_statement(source)
+            assert result.status.value == "ok"
+
+            # Now call it with top-level await
+            result = await timeline.execute_statement("result = await my_async_func()")
+            assert result.status.value == "ok"
+            assert timeline._namespace.get("result") == "inner"
         finally:
             await timeline.close()
