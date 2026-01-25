@@ -29,7 +29,7 @@ from .helpers import ACPTestClient
 class TestSessionNew:
     """Tests for session/new per ACP spec."""
 
-    async def test_session_new_requires_only_cwd(self, initialized_client: ACPTestClient) -> None:
+    async def test_session_new_requires_only_cwd(self, initialized_client: ACPTestClient, test_cwd: Path) -> None:
         """session/new should only require cwd (mcpServers is optional per spec).
 
         The spec explicitly marks mcpServers as optional with '?'.
@@ -37,7 +37,7 @@ class TestSessionNew:
         """
         response = await initialized_client.send_request(
             "session/new",
-            {"cwd": str(Path.cwd())},  # Only cwd, no mcpServers
+            {"cwd": str(test_cwd)},  # Only cwd, no mcpServers
         )
 
         # Per spec, this should succeed with just cwd
@@ -54,11 +54,11 @@ class TestSessionNew:
 
         assert "result" in response
 
-    async def test_session_new_returns_session_id(self, initialized_client: ACPTestClient) -> None:
+    async def test_session_new_returns_session_id(self, initialized_client: ACPTestClient, test_cwd: Path) -> None:
         """session/new must return a sessionId (spec required)."""
         response = await initialized_client.send_request(
             "session/new",
-            {"cwd": str(Path.cwd()), "mcpServers": []},  # Include mcpServers for compatibility
+            {"cwd": str(test_cwd), "mcpServers": []},  # Include mcpServers for compatibility
         )
         assert "result" in response, f"session/new failed: {response}"
 
@@ -67,11 +67,11 @@ class TestSessionNew:
         assert isinstance(result["sessionId"], str), "sessionId must be string"
         assert len(result["sessionId"]) > 0, "sessionId must not be empty"
 
-    async def test_session_new_modes_format(self, initialized_client: ACPTestClient) -> None:
+    async def test_session_new_modes_format(self, initialized_client: ACPTestClient, test_cwd: Path) -> None:
         """session/new modes (if present) must match spec format."""
         response = await initialized_client.send_request(
             "session/new",
-            {"cwd": str(Path.cwd()), "mcpServers": []},
+            {"cwd": str(test_cwd), "mcpServers": []},
         )
         result = response["result"]
 
@@ -92,11 +92,11 @@ class TestSessionNew:
             assert "name" in mode, f"Mode missing 'name': {mode}"
             # description is in spec examples
 
-    async def test_session_new_models_format(self, initialized_client: ACPTestClient) -> None:
+    async def test_session_new_models_format(self, initialized_client: ACPTestClient, test_cwd: Path) -> None:
         """session/new models (if present) must match spec format."""
         response = await initialized_client.send_request(
             "session/new",
-            {"cwd": str(Path.cwd()), "mcpServers": []},
+            {"cwd": str(test_cwd), "mcpServers": []},
         )
         result = response["result"]
 
@@ -121,12 +121,12 @@ class TestSessionNew:
 class TestSessionList:
     """Tests for session/list per ACP spec."""
 
-    async def test_session_list_returns_sessions_array(self, initialized_client: ACPTestClient) -> None:
+    async def test_session_list_returns_sessions_array(self, initialized_client: ACPTestClient, test_cwd: Path) -> None:
         """session/list must return sessions array (spec required)."""
         # Create a session first
         await initialized_client.send_request(
             "session/new",
-            {"cwd": str(Path.cwd()), "mcpServers": []},
+            {"cwd": str(test_cwd), "mcpServers": []},
         )
 
         response = await initialized_client.send_request("session/list", {})
@@ -136,12 +136,12 @@ class TestSessionList:
         assert "sessions" in result, f"Missing sessions: {result}"
         assert isinstance(result["sessions"], list), "sessions must be list"
 
-    async def test_session_list_contains_created_session(self, initialized_client: ACPTestClient) -> None:
+    async def test_session_list_contains_created_session(self, initialized_client: ACPTestClient, test_cwd: Path) -> None:
         """Created session should appear in session/list."""
         # Create a session
         create_response = await initialized_client.send_request(
             "session/new",
-            {"cwd": str(Path.cwd()), "mcpServers": []},
+            {"cwd": str(test_cwd), "mcpServers": []},
         )
         session_id = create_response["result"]["sessionId"]
 
@@ -153,12 +153,12 @@ class TestSessionList:
         session_ids = [s.get("sessionId") for s in sessions]
         assert session_id in session_ids, f"Session {session_id} not in list: {session_ids}"
 
-    async def test_session_list_entries_have_session_id(self, initialized_client: ACPTestClient) -> None:
+    async def test_session_list_entries_have_session_id(self, initialized_client: ACPTestClient, test_cwd: Path) -> None:
         """Each session in list must have sessionId (spec required)."""
         # Ensure at least one session exists
         await initialized_client.send_request(
             "session/new",
-            {"cwd": str(Path.cwd()), "mcpServers": []},
+            {"cwd": str(test_cwd), "mcpServers": []},
         )
 
         list_response = await initialized_client.send_request("session/list", {})
@@ -177,12 +177,12 @@ class TestSessionSetMode:
     Tests skip if method returns -32601 (not found).
     """
 
-    async def test_session_set_mode_valid(self, initialized_client: ACPTestClient) -> None:
+    async def test_session_set_mode_valid(self, initialized_client: ACPTestClient, test_cwd: Path) -> None:
         """session/setMode with valid mode should succeed."""
         # Create session and get available modes
         create_response = await initialized_client.send_request(
             "session/new",
-            {"cwd": str(Path.cwd()), "mcpServers": []},
+            {"cwd": str(test_cwd), "mcpServers": []},
         )
         result = create_response["result"]
         session_id = result["sessionId"]
@@ -204,12 +204,12 @@ class TestSessionSetMode:
 
         assert "result" in response, f"setMode failed: {response}"
 
-    async def test_session_set_mode_invalid_returns_error(self, initialized_client: ACPTestClient) -> None:
+    async def test_session_set_mode_invalid_returns_error(self, initialized_client: ACPTestClient, test_cwd: Path) -> None:
         """session/setMode with invalid mode should return error (-32602)."""
         # Create session
         create_response = await initialized_client.send_request(
             "session/new",
-            {"cwd": str(Path.cwd()), "mcpServers": []},
+            {"cwd": str(test_cwd), "mcpServers": []},
         )
         session_id = create_response["result"]["sessionId"]
 

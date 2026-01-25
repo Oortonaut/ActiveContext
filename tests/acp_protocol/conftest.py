@@ -14,6 +14,18 @@ from .helpers import ACPTestClient, initialize_agent
 
 
 @pytest.fixture(scope="module")
+def test_cwd(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """Module-scoped temp directory for test sessions.
+
+    Using a temp directory instead of the real project directory:
+    - Avoids loading 66+ real session files in session/list tests
+    - Provides test isolation
+    - Makes tests faster and more predictable
+    """
+    return tmp_path_factory.mktemp("acp_test")
+
+
+@pytest.fixture(scope="module")
 def event_loop_policy():
     """Set event loop policy for Windows."""
     if sys.platform == "win32":
