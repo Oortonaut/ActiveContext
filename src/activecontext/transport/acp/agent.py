@@ -997,6 +997,12 @@ class ActiveContextAgent:
             )
 
         self._sessions_mode[session_id] = mode_id
+
+        # Update Session's mode to refresh ChoiceView selection
+        session = await self._manager.get_session(session_id)
+        if session:
+            session.set_mode(mode_id)
+
         log.debug("Mode set successfully for session %s", session_id)
         return SetSessionModeResponse()
 

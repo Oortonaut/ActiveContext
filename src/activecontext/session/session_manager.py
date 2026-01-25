@@ -29,21 +29,18 @@ from activecontext.logging import get_logger
 from activecontext.session.agent import Agent
 from activecontext.session.permissions import ImportGuard, PermissionManager, ShellPermissionManager
 from activecontext.session.protocols import (
-    IOMode,
     Projection,
     SessionUpdate,
-    TaskProtocol,
-    TaskStatus,
     UpdateKind,
 )
 from activecontext.session.script import Script
-from activecontext.session.tasks import BlockingConversationTask
 from activecontext.session.storage import (
     generate_default_title,
     get_session_path,
     load_session_data,
     save_session,
 )
+from activecontext.session.tasks import BlockingConversationTask
 from activecontext.session.timeline import Timeline
 
 log = get_logger("session")
@@ -131,6 +128,9 @@ class Session:
         self._primary_script = self._primary_agent  # Alias for Script API
         self._timeline = timeline  # Backward compat alias
 
+        # Expose session to namespace for DSL access (e.g., __session__.set_mode_choice_view())
+        self._timeline._namespace["__session__"] = self
+
         # Task registry for multi-task support (Phase 5)
         self._tasks: dict[str, Script | BlockingConversationTask] = {
             session_id: self._primary_agent
@@ -209,6 +209,11 @@ class Session:
 
         # Track whether startup() has been called
         self._startup_done: bool = is_restore  # Restored sessions skip startup
+
+        # Mode tracking for ChoiceView-based mode scripts
+        self._mode_id: str = "normal"
+        self._mode_choice_view: Any | None = None  # ChoiceView for mode scripts
+        self._mode_node_ids: dict[str, str] = {}  # mode_id -> node_id mapping
 
         # Conversation delegation callbacks (Phase 2: ACP Integration)
         # Set by ACP agent to enable transport registration and update emission
@@ -483,6 +488,53 @@ class Session:
             title: New title for the session.
         """
         self._title = title
+
+
+    @property
+    def mode(self) -> str:
+        """Get the current session mode ID."""
+        return self._mode_id
+
+    def set_mode(self, mode_id: str) -> None:
+        """Update the session mode and refresh the ChoiceView selection.
+
+        Args:
+            mode_id: The new mode ID (e.g., 'normal', 'plan', 'brave')
+        """
+        self._mode_id = mode_id
+        if self._mode_choice_view is not None and self._mode_node_ids:
+            # Look up node ID from mode mapping
+            node_id = self._mode_node_ids.get(mode_id)
+            if node_id:
+                self._mode_choice_view.select(node_id)
+
+    def set_mode_choice_view(self, choice_view: Any) -> None:
+        """Register the ChoiceView that manages mode scripts.
+
+        Called from startup statements to wire up mode switching.
+        Automatically builds mode_id -> node_id mapping from node paths.
+
+        Args:
+            choice_view: A ChoiceView wrapping the mode script nodes
+        """
+        from activecontext.context.view import ChoiceView
+
+        if isinstance(choice_view, ChoiceView):
+            self._mode_choice_view = choice_view
+
+            # Build mode_id -> node_id mapping from child node paths
+            # Expects nodes with paths like "modes/normal.md" or "@prompts/modes/normal.md"
+            self._mode_node_ids.clear()
+            child_ids = choice_view._get_child_ids()
+            for child_id in child_ids:
+                node = self._timeline.context_graph.get_node(child_id)
+                if node and hasattr(node, "path"):
+                    # Extract mode name from path: "modes/normal.md" -> "normal"
+                    path = node.path
+                    if "modes/" in path:
+                        # Get the part after "modes/" and remove .md extension
+                        mode_name = path.split("modes/")[-1].replace(".md", "")
+                        self._mode_node_ids[mode_name] = child_id
 
     def resolve_path(self, path: str) -> tuple[str, str | None]:
         """Resolve path prefixes and roots to actual paths or content.

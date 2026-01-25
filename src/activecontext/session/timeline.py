@@ -14,10 +14,10 @@ import asyncio
 import time
 import traceback
 import uuid
-from types import FunctionType
 from collections.abc import AsyncIterator, Awaitable
 from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import dataclass
+from types import FunctionType
 
 # Module-level lock for stdout/stderr redirection.
 # redirect_stdout is NOT async-safe: when multiple async tasks use it concurrently,
@@ -81,6 +81,7 @@ if TYPE_CHECKING:
     from activecontext.agents.manager import AgentManager
     from activecontext.config.schema import FileWatchConfig, MCPConfig
     from activecontext.context.buffer import TextBuffer
+    from activecontext.context.view import ChoiceView
     from activecontext.coordination.scratchpad import ScratchpadManager
     from activecontext.terminal.protocol import TerminalExecutor
     from activecontext.watching import FileChangeEvent
@@ -409,6 +410,7 @@ class Timeline:
                 "artifact": self._make_artifact_node,
                 "markdown": self._make_markdown_node,
                 "view": self._make_view,
+                "choice": self._make_choice_view,
                 # DAG manipulation
                 "link": self._link,
                 "unlink": self._unlink,
@@ -990,6 +992,50 @@ class Timeline:
         view = NodeView(node, expand=expansion)
         self._views[node.node_id] = view
         return view
+
+
+    def _make_choice_view(
+        self,
+        *children: ContextNode | NodeView | str,
+        selected: str | None = None,
+        tokens: int = 500,
+        expansion: Expansion = Expansion.ALL,
+        parent: ContextNode | NodeView | str | None = None,
+    ) -> ChoiceView:
+        """Create a ChoiceView wrapping a GroupNode for dropdown-like selection.
+
+        Only the selected child's content is visible at a time, while other
+        children remain hidden. Use ChoiceView.select() to switch selection.
+
+        Args:
+            *children: Child nodes, views, or node IDs to include as options
+            selected: Node ID of the initially selected child (default: first child)
+            tokens: Token budget for the group
+            expansion: Rendering expansion for the group
+            parent: Optional parent node (defaults to current_group if set)
+
+        Returns:
+            ChoiceView wrapping the created GroupNode
+        """
+        from activecontext.context.view import ChoiceView
+
+        # Create the underlying group
+        group_view = self._make_group_node(
+            *children, tokens=tokens, expansion=expansion, parent=parent
+        )
+
+        # Default to first child if no selection specified
+        if selected is None and children:
+            first = children[0]
+            if isinstance(first, NodeView) or isinstance(first, ContextNode):
+                selected = first.node_id
+            else:
+                selected = first  # Already a node ID string
+
+        # Create ChoiceView wrapping the group
+        choice_view = ChoiceView(group_view.node(), selected_id=selected, expand=expansion)
+        self._views[group_view.node_id] = choice_view
+        return choice_view
 
     def _make_topic_node(
         self,
@@ -2249,6 +2295,7 @@ class Timeline:
             "artifact",
             "markdown",
             "view",
+            "choice",
             "link",
             "unlink",
             "hide",
@@ -2496,36 +2543,105 @@ class Timeline:
 
             async with _stdout_redirect_lock:
                 with redirect_stdout(stdout_capture), redirect_stderr(stderr_capture):
+                    # Parse to check structure - detect multi-line blocks ending with expression
                     try:
-                        # Try as expression first
-                        compiled = compile(
-                            source,
-                            "<dsl>",
-                            "eval",
-                            flags=ast.PyCF_ALLOW_TOP_LEVEL_AWAIT,
-                        )
-                        if compiled.co_flags & CO_COROUTINE:
-                            # Expression contains await - eval returns coroutine
-                            result = eval(compiled, self._namespace)
-                            coro_to_await = result
-                        else:
-                            result = eval(compiled, self._namespace)
-                        was_expression = True
+                        tree = ast.parse(source)
                     except SyntaxError:
-                        # Fall back to exec for statements
-                        compiled = compile(
-                            source,
+                        # If parsing fails, let the compile below handle the error
+                        tree = None
+
+                    # Check if we have multiple statements with final expression
+                    # (like Python REPL behavior: print result of last expression)
+                    final_expr_source = None
+                    statements_source = None
+                    if (
+                        tree is not None
+                        and len(tree.body) > 1
+                        and isinstance(tree.body[-1], ast.Expr)
+                    ):
+                        # Extract final expression and preceding statements
+                        final_expr = tree.body[-1]
+                        statements = tree.body[:-1]
+
+                        # Compile statements (all but last)
+                        statements_tree = ast.Module(body=statements, type_ignores=[])
+                        ast.fix_missing_locations(statements_tree)
+                        statements_source = compile(
+                            statements_tree,
                             "<dsl>",
                             "exec",
                             flags=ast.PyCF_ALLOW_TOP_LEVEL_AWAIT,
                         )
-                        if compiled.co_flags & CO_COROUTINE:
-                            # Statement contains await - create function and call it
+
+                        # Compile final expression
+                        expr_tree = ast.Expression(body=final_expr.value)
+                        ast.fix_missing_locations(expr_tree)
+                        final_expr_source = compile(
+                            expr_tree,
+                            "<dsl>",
+                            "eval",
+                            flags=ast.PyCF_ALLOW_TOP_LEVEL_AWAIT,
+                        )
+
+                    if statements_source is not None and final_expr_source is not None:
+                        # Check if statements contain await - if so, fall back to
+                        # original exec() behavior since we can't easily await between
+                        # executing statements and evaluating the final expression
+                        if statements_source.co_flags & CO_COROUTINE:
+                            # Async statements - use original exec() path
+                            # This means the final expression result won't be captured,
+                            # but at least the code will execute correctly
+                            compiled = compile(
+                                source,
+                                "<dsl>",
+                                "exec",
+                                flags=ast.PyCF_ALLOW_TOP_LEVEL_AWAIT,
+                            )
                             func = FunctionType(compiled, self._namespace)
                             coro_to_await = func()
+                            was_expression = False
                         else:
-                            exec(compiled, self._namespace)
-                        was_expression = False
+                            # Sync statements - execute them first
+                            exec(statements_source, self._namespace)
+
+                            # Evaluate final expression to capture result
+                            if final_expr_source.co_flags & CO_COROUTINE:
+                                result = eval(final_expr_source, self._namespace)
+                                coro_to_await = result
+                            else:
+                                result = eval(final_expr_source, self._namespace)
+                            was_expression = True
+                    else:
+                        # Original logic: try as single expression first
+                        try:
+                            compiled = compile(
+                                source,
+                                "<dsl>",
+                                "eval",
+                                flags=ast.PyCF_ALLOW_TOP_LEVEL_AWAIT,
+                            )
+                            if compiled.co_flags & CO_COROUTINE:
+                                # Expression contains await - eval returns coroutine
+                                result = eval(compiled, self._namespace)
+                                coro_to_await = result
+                            else:
+                                result = eval(compiled, self._namespace)
+                            was_expression = True
+                        except SyntaxError:
+                            # Fall back to exec for statements
+                            compiled = compile(
+                                source,
+                                "<dsl>",
+                                "exec",
+                                flags=ast.PyCF_ALLOW_TOP_LEVEL_AWAIT,
+                            )
+                            if compiled.co_flags & CO_COROUTINE:
+                                # Statement contains await - create function and call it
+                                func = FunctionType(compiled, self._namespace)
+                                coro_to_await = func()
+                            else:
+                                exec(compiled, self._namespace)
+                            was_expression = False
 
             # Phase 2: Await any coroutine OUTSIDE the lock
             # Long-running operations (like mcp_connect) must not hold the lock.

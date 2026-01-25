@@ -743,6 +743,170 @@ class TestHideUnhide:
             await timeline.close()
 
 
+
+class TestMultiLineExpressionResult:
+    """Test that multi-line code blocks return the final expression result.
+
+    When a code block contains multiple statements with a final expression,
+    the REPL should print the value of that expression (like Python's REPL).
+    """
+
+    @pytest.fixture
+    def temp_cwd(self, tmp_path: Path) -> Path:
+        return tmp_path
+
+    @pytest.mark.asyncio
+    async def test_final_expression_printed(self, temp_cwd: Path) -> None:
+        """Test that final expression in multi-line block is captured in stdout."""
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
+
+        try:
+            # Multi-line block: assignment followed by expression
+            result = await timeline.execute_statement("x = 42\nx")
+            assert result.status.value == "ok"
+            assert "42" in result.stdout
+        finally:
+            await timeline.close()
+
+    @pytest.mark.asyncio
+    async def test_assignment_only_no_output(self, temp_cwd: Path) -> None:
+        """Test that assignment-only blocks produce no stdout."""
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
+
+        try:
+            result = await timeline.execute_statement("x = 42")
+            assert result.status.value == "ok"
+            # Assignment should not produce output
+            assert result.stdout == ""
+        finally:
+            await timeline.close()
+
+    @pytest.mark.asyncio
+    async def test_multiple_statements_with_final_expression(self, temp_cwd: Path) -> None:
+        """Test multiple statements followed by expression."""
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
+
+        try:
+            code = """a = 10
+b = 20
+c = a + b
+c"""
+            result = await timeline.execute_statement(code)
+            assert result.status.value == "ok"
+            assert "30" in result.stdout
+        finally:
+            await timeline.close()
+
+    @pytest.mark.asyncio
+    async def test_single_expression_still_works(self, temp_cwd: Path) -> None:
+        """Test that single expressions still work."""
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
+
+        try:
+            result = await timeline.execute_statement("2 + 2")
+            assert result.status.value == "ok"
+            assert "4" in result.stdout
+        finally:
+            await timeline.close()
+
+    @pytest.mark.asyncio
+    async def test_final_statement_is_not_expression(self, temp_cwd: Path) -> None:
+        """Test that if final statement is not expression, no output produced."""
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
+
+        try:
+            code = """x = 1
+y = x + 1"""
+            result = await timeline.execute_statement(code)
+            assert result.status.value == "ok"
+            assert result.stdout == ""
+        finally:
+            await timeline.close()
+
+    @pytest.mark.asyncio
+    async def test_ls_with_handles_assignment(self, temp_cwd: Path) -> None:
+        """Test the original bug case: handles = ls(); handles."""
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
+
+        try:
+            # Create a context object first
+            await timeline.execute_statement('v = text("test.py")')
+
+            # Now the bug case
+            code = """handles = ls()
+handles"""
+            result = await timeline.execute_statement(code)
+            assert result.status.value == "ok"
+            # Should output the handles list
+            assert "text" in result.stdout or "[" in result.stdout
+        finally:
+            await timeline.close()
+
+    @pytest.mark.asyncio
+    async def test_multiline_with_print_and_expression(self, temp_cwd: Path) -> None:
+        """Test that explicit print AND final expression both appear."""
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
+
+        try:
+            code = """print("hello")
+42"""
+            result = await timeline.execute_statement(code)
+            assert result.status.value == "ok"
+            assert "hello" in result.stdout
+            assert "42" in result.stdout
+        finally:
+            await timeline.close()
+
+    @pytest.mark.asyncio
+    async def test_exception_in_statements(self, temp_cwd: Path) -> None:
+        """Test that exception in statements is properly reported."""
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
+
+        try:
+            code = """x = 1 / 0
+x"""
+            result = await timeline.execute_statement(code)
+            assert result.status.value == "error"
+            assert result.exception is not None
+            assert result.exception["type"] == "ZeroDivisionError"
+        finally:
+            await timeline.close()
+
+    @pytest.mark.asyncio
+    async def test_exception_in_final_expression(self, temp_cwd: Path) -> None:
+        """Test that exception in final expression is properly reported."""
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
+
+        try:
+            code = """x = 10
+undefined_var"""
+            result = await timeline.execute_statement(code)
+            assert result.status.value == "error"
+            assert result.exception is not None
+            assert result.exception["type"] == "NameError"
+        finally:
+            await timeline.close()
+
+    @pytest.mark.asyncio
+    async def test_async_multiline_falls_back(self, temp_cwd: Path) -> None:
+        """Test that async multi-line blocks execute correctly (but don't capture result)."""
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
+
+        try:
+            code = """async def get_val():
+    return 42
+x = await get_val()
+x"""
+            result = await timeline.execute_statement(code)
+            # Should execute successfully even though result isn't captured
+            assert result.status.value == "ok"
+            # Verify x was set correctly
+            ns = timeline.get_namespace()
+            assert ns["x"] == 42
+        finally:
+            await timeline.close()
+
+
 class TestTopLevelAwait:
     """Test that top-level 'await' works in DSL code.
 
@@ -1521,5 +1685,211 @@ c = await increment()
 
             # Cleanup should have been called
             assert cleanup_called["value"] is True
+        finally:
+            await timeline.close()
+
+
+class TestChoiceDSL:
+    """Test choice() DSL function for dropdown-like selection."""
+
+    @pytest.fixture
+    def temp_cwd(self, tmp_path: Path) -> Path:
+        return tmp_path
+
+    @pytest.mark.asyncio
+    async def test_choice_creates_choice_view(self, temp_cwd: Path) -> None:
+        """Test that choice() creates a ChoiceView wrapping a GroupNode."""
+        from activecontext.context.view import ChoiceView
+
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
+
+        try:
+            # Create child nodes using markdown with content parameter
+            await timeline.execute_statement(
+                'v1 = markdown("option_a.md", content="# Option A", tokens=100)'
+            )
+            await timeline.execute_statement(
+                'v2 = markdown("option_b.md", content="# Option B", tokens=100)'
+            )
+            await timeline.execute_statement(
+                'v3 = markdown("option_c.md", content="# Option C", tokens=100)'
+            )
+
+            # Create choice view
+            result = await timeline.execute_statement("c = choice(v1, v2, v3)")
+            assert result.status.value == "ok"
+
+            ns = timeline.get_namespace()
+            c = ns["c"]
+
+            # Verify it's a ChoiceView
+            assert isinstance(c, ChoiceView)
+
+            # Verify the first child is selected by default
+            assert c.selected_id == ns["v1"].node_id
+
+        finally:
+            await timeline.close()
+
+    @pytest.mark.asyncio
+    async def test_choice_with_explicit_selection(self, temp_cwd: Path) -> None:
+        """Test that choice() respects explicit selected parameter."""
+        from activecontext.context.view import ChoiceView
+
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
+
+        try:
+            # Create child nodes
+            await timeline.execute_statement(
+                'v1 = markdown("opt_a.md", content="# Option A", tokens=100)'
+            )
+            await timeline.execute_statement(
+                'v2 = markdown("opt_b.md", content="# Option B", tokens=100)'
+            )
+
+            # Create choice with explicit selection
+            result = await timeline.execute_statement(
+                "c = choice(v1, v2, selected=v2.node_id)"
+            )
+            assert result.status.value == "ok"
+
+            ns = timeline.get_namespace()
+            c = ns["c"]
+
+            # Verify v2 is selected
+            assert isinstance(c, ChoiceView)
+            assert c.selected_id == ns["v2"].node_id
+
+        finally:
+            await timeline.close()
+
+    @pytest.mark.asyncio
+    async def test_choice_select_method(self, temp_cwd: Path) -> None:
+        """Test that ChoiceView.select() switches selection."""
+        from activecontext.context.view import ChoiceView
+
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
+
+        try:
+            # Create child nodes
+            await timeline.execute_statement(
+                'v1 = markdown("a.md", content="# Option A", tokens=100)'
+            )
+            await timeline.execute_statement(
+                'v2 = markdown("b.md", content="# Option B", tokens=100)'
+            )
+
+            # Create choice
+            result = await timeline.execute_statement("c = choice(v1, v2)")
+            assert result.status.value == "ok"
+
+            ns = timeline.get_namespace()
+            c = ns["c"]
+            v1_id = ns["v1"].node_id
+            v2_id = ns["v2"].node_id
+
+            # Initial selection is v1
+            assert c.selected_id == v1_id
+
+            # Switch to v2
+            c.select(v2_id)
+            assert c.selected_id == v2_id
+
+            # Switch back to v1
+            c.select(v1_id)
+            assert c.selected_id == v1_id
+
+        finally:
+            await timeline.close()
+
+
+class TestSessionModeIntegration:
+    """Test session mode integration with ChoiceView."""
+
+    @pytest.fixture
+    def temp_cwd(self, tmp_path: Path) -> Path:
+        return tmp_path
+
+    @pytest.mark.asyncio
+    async def test_session_mode_property(self, temp_cwd: Path) -> None:
+        """Test Session.mode property and set_mode method."""
+        from activecontext.session.session_manager import Session
+
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
+        session = Session(
+            session_id="test-session",
+            cwd=str(temp_cwd),
+            timeline=timeline,
+        )
+
+        try:
+            # Default mode is "normal"
+            assert session.mode == "normal"
+
+            # Set mode updates the property
+            session.set_mode("plan")
+            assert session.mode == "plan"
+
+            session.set_mode("brave")
+            assert session.mode == "brave"
+
+        finally:
+            await timeline.close()
+
+    @pytest.mark.asyncio
+    async def test_session_mode_choice_view_integration(self, temp_cwd: Path) -> None:
+        """Test that set_mode_choice_view builds mode mapping correctly."""
+        from activecontext.context.view import ChoiceView
+        from activecontext.session.session_manager import Session
+
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
+        session = Session(
+            session_id="test-session",
+            cwd=str(temp_cwd),
+            timeline=timeline,
+        )
+
+        try:
+            # Create mode script nodes with paths matching the pattern
+            await timeline.execute_statement(
+                'normal_mode = markdown("modes/normal.md", content="# Normal", tokens=100)'
+            )
+            await timeline.execute_statement(
+                'plan_mode = markdown("modes/plan.md", content="# Plan", tokens=100)'
+            )
+            await timeline.execute_statement(
+                'brave_mode = markdown("modes/brave.md", content="# Brave", tokens=100)'
+            )
+
+            # Create choice view
+            result = await timeline.execute_statement(
+                "mode_choice = choice(normal_mode, plan_mode, brave_mode)"
+            )
+            assert result.status.value == "ok"
+
+            ns = timeline.get_namespace()
+            mode_choice = ns["mode_choice"]
+            assert isinstance(mode_choice, ChoiceView)
+
+            # Register with session
+            session.set_mode_choice_view(mode_choice)
+
+            # Verify mapping was built
+            assert "normal" in session._mode_node_ids
+            assert "plan" in session._mode_node_ids
+            assert "brave" in session._mode_node_ids
+
+            # Verify mode switching updates ChoiceView selection
+            normal_id = session._mode_node_ids["normal"]
+            plan_id = session._mode_node_ids["plan"]
+
+            # Initial selection
+            assert mode_choice.selected_id == normal_id
+
+            # Switch to plan mode
+            session.set_mode("plan")
+            assert session.mode == "plan"
+            assert mode_choice.selected_id == plan_id
+
         finally:
             await timeline.close()
