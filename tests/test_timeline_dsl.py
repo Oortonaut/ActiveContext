@@ -852,3 +852,674 @@ async def my_async_func():
             assert timeline._namespace.get("result") == "inner"
         finally:
             await timeline.close()
+
+    @pytest.mark.asyncio
+    async def test_partial_execution_on_await_failure(self, temp_cwd: Path) -> None:
+        """Test that side effects before a failing await persist."""
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
+
+        try:
+            async def failing_func():
+                raise ValueError("intentional failure")
+
+            timeline._namespace["failing_func"] = failing_func
+
+            source = """
+x = 'before_await'
+y = await failing_func()
+z = 'after_await'
+"""
+            result = await timeline.execute_statement(source)
+
+            # Should fail
+            assert result.status.value == "error"
+            assert "intentional failure" in result.exception["message"]
+
+            # x should be set (ran before await)
+            assert timeline._namespace.get("x") == "before_await"
+            # y and z should not be set
+            assert timeline._namespace.get("y") is None
+            assert timeline._namespace.get("z") is None
+        finally:
+            await timeline.close()
+
+    @pytest.mark.asyncio
+    async def test_nested_await(self, temp_cwd: Path) -> None:
+        """Test nested await: await (await func())."""
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
+
+        try:
+            async def outer():
+                async def inner():
+                    return 42
+                return inner()  # Returns coroutine, not result
+
+            timeline._namespace["outer"] = outer
+
+            # This requires two awaits: one for outer, one for the returned coroutine
+            result = await timeline.execute_statement("result = await (await outer())")
+
+            assert result.status.value == "ok"
+            assert timeline._namespace.get("result") == 42
+        finally:
+            await timeline.close()
+
+    @pytest.mark.asyncio
+    async def test_async_for_loop(self, temp_cwd: Path) -> None:
+        """Test async for loop at top level."""
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
+
+        try:
+            async def async_gen():
+                for i in range(5):
+                    yield i * 2
+
+            timeline._namespace["async_gen"] = async_gen
+
+            source = """
+result = []
+async for x in async_gen():
+    result.append(x)
+"""
+            result = await timeline.execute_statement(source)
+
+            assert result.status.value == "ok"
+            assert timeline._namespace.get("result") == [0, 2, 4, 6, 8]
+        finally:
+            await timeline.close()
+
+    @pytest.mark.asyncio
+    async def test_async_with_context_manager(self, temp_cwd: Path) -> None:
+        """Test async with at top level."""
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
+
+        try:
+            class AsyncCM:
+                def __init__(self):
+                    self.entered = False
+                    self.exited = False
+
+                async def __aenter__(self):
+                    self.entered = True
+                    return "context_value"
+
+                async def __aexit__(self, *args):
+                    self.exited = True
+
+            cm_instance = AsyncCM()
+            timeline._namespace["cm"] = cm_instance
+
+            source = """
+async with cm as val:
+    result = val
+"""
+            result = await timeline.execute_statement(source)
+
+            assert result.status.value == "ok"
+            assert timeline._namespace.get("result") == "context_value"
+            assert cm_instance.entered is True
+            assert cm_instance.exited is True
+        finally:
+            await timeline.close()
+
+    @pytest.mark.asyncio
+    async def test_async_with_exception_in_body(self, temp_cwd: Path) -> None:
+        """Test that async with properly exits on exception in body."""
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
+
+        try:
+            exit_called = {"value": False}
+
+            class AsyncCM:
+                async def __aenter__(self):
+                    return self
+
+                async def __aexit__(self, exc_type, exc_val, exc_tb):
+                    exit_called["value"] = True
+                    return False  # Don't suppress exception
+
+            timeline._namespace["AsyncCM"] = AsyncCM
+            timeline._namespace["exit_called"] = exit_called
+
+            source = """
+async with AsyncCM():
+    raise ValueError("body error")
+"""
+            result = await timeline.execute_statement(source)
+
+            assert result.status.value == "error"
+            assert "body error" in result.exception["message"]
+            # __aexit__ should still be called
+            assert exit_called["value"] is True
+        finally:
+            await timeline.close()
+
+    @pytest.mark.asyncio
+    async def test_await_non_coroutine_gives_error(self, temp_cwd: Path) -> None:
+        """Test that awaiting a non-coroutine gives clear TypeError."""
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
+
+        try:
+            def sync_func():
+                return 42
+
+            timeline._namespace["sync_func"] = sync_func
+
+            result = await timeline.execute_statement("result = await sync_func()")
+
+            assert result.status.value == "error"
+            assert result.exception["type"] == "TypeError"
+            # Should mention can't await or not awaitable
+            assert "await" in result.exception["message"].lower() or "awaitable" in result.exception["message"].lower()
+        finally:
+            await timeline.close()
+
+    @pytest.mark.asyncio
+    async def test_multiple_awaits_middle_fails(self, temp_cwd: Path) -> None:
+        """Test multiple awaits where the middle one fails."""
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
+
+        try:
+            call_count = {"value": 0}
+
+            async def counting_func():
+                call_count["value"] += 1
+                if call_count["value"] == 2:
+                    raise ValueError("second call failed")
+                return call_count["value"]
+
+            timeline._namespace["counting_func"] = counting_func
+            timeline._namespace["call_count"] = call_count
+
+            source = """
+a = await counting_func()
+b = await counting_func()
+c = await counting_func()
+"""
+            result = await timeline.execute_statement(source)
+
+            assert result.status.value == "error"
+            assert "second call failed" in result.exception["message"]
+
+            # First call succeeded
+            assert timeline._namespace.get("a") == 1
+            # Second and third didn't complete
+            assert timeline._namespace.get("b") is None
+            assert timeline._namespace.get("c") is None
+            # Only 2 calls were made
+            assert call_count["value"] == 2
+        finally:
+            await timeline.close()
+
+    @pytest.mark.asyncio
+    async def test_await_with_sync_code_interleaved(self, temp_cwd: Path) -> None:
+        """Test mixing sync code with awaits."""
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
+
+        try:
+            timeline._namespace["asyncio"] = asyncio
+
+            source = """
+a = 1
+b = await asyncio.sleep(0.001, result='async1')
+c = a + 1
+d = await asyncio.sleep(0.001, result='async2')
+e = c + 1
+"""
+            result = await timeline.execute_statement(source)
+
+            assert result.status.value == "ok"
+            assert timeline._namespace.get("a") == 1
+            assert timeline._namespace.get("b") == "async1"
+            assert timeline._namespace.get("c") == 2
+            assert timeline._namespace.get("d") == "async2"
+            assert timeline._namespace.get("e") == 3
+        finally:
+            await timeline.close()
+
+    @pytest.mark.asyncio
+    async def test_await_in_list_comprehension(self, temp_cwd: Path) -> None:
+        """Test await in async list comprehension."""
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
+
+        try:
+            async def async_double(x):
+                return x * 2
+
+            timeline._namespace["async_double"] = async_double
+
+            # Async comprehension
+            source = "result = [await async_double(i) for i in range(5)]"
+            result = await timeline.execute_statement(source)
+
+            assert result.status.value == "ok"
+            assert timeline._namespace.get("result") == [0, 2, 4, 6, 8]
+        finally:
+            await timeline.close()
+
+    @pytest.mark.asyncio
+    async def test_concurrent_statements_dont_interfere(self, temp_cwd: Path) -> None:
+        """Test that concurrent statement execution doesn't corrupt namespace."""
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
+
+        try:
+            timeline._namespace["asyncio"] = asyncio
+
+            # Execute two statements concurrently
+            task1 = asyncio.create_task(
+                timeline.execute_statement("x = await asyncio.sleep(0.01, result='first')")
+            )
+            task2 = asyncio.create_task(
+                timeline.execute_statement("y = await asyncio.sleep(0.01, result='second')")
+            )
+
+            result1, result2 = await asyncio.gather(task1, task2)
+
+            # Both should succeed
+            assert result1.status.value == "ok"
+            assert result2.status.value == "ok"
+
+            # Both values should be set correctly
+            assert timeline._namespace.get("x") == "first"
+            assert timeline._namespace.get("y") == "second"
+        finally:
+            await timeline.close()
+
+    @pytest.mark.asyncio
+    async def test_await_none_gives_error(self, temp_cwd: Path) -> None:
+        """Test that await None gives clear error."""
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
+
+        try:
+            result = await timeline.execute_statement("result = await None")
+
+            assert result.status.value == "error"
+            assert result.exception["type"] == "TypeError"
+        finally:
+            await timeline.close()
+
+    @pytest.mark.asyncio
+    async def test_async_generator_expression(self, temp_cwd: Path) -> None:
+        """Test async generator expression at top level."""
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
+
+        try:
+            async def async_range(n):
+                for i in range(n):
+                    yield i
+
+            timeline._namespace["async_range"] = async_range
+
+            source = """
+result = []
+async for x in (i * 2 async for i in async_range(5)):
+    result.append(x)
+"""
+            result = await timeline.execute_statement(source)
+
+            assert result.status.value == "ok"
+            assert timeline._namespace.get("result") == [0, 2, 4, 6, 8]
+        finally:
+            await timeline.close()
+
+    @pytest.mark.asyncio
+    async def test_await_in_try_except_finally(self, temp_cwd: Path) -> None:
+        """Test await in try/except/finally blocks."""
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
+
+        try:
+            async def might_fail(should_fail: bool):
+                if should_fail:
+                    raise ValueError("failed")
+                return "success"
+
+            timeline._namespace["might_fail"] = might_fail
+
+            source = """
+results = []
+try:
+    results.append(await might_fail(False))
+    results.append(await might_fail(True))
+except ValueError as e:
+    results.append(f'caught: {e}')
+finally:
+    results.append('finally')
+"""
+            result = await timeline.execute_statement(source)
+
+            assert result.status.value == "ok"
+            results = timeline._namespace.get("results")
+            assert results == ["success", "caught: failed", "finally"]
+        finally:
+            await timeline.close()
+
+    @pytest.mark.asyncio
+    async def test_await_with_walrus_operator(self, temp_cwd: Path) -> None:
+        """Test await with walrus operator (:=)."""
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
+
+        try:
+            async def get_value():
+                return 42
+
+            timeline._namespace["get_value"] = get_value
+
+            source = """
+if (x := await get_value()) > 40:
+    result = f'got {x}'
+else:
+    result = 'too small'
+"""
+            result = await timeline.execute_statement(source)
+
+            assert result.status.value == "ok"
+            assert timeline._namespace.get("x") == 42
+            assert timeline._namespace.get("result") == "got 42"
+        finally:
+            await timeline.close()
+
+    @pytest.mark.asyncio
+    async def test_await_in_conditional_expression(self, temp_cwd: Path) -> None:
+        """Test await in ternary conditional expression."""
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
+
+        try:
+            async def async_true():
+                return "yes"
+
+            async def async_false():
+                return "no"
+
+            timeline._namespace["async_true"] = async_true
+            timeline._namespace["async_false"] = async_false
+
+            source = "result = await async_true() if True else await async_false()"
+            result = await timeline.execute_statement(source)
+
+            assert result.status.value == "ok"
+            assert timeline._namespace.get("result") == "yes"
+        finally:
+            await timeline.close()
+
+    @pytest.mark.asyncio
+    async def test_multiple_async_context_managers(self, temp_cwd: Path) -> None:
+        """Test multiple async context managers in single with statement."""
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
+
+        try:
+            order = []
+
+            class AsyncCM:
+                def __init__(self, name):
+                    self.name = name
+
+                async def __aenter__(self):
+                    order.append(f"enter_{self.name}")
+                    return self.name
+
+                async def __aexit__(self, *args):
+                    order.append(f"exit_{self.name}")
+
+            timeline._namespace["AsyncCM"] = AsyncCM
+            timeline._namespace["order"] = order
+
+            source = """
+async with AsyncCM('a') as a, AsyncCM('b') as b:
+    order.append(f'body_{a}_{b}')
+"""
+            result = await timeline.execute_statement(source)
+
+            assert result.status.value == "ok"
+            assert order == ["enter_a", "enter_b", "body_a_b", "exit_b", "exit_a"]
+        finally:
+            await timeline.close()
+
+    @pytest.mark.asyncio
+    async def test_recursive_async_calls(self, temp_cwd: Path) -> None:
+        """Test recursive async function calls."""
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
+
+        try:
+            source = """
+async def factorial(n):
+    if n <= 1:
+        return 1
+    return n * await factorial(n - 1)
+"""
+            result = await timeline.execute_statement(source)
+            assert result.status.value == "ok"
+
+            result = await timeline.execute_statement("result = await factorial(5)")
+            assert result.status.value == "ok"
+            assert timeline._namespace.get("result") == 120
+        finally:
+            await timeline.close()
+
+    @pytest.mark.asyncio
+    async def test_exception_in_async_generator(self, temp_cwd: Path) -> None:
+        """Test exception raised during async iteration."""
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
+
+        try:
+            async def bad_gen():
+                yield 1
+                yield 2
+                raise ValueError("generator failed")
+                yield 3  # Never reached
+
+            timeline._namespace["bad_gen"] = bad_gen
+
+            source = """
+result = []
+try:
+    async for x in bad_gen():
+        result.append(x)
+except ValueError as e:
+    result.append(f'error: {e}')
+"""
+            result = await timeline.execute_statement(source)
+
+            assert result.status.value == "ok"
+            assert timeline._namespace.get("result") == [1, 2, "error: generator failed"]
+        finally:
+            await timeline.close()
+
+    @pytest.mark.asyncio
+    async def test_await_chained_coroutines(self, temp_cwd: Path) -> None:
+        """Test awaiting a chain of coroutines."""
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
+
+        try:
+            async def step1():
+                return "a"
+
+            async def step2(prev):
+                return prev + "b"
+
+            async def step3(prev):
+                return prev + "c"
+
+            timeline._namespace["step1"] = step1
+            timeline._namespace["step2"] = step2
+            timeline._namespace["step3"] = step3
+
+            source = "result = await step3(await step2(await step1()))"
+            result = await timeline.execute_statement(source)
+
+            assert result.status.value == "ok"
+            assert timeline._namespace.get("result") == "abc"
+        finally:
+            await timeline.close()
+
+    @pytest.mark.asyncio
+    async def test_await_in_dict_comprehension(self, temp_cwd: Path) -> None:
+        """Test await in async dict comprehension."""
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
+
+        try:
+            async def async_key(i):
+                return f"key_{i}"
+
+            async def async_val(i):
+                return i * 10
+
+            timeline._namespace["async_key"] = async_key
+            timeline._namespace["async_val"] = async_val
+
+            source = "result = {await async_key(i): await async_val(i) for i in range(3)}"
+            result = await timeline.execute_statement(source)
+
+            assert result.status.value == "ok"
+            assert timeline._namespace.get("result") == {
+                "key_0": 0,
+                "key_1": 10,
+                "key_2": 20,
+            }
+        finally:
+            await timeline.close()
+
+    @pytest.mark.asyncio
+    async def test_await_preserves_exception_traceback(self, temp_cwd: Path) -> None:
+        """Test that exceptions preserve their traceback through await."""
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
+
+        try:
+            async def inner():
+                raise ValueError("inner error")
+
+            async def outer():
+                return await inner()
+
+            timeline._namespace["outer"] = outer
+
+            result = await timeline.execute_statement("await outer()")
+
+            assert result.status.value == "error"
+            assert "inner error" in result.exception["message"]
+            # Traceback should mention both functions
+            assert "inner" in result.exception["traceback"]
+            assert "outer" in result.exception["traceback"]
+        finally:
+            await timeline.close()
+
+    @pytest.mark.asyncio
+    async def test_await_with_default_argument(self, temp_cwd: Path) -> None:
+        """Test async function with default arguments."""
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
+
+        try:
+            source = """
+async def greet(name, greeting='Hello'):
+    return f'{greeting}, {name}!'
+"""
+            result = await timeline.execute_statement(source)
+            assert result.status.value == "ok"
+
+            result = await timeline.execute_statement("r1 = await greet('World')")
+            assert result.status.value == "ok"
+            assert timeline._namespace.get("r1") == "Hello, World!"
+
+            result = await timeline.execute_statement("r2 = await greet('World', 'Hi')")
+            assert result.status.value == "ok"
+            assert timeline._namespace.get("r2") == "Hi, World!"
+        finally:
+            await timeline.close()
+
+    @pytest.mark.asyncio
+    async def test_await_modifying_shared_state(self, temp_cwd: Path) -> None:
+        """Test multiple awaits modifying shared mutable state."""
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
+
+        try:
+            shared = {"counter": 0}
+
+            async def increment():
+                shared["counter"] += 1
+                return shared["counter"]
+
+            timeline._namespace["increment"] = increment
+            timeline._namespace["shared"] = shared
+
+            source = """
+a = await increment()
+b = await increment()
+c = await increment()
+"""
+            result = await timeline.execute_statement(source)
+
+            assert result.status.value == "ok"
+            assert timeline._namespace.get("a") == 1
+            assert timeline._namespace.get("b") == 2
+            assert timeline._namespace.get("c") == 3
+            assert shared["counter"] == 3
+        finally:
+            await timeline.close()
+
+    @pytest.mark.asyncio
+    async def test_returned_coroutine_is_auto_awaited(self, temp_cwd: Path) -> None:
+        """Test that coroutines returned and stored in namespace are auto-awaited.
+
+        The Timeline's _await_namespace_coroutines() automatically awaits any
+        coroutine objects stored in the namespace. This is the feature that allows
+        `x = mcp_connect("server")` to work without explicit await.
+        """
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
+
+        try:
+            async def inner():
+                return "final"
+
+            async def returns_coro():
+                return inner()  # Returns coroutine, doesn't await
+
+            timeline._namespace["returns_coro"] = returns_coro
+
+            # await returns_coro() returns a coroutine, but Timeline auto-awaits it
+            result = await timeline.execute_statement("result = await returns_coro()")
+            assert result.status.value == "ok"
+
+            # The coroutine was auto-awaited, so we get the final value directly
+            assert timeline._namespace.get("result") == "final"
+        finally:
+            await timeline.close()
+
+    @pytest.mark.asyncio
+    async def test_cancellation_cleanup(self, temp_cwd: Path) -> None:
+        """Test that cancellation properly cleans up."""
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
+
+        try:
+            cleanup_called = {"value": False}
+
+            async def slow_with_cleanup():
+                try:
+                    await asyncio.sleep(10)  # Long sleep
+                except asyncio.CancelledError:
+                    cleanup_called["value"] = True
+                    raise
+
+            timeline._namespace["slow_with_cleanup"] = slow_with_cleanup
+            timeline._namespace["cleanup_called"] = cleanup_called
+            timeline._namespace["asyncio"] = asyncio
+
+            # Start the statement execution
+            task = asyncio.create_task(
+                timeline.execute_statement("await slow_with_cleanup()")
+            )
+
+            # Give it a moment to start
+            await asyncio.sleep(0.01)
+
+            # Cancel it
+            task.cancel()
+
+            # Wait for cancellation to complete
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+
+            # Cleanup should have been called
+            assert cleanup_called["value"] is True
+        finally:
+            await timeline.close()
