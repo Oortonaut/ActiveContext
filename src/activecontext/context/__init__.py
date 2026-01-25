@@ -56,7 +56,7 @@ from activecontext.context.traceable import (
     trace_all_fields,
     traceable,
 )
-from activecontext.context.view import NodeView
+from activecontext.context.view import ChoiceView, NodeView
 
 __all__ = [
     # Traceable
@@ -90,6 +90,7 @@ __all__ = [
     "content_from_shell",
     "content_from_markdown",
     # View
+    "ChoiceView",
     "NodeView",
     # Nodes
     "ContextNode",

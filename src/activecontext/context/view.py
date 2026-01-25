@@ -220,16 +220,20 @@ class NodeView:
 
 
 class ChoiceView(NodeView):
-    """View that shows only one selected child in DETAILS mode.
+    """View that provides dropdown-like selection behavior for nodes with children.
 
-    ChoiceView provides dropdown-like selection behavior for any node with children.
-    This is a view-layer concern - any node can become a "choice" by wrapping it
-    in ChoiceView.
+    ChoiceView is a view-layer concern - any node can become a "choice" by wrapping
+    it in ChoiceView. Selection controls which children are visible.
 
-    Behavior:
-    - INDEX mode: Shows all children normally
-    - DETAILS mode (Expansion.ALL): Shows only selected child, others hidden
-    - Brief: Renders as "selected [A | B | C]"
+    Behavior by expansion mode:
+    - HEADER/CONTENT/INDEX: No changes to children via apply_selection
+    - INDEX: Use render_index() to get header lines for all children
+    - ALL: Only selected child visible (with its own expand mode),
+           or all children hidden if no selection
+
+    Rendering helpers:
+    - render_index(): Header line for each child (for INDEX mode)
+    - render_brief(): "selected [A | B | C]" format
 
     Example:
         # Wrap any node in ChoiceView
@@ -237,6 +241,9 @@ class ChoiceView(NodeView):
 
         # Select different option (fluent API)
         choice.select("option-2")
+
+        # Get INDEX data (children headers)
+        print(choice.render_index())
 
     Attributes:
         _selected_id: ID of the currently selected child (or None)
@@ -283,36 +290,60 @@ class ChoiceView(NodeView):
         Returns:
             Self for method chaining
         """
-        self._selected_id = child_id
+        object.__setattr__(self, "_selected_id", child_id)
         return self
 
-    def apply_selection(self, views: dict[str, NodeView]) -> None:
-        """Hide non-selected children when in DETAILS mode.
+    def __setattr__(self, name: str, value: Any) -> None:
+        """Handle attribute assignment, including _selected_id slot."""
+        if name == "_selected_id":
+            object.__setattr__(self, name, value)
+        elif name == "selected_id":
+            # Property setter - use descriptor protocol
+            prop = type(self).__dict__.get(name)
+            if prop is not None and hasattr(prop, "__set__"):
+                prop.__set__(self, value)
+            else:
+                object.__setattr__(self, name, value)
+        else:
+            super().__setattr__(name, value)
 
-        This method should be called by the projection engine before rendering.
-        It sets hide=True on all child views except the selected one.
-
-        Args:
-            views: Dict mapping node_id -> NodeView for all views
-        """
-        if self._expand != Expansion.ALL:
-            return  # Only filter in DETAILS mode
-
-        # Get child IDs from the node's child_order or children_ids
+    def _get_child_ids(self) -> list[str]:
+        """Get ordered list of child IDs from the node."""
         node = self._node
         child_order = getattr(node, "child_order", None)
         if child_order is not None:
             # child_order might be a LinkedChildOrder with to_list() or a regular list
             if hasattr(child_order, "to_list"):
-                child_ids = child_order.to_list()
+                return child_order.to_list()
             else:
-                child_ids = list(child_order)
+                return list(child_order)
         else:
-            child_ids = list(getattr(node, "children_ids", set()))
+            return list(getattr(node, "children_ids", set()))
 
+    def apply_selection(self, views: dict[str, NodeView]) -> None:
+        """Apply selection filtering to child views based on expansion mode.
+
+        Behavior by expansion mode:
+        - HEADER/CONTENT/INDEX: No changes to children (INDEX renders headers itself)
+        - ALL: Only selected child visible (with its own expand mode),
+               or all children hidden if no selection
+
+        Args:
+            views: Dict mapping node_id -> NodeView for all views
+        """
+        if self._expand != Expansion.ALL:
+            return  # Only filter in ALL mode; INDEX renders headers itself
+
+        child_ids = self._get_child_ids()
+
+        # ALL mode: show only selected child, hide all if no selection
         for child_id in child_ids:
             if child_id in views:
-                views[child_id].hide = (child_id != self._selected_id)
+                if self._selected_id is None:
+                    views[child_id].hide = True
+                else:
+                    views[child_id].hide = (child_id != self._selected_id)
+                # Selected child keeps its own expand mode
 
     def get_options(self) -> list[str]:
         """Get titles of all child options.
@@ -343,6 +374,32 @@ class ChoiceView(NodeView):
                 title = getattr(child, "title", None) or child_id
                 titles.append(title)
         return titles
+
+    def render_index(self) -> str:
+        """Render INDEX data: header line for each child option.
+
+        Returns:
+            Newline-separated headers of all children
+        """
+        node = self._node
+        graph = getattr(node, "_graph", None)
+        if graph is None:
+            return ""
+
+        child_ids = self._get_child_ids()
+        lines = []
+        for child_id in child_ids:
+            child = graph.get_node(child_id)
+            if child:
+                # Get header line from child
+                header = getattr(child, "render_header", None)
+                if callable(header):
+                    lines.append(header())
+                else:
+                    # Fallback to title or ID
+                    title = getattr(child, "title", None) or child_id
+                    lines.append(f"- {title}")
+        return "\n".join(lines)
 
     def render_brief(self) -> str:
         """Render as 'selected [A | B | C]'.

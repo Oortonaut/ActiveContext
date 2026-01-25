@@ -20,7 +20,7 @@ if TYPE_CHECKING:
     from activecontext.context.content import ContentRegistry
     from activecontext.context.graph import ContextGraph
     from activecontext.context.nodes import ContextNode
-    from activecontext.context.view import NodeView
+    from activecontext.context.view import ChoiceView, NodeView
 
 
 @dataclass
@@ -116,6 +116,14 @@ class ProjectionEngine:
         if context_graph and len(context_graph) > 0:
             # Collect the render path
             render_path = self._collect_render_path(context_graph, views)
+
+            # Apply ChoiceView selection filters
+            if views:
+                from activecontext.context.view import ChoiceView
+
+                for view in views.values():
+                    if isinstance(view, ChoiceView):
+                        view.apply_selection(views)
 
             # Render the path
             sections = self._render_path(
