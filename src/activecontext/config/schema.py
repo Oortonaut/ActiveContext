@@ -254,7 +254,7 @@ class MCPServerConfig:
 
     name: str  # Unique identifier (e.g., "filesystem", "github")
     command: list[str] | None = None  # For stdio: ["npx", "-y", "@mcp/server"]
-    args: list[str] = field(default_factory=list)  # Additional command args
+    extra_args: list[str] = field(default_factory=list)  # Additional command args
     env: dict[str, str] = field(default_factory=dict)  # Environment vars (supports ${VAR})
     url: str | None = None  # For streamable-http/sse: "http://localhost:8000/sse"
     headers: dict[str, str] = field(default_factory=dict)  # HTTP headers for sse/http
@@ -273,7 +273,7 @@ class MCPConfig:
           servers:
             - name: filesystem
               command: ["npx", "-y", "@modelcontextprotocol/server-filesystem"]
-              args: ["/home/user/allowed"]
+              extra_args: ["/home/user/allowed"]
               auto_connect: true
             - name: github
               command: ["npx", "-y", "@modelcontextprotocol/server-github"]

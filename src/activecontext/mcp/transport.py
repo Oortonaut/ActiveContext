@@ -50,7 +50,7 @@ async def create_transport(
 
         params = StdioServerParameters(
             command=config.command[0],
-            args=config.command[1:] + config.args,
+            args=config.command[1:] + config.extra_args,
             env=merged_env,
         )
         return stdio_client(params)
