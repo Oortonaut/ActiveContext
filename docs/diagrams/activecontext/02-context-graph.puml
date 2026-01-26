@@ -8,7 +8,6 @@ package "ContextGraph (DAG)" as Graph {
   
   abstract class ContextNode {
     +node_id: str
-    +display_id: str
     +state: NodeState
     +tokens: int
     +child_order: list[str]

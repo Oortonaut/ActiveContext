@@ -141,7 +141,7 @@ class TestMCPToolNodeRender:
         # Format: ### `tool_name` description... | {#id} (X/Y tokens)
         assert "### `read_file`" in result
         assert "Read contents of a file" in result
-        assert f"{{#{tool_node.display_id}}}" in result
+        assert f"{{#{tool_node.node_id}}}" in result
         assert "tokens)" in result
 
     def test_render_summary(self, tool_node):

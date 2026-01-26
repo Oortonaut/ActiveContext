@@ -165,11 +165,10 @@ Run pip install"""
             await timeline.close()
 
     @pytest.mark.asyncio
-    async def test_markdown_nodes_render_with_display_id(self, temp_cwd: Path) -> None:
-        """Test that markdown nodes render headings with filename-based annotations.
+    async def test_markdown_nodes_render_with_node_id(self, temp_cwd: Path) -> None:
+        """Test that markdown nodes render headings with display-friendly node IDs.
 
-        Headings are annotated with {#filename_N} where filename is derived from
-        the markdown file path (e.g., test.md -> test_1, test_2, etc.).
+        Node IDs have format {node_type}_{sequence} (e.g., text_1, text_2, etc.).
         """
         timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
 
@@ -208,11 +207,11 @@ Content for section two.
             children.sort(key=lambda n: n.display_sequence or 0)
             all_nodes.extend(children)
 
-            # Verify display_id format is text_N
+            # Verify node_id format is text_N
             for node in all_nodes:
-                assert node.display_id.startswith("text_")
-                num = int(node.display_id.split("_")[1])
-                assert num >= 0
+                assert node.node_id.startswith("text_")
+                num = int(node.node_id.split("_")[1])
+                assert num >= 1
 
             # Render all nodes and concatenate
             rendered_parts = []

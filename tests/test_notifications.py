@@ -150,16 +150,14 @@ class TestContextNodeNotification:
 
     def test_format_notification_header_default(self) -> None:
         """Test default header formatting."""
-        node = ArtifactNode(content="test", artifact_type="code")
-        node.display_sequence = 5
+        node = ArtifactNode(node_id="artifact_5", content="test", artifact_type="code")
 
         header = node._format_notification_header("content updated")
         assert header == "artifact_5: content updated"
 
     def test_format_notification_header_textnode(self) -> None:
         """Test TextNode header formatting with position info."""
-        node = TextNode(path="test.py", pos="10:0")
-        node.display_sequence = 3
+        node = TextNode(node_id="text_3", path="test.py", pos="10:0")
 
         header = node._format_notification_header("file modified")
         # Should show position info
@@ -168,8 +166,7 @@ class TestContextNodeNotification:
 
     def test_format_notification_header_textnode_no_diff(self) -> None:
         """Test TextNode header with description."""
-        node = TextNode(path="test.py", pos="1:0")
-        node.display_sequence = 1
+        node = TextNode(node_id="text_1", path="test.py", pos="1:0")
 
         header = node._format_notification_header("reloaded")
         assert "text_1" in header

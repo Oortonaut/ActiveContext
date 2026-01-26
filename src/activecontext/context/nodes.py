@@ -153,15 +153,7 @@ class ContextNode(ABC):
         """Return the node type identifier."""
         ...
 
-    @property
-    def display_id(self) -> str:
-        """Return short display ID for uniform headers.
 
-        Format: "{node_type}_{sequence}" e.g., "text_1", "message_13"
-        Used by LLM to uniquely reference this node. Valid Python identifier.
-        """
-        seq = self.display_sequence or 0
-        return f"{self.node_type}_{seq}"
 
     @property
     def header_tokens(self) -> int:
@@ -313,7 +305,7 @@ class ContextNode(ABC):
             "| {#text_1}: line 50..100"
             "| {#shell_3} [WAKE]"
         """
-        parts = [f"| {{#{self.display_id}}}"]
+        parts = [f"| {{#{self.node_id}}}"]
 
         # Add notification alert if not IGNORE
         if self.notification_level.value != "ignore":
@@ -356,7 +348,7 @@ class ContextNode(ABC):
 
         token_info = self.get_token_breakdown(cwd)
         return render_header(
-            self.display_id,
+            self.node_id,
             self.get_display_name(),
             self.expansion,
             token_info,
@@ -477,7 +469,7 @@ class ContextNode(ABC):
                 # Different field - add as child trace
                 child = TraceNode(
                     node=self.node_id,
-                    node_display_id=self.display_id,
+                    node_display_id=self.node_id,
                     old_version=old_version,
                     new_version=new_version,
                     description=description,
@@ -498,7 +490,7 @@ class ContextNode(ABC):
         # Create new trace
         trace_node = TraceNode(
             node=self.node_id,
-            node_display_id=self.display_id,
+            node_display_id=self.node_id,
             old_version=old_version,
             new_version=new_version,
             description=description,
@@ -558,7 +550,7 @@ class ContextNode(ABC):
         Args:
             description: Human-readable description of the change.
         """
-        return f"{self.display_id}: {description}"
+        return f"{self.node_id}: {description}"
 
     def notify_parents(self, description: str = "") -> None:
         """Notify all parent nodes of a change.
@@ -773,7 +765,7 @@ class TextNode(ContextNode):
         from pathlib import Path
 
         if not self.path:
-            return self.display_id
+            return self.node_id
 
         # Extract filename stem (without extension)
         stem = Path(self.path).stem
@@ -942,7 +934,7 @@ class TextNode(ContextNode):
 
     def _format_notification_header(self, description: str) -> str:
         """Format header with line position info for text nodes."""
-        return f"{self.display_id}: {description} (at {self.pos})"
+        return f"{self.node_id}: {description} (at {self.pos})"
 
     def get_display_name(self) -> str:
         """Return 'path:start-end' format."""
@@ -3246,7 +3238,7 @@ class MCPToolNode(ContextNode):
         visible = token_info.collapsed
         total = token_info.collapsed + token_info.summary + token_info.detail
 
-        return f"### `{self.tool_name}` {desc} | {{#{self.display_id}}} ({visible}/{total} tokens)\n"
+        return f"### `{self.tool_name}` {desc} | {{#{self.node_id}}} ({visible}/{total} tokens)\n"
 
     def RenderSummary(
         self,

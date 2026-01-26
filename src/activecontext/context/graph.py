@@ -6,6 +6,7 @@ supporting multiple parents per node and efficient traversal.
 
 from __future__ import annotations
 
+import re
 import time
 import uuid
 from collections import defaultdict
@@ -18,6 +19,11 @@ from activecontext.context.state import Notification, NotificationLevel
 
 if TYPE_CHECKING:
     from activecontext.context.nodes import ContextNode
+
+
+# Pattern to detect auto-generated UUID-style node_ids (8 hex chars)
+# These get replaced with display-friendly IDs like "text_1", "message_13"
+_AUTO_ID_PATTERN = re.compile(r"^[0-9a-f]{8}$")
 
 
 @dataclass
@@ -191,7 +197,7 @@ class ContextGraph:
     _running_nodes: set[str] = field(default_factory=set)
     _checkpoints: dict[str, Checkpoint] = field(default_factory=dict)
 
-    # Per-type sequence counters for display IDs (e.g., text_1, message_13)
+    # Per-type sequence counters for node_id generation (e.g., text_1, message_13)
     _type_counters: dict[str, int] = field(default_factory=lambda: defaultdict(int))
 
     # Root context node ID for document-ordered rendering
@@ -209,7 +215,7 @@ class ContextGraph:
             node: The node to add
 
         Returns:
-            The node's ID
+            The node's ID (display-friendly format like "text_1")
         """
         # Set graph reference on node
         node._graph = self
@@ -218,6 +224,11 @@ class ContextGraph:
         if node.display_sequence is None:
             self._type_counters[node.node_type] += 1
             node.display_sequence = self._type_counters[node.node_type]
+
+        # Assign display-friendly node_id if current ID is auto-generated UUID
+        # Explicit node_ids (like "context", "session") are preserved
+        if _AUTO_ID_PATTERN.match(node.node_id):
+            node.node_id = f"{node.node_type}_{node.display_sequence}"
 
         # Store node
         self._nodes[node.node_id] = node
@@ -360,22 +371,6 @@ class ContextGraph:
             node_id: Unique identifier of the node.
         """
         return self._nodes.get(node_id)
-
-    def get_node_by_display_id(self, display_id: str) -> ContextNode | None:
-        """Get a node by display_id (e.g., 'text_1').
-
-        Used for namespace injection to allow direct node access.
-
-        Args:
-            display_id: Display identifier like 'text_1', 'group_2'.
-
-        Returns:
-            The node if found, None otherwise.
-        """
-        for node in self._nodes.values():
-            if node.display_id == display_id:
-                return node
-        return None
 
     def get_children(self, node_id: str) -> list[ContextNode]:
         """Get direct children of a node.

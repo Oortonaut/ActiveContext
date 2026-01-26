@@ -120,7 +120,7 @@ class _ExecutionRecord:
     state_trace: NamespaceTrace
 
 
-class LazyNodeNamespace(dict[str, Any]):
+class ScriptNamespace(dict[str, Any]):
     """Dict subclass that falls back to graph/view lookup for node IDs.
 
     Allows direct access to nodes in the DSL namespace without explicit assignment.
@@ -129,7 +129,7 @@ class LazyNodeNamespace(dict[str, Any]):
     Returns NodeView wrappers for nodes to enable view-based state management.
     User-defined variables take precedence over node lookups.
 
-    Lookup order: namespace → views dict → graph (create view) → KeyError
+    Lookup order: namespace → views dict → graph (by node_id) → KeyError
     """
 
     def __init__(
@@ -147,18 +147,22 @@ class LazyNodeNamespace(dict[str, Any]):
         try:
             return super().__getitem__(key)
         except KeyError:
-            # First check views dict
+            # First check views dict by key directly
             views = self._views_getter()
             if key in views:
                 return views[key]
 
-            # Fall back to graph lookup and create a new view
+            # Fall back to graph lookup by node_id
             graph = self._graph_getter()
             if graph:
                 node = graph.get_node(key)
                 if node:
+                    # Check if view already exists for this node's actual node_id
+                    if node.node_id in views:
+                        return views[node.node_id]
+                    # Create new view and store by node_id
                     view = NodeView(node)
-                    views[key] = view  # Store for future lookups
+                    views[node.node_id] = view
                     return view
             raise
 
@@ -392,7 +396,7 @@ class Timeline:
             # Expose default __import__ for imports to work
             safe_builtins["__import__"] = builtins.__import__
 
-        self._namespace = LazyNodeNamespace(
+        self._namespace = ScriptNamespace(
             lambda: self._context_graph,
             lambda: self._views,
             {
