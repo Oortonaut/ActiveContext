@@ -201,6 +201,28 @@ class NodeView:
         else:
             setattr(self._node, name, value)
 
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize view state for session persistence."""
+        return {
+            "type": "NodeView",
+            "node_id": self._node.node_id,
+            "hide": self._hide,
+            "expand": self._expand.value,
+            "tags": dict(self._tags),
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any], node: ContextNode) -> NodeView:
+        """Restore view from serialized state."""
+        view = cls(
+            node,
+            hide=data.get("hide", False),
+            expand=Expansion(data["expand"]) if "expand" in data else None,
+        )
+        view._tags.update(data.get("tags", {}))
+        return view
+
     def __repr__(self) -> str:
         """Return string representation."""
         hide_str = ", hide=True" if self._hide else ""
@@ -426,6 +448,30 @@ class ChoiceView(NodeView):
 
         return f"{selected_title} [{' | '.join(options)}]"
 
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize view state for session persistence."""
+        return {
+            "type": "ChoiceView",
+            "node_id": self._node.node_id,
+            "hide": self._hide,
+            "expand": self._expand.value,
+            "selected_id": self._selected_id,
+            "tags": dict(self._tags),
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any], node: ContextNode) -> ChoiceView:
+        """Restore view from serialized state."""
+        view = cls(
+            node,
+            selected_id=data.get("selected_id"),
+            hide=data.get("hide", False),
+            expand=Expansion(data["expand"]) if "expand" in data else None,
+        )
+        view._tags.update(data.get("tags", {}))
+        return view
+
     def __repr__(self) -> str:
         """Return string representation."""
         hide_str = ", hide=True" if self._hide else ""
@@ -442,7 +488,7 @@ class SequenceView(ChoiceView):
     - Tracks completion state per step
     - Supports forward/backward navigation
 
-    State is persisted in node tags for session save/restore:
+    State is persisted in view tags for session save/restore:
     - _seq_index: Current step index
     - _seq_completed: Set of completed step indices
 
@@ -491,18 +537,9 @@ class SequenceView(ChoiceView):
 
         super().__init__(node, selected_id=selected_id, hide=hide, expand=expand)
 
-        # Initialize progression state
+        # Initialize progression state with defaults
         object.__setattr__(self, "_current_index", 0)
         object.__setattr__(self, "_completed_steps", set())
-
-        # Restore state from node tags if present (for session restore)
-        node_tags = getattr(node, "tags", {})
-        if "_seq_index" in node_tags:
-            object.__setattr__(self, "_current_index", node_tags["_seq_index"])
-        if "_seq_completed" in node_tags:
-            object.__setattr__(
-                self, "_completed_steps", set(node_tags["_seq_completed"])
-            )
 
         # Set initial selection based on index
         child_ids = self._get_child_ids()
@@ -510,11 +547,37 @@ class SequenceView(ChoiceView):
             object.__setattr__(self, "_selected_id", child_ids[self._current_index])
 
     def _persist_state(self) -> None:
-        """Persist progression state to node tags."""
-        node_tags = getattr(self._node, "tags", None)
-        if node_tags is not None:
-            node_tags["_seq_index"] = self._current_index
-            node_tags["_seq_completed"] = list(self._completed_steps)
+        """Persist progression state to view tags."""
+        self._tags["_seq_index"] = self._current_index
+        self._tags["_seq_completed"] = list(self._completed_steps)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize view state for session persistence."""
+        return {
+            "type": "SequenceView",
+            "node_id": self._node.node_id,
+            "hide": self._hide,
+            "expand": self._expand.value,
+            "selected_id": self._selected_id,
+            "current_index": self._current_index,
+            "completed_steps": list(self._completed_steps),
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any], node: ContextNode) -> SequenceView:
+        """Restore view from serialized state."""
+        view = cls(
+            node,
+            selected_id=data.get("selected_id"),
+            hide=data.get("hide", False),
+            expand=Expansion(data["expand"]) if "expand" in data else None,
+        )
+        # Restore progression state
+        object.__setattr__(view, "_current_index", data.get("current_index", 0))
+        object.__setattr__(view, "_completed_steps", set(data.get("completed_steps", [])))
+        # Sync selection with restored index
+        view._sync_selection()
+        return view
 
     def _sync_selection(self) -> None:
         """Sync selected_id with current_index."""
@@ -680,7 +743,7 @@ class LoopView(NodeView):
     - Supports early exit via done()
     - Optional max_iterations limit
 
-    State is persisted in node tags for session save/restore:
+    State is persisted in view tags for session save/restore:
     - _loop_iteration: Current iteration count (1-based)
     - _loop_state: Accumulated state dictionary
     - _loop_done: Whether loop was exited early
@@ -732,27 +795,45 @@ class LoopView(NodeView):
 
         super().__init__(node, hide=hide, expand=expand)
 
+        # Initialize loop state with defaults
         object.__setattr__(self, "_iteration", 1)
         object.__setattr__(self, "_state", {})
         object.__setattr__(self, "_done", False)
         object.__setattr__(self, "_max_iterations", max_iterations)
 
-        # Restore state from node tags if present (for session restore)
-        node_tags = getattr(node, "tags", {})
-        if "_loop_iteration" in node_tags:
-            object.__setattr__(self, "_iteration", node_tags["_loop_iteration"])
-        if "_loop_state" in node_tags:
-            object.__setattr__(self, "_state", dict(node_tags["_loop_state"]))
-        if "_loop_done" in node_tags:
-            object.__setattr__(self, "_done", node_tags["_loop_done"])
-
     def _persist_state(self) -> None:
-        """Persist loop state to node tags."""
-        node_tags = getattr(self._node, "tags", None)
-        if node_tags is not None:
-            node_tags["_loop_iteration"] = self._iteration
-            node_tags["_loop_state"] = dict(self._state)
-            node_tags["_loop_done"] = self._done
+        """Persist loop state to view tags."""
+        self._tags["_loop_iteration"] = self._iteration
+        self._tags["_loop_state"] = dict(self._state)
+        self._tags["_loop_done"] = self._done
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize view state for session persistence."""
+        return {
+            "type": "LoopView",
+            "node_id": self._node.node_id,
+            "hide": self._hide,
+            "expand": self._expand.value,
+            "max_iterations": self._max_iterations,
+            "iteration": self._iteration,
+            "state": dict(self._state),
+            "done": self._done,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any], node: ContextNode) -> LoopView:
+        """Restore view from serialized state."""
+        view = cls(
+            node,
+            max_iterations=data.get("max_iterations"),
+            hide=data.get("hide", False),
+            expand=Expansion(data["expand"]) if "expand" in data else None,
+        )
+        # Restore loop state
+        object.__setattr__(view, "_iteration", data.get("iteration", 1))
+        object.__setattr__(view, "_state", dict(data.get("state", {})))
+        object.__setattr__(view, "_done", data.get("done", False))
+        return view
 
     @property
     def iteration(self) -> int:
@@ -898,7 +979,7 @@ class StateView(ChoiceView):
     - Current state visible, others hidden
     - State history tracking
 
-    State is persisted in node tags for session save/restore:
+    State is persisted in view tags for session save/restore:
     - _state_current: Current state name
     - _state_history: List of previous states
 
@@ -971,28 +1052,45 @@ class StateView(ChoiceView):
 
         super().__init__(node, selected_id=initial_node_id, hide=hide, expand=expand)
 
+        # Initialize state machine with defaults
         object.__setattr__(self, "_states", states)
         object.__setattr__(self, "_transitions", transitions)
         object.__setattr__(self, "_current_state", initial or "")
         object.__setattr__(self, "_state_history", [])
 
-        # Restore state from node tags if present (for session restore)
-        node_tags = getattr(node, "tags", {})
-        if "_state_current" in node_tags:
-            current = node_tags["_state_current"]
-            object.__setattr__(self, "_current_state", current)
-            # Sync selection with restored state
-            if current in self._states:
-                object.__setattr__(self, "_selected_id", self._states[current])
-        if "_state_history" in node_tags:
-            object.__setattr__(self, "_state_history", list(node_tags["_state_history"]))
-
     def _persist_state(self) -> None:
-        """Persist state machine state to node tags."""
-        node_tags = getattr(self._node, "tags", None)
-        if node_tags is not None:
-            node_tags["_state_current"] = self._current_state
-            node_tags["_state_history"] = list(self._state_history)
+        """Persist state machine state to view tags."""
+        self._tags["_state_current"] = self._current_state
+        self._tags["_state_history"] = list(self._state_history)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize view state for session persistence."""
+        return {
+            "type": "StateView",
+            "node_id": self._node.node_id,
+            "hide": self._hide,
+            "expand": self._expand.value,
+            "selected_id": self._selected_id,
+            "states": self._states,
+            "transitions": self._transitions,
+            "current_state": self._current_state,
+            "state_history": list(self._state_history),
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any], node: ContextNode) -> StateView:
+        """Restore view from serialized state."""
+        view = cls(
+            node,
+            states=data.get("states", {}),
+            transitions=data.get("transitions", {}),
+            initial=data.get("current_state"),  # Use saved current as initial
+            hide=data.get("hide", False),
+            expand=Expansion(data["expand"]) if "expand" in data else None,
+        )
+        # Restore state history
+        object.__setattr__(view, "_state_history", list(data.get("state_history", [])))
+        return view
 
     @property
     def current_state(self) -> str:

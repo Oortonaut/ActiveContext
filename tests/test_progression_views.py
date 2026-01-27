@@ -287,31 +287,37 @@ class TestSequenceViewBasic:
 class TestSequenceViewPersistence:
     """Tests for SequenceView state persistence."""
 
-    def test_sequence_view_persists_state(self, mock_graph_with_steps):
-        """Test that state is persisted to node tags."""
+    def test_sequence_view_persists_state_to_view_tags(self, mock_graph_with_steps):
+        """Test that state is persisted to view tags."""
         parent = mock_graph_with_steps.get_node("parent")
         seq = SequenceView(parent)
 
         seq.advance()
         seq.advance()
 
-        # State is persisted to node.tags, not view.tags
-        assert parent.tags["_seq_index"] == 2
-        assert set(parent.tags["_seq_completed"]) == {0, 1}
+        # State is persisted to view.tags
+        assert seq.tags["_seq_index"] == 2
+        assert set(seq.tags["_seq_completed"]) == {0, 1}
 
-    def test_sequence_view_restores_from_tags(self, mock_graph_with_steps):
-        """Test that state is restored from tags."""
+    def test_sequence_view_to_dict_from_dict(self, mock_graph_with_steps):
+        """Test serialization and deserialization."""
         parent = mock_graph_with_steps.get_node("parent")
 
-        # Create first view and advance
+        # Create view and advance
         seq1 = SequenceView(parent)
         seq1.advance()
         seq1.advance()
 
-        # Create second view with same node (simulates session restore)
-        seq2 = SequenceView(parent)
+        # Serialize
+        data = seq1.to_dict()
+        assert data["type"] == "SequenceView"
+        assert data["current_index"] == 2
+        assert set(data["completed_steps"]) == {0, 1}
 
-        # State should be restored from tags
+        # Deserialize into new view
+        seq2 = SequenceView.from_dict(data, parent)
+
+        # State should be restored
         assert seq2.current_index == 2
         assert seq2.completed_steps == {0, 1}
 
@@ -484,30 +490,37 @@ class TestLoopViewBasic:
 class TestLoopViewPersistence:
     """Tests for LoopView state persistence."""
 
-    def test_loop_view_persists_state(self, mock_graph_with_loop_child):
-        """Test that state is persisted to node tags."""
+    def test_loop_view_persists_state_to_view_tags(self, mock_graph_with_loop_child):
+        """Test that state is persisted to view tags."""
         child = mock_graph_with_loop_child.get_node("review")
         loop = LoopView(child)
 
         loop.iterate(note="test")
         loop.iterate(result="ok")
 
-        # State is persisted to node.tags, not view.tags
-        assert child.tags["_loop_iteration"] == 3
-        assert child.tags["_loop_state"] == {"note": "test", "result": "ok"}
-        assert child.tags["_loop_done"] is False
+        # State is persisted to view.tags
+        assert loop.tags["_loop_iteration"] == 3
+        assert loop.tags["_loop_state"] == {"note": "test", "result": "ok"}
+        assert loop.tags["_loop_done"] is False
 
-    def test_loop_view_restores_from_tags(self, mock_graph_with_loop_child):
-        """Test that state is restored from tags."""
+    def test_loop_view_to_dict_from_dict(self, mock_graph_with_loop_child):
+        """Test serialization and deserialization."""
         child = mock_graph_with_loop_child.get_node("review")
 
-        # Create first view and iterate
-        loop1 = LoopView(child)
+        # Create view and iterate
+        loop1 = LoopView(child, max_iterations=5)
         loop1.iterate(note="test")
         loop1.done()
 
-        # Create second view with same node (simulates session restore)
-        loop2 = LoopView(child)
+        # Serialize
+        data = loop1.to_dict()
+        assert data["type"] == "LoopView"
+        assert data["iteration"] == 2
+        assert data["state"] == {"note": "test"}
+        assert data["done"] is True
+
+        # Deserialize into new view
+        loop2 = LoopView.from_dict(data, child)
 
         assert loop2.iteration == 2
         assert loop2.state == {"note": "test"}
@@ -693,8 +706,8 @@ class TestStateViewBasic:
 class TestStateViewPersistence:
     """Tests for StateView state persistence."""
 
-    def test_state_view_persists_state(self, mock_graph_with_states):
-        """Test that state is persisted to node tags."""
+    def test_state_view_persists_state_to_view_tags(self, mock_graph_with_states):
+        """Test that state is persisted to view tags."""
         parent = mock_graph_with_states.get_node("parent")
         states = {"idle": "idle", "working": "working", "done": "done"}
         transitions = {
@@ -708,12 +721,12 @@ class TestStateViewPersistence:
         fsm.transition("working")
         fsm.transition("done")
 
-        # State is persisted to node.tags, not view.tags
-        assert parent.tags["_state_current"] == "done"
-        assert parent.tags["_state_history"] == ["idle", "working"]
+        # State is persisted to view.tags
+        assert fsm.tags["_state_current"] == "done"
+        assert fsm.tags["_state_history"] == ["idle", "working"]
 
-    def test_state_view_restores_from_tags(self, mock_graph_with_states):
-        """Test that state is restored from tags."""
+    def test_state_view_to_dict_from_dict(self, mock_graph_with_states):
+        """Test serialization and deserialization."""
         parent = mock_graph_with_states.get_node("parent")
         states = {"idle": "idle", "working": "working", "done": "done"}
         transitions = {
@@ -722,12 +735,18 @@ class TestStateViewPersistence:
             "done": [],
         }
 
-        # Create first view and transition
+        # Create view and transition
         fsm1 = StateView(parent, states=states, transitions=transitions, initial="idle")
         fsm1.transition("working")
 
-        # Create second view with same node (simulates session restore)
-        fsm2 = StateView(parent, states=states, transitions=transitions, initial="idle")
+        # Serialize
+        data = fsm1.to_dict()
+        assert data["type"] == "StateView"
+        assert data["current_state"] == "working"
+        assert data["state_history"] == ["idle"]
+
+        # Deserialize into new view
+        fsm2 = StateView.from_dict(data, parent)
 
         assert fsm2.current_state == "working"
         assert fsm2.state_history == ["idle"]

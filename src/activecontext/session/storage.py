@@ -15,7 +15,7 @@ Session files contain:
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -54,6 +54,7 @@ class SessionData:
     conversation: list[dict[str, Any]]
     timeline: list[str]
     context_graph: dict[str, Any]
+    views: list[dict[str, Any]] = field(default_factory=list)  # Serialized view state
 
 
 def get_sessions_dir(cwd: str) -> Path:
@@ -112,6 +113,7 @@ def save_session(
     message_history: list[Message],
     timeline_sources: list[str],
     context_graph: ContextGraph,
+    views: list[dict[str, Any]] | None = None,
 ) -> Path:
     """Save a session to YAML file.
 
@@ -125,6 +127,7 @@ def save_session(
         message_history: List of Message objects.
         timeline_sources: List of statement source strings.
         context_graph: The context graph.
+        views: Serialized view state (list of view dicts).
 
     Returns:
         Path to the saved session file.
@@ -155,6 +158,7 @@ def save_session(
         "conversation": msg_data,
         "timeline": timeline_sources,
         "context_graph": context_graph.to_dict(),
+        "views": views or [],
     }
 
     # Atomic write
@@ -232,6 +236,7 @@ def load_session_data(session_path: Path) -> SessionData | None:
             conversation=data.get("conversation", []),
             timeline=data.get("timeline", []),
             context_graph=data.get("context_graph", {}),
+            views=data.get("views", []),
         )
     except Exception as e:
         log.warning("Failed to load session data from %s: %s", session_path, e)
