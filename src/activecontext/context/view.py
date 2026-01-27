@@ -1220,3 +1220,36 @@ class StateView(ChoiceView):
         history_len = len(self._state_history)
         history_str = f", history={history_len}" if history_len else ""
         return f"StateView({self._node!r}, state={self._current_state!r}{history_str}{hide_str})"
+
+
+# View type registry for deserialization
+_VIEW_TYPES: dict[str, type[NodeView]] = {
+    "NodeView": NodeView,
+    "ChoiceView": ChoiceView,
+    "SequenceView": SequenceView,
+    "LoopView": LoopView,
+    "StateView": StateView,
+}
+
+
+def view_from_dict(data: dict[str, Any], node: ContextNode) -> NodeView:
+    """Restore a view from serialized state.
+
+    Factory function that dispatches to the appropriate view class
+    based on the "type" field in the serialized data.
+
+    Args:
+        data: Serialized view dict with "type" and "node_id" fields.
+        node: The ContextNode to wrap.
+
+    Returns:
+        Restored NodeView subclass instance.
+
+    Raises:
+        ValueError: If the view type is unknown.
+    """
+    view_type = data.get("type", "NodeView")
+    view_class = _VIEW_TYPES.get(view_type)
+    if view_class is None:
+        raise ValueError(f"Unknown view type: {view_type}")
+    return view_class.from_dict(data, node)

@@ -24,6 +24,7 @@ from activecontext.context.nodes import (
     TextNode,
 )
 from activecontext.context.state import Expansion, TickFrequency
+from activecontext.context.view import view_from_dict
 from activecontext.core.projection_engine import ProjectionEngine
 from activecontext.logging import get_logger
 from activecontext.session.agent import Agent
@@ -896,6 +897,9 @@ class Session:
         # Get timeline statement sources
         timeline_sources = [stmt.source for stmt in self._timeline.get_statements()]
 
+        # Serialize views
+        views_data = [view.to_dict() for view in self._timeline.views.values()]
+
         return save_session(
             cwd=self._cwd,
             session_id=self._session_id,
@@ -904,6 +908,7 @@ class Session:
             message_history=self._message_history,
             timeline_sources=timeline_sources,
             context_graph=self._timeline.context_graph,
+            views=views_data,
         )
 
     @classmethod
@@ -1027,6 +1032,15 @@ class Session:
 
         # Restore text buffers for virtual content (system prompts)
         session._restore_system_prompt_buffer()
+
+        # Restore views from saved state
+        for view_data in data.views:
+            node_id = view_data.get("node_id")
+            if node_id:
+                node = context_graph.get_node(node_id)
+                if node:
+                    view = view_from_dict(view_data, node)
+                    session._timeline._views[node_id] = view
 
         return session
 

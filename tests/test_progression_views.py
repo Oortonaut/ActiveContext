@@ -13,7 +13,14 @@ import pytest
 
 from activecontext.context.graph import ContextGraph
 from activecontext.context.state import Expansion
-from activecontext.context.view import LoopView, NodeView, SequenceView, StateView
+from activecontext.context.view import (
+    ChoiceView,
+    LoopView,
+    NodeView,
+    SequenceView,
+    StateView,
+    view_from_dict,
+)
 from activecontext.core.projection_engine import ProjectionConfig, ProjectionEngine
 from tests.utils import create_mock_context_node
 
@@ -880,3 +887,100 @@ class TestEdgeCases:
         fsm = StateView(parent, states=states, transitions=transitions)
 
         assert not fsm.can_transition("nonexistent")
+
+
+# =============================================================================
+# View Factory Tests
+# =============================================================================
+
+
+class TestViewFromDict:
+    """Tests for view_from_dict factory function."""
+
+    def test_view_from_dict_node_view(self, mock_graph_with_steps):
+        """Test restoring NodeView from dict."""
+        node = mock_graph_with_steps.get_node("step-1")
+        original = NodeView(node, hide=True, expand=Expansion.HEADER)
+
+        data = original.to_dict()
+        restored = view_from_dict(data, node)
+
+        assert isinstance(restored, NodeView)
+        assert not isinstance(restored, ChoiceView)  # Not a subclass
+        assert restored.hide == original.hide
+        assert restored.expand == original.expand
+
+    def test_view_from_dict_choice_view(self, mock_graph_with_steps):
+        """Test restoring ChoiceView from dict."""
+        parent = mock_graph_with_steps.get_node("parent")
+        original = ChoiceView(parent, selected_id="step-2")
+
+        data = original.to_dict()
+        restored = view_from_dict(data, parent)
+
+        assert isinstance(restored, ChoiceView)
+        assert restored.selected_id == "step-2"
+
+    def test_view_from_dict_sequence_view(self, mock_graph_with_steps):
+        """Test restoring SequenceView from dict."""
+        parent = mock_graph_with_steps.get_node("parent")
+        original = SequenceView(parent)
+        original.advance()
+        original.mark_complete()
+
+        data = original.to_dict()
+        restored = view_from_dict(data, parent)
+
+        assert isinstance(restored, SequenceView)
+        assert restored.current_index == 1
+        assert 0 in restored.completed_steps
+
+    def test_view_from_dict_loop_view(self, mock_graph_with_steps):
+        """Test restoring LoopView from dict."""
+        node = mock_graph_with_steps.get_node("step-1")
+        original = LoopView(node, max_iterations=5)
+        # iterate() increments iteration: 1 -> 2 -> 3
+        original.iterate(count=1)
+        original.iterate(count=2)
+
+        data = original.to_dict()
+        restored = view_from_dict(data, node)
+
+        assert isinstance(restored, LoopView)
+        assert restored.iteration == 3  # 1 initial + 2 iterates
+        assert restored.state == {"count": 2}
+
+    def test_view_from_dict_state_view(self, mock_graph_with_states):
+        """Test restoring StateView from dict."""
+        parent = mock_graph_with_states.get_node("parent")
+        states = {"idle": "idle", "working": "working", "done": "done"}
+        transitions = {"idle": ["working"], "working": ["done"], "done": []}
+
+        original = StateView(parent, states=states, transitions=transitions, initial="idle")
+        original.transition("working")
+
+        data = original.to_dict()
+        restored = view_from_dict(data, parent)
+
+        assert isinstance(restored, StateView)
+        assert restored.current_state == "working"
+        # state_history tracks PREVIOUS states, not including current
+        assert restored.state_history == ["idle"]
+
+    def test_view_from_dict_unknown_type(self, mock_graph_with_steps):
+        """Test view_from_dict raises on unknown type."""
+        node = mock_graph_with_steps.get_node("step-1")
+        data = {"type": "UnknownView", "node_id": "step-1"}
+
+        with pytest.raises(ValueError, match="Unknown view type"):
+            view_from_dict(data, node)
+
+    def test_view_from_dict_default_type(self, mock_graph_with_steps):
+        """Test view_from_dict defaults to NodeView when type missing."""
+        node = mock_graph_with_steps.get_node("step-1")
+        data = {"node_id": "step-1", "hide": True, "expand": "all"}
+
+        restored = view_from_dict(data, node)
+
+        assert isinstance(restored, NodeView)
+        assert restored.hide is True
