@@ -1124,6 +1124,134 @@ Reserved root keys: `traceparent`, `tracestate`, `baggage` (W3C trace context)
 
 ---
 
+## Implementation Notes & Quirks
+
+### JetBrains Session Resumption Workaround
+
+**Issue**: JetBrains IDEs (Rider, IntelliJ, PyCharm, etc.) don't pass a session ID in `session/new` or call `session/load` for chat resumption. Each time you return to a chat, the IDE creates a new session instead of resuming.
+
+**Workaround**: Read the chat UUID directly from the JetBrains task history filesystem:
+
+```
+%LOCALAPPDATA%\JetBrains\{IDE}\aia-task-history\*.events
+```
+
+The most recently modified `.events` file contains the current chat's UUID. This allows the agent to resume sessions even when the IDE doesn't explicitly request it.
+
+**Activation**: Set `AC_CLIENT_JETBRAINS=1` in the `env` block of your `acp.json`:
+
+```json
+{
+  "agent_servers": {
+    "activecontext": {
+      "command": "python",
+      "args": ["-m", "activecontext"],
+      "env": {
+        "AC_CLIENT_JETBRAINS": "1"
+      }
+    }
+  }
+}
+```
+
+### Rider Shutdown Bug (Windows)
+
+**Known Issue**: When deleting the *active* chat (the one you're currently viewing) in Rider, the IDE fails to close stdio pipes or terminate the agent subprocess.
+
+**Symptom**: The agent process hangs indefinitely, waiting for input that never arrives.
+
+**Workaround**: Delete chats from the chat list sidebar instead of while the chat is active. Deleting from the sidebar works correctly.
+
+**Status**: Reported to JetBrains.
+
+### Response Batching (Nagle-style)
+
+To reduce overhead from per-token LLM streaming, the agent buffers `agent_message_text_update` notifications:
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `flush_threshold` | 100 chars | Flush immediately when buffer exceeds this |
+| `flush_interval` | 50ms | Flush after this delay if threshold not reached |
+
+Non-RESPONSE_CHUNK updates (e.g., tool calls) trigger an immediate flush to ensure proper ordering.
+
+**Configuration** (in `config.yaml`):
+
+```yaml
+acp:
+  batching:
+    enabled: true
+    flush_interval: 0.05
+    flush_threshold: 100
+```
+
+### Update Modes
+
+The agent supports two update delivery modes:
+
+| Mode | Config | Behavior |
+|------|--------|----------|
+| **Async** | `out_of_band_update: true` | Send updates immediately as notifications. May arrive while `prompt()` is blocking on the client. |
+| **Sync** | `out_of_band_update: false` | Queue updates during idle periods. Flush at the start of the next `prompt()`. |
+
+Sync mode is safer for clients that don't handle out-of-band notifications well.
+
+### Cancel Notification Handling
+
+**Key invariant**: `session/cancel` is a notification (no response), but the agent must still return `PromptResponse(stop_reason="cancelled")` for any in-progress prompt.
+
+**Implementation order is critical**:
+
+1. Mark session as closed (prevents new updates from being sent)
+2. Cancel the active prompt task with 1s timeout
+3. Clean up chunk buffers (with timeout to avoid blocking)
+4. Cancel the session in the session manager
+5. Return `stop_reason: cancelled` in the PromptResponse
+
+### Session Lifecycle Invariants
+
+1. Every `session/prompt` MUST receive exactly one `PromptResponse`
+2. `session/cancel` is ONLY for cancelling in-progress prompts, not session termination
+3. There is NO ACP message for session/process termination
+4. Shutdown happens via process termination (EOF on stdin or SIGTERM)
+5. The agent must handle EOF on stdin gracefully
+
+### Post-Session Setup Timing
+
+After returning `NewSessionResponse`, the agent performs deferred setup:
+
+1. Run startup scripts (emitting `tool_call_update` for each)
+2. Advertise available slash commands via `available_commands_update`
+3. Start the background agent loop for async processing
+
+This is deferred using `asyncio.create_task()` so the session creation response returns quickly.
+
+### Permission Request Patterns
+
+| Permission Type | `kind` Value | Notes |
+|-----------------|--------------|-------|
+| File read | `read` | Absolute path required |
+| File write | `edit` | Creates file if missing |
+| Shell command | `execute` | Full command shown |
+| Import | `execute` | Includes submodule option |
+| Website GET | `read` | Domain shown |
+| Website POST | `edit` | Domain shown |
+
+All permission dialogs include at minimum:
+- `allow_once` - Grant for this request only
+- `allow_always` - Persist the grant
+- `reject_once` / `deny` - Deny this request
+
+### Debug Logging
+
+Rider logs are located at:
+- **High-level events**: `%LOCALAPPDATA%\JetBrains\{IDE}\log\acp\acp.log`
+- **Raw JSON-RPC**: `%LOCALAPPDATA%\JetBrains\{IDE}\log\acp\acp-transport.log`
+
+Enable extended logging via Rider's Registry key: `llm.agent.extended.logging`
+
+---
+
 ## ActiveContext Implementation
 
 This project implements ACP in:

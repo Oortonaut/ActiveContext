@@ -1,0 +1,120 @@
+@startuml ACP_Implementation_Notes
+!theme plain
+skinparam backgroundColor #FEFEFE
+
+title ACP Protocol - Implementation Notes & Quirks
+
+note as N1
+  == JetBrains Session ID Workaround ==
+
+  **Issue**: JetBrains IDEs don't pass session ID in session/new
+  or call session/load for chat resumption.
+
+  **Workaround**: Read chat UUID from filesystem:
+  %LOCALAPPDATA%\JetBrains\{IDE}\aia-task-history\*.events
+
+  **Activation**: Set AC_CLIENT_JETBRAINS=1 in acp.json env block
+end note
+
+note as N2
+  == Nagle-style Response Batching ==
+
+  **Purpose**: Reduce per-token update overhead for streaming LLM responses
+
+  **Mechanism**:
+  - Buffer response chunks in agent
+  - Flush on size threshold (100 chars default)
+  - Flush on time threshold (50ms default)
+  - Flush before non-RESPONSE_CHUNK updates
+
+  **Config**: acp.batching.{enabled, flush_interval, flush_threshold}
+end note
+
+note as N3
+  == Update Modes ==
+
+  **out_of_band_update=true (async)**:
+  - Send updates immediately as notifications
+  - May arrive while prompt() is blocking
+
+  **out_of_band_update=false (sync)**:
+  - Queue updates during idle periods
+  - Flush at start of next prompt()
+  - Safer for clients that don't handle async updates
+end note
+
+note as N4
+  == Cancel Notification Handling ==
+
+  **Timing**: session/cancel is a notification (no response)
+  Agent must still return PromptResponse(stop_reason="cancelled")
+
+  **Critical Steps**:
+  1. Mark session as closed FIRST (prevents new updates)
+  2. Cancel active prompt task with timeout
+  3. Clean up chunk buffers
+  4. Cancel session in manager
+  5. Return cancelled stop_reason
+
+  **Timeout**: Use 1s timeout for task acknowledgment
+end note
+
+note as N5
+  == Rider Shutdown Bug ==
+
+  **Known Issue**: Deleting the *active* chat in Rider
+  fails to close stdio pipes or terminate subprocess
+
+  **Symptom**: Agent process hangs indefinitely
+
+  **Workaround**: Delete chats from the chat list sidebar,
+  not while the chat is active
+
+  **Status**: Reported to JetBrains
+end note
+
+note as N6
+  == Session Lifecycle Invariants ==
+
+  1. Every prompt MUST get exactly one PromptResponse
+  2. session/cancel is ONLY for in-progress prompts
+  3. There is NO ACP message for session termination
+  4. Shutdown happens via process termination
+  5. Agent must handle EOF on stdin gracefully
+end note
+
+note as N7
+  == Post-Session Setup ==
+
+  **When**: After session/new response is sent
+
+  **What**:
+  1. Run startup scripts (emit tool_call_update)
+  2. Advertise available slash commands
+  3. Start background agent loop
+
+  **Why Deferred**: Allows NewSessionResponse to return quickly
+end note
+
+note as N8
+  == Permission Request Patterns ==
+
+  **File Access**: kind="read" or "edit"
+  **Shell Command**: kind="execute"
+  **Import**: kind="execute" with submodule option
+  **Website**: kind="read" (GET) or "edit" (POST)
+
+  **Options Always Include**:
+  - allow_once
+  - allow_always
+  - reject_once/deny
+end note
+
+N1 -[hidden]-> N2
+N2 -[hidden]-> N3
+N3 -[hidden]-> N4
+N5 -[hidden]-> N6
+N6 -[hidden]-> N7
+N7 -[hidden]-> N8
+
+@enduml

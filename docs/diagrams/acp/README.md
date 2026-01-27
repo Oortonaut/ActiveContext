@@ -19,6 +19,7 @@ This directory contains PlantUML diagrams documenting the Agent Client Protocol 
 | `11-content-blocks.puml` | Content block types |
 | `12-plan-updates.puml` | Agent plan communication |
 | `13-message-types.puml` | Complete message type reference |
+| `14-implementation-notes.puml` | Implementation quirks and workarounds |
 
 ## Rendering Diagrams
 
@@ -91,3 +92,4 @@ echo "Done! Check for .png and .svg files."
 - **State diagrams** (04, 10): Show state machines and transitions
 - **Component diagrams** (01): Show system architecture
 - **Class diagrams** (11, 13): Show data structures and types
+- **Note diagrams** (14): Implementation notes and workarounds

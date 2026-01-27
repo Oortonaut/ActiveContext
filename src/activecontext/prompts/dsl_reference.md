@@ -40,16 +40,18 @@ text_1.expansion = ...    # Or use display ID directly
 
 ### Expansion
 
-Controls rendering detail level for context nodes.
+Controls rendering detail level for context nodes. Used with node constructors via the `expansion` parameter.
 
 ```python
 from activecontext import Expansion
 
 Expansion.HEADER   # Title and metadata only (~50 tokens)
-Expansion.CONTENT  # Main content/summary
-Expansion.INDEX    # Content plus section headings
-Expansion.ALL      # Full view with all details
+Expansion.CONTENT  # Main content/summary (default for groups)
+Expansion.INDEX    # Content plus section headings without recursing
+Expansion.ALL      # Full view with all details (default for views)
 ```
+
+See `node_states.md` for detailed documentation on each expansion level.
 
 ### Visibility (hide/unhide)
 
@@ -223,7 +225,7 @@ Progression views can be combined:
 State is automatically persisted to node tags for session save/restore.
 
 ### `topic(title, *, tokens=1000, status="active", parent=None)`
-Create a conversation topic/thread marker.
+Create a conversation topic/thread marker. Note: Topics do not have an expansion parameter.
 
 ```python
 t = topic("Authentication Implementation")
@@ -231,7 +233,7 @@ t = topic("Bug Fix", status="resolved")   # Status: active, resolved, deferred
 ```
 
 ### `artifact(artifact_type="code", *, content="", language=None, tokens=500, parent=None)`
-Create an artifact (code snippet, output, error).
+Create an artifact (code snippet, output, error). Note: Artifacts do not have an expansion parameter.
 
 ```python
 a = artifact("code", content="def foo(): pass", language="python")
@@ -376,13 +378,15 @@ Execute a shell command asynchronously. Returns a ShellNode.
 ```python
 s = shell("pytest", args=["-v", "tests/"])
 s = shell("npm", args=["run", "build"], timeout=120)
-s = shell("git", args=["status"])
+s = shell("git", args=["status"], cwd="/path/to/repo")
+s = shell("make", env={"CC": "clang"})
 
 # Check status
 s.is_complete    # True when done
 s.is_success     # True if exit_code == 0
 s.exit_code      # Exit code
 s.output         # stdout/stderr
+s.full_command   # Command with args as string
 ```
 
 ## HTTP Requests
@@ -404,13 +408,21 @@ response = await fetch("https://api.example.com/data")
 ## File Locking
 
 ### `lock_file(lockfile, timeout=30.0, *, tokens=200, expansion=Expansion.HEADER)`
-Acquire a file lock for coordination. Returns a LockNode.
+Acquire an exclusive file lock asynchronously for coordination. Returns a LockNode.
+
+The lock uses OS-level file locking (fcntl on Unix, msvcrt on Windows).
+The lockfile is created if it doesn't exist.
 
 ```python
-lock = lock_file("src/shared.py.lock", timeout=60)
-# Lock is acquired when node shows success
+lock = lock_file(".mylock", timeout=60)
+wait(lock, wake_prompt="Lock acquired, proceeding...")
+# Lock is acquired when node shows is_held = True
 # Do work with the locked resource
 lock_release(lock)
+
+# Check status
+lock.is_complete  # True when acquisition attempt finished
+lock.is_held      # True if lock is currently held
 ```
 
 ### `lock_release(lock)`
@@ -520,12 +532,18 @@ Signal task completion.
 done("Refactoring complete")
 ```
 
-### `wait(*nodes, wake_prompt="...", timeout=None)`
-Wait for all specified nodes to complete.
+### `wait(node, *, wake_prompt="Node completed.", timeout=None, timeout_prompt=None, failure_prompt=None)`
+Wait for a single node to complete.
+
+Ends the current turn and waits for the specified node (typically a ShellNode or LockNode) to complete. Ticks continue while waiting. When the node completes, the wake_prompt is injected and the agent turn resumes.
 
 ```python
-wait(shell_node1, shell_node2)
+wait(shell_node, wake_prompt="Build complete, checking results...")
+wait(lock_node, timeout=30, timeout_prompt="Lock timed out!")
+wait(s1, failure_prompt="Command failed: {node}")
 ```
+
+The wake_prompt can use `{node}` placeholder for the completed node.
 
 ### `wait_any(*nodes, wake_prompt="...", timeout=None)`
 Wait for any of the specified nodes to complete.
@@ -535,7 +553,108 @@ wait_any(s1, s2, s3)  # Resume when first completes
 ```
 
 ### `wait_all(*nodes, wake_prompt="...", timeout=None)`
-Alias for `wait()`.
+Wait for all specified nodes to complete. Alias for multiple-node wait.
+
+```python
+wait_all(shell_node1, shell_node2)  # Resume when all complete
+```
+
+## Multi-Agent Functions
+
+These functions are available when an agent manager is configured (typically in multi-agent scenarios).
+
+### `spawn(agent_type, *, prompt=None, context=None, **kwargs)`
+Spawn a child agent of the specified type.
+
+```python
+child = spawn("worker", prompt="Implement the auth module")
+child = spawn("researcher", context={"files": ["src/api/"]})
+```
+
+### `send(agent_id, message)`
+Send a message to another agent.
+
+```python
+send(child.agent_id, "Please also add tests")
+```
+
+### `send_update(agent_id, **updates)`
+Send a status update to another agent.
+
+```python
+send_update(child.agent_id, status="paused", reason="Waiting for review")
+```
+
+### `recv()`
+Receive messages from other agents.
+
+```python
+messages = recv()  # List of AgentMessage
+for msg in messages:
+    print(f"From {msg.sender}: {msg.content}")
+```
+
+### `agents()`
+List all agents in the session.
+
+```python
+all_agents = agents()  # List of agent info dicts
+```
+
+### `agent_status(agent_id)`
+Get the status of a specific agent.
+
+```python
+status = agent_status(child.agent_id)
+```
+
+### `pause_agent(agent_id)` / `resume_agent(agent_id)` / `terminate_agent(agent_id)`
+Control agent lifecycle.
+
+```python
+pause_agent(child.agent_id)
+resume_agent(child.agent_id)
+terminate_agent(child.agent_id)
+```
+
+### `get_shared_node(node_id)`
+Get a node that's shared between agents.
+
+```python
+shared = get_shared_node("shared_config")
+```
+
+### `wait_message(*, from_agent=None, timeout=None)`
+Wait for a message from another agent.
+
+```python
+wait_message(from_agent=child.agent_id, timeout=60)
+```
+
+## Event System
+
+These functions are available in agent namespace for event-driven programming.
+
+### `event_response(event_name, handler)`
+Register a handler for an event.
+
+```python
+event_response("mcp_result", lambda data: print(f"MCP result: {data}"))
+```
+
+### `wait_file_change(path, *, timeout=None)`
+Wait for a file to change.
+
+```python
+wait_file_change("src/config.yaml", timeout=300)
+```
+
+### `on_file_change(path, handler)`
+Register a handler for file changes.
+
+```python
+on_file_change("src/config.yaml", lambda: print("Config changed!"))
+```
 
 ## Introspection
 
@@ -552,6 +671,59 @@ Show detailed info about a node.
 ```python
 show(v)
 show("node_id_123")
+```
+
+### `get(name)`
+Look up a node by name with fuzzy matching.
+
+```python
+# Exact lookup by variable name
+v = get("my_view")
+
+# Lookup by node ID
+v = get("text_1")
+
+# Lookup by file path (for TextNodes)
+v = get("main.py")
+
+# Fuzzy match on partial name
+v = get("main")  # Matches "main.py", "main_module", etc.
+
+# Returns None if no match found
+result = get("nonexistent")  # None
+```
+
+Lookup order:
+1. Exact variable name in namespace
+2. Exact node ID
+3. Fuzzy match on variable names, node IDs, file paths, and titles
+
+### `nodes`
+Dict-like accessor for node lookup. Supports indexing and attribute access.
+
+```python
+# Indexing (raises KeyError if not found)
+v = nodes["my_view"]
+v = nodes["text_1"]
+
+# Attribute access (raises AttributeError if not found)
+v = nodes.my_view
+v = nodes.text_1
+
+# Check if node exists
+if "main.py" in nodes:
+    v = nodes["main.py"]
+
+# Iteration
+for node_id in nodes:
+    print(node_id)
+
+# List all node IDs
+print(nodes.keys())
+
+# Get all nodes as views
+for view in nodes.values():
+    print(view.node_id)
 ```
 
 ### `ls_permissions()`
@@ -581,8 +753,8 @@ You can use XML-style tags instead of Python syntax. Tags are converted to Pytho
 
 ```xml
 <!-- name becomes the variable name -->
-<view name="v" path="src/main.py" tokens="3000" state="all"/>
-<group name="g" tokens="500" state="summary">
+<view name="v" path="src/main.py" tokens="3000" expansion="all"/>
+<group name="g" tokens="500" expansion="content">
     <member ref="v"/>
 </group>
 <topic name="t" title="Feature X" tokens="1000"/>
@@ -595,7 +767,7 @@ Note: Use `<view>` tag for both text and markdown files. The `<text>` and `<mark
 
 ```xml
 <!-- Direct field assignment using assign tag -->
-<assign target="v.expansion" value="collapsed"/>
+<assign target="v.expansion" value="content"/>
 <assign target="v.tokens" value="500"/>
 <SetPos self="v" pos="50:0"/>
 <Run self="v" freq="turn"/>
