@@ -115,6 +115,113 @@ g = group("node_id_1", "node_id_2")      # Group from node IDs
 g = group(v1, v2, summary="Auth module overview")
 ```
 
+### `choice(*children, selected=None, tokens=500, expansion=Expansion.ALL, parent=None)`
+Create a dropdown-like selection view. Only the selected child is visible.
+
+```python
+c = choice(option1, option2, option3)          # First child selected by default
+c = choice(opt1, opt2, selected="opt2_id")     # Specify initial selection
+c.select("opt3_id")                             # Switch selection
+c.get_options()                                 # Get list of option titles
+```
+
+## Progression Views
+
+Progression views provide structured iteration patterns for agent workflows.
+
+### `sequence(*children, tokens=500, expansion=Expansion.ALL, parent=None)`
+Create a sequential workflow. Agent works through steps in order.
+
+```python
+# Create sequence of review steps
+seq = sequence(step1, step2, step3)
+
+# Progress through steps
+seq.advance()           # Mark current complete, move to next
+seq.back()              # Go back one step
+seq.mark_complete()     # Mark current complete without advancing
+seq.skip()              # Skip current step without completing
+seq.goto(2)             # Jump to specific step index
+
+# Check status
+seq.current_index       # 0, 1, 2, ... (0-based)
+seq.progress            # "2/3"
+seq.is_complete         # True when all steps done
+seq.completed_steps     # Set of completed step indices
+
+# Rendering
+seq.render_progress()   # Markdown progress list
+```
+
+### `loop_view(child, max_iterations=None, tokens=500, expansion=Expansion.ALL, parent=None)`
+Create an iterative refinement loop. Agent iterates on a single prompt.
+
+```python
+# Create loop with optional iteration limit
+loop = loop_view(review_prompt, max_iterations=5)
+
+# Iterate with state updates
+loop.iterate(feedback="Add error handling")
+loop.iterate(feedback="Looks good!", approved=True)
+loop.done()             # Exit loop early
+loop.reset()            # Start over
+
+# Update state without incrementing iteration
+loop.update_state(note="Important finding")
+
+# Check status
+loop.iteration          # 1, 2, 3, ... (1-based)
+loop.state              # Accumulated state dict
+loop.is_done            # True when done() called or max reached
+loop.max_iterations     # Limit or None
+loop.iterations_remaining  # Remaining or None
+
+# Rendering
+loop.render_header()    # "## Review Loop [iteration 2/5]"
+loop.render_state()     # Formatted state display
+```
+
+### `state_machine(states, transitions, initial=None, tokens=500, expansion=Expansion.ALL, parent=None)`
+Create a state machine for branching workflows.
+
+```python
+# Define states and allowed transitions
+fsm = state_machine(
+    states={
+        "idle": idle_node.node_id,
+        "working": working_node.node_id,
+        "done": done_node.node_id
+    },
+    transitions={
+        "idle": ["working"],
+        "working": ["done", "idle"],  # Can go back
+        "done": []                     # Terminal state
+    },
+    initial="idle"
+)
+
+# Navigate states
+fsm.transition("working")           # Valid transition
+fsm.force_transition("done")        # Bypass rules (use carefully)
+fsm.reset()                         # Back to initial state
+
+# Check status
+fsm.current_state                   # "working"
+fsm.valid_transitions               # ["done", "idle"]
+fsm.can_transition("done")          # True
+fsm.state_history                   # ["idle"]
+fsm.all_states                      # ["idle", "working", "done"]
+
+# Rendering
+fsm.render_header()                 # "## Task: working → [done, idle]"
+```
+
+Progression views can be combined:
+- Sequence of loops (each step is iterative)
+- State machine with loops at each state
+
+State is automatically persisted to node tags for session save/restore.
+
 ### `topic(title, *, tokens=1000, status="active", parent=None)`
 Create a conversation topic/thread marker.
 

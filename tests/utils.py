@@ -52,6 +52,7 @@ def create_mock_context_node(
     node.children_ids = children_ids or set()
     node.child_order = None  # Lazily initialized like real nodes
     node._graph = None
+    node.tags = {}  # Metadata dict for progression views
 
     # Add add_child method that mimics real ContextNode behavior
     def add_child(child, *, after=None):

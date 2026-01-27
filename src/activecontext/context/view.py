@@ -431,3 +431,694 @@ class ChoiceView(NodeView):
         hide_str = ", hide=True" if self._hide else ""
         selected_str = f", selected={self._selected_id!r}" if self._selected_id else ""
         return f"ChoiceView({self._node!r}, expand={self._expand.value}{hide_str}{selected_str})"
+
+
+class SequenceView(ChoiceView):
+    """View for ordered sequential progression through children.
+
+    SequenceView extends ChoiceView to add progression semantics:
+    - Agent works through steps in order
+    - Current step is visible, others are hidden (like ChoiceView)
+    - Tracks completion state per step
+    - Supports forward/backward navigation
+
+    State is persisted in node tags for session save/restore:
+    - _seq_index: Current step index
+    - _seq_completed: Set of completed step indices
+
+    Rendering:
+    - Progress header: "## Workflow Progress [2/3]"
+    - Completed steps marked with [x], current with [>], pending with [ ]
+
+    Example:
+        # Create sequence of review steps
+        seq = SequenceView(group_node)
+
+        # Progress through steps
+        seq.advance()       # Move to next step
+        seq.mark_complete() # Mark current done without advancing
+        seq.back()          # Go back one step
+        seq.skip()          # Skip current step
+
+        # Check status
+        print(seq.progress)      # "2/3"
+        print(seq.is_complete)   # True when all steps done
+    """
+
+    __slots__ = ("_current_index", "_completed_steps")
+
+    _current_index: int
+    _completed_steps: set[int]
+
+    def __init__(
+        self,
+        node: ContextNode,
+        selected_id: str | None = None,
+        hide: bool = False,
+        expand: Expansion | None = None,
+    ) -> None:
+        """Create a sequence view wrapping a node.
+
+        Args:
+            node: The ContextNode to wrap (typically a GroupNode)
+            selected_id: Initial selection (default: first child)
+            hide: Whether the view is hidden (default False)
+            expand: Expansion state (default: ALL for full content)
+        """
+        # Default expand to ALL for sequences
+        if expand is None:
+            expand = Expansion.ALL
+
+        super().__init__(node, selected_id=selected_id, hide=hide, expand=expand)
+
+        # Initialize progression state
+        object.__setattr__(self, "_current_index", 0)
+        object.__setattr__(self, "_completed_steps", set())
+
+        # Restore state from node tags if present (for session restore)
+        node_tags = getattr(node, "tags", {})
+        if "_seq_index" in node_tags:
+            object.__setattr__(self, "_current_index", node_tags["_seq_index"])
+        if "_seq_completed" in node_tags:
+            object.__setattr__(
+                self, "_completed_steps", set(node_tags["_seq_completed"])
+            )
+
+        # Set initial selection based on index
+        child_ids = self._get_child_ids()
+        if child_ids and self._selected_id is None and 0 <= self._current_index < len(child_ids):
+            object.__setattr__(self, "_selected_id", child_ids[self._current_index])
+
+    def _persist_state(self) -> None:
+        """Persist progression state to node tags."""
+        node_tags = getattr(self._node, "tags", None)
+        if node_tags is not None:
+            node_tags["_seq_index"] = self._current_index
+            node_tags["_seq_completed"] = list(self._completed_steps)
+
+    def _sync_selection(self) -> None:
+        """Sync selected_id with current_index."""
+        child_ids = self._get_child_ids()
+        if child_ids and 0 <= self._current_index < len(child_ids):
+            object.__setattr__(self, "_selected_id", child_ids[self._current_index])
+
+    @property
+    def current_index(self) -> int:
+        """Get current step index (0-based)."""
+        return self._current_index
+
+    @property
+    def completed_steps(self) -> set[int]:
+        """Get set of completed step indices."""
+        return self._completed_steps.copy()
+
+    @property
+    def total_steps(self) -> int:
+        """Get total number of steps."""
+        return len(self._get_child_ids())
+
+    @property
+    def is_complete(self) -> bool:
+        """Check if all steps are completed."""
+        total = self.total_steps
+        if total == 0:
+            return True
+        return len(self._completed_steps) >= total
+
+    @property
+    def progress(self) -> str:
+        """Get progress string like '2/3'."""
+        return f"{len(self._completed_steps)}/{self.total_steps}"
+
+    def advance(self) -> SequenceView:
+        """Mark current step complete and move to next (fluent API).
+
+        Returns:
+            Self for method chaining
+        """
+        # Mark current as complete
+        self._completed_steps.add(self._current_index)
+
+        # Move to next step
+        child_ids = self._get_child_ids()
+        if self._current_index < len(child_ids) - 1:
+            object.__setattr__(self, "_current_index", self._current_index + 1)
+            self._sync_selection()
+
+        self._persist_state()
+        return self
+
+    def back(self) -> SequenceView:
+        """Move to previous step (fluent API).
+
+        Does not change completion status of any step.
+
+        Returns:
+            Self for method chaining
+        """
+        if self._current_index > 0:
+            object.__setattr__(self, "_current_index", self._current_index - 1)
+            self._sync_selection()
+            self._persist_state()
+        return self
+
+    def mark_complete(self) -> SequenceView:
+        """Mark current step as complete without advancing (fluent API).
+
+        Returns:
+            Self for method chaining
+        """
+        self._completed_steps.add(self._current_index)
+        self._persist_state()
+        return self
+
+    def skip(self) -> SequenceView:
+        """Skip current step without marking complete (fluent API).
+
+        Returns:
+            Self for method chaining
+        """
+        child_ids = self._get_child_ids()
+        if self._current_index < len(child_ids) - 1:
+            object.__setattr__(self, "_current_index", self._current_index + 1)
+            self._sync_selection()
+            self._persist_state()
+        return self
+
+    def goto(self, index: int) -> SequenceView:
+        """Jump to a specific step index (fluent API).
+
+        Args:
+            index: Step index to go to (0-based)
+
+        Returns:
+            Self for method chaining
+        """
+        child_ids = self._get_child_ids()
+        if 0 <= index < len(child_ids):
+            object.__setattr__(self, "_current_index", index)
+            self._sync_selection()
+            self._persist_state()
+        return self
+
+    def render_progress(self) -> str:
+        """Render progress list showing all steps with status.
+
+        Returns:
+            Markdown formatted progress list:
+            - [x] Step 1: Complete
+            - [>] Step 2: Current
+            - [ ] Step 3: Pending
+        """
+        child_ids = self._get_child_ids()
+        node = self._node
+        graph = getattr(node, "_graph", None)
+
+        lines = [f"## Workflow Progress [{self.progress}]"]
+
+        for i, child_id in enumerate(child_ids):
+            # Determine status marker
+            if i in self._completed_steps:
+                marker = "[x]"
+            elif i == self._current_index:
+                marker = "[>]"
+            else:
+                marker = "[ ]"
+
+            # Get child title
+            title = child_id
+            if graph:
+                child = graph.get_node(child_id)
+                if child:
+                    title = getattr(child, "title", None) or child_id
+
+            # Add current marker
+            current_marker = " ← current" if i == self._current_index else ""
+            lines.append(f"- {marker} Step {i + 1}: {title}{current_marker}")
+
+        return "\n".join(lines)
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        """Handle attribute assignment for sequence-specific slots."""
+        if name in ("_current_index", "_completed_steps"):
+            object.__setattr__(self, name, value)
+        else:
+            super().__setattr__(name, value)
+
+    def __repr__(self) -> str:
+        """Return string representation."""
+        hide_str = ", hide=True" if self._hide else ""
+        return f"SequenceView({self._node!r}, progress={self.progress}{hide_str})"
+
+
+class LoopView(NodeView):
+    """View for iterative refinement loops.
+
+    LoopView wraps a single child node and tracks iteration state:
+    - Counts iterations
+    - Accumulates state across iterations
+    - Supports early exit via done()
+    - Optional max_iterations limit
+
+    State is persisted in node tags for session save/restore:
+    - _loop_iteration: Current iteration count (1-based)
+    - _loop_state: Accumulated state dictionary
+    - _loop_done: Whether loop was exited early
+
+    Rendering:
+    - Header shows iteration count: "## Review Loop [iteration 2/5]"
+    - State dictionary shown before content
+
+    Example:
+        # Create iterative review loop
+        loop = LoopView(review_node, max_iterations=5)
+
+        # Iterate with feedback
+        loop.iterate(feedback="Add error handling")
+        loop.iterate(feedback="Improve naming", approved=False)
+        loop.iterate(feedback="Looks good!", approved=True)
+        loop.done()  # Exit loop early
+
+        # Check status
+        print(loop.iteration)     # 3
+        print(loop.state)         # {'feedback': 'Looks good!', 'approved': True}
+        print(loop.is_done)       # True
+    """
+
+    __slots__ = ("_iteration", "_state", "_done", "_max_iterations")
+
+    _iteration: int
+    _state: dict[str, Any]
+    _done: bool
+    _max_iterations: int | None
+
+    def __init__(
+        self,
+        node: ContextNode,
+        max_iterations: int | None = None,
+        hide: bool = False,
+        expand: Expansion | None = None,
+    ) -> None:
+        """Create a loop view wrapping a node.
+
+        Args:
+            node: The ContextNode to wrap
+            max_iterations: Maximum iterations allowed (None = unlimited)
+            hide: Whether the view is hidden (default False)
+            expand: Expansion state (default: ALL)
+        """
+        if expand is None:
+            expand = Expansion.ALL
+
+        super().__init__(node, hide=hide, expand=expand)
+
+        object.__setattr__(self, "_iteration", 1)
+        object.__setattr__(self, "_state", {})
+        object.__setattr__(self, "_done", False)
+        object.__setattr__(self, "_max_iterations", max_iterations)
+
+        # Restore state from node tags if present (for session restore)
+        node_tags = getattr(node, "tags", {})
+        if "_loop_iteration" in node_tags:
+            object.__setattr__(self, "_iteration", node_tags["_loop_iteration"])
+        if "_loop_state" in node_tags:
+            object.__setattr__(self, "_state", dict(node_tags["_loop_state"]))
+        if "_loop_done" in node_tags:
+            object.__setattr__(self, "_done", node_tags["_loop_done"])
+
+    def _persist_state(self) -> None:
+        """Persist loop state to node tags."""
+        node_tags = getattr(self._node, "tags", None)
+        if node_tags is not None:
+            node_tags["_loop_iteration"] = self._iteration
+            node_tags["_loop_state"] = dict(self._state)
+            node_tags["_loop_done"] = self._done
+
+    @property
+    def iteration(self) -> int:
+        """Get current iteration number (1-based)."""
+        return self._iteration
+
+    @property
+    def state(self) -> dict[str, Any]:
+        """Get accumulated state dictionary."""
+        return self._state.copy()
+
+    @property
+    def max_iterations(self) -> int | None:
+        """Get maximum iterations limit."""
+        return self._max_iterations
+
+    @property
+    def is_done(self) -> bool:
+        """Check if loop is complete.
+
+        Loop is complete if:
+        - done() was called explicitly
+        - max_iterations reached
+        """
+        if self._done:
+            return True
+        if self._max_iterations is not None:
+            return self._iteration > self._max_iterations
+        return False
+
+    @property
+    def iterations_remaining(self) -> int | None:
+        """Get remaining iterations (None if unlimited)."""
+        if self._max_iterations is None:
+            return None
+        return max(0, self._max_iterations - self._iteration + 1)
+
+    def iterate(self, **state_updates: Any) -> LoopView:
+        """Increment iteration and update state (fluent API).
+
+        Args:
+            **state_updates: Key-value pairs to merge into state
+
+        Returns:
+            Self for method chaining
+        """
+        if self.is_done:
+            return self  # No-op if already done
+
+        # Update state
+        self._state.update(state_updates)
+
+        # Increment iteration
+        object.__setattr__(self, "_iteration", self._iteration + 1)
+
+        self._persist_state()
+        return self
+
+    def update_state(self, **state_updates: Any) -> LoopView:
+        """Update state without incrementing iteration (fluent API).
+
+        Args:
+            **state_updates: Key-value pairs to merge into state
+
+        Returns:
+            Self for method chaining
+        """
+        self._state.update(state_updates)
+        self._persist_state()
+        return self
+
+    def done(self) -> LoopView:
+        """Mark loop as complete (fluent API).
+
+        Returns:
+            Self for method chaining
+        """
+        object.__setattr__(self, "_done", True)
+        self._persist_state()
+        return self
+
+    def reset(self) -> LoopView:
+        """Reset loop to initial state (fluent API).
+
+        Returns:
+            Self for method chaining
+        """
+        object.__setattr__(self, "_iteration", 1)
+        object.__setattr__(self, "_state", {})
+        object.__setattr__(self, "_done", False)
+        self._persist_state()
+        return self
+
+    def render_header(self) -> str:
+        """Render loop header with iteration info.
+
+        Returns:
+            Header string like "## Review Loop [iteration 2/5]"
+        """
+        if self._max_iterations:
+            iter_str = f"iteration {self._iteration}/{self._max_iterations}"
+        else:
+            iter_str = f"iteration {self._iteration}"
+
+        title = getattr(self._node, "title", None) or "Loop"
+        return f"## {title} [{iter_str}]"
+
+    def render_state(self) -> str:
+        """Render accumulated state.
+
+        Returns:
+            Markdown formatted state display
+        """
+        if not self._state:
+            return ""
+
+        lines = ["**State:**"]
+        for key, value in self._state.items():
+            lines.append(f"- {key}: {value!r}")
+        return "\n".join(lines)
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        """Handle attribute assignment for loop-specific slots."""
+        if name in ("_iteration", "_state", "_done", "_max_iterations"):
+            object.__setattr__(self, name, value)
+        else:
+            super().__setattr__(name, value)
+
+    def __repr__(self) -> str:
+        """Return string representation."""
+        hide_str = ", hide=True" if self._hide else ""
+        max_str = f"/{self._max_iterations}" if self._max_iterations else ""
+        done_str = ", done" if self._done else ""
+        return f"LoopView({self._node!r}, iteration={self._iteration}{max_str}{done_str}{hide_str})"
+
+
+class StateView(ChoiceView):
+    """View for state machine navigation through named states.
+
+    StateView extends ChoiceView to add state machine semantics:
+    - Named states mapped to child nodes
+    - Transition rules defining valid state changes
+    - Current state visible, others hidden
+    - State history tracking
+
+    State is persisted in node tags for session save/restore:
+    - _state_current: Current state name
+    - _state_history: List of previous states
+
+    Rendering:
+    - Header shows current state and available transitions
+    - "## Task State: working → [done, idle]"
+
+    Example:
+        # Create state machine for task workflow
+        fsm = StateView(
+            group_node,
+            states={"idle": "idle-node", "working": "working-node", "done": "done-node"},
+            transitions={
+                "idle": ["working"],
+                "working": ["done", "idle"],
+                "done": []
+            },
+            initial="idle"
+        )
+
+        # Navigate states
+        fsm.transition("working")
+        print(fsm.can_transition("done"))  # True
+        print(fsm.can_transition("idle"))  # True
+        fsm.transition("done")
+
+        # Check history
+        print(fsm.state_history)  # ["idle", "working"]
+    """
+
+    __slots__ = ("_states", "_transitions", "_current_state", "_state_history")
+
+    _states: dict[str, str]  # state_name -> node_id
+    _transitions: dict[str, list[str]]  # state_name -> allowed next states
+    _current_state: str
+    _state_history: list[str]
+
+    def __init__(
+        self,
+        node: ContextNode,
+        states: dict[str, str] | None = None,
+        transitions: dict[str, list[str]] | None = None,
+        initial: str | None = None,
+        hide: bool = False,
+        expand: Expansion | None = None,
+    ) -> None:
+        """Create a state machine view wrapping a node.
+
+        Args:
+            node: The ContextNode to wrap (typically a GroupNode)
+            states: Mapping of state names to child node IDs
+            transitions: Mapping of state names to allowed next states
+            initial: Initial state name (default: first state)
+            hide: Whether the view is hidden (default False)
+            expand: Expansion state (default: ALL)
+        """
+        if expand is None:
+            expand = Expansion.ALL
+
+        # Initialize states and transitions
+        states = states or {}
+        transitions = transitions or {}
+
+        # Default initial state to first key
+        if initial is None and states:
+            initial = next(iter(states.keys()))
+
+        # Get initial node ID for ChoiceView selection
+        initial_node_id = states.get(initial) if initial else None
+
+        super().__init__(node, selected_id=initial_node_id, hide=hide, expand=expand)
+
+        object.__setattr__(self, "_states", states)
+        object.__setattr__(self, "_transitions", transitions)
+        object.__setattr__(self, "_current_state", initial or "")
+        object.__setattr__(self, "_state_history", [])
+
+        # Restore state from node tags if present (for session restore)
+        node_tags = getattr(node, "tags", {})
+        if "_state_current" in node_tags:
+            current = node_tags["_state_current"]
+            object.__setattr__(self, "_current_state", current)
+            # Sync selection with restored state
+            if current in self._states:
+                object.__setattr__(self, "_selected_id", self._states[current])
+        if "_state_history" in node_tags:
+            object.__setattr__(self, "_state_history", list(node_tags["_state_history"]))
+
+    def _persist_state(self) -> None:
+        """Persist state machine state to node tags."""
+        node_tags = getattr(self._node, "tags", None)
+        if node_tags is not None:
+            node_tags["_state_current"] = self._current_state
+            node_tags["_state_history"] = list(self._state_history)
+
+    @property
+    def current_state(self) -> str:
+        """Get current state name."""
+        return self._current_state
+
+    @property
+    def state_history(self) -> list[str]:
+        """Get list of previous states (not including current)."""
+        return self._state_history.copy()
+
+    @property
+    def valid_transitions(self) -> list[str]:
+        """Get list of valid next states from current state."""
+        return self._transitions.get(self._current_state, []).copy()
+
+    @property
+    def all_states(self) -> list[str]:
+        """Get list of all state names."""
+        return list(self._states.keys())
+
+    def can_transition(self, to_state: str) -> bool:
+        """Check if transition to given state is allowed.
+
+        Args:
+            to_state: Target state name
+
+        Returns:
+            True if transition is allowed
+        """
+        allowed = self._transitions.get(self._current_state, [])
+        return to_state in allowed
+
+    def transition(self, to_state: str) -> StateView:
+        """Transition to a new state (fluent API).
+
+        Args:
+            to_state: Target state name
+
+        Returns:
+            Self for method chaining
+
+        Raises:
+            ValueError: If transition is not allowed
+        """
+        if not self.can_transition(to_state):
+            allowed = self.valid_transitions
+            raise ValueError(
+                f"Cannot transition from '{self._current_state}' to '{to_state}'. "
+                f"Allowed: {allowed}"
+            )
+
+        if to_state not in self._states:
+            raise ValueError(f"Unknown state: '{to_state}'")
+
+        # Record history
+        if self._current_state:
+            self._state_history.append(self._current_state)
+
+        # Update state
+        object.__setattr__(self, "_current_state", to_state)
+
+        # Update selection to show new state's node
+        object.__setattr__(self, "_selected_id", self._states[to_state])
+
+        self._persist_state()
+        return self
+
+    def force_transition(self, to_state: str) -> StateView:
+        """Force transition to a state, ignoring transition rules (fluent API).
+
+        Use with caution - this bypasses the state machine rules.
+
+        Args:
+            to_state: Target state name
+
+        Returns:
+            Self for method chaining
+        """
+        if to_state not in self._states:
+            raise ValueError(f"Unknown state: '{to_state}'")
+
+        if self._current_state:
+            self._state_history.append(self._current_state)
+
+        object.__setattr__(self, "_current_state", to_state)
+        object.__setattr__(self, "_selected_id", self._states[to_state])
+
+        self._persist_state()
+        return self
+
+    def reset(self) -> StateView:
+        """Reset to initial state, clearing history (fluent API).
+
+        Returns:
+            Self for method chaining
+        """
+        if self._states:
+            initial = next(iter(self._states.keys()))
+            object.__setattr__(self, "_current_state", initial)
+            object.__setattr__(self, "_selected_id", self._states[initial])
+        object.__setattr__(self, "_state_history", [])
+        self._persist_state()
+        return self
+
+    def render_header(self) -> str:
+        """Render state header with current state and transitions.
+
+        Returns:
+            Header like "## Task State: working → [done, idle]"
+        """
+        title = getattr(self._node, "title", None) or "State"
+        transitions = self.valid_transitions
+        trans_str = f" → [{', '.join(transitions)}]" if transitions else " (terminal)"
+        return f"## {title}: {self._current_state}{trans_str}"
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        """Handle attribute assignment for state-specific slots."""
+        if name in ("_states", "_transitions", "_current_state", "_state_history"):
+            object.__setattr__(self, name, value)
+        else:
+            super().__setattr__(name, value)
+
+    def __repr__(self) -> str:
+        """Return string representation."""
+        hide_str = ", hide=True" if self._hide else ""
+        history_len = len(self._state_history)
+        history_str = f", history={history_len}" if history_len else ""
+        return f"StateView({self._node!r}, state={self._current_state!r}{history_str}{hide_str})"

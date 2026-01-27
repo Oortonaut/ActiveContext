@@ -81,7 +81,7 @@ if TYPE_CHECKING:
     from activecontext.agents.manager import AgentManager
     from activecontext.config.schema import FileWatchConfig, MCPConfig
     from activecontext.context.buffer import TextBuffer
-    from activecontext.context.view import ChoiceView
+    from activecontext.context.view import ChoiceView, LoopView, SequenceView, StateView
     from activecontext.coordination.scratchpad import ScratchpadManager
     from activecontext.terminal.protocol import TerminalExecutor
     from activecontext.watching import FileChangeEvent
@@ -415,6 +415,10 @@ class Timeline:
                 "markdown": self._make_markdown_node,
                 "view": self._make_view,
                 "choice": self._make_choice_view,
+                # Progression views
+                "sequence": self._make_sequence_view,
+                "loop_view": self._make_loop_view,
+                "state_machine": self._make_state_machine,
                 # DAG manipulation
                 "link": self._link,
                 "unlink": self._unlink,
@@ -1040,6 +1044,206 @@ class Timeline:
         choice_view = ChoiceView(group_view.node(), selected_id=selected, expand=expansion)
         self._views[group_view.node_id] = choice_view
         return choice_view
+
+    def _make_sequence_view(
+        self,
+        *children: ContextNode | NodeView | str,
+        tokens: int = 500,
+        expansion: Expansion = Expansion.ALL,
+        parent: ContextNode | NodeView | str | None = None,
+    ) -> SequenceView:
+        """Create a SequenceView for ordered sequential progression.
+
+        Agent works through steps in order. Current step is visible, others hidden.
+        Tracks completion state per step.
+
+        Args:
+            *children: Child nodes, views, or node IDs representing steps
+            tokens: Token budget for the underlying group
+            expansion: Rendering expansion for the group
+            parent: Optional parent node (defaults to current_group if set)
+
+        Returns:
+            SequenceView wrapping the created GroupNode
+
+        Example:
+            seq = sequence(step1, step2, step3)
+            seq.advance()       # Mark current complete, move to next
+            seq.back()          # Go back one step
+            seq.mark_complete() # Mark current complete without advancing
+            print(seq.progress) # "2/3"
+        """
+        from activecontext.context.view import SequenceView
+
+        # Create the underlying group
+        group_view = self._make_group_node(
+            *children, tokens=tokens, expansion=expansion, parent=parent
+        )
+
+        # Create SequenceView wrapping the group (starts at first child)
+        seq_view = SequenceView(group_view.node(), expand=expansion)
+        self._views[group_view.node_id] = seq_view
+        return seq_view
+
+    def _make_loop_view(
+        self,
+        child: ContextNode | NodeView | str,
+        max_iterations: int | None = None,
+        tokens: int = 500,
+        expansion: Expansion = Expansion.ALL,
+        parent: ContextNode | NodeView | str | None = None,
+    ) -> LoopView:
+        """Create a LoopView for iterative refinement.
+
+        Agent iterates on a single prompt, accumulating state across iterations.
+        Optional max_iterations limit.
+
+        Args:
+            child: The node, view, or node ID to iterate on
+            max_iterations: Maximum iterations allowed (None = unlimited)
+            tokens: Token budget for the underlying node
+            expansion: Rendering expansion
+            parent: Optional parent node
+
+        Returns:
+            LoopView wrapping the child node
+
+        Example:
+            loop = loop_view(review_prompt, max_iterations=5)
+            loop.iterate(feedback="Add error handling")
+            loop.iterate(feedback="Looks good!")
+            loop.done()  # Exit early
+            print(loop.iteration)  # Current iteration number
+            print(loop.state)      # Accumulated state dict
+        """
+        from activecontext.context.view import LoopView
+
+        # Resolve child to node
+        if isinstance(child, str):
+            node = self._context_graph.get_node(child)
+            if node is None:
+                raise ValueError(f"Unknown node ID: {child}")
+        elif isinstance(child, NodeView):
+            node = child.node()
+        else:
+            node = child
+
+        # Link to parent if specified
+        if parent is not None:
+            parent_id = self._resolve_node_id(parent)
+            self._context_graph.link(node.node_id, parent_id)
+        elif self._current_group_id:
+            self._context_graph.link(node.node_id, self._current_group_id)
+
+        # Create LoopView wrapping the node
+        loop_view = LoopView(node, max_iterations=max_iterations, expand=expansion)
+        self._views[node.node_id] = loop_view
+        return loop_view
+
+    def _make_state_machine(
+        self,
+        *children: ContextNode | NodeView | str,
+        states: dict[str, str] | None = None,
+        transitions: dict[str, list[str]] | None = None,
+        initial: str | None = None,
+        tokens: int = 500,
+        expansion: Expansion = Expansion.ALL,
+        parent: ContextNode | NodeView | str | None = None,
+    ) -> StateView:
+        """Create a StateView for state machine navigation.
+
+        Agent navigates between named states following transition rules.
+        Only current state's content is visible.
+
+        Args:
+            *children: Child nodes as states (optional, use with auto-generated states)
+            states: Mapping of state names to child node IDs
+            transitions: Mapping of state names to list of allowed next states
+            initial: Initial state name (default: first state)
+            tokens: Token budget for the underlying group
+            expansion: Rendering expansion
+            parent: Optional parent node
+
+        Returns:
+            StateView wrapping the created GroupNode
+
+        Example:
+            fsm = state_machine(
+                states={"idle": idle_node.node_id, "working": work_node.node_id},
+                transitions={
+                    "idle": ["working"],
+                    "working": ["idle"]
+                },
+                initial="idle"
+            )
+            fsm.transition("working")
+            print(fsm.can_transition("idle"))  # True
+        """
+        from activecontext.context.view import StateView
+
+        # If children provided without states dict, generate states from children
+        if children and not states:
+            states = {}
+            for i, child in enumerate(children):
+                if isinstance(child, str):
+                    node = self._context_graph.get_node(child)
+                    if node is None:
+                        raise ValueError(f"Unknown node ID: {child}")
+                    child_id = child
+                elif isinstance(child, NodeView):
+                    node = child.node()
+                    child_id = node.node_id
+                else:
+                    node = child
+                    child_id = node.node_id
+
+                # Use title or node_id as state name
+                state_name = getattr(node, "title", None) or f"state_{i}"
+                states[state_name] = child_id
+
+        # Create the underlying group with all state nodes as children
+        if states:
+            node_ids = list(states.values())
+            group_view = self._make_group_node(
+                *node_ids, tokens=tokens, expansion=expansion, parent=parent
+            )
+        else:
+            # Empty state machine
+            group_view = self._make_group_node(
+                tokens=tokens, expansion=expansion, parent=parent
+            )
+
+        # Default transitions: allow any state to any state
+        if transitions is None and states:
+            all_states = list(states.keys())
+            transitions = {s: [t for t in all_states if t != s] for s in all_states}
+
+        # Create StateView wrapping the group
+        state_view = StateView(
+            group_view.node(),
+            states=states or {},
+            transitions=transitions or {},
+            initial=initial,
+            expand=expansion,
+        )
+        self._views[group_view.node_id] = state_view
+        return state_view
+
+    def _resolve_node_id(self, node_or_id: ContextNode | NodeView | str) -> str:
+        """Resolve a node, view, or ID string to a node ID.
+
+        Args:
+            node_or_id: Node, view, or node ID string
+
+        Returns:
+            Node ID string
+        """
+        if isinstance(node_or_id, str):
+            return node_or_id
+        elif isinstance(node_or_id, NodeView):
+            return str(node_or_id.node_id)
+        else:
+            return str(node_or_id.node_id)
 
     def _make_topic_node(
         self,
@@ -2242,6 +2446,30 @@ class Timeline:
                     )
                     return True, prompt
 
+        elif condition.mode == WaitMode.PROGRESSION:
+            # Wait for progression view (SequenceView/LoopView) to complete
+            for node_id in condition.node_ids:
+                view = self._views.get(node_id)
+                if view is None:
+                    continue
+
+                # Check SequenceView completion
+                if hasattr(view, "is_complete") and view.is_complete:
+                    prompt = condition.wake_prompt.format(
+                        node_id=node_id,
+                        progress=getattr(view, "progress", ""),
+                    )
+                    return True, prompt
+
+                # Check LoopView completion
+                if hasattr(view, "is_done") and view.is_done:
+                    prompt = condition.wake_prompt.format(
+                        node_id=node_id,
+                        iteration=getattr(view, "iteration", 0),
+                        state=getattr(view, "state", {}),
+                    )
+                    return True, prompt
+
         return False, None
 
     def _format_wake_prompt(self, template: str, node: ShellNode | LockNode) -> str:
@@ -2300,6 +2528,9 @@ class Timeline:
             "markdown",
             "view",
             "choice",
+            "sequence",
+            "loop_view",
+            "state_machine",
             "link",
             "unlink",
             "hide",

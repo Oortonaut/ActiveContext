@@ -54,6 +54,7 @@ class WaitMode(Enum):
     ANY = "any"  # Wait for any node (first to complete)
     MESSAGE = "message"  # Wait for incoming message
     AGENT = "agent"  # Wait for agent to complete
+    PROGRESSION = "progression"  # Wait for SequenceView/LoopView completion  # Wait for agent to complete
 
 
 class EventResponse(Enum):
