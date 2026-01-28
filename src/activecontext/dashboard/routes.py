@@ -263,6 +263,18 @@ async def _handle_websocket_command(
 
     if cmd_type == "set_expansion":
         await _handle_set_expansion(websocket, session_id, cmd)
+    elif cmd_type == "set_hidden":
+        await _handle_set_hidden(websocket, session_id, cmd)
+    elif cmd_type == "list_views":
+        await _handle_list_views(websocket, session_id)
+    elif cmd_type == "clone_view":
+        await _handle_clone_view(websocket, session_id, cmd)
+    elif cmd_type == "read_view":
+        await _handle_read_view(websocket, session_id, cmd)
+    elif cmd_type == "write_view":
+        await _handle_write_view(websocket, session_id, cmd)
+    elif cmd_type == "delete_view":
+        await _handle_delete_view(websocket, session_id, cmd)
     else:
         await websocket.send_json(
             {
@@ -363,6 +375,327 @@ async def _handle_set_expansion(
             "new_expansion": new_expansion.value,
         }
     )
+
+
+async def _handle_set_hidden(
+    websocket: WebSocket,
+    session_id: str,
+    cmd: dict[str, Any],
+) -> None:
+    """Handle node hidden state change request."""
+    manager = get_manager()
+    if not manager:
+        await websocket.send_json(
+            {
+                "type": "error",
+                "message": "Dashboard not initialized",
+            }
+        )
+        return
+
+    session = await manager.get_session(session_id)
+    if not session:
+        await websocket.send_json(
+            {
+                "type": "error",
+                "message": f"Session not found: {session_id}",
+            }
+        )
+        return
+
+    node_id = cmd.get("node_id")
+    new_hidden = cmd.get("hidden")
+
+    if node_id is None or new_hidden is None:
+        await websocket.send_json(
+            {
+                "type": "error",
+                "message": "Missing node_id or hidden",
+            }
+        )
+        return
+
+    # Get the view for this node
+    views = session.timeline.views
+    if node_id not in views:
+        await websocket.send_json(
+            {
+                "type": "error",
+                "message": f"View not found for node: {node_id}",
+            }
+        )
+        return
+
+    view = views[node_id]
+    old_hidden = view.hide
+    view.hide = bool(new_hidden)
+
+    # Broadcast update to all dashboard clients
+    await broadcast_update(
+        session_id,
+        "node_changed",
+        {
+            "node_id": node_id,
+            "change": "hidden_changed",
+            "old_hidden": old_hidden,
+            "new_hidden": view.hide,
+        },
+        time.time(),
+    )
+
+    # Confirm to requesting client
+    await websocket.send_json(
+        {
+            "type": "hidden_changed",
+            "node_id": node_id,
+            "old_hidden": old_hidden,
+            "new_hidden": view.hide,
+        }
+    )
+
+
+async def _handle_list_views(
+    websocket: WebSocket,
+    session_id: str,
+) -> None:
+    """Handle list saved views request."""
+    from activecontext.dashboard.views import get_view_manager
+
+    view_manager = get_view_manager(session_id)
+    views = view_manager.list_views()
+
+    await websocket.send_json(
+        {
+            "type": "views_list",
+            "views": views,
+        }
+    )
+
+
+async def _handle_clone_view(
+    websocket: WebSocket,
+    session_id: str,
+    cmd: dict[str, Any],
+) -> None:
+    """Handle clone (save) current view state with a name."""
+    from activecontext.dashboard.views import get_view_manager
+
+    manager = get_manager()
+    if not manager:
+        await websocket.send_json(
+            {
+                "type": "error",
+                "message": "Dashboard not initialized",
+            }
+        )
+        return
+
+    session = await manager.get_session(session_id)
+    if not session:
+        await websocket.send_json(
+            {
+                "type": "error",
+                "message": f"Session not found: {session_id}",
+            }
+        )
+        return
+
+    view_name = cmd.get("name")
+    if not view_name:
+        await websocket.send_json(
+            {
+                "type": "error",
+                "message": "Missing view name",
+            }
+        )
+        return
+
+    view_manager = get_view_manager(session_id)
+
+    try:
+        snapshot = view_manager.clone_view(view_name, session)
+        await websocket.send_json(
+            {
+                "type": "view_cloned",
+                "name": snapshot.name,
+                "node_count": len(snapshot.node_states),
+                "created_at": snapshot.created_at,
+            }
+        )
+    except ValueError as e:
+        await websocket.send_json(
+            {
+                "type": "error",
+                "message": str(e),
+            }
+        )
+
+
+async def _handle_read_view(
+    websocket: WebSocket,
+    session_id: str,
+    cmd: dict[str, Any],
+) -> None:
+    """Handle read (update) saved view from current agent state."""
+    from activecontext.dashboard.views import get_view_manager
+
+    manager = get_manager()
+    if not manager:
+        await websocket.send_json(
+            {
+                "type": "error",
+                "message": "Dashboard not initialized",
+            }
+        )
+        return
+
+    session = await manager.get_session(session_id)
+    if not session:
+        await websocket.send_json(
+            {
+                "type": "error",
+                "message": f"Session not found: {session_id}",
+            }
+        )
+        return
+
+    view_name = cmd.get("name")
+    if not view_name:
+        await websocket.send_json(
+            {
+                "type": "error",
+                "message": "Missing view name",
+            }
+        )
+        return
+
+    view_manager = get_view_manager(session_id)
+
+    try:
+        snapshot = view_manager.read_view(view_name, session)
+        await websocket.send_json(
+            {
+                "type": "view_updated",
+                "name": snapshot.name,
+                "node_count": len(snapshot.node_states),
+                "updated_at": snapshot.updated_at,
+            }
+        )
+    except ValueError as e:
+        await websocket.send_json(
+            {
+                "type": "error",
+                "message": str(e),
+            }
+        )
+
+
+async def _handle_write_view(
+    websocket: WebSocket,
+    session_id: str,
+    cmd: dict[str, Any],
+) -> None:
+    """Handle write (apply) saved view state to agent."""
+    from activecontext.dashboard.views import get_view_manager
+
+    manager = get_manager()
+    if not manager:
+        await websocket.send_json(
+            {
+                "type": "error",
+                "message": "Dashboard not initialized",
+            }
+        )
+        return
+
+    session = await manager.get_session(session_id)
+    if not session:
+        await websocket.send_json(
+            {
+                "type": "error",
+                "message": f"Session not found: {session_id}",
+            }
+        )
+        return
+
+    view_name = cmd.get("name")
+    if not view_name:
+        await websocket.send_json(
+            {
+                "type": "error",
+                "message": "Missing view name",
+            }
+        )
+        return
+
+    view_manager = get_view_manager(session_id)
+
+    try:
+        updated_count = view_manager.write_view(view_name, session)
+
+        # Broadcast that context has changed
+        await broadcast_update(
+            session_id,
+            "node_changed",
+            {
+                "change": "view_applied",
+                "view_name": view_name,
+                "updated_count": updated_count,
+            },
+            time.time(),
+        )
+
+        await websocket.send_json(
+            {
+                "type": "view_applied",
+                "name": view_name,
+                "updated_count": updated_count,
+            }
+        )
+    except ValueError as e:
+        await websocket.send_json(
+            {
+                "type": "error",
+                "message": str(e),
+            }
+        )
+
+
+async def _handle_delete_view(
+    websocket: WebSocket,
+    session_id: str,
+    cmd: dict[str, Any],
+) -> None:
+    """Handle delete saved view request."""
+    from activecontext.dashboard.views import get_view_manager
+
+    view_name = cmd.get("name")
+    if not view_name:
+        await websocket.send_json(
+            {
+                "type": "error",
+                "message": "Missing view name",
+            }
+        )
+        return
+
+    view_manager = get_view_manager(session_id)
+    deleted = view_manager.delete_view(view_name)
+
+    if deleted:
+        await websocket.send_json(
+            {
+                "type": "view_deleted",
+                "name": view_name,
+            }
+        )
+    else:
+        await websocket.send_json(
+            {
+                "type": "error",
+                "message": f"View '{view_name}' not found",
+            }
+        )
 
 
 async def broadcast_update(

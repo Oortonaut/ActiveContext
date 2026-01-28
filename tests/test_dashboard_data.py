@@ -1324,3 +1324,134 @@ class TestEdgeCases:
         assert result["total"] == 1000
         # 10 different types (Type0 through Type9)
         assert len(result["nodes_by_type"]) == 10
+
+
+# =============================================================================
+# Tests for View Snapshot Functions
+# =============================================================================
+
+
+class TestGetCurrentViewSnapshot:
+    """Tests for get_current_view_snapshot function."""
+
+    def test_returns_empty_for_no_views(self, mock_session):
+        """Should return empty dict when no views exist."""
+        from activecontext.dashboard.data import get_current_view_snapshot
+
+        mock_session.timeline.views = {}
+
+        result = get_current_view_snapshot(mock_session)
+
+        assert result["node_states"] == {}
+        assert result["node_count"] == 0
+
+    def test_captures_view_state(self, mock_session):
+        """Should capture hide and expand state for each view."""
+        from activecontext.dashboard.data import get_current_view_snapshot
+        from activecontext.context.state import Expansion
+
+        view1 = MagicMock()
+        view1.hide = False
+        view1.expand = Expansion.ALL
+
+        view2 = MagicMock()
+        view2.hide = True
+        view2.expand = Expansion.HEADER
+
+        mock_session.timeline.views = {
+            "node-1": view1,
+            "node-2": view2,
+        }
+
+        result = get_current_view_snapshot(mock_session)
+
+        assert result["node_count"] == 2
+        assert result["node_states"]["node-1"]["hide"] is False
+        assert result["node_states"]["node-1"]["expand"] == "all"
+        assert result["node_states"]["node-2"]["hide"] is True
+        assert result["node_states"]["node-2"]["expand"] == "header"
+
+    def test_handles_exception(self, mock_session):
+        """Should return empty result on exception."""
+        from activecontext.dashboard.data import get_current_view_snapshot
+
+        mock_session.timeline = None
+
+        result = get_current_view_snapshot(mock_session)
+
+        assert result["node_states"] == {}
+        assert result["node_count"] == 0
+
+
+class TestApplyViewSnapshot:
+    """Tests for apply_view_snapshot function."""
+
+    def test_applies_state_to_existing_views(self, mock_session):
+        """Should apply hide and expand state to matching views."""
+        from activecontext.dashboard.data import apply_view_snapshot
+        from activecontext.context.state import Expansion
+
+        view1 = MagicMock()
+        view1.hide = False
+        view1.expand = Expansion.ALL
+
+        mock_session.timeline.views = {"node-1": view1}
+
+        node_states = {
+            "node-1": {"hide": True, "expand": "header"},
+        }
+
+        result = apply_view_snapshot(mock_session, node_states)
+
+        assert result["updated_count"] == 1
+        assert result["errors"] == []
+        assert view1.hide is True
+        assert view1.expand == Expansion.HEADER
+
+    def test_skips_nonexistent_views(self, mock_session):
+        """Should skip nodes that don't have views."""
+        from activecontext.dashboard.data import apply_view_snapshot
+
+        mock_session.timeline.views = {}
+
+        node_states = {
+            "nonexistent": {"hide": True, "expand": "header"},
+        }
+
+        result = apply_view_snapshot(mock_session, node_states)
+
+        assert result["updated_count"] == 0
+        assert result["errors"] == []
+
+    def test_handles_invalid_expansion(self, mock_session):
+        """Should report error for invalid expansion values."""
+        from activecontext.dashboard.data import apply_view_snapshot
+        from activecontext.context.state import Expansion
+
+        view1 = MagicMock()
+        view1.hide = False
+        view1.expand = Expansion.ALL
+
+        mock_session.timeline.views = {"node-1": view1}
+
+        node_states = {
+            "node-1": {"hide": True, "expand": "invalid"},
+        }
+
+        result = apply_view_snapshot(mock_session, node_states)
+
+        # Should have error and not count as updated
+        assert result["updated_count"] == 0
+        assert len(result["errors"]) == 1
+        assert "Invalid expansion" in result["errors"][0]
+
+    def test_handles_exception(self, mock_session):
+        """Should report error on exception."""
+        from activecontext.dashboard.data import apply_view_snapshot
+
+        mock_session.timeline = None
+
+        result = apply_view_snapshot(mock_session, {"node-1": {}})
+
+        assert result["updated_count"] == 0
+        assert len(result["errors"]) == 1

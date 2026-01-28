@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
+from activecontext.context.state import Expansion
 from activecontext.core.llm.discovery import (
     get_available_models,
     get_available_providers,
@@ -327,4 +328,73 @@ def format_session_update(
         "session_id": session_id,
         "timestamp": timestamp,
         "payload": payload,
+    }
+
+
+def get_current_view_snapshot(session: Session) -> dict[str, Any]:
+    """Get current view state snapshot from session.
+
+    Returns a dict mapping node_id -> {"hide": bool, "expand": str}.
+    This represents the agent's live view state.
+    """
+    node_states: dict[str, dict[str, Any]] = {}
+
+    try:
+        views = session.timeline.views
+        for node_id, view in views.items():
+            node_states[node_id] = {
+                "hide": view.hide,
+                "expand": view.expand.value,
+            }
+    except Exception:
+        _log.debug("Failed to get view snapshot", exc_info=True)
+
+    return {
+        "node_states": node_states,
+        "node_count": len(node_states),
+    }
+
+
+def apply_view_snapshot(
+    session: Session,
+    node_states: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    """Apply view state snapshot to session.
+
+    Args:
+        session: The session to update.
+        node_states: Dict mapping node_id -> {"hide": bool, "expand": str}.
+
+    Returns:
+        Dict with updated_count and any errors.
+    """
+    updated_count = 0
+    errors: list[str] = []
+
+    try:
+        views = session.timeline.views
+        for node_id, state in node_states.items():
+            if node_id in views:
+                view = views[node_id]
+
+                # Update hide state
+                if "hide" in state:
+                    view.hide = state["hide"]
+
+                # Update expand state
+                if "expand" in state:
+                    try:
+                        view.expand = Expansion(state["expand"])
+                    except ValueError:
+                        errors.append(f"Invalid expansion for {node_id}: {state['expand']}")
+                        continue
+
+                updated_count += 1
+    except Exception as e:
+        _log.debug("Failed to apply view snapshot", exc_info=True)
+        errors.append(str(e))
+
+    return {
+        "updated_count": updated_count,
+        "errors": errors,
     }

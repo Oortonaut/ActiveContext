@@ -12,6 +12,7 @@ class DashboardClient {
         this.reconnectDelay = 1000;
         this.pingInterval = null;
         this.llmRefreshInterval = null;
+        this._savedViews = [];  // List of saved view names
     }
 
     async init() {
@@ -31,6 +32,9 @@ class DashboardClient {
 
         // Set up copy session ID button
         this.setupCopySessionId();
+
+        // Set up view management controls
+        this.setupViewControls();
 
         // Start uptime counter
         this.startUptimeCounter();
@@ -280,6 +284,8 @@ class DashboardClient {
             if (data.rendered) {
                 this.renderRenderedContext(data.rendered);
             }
+            // Request views list after init
+            this.requestViewsList();
         } else if (data.type === 'update') {
             this.handleUpdate(data);
         } else if (data.type === 'expansion_changed') {
@@ -288,8 +294,29 @@ class DashboardClient {
         } else if (data.type === 'hidden_changed') {
             // Hidden flag changed - context will be reloaded via node_changed broadcast
             console.log(`Hidden changed: ${data.node_id} ${data.old_hidden} -> ${data.new_hidden}`);
+        } else if (data.type === 'views_list') {
+            // Render the views dropdown
+            this.renderViewSelector(data.views || []);
+        } else if (data.type === 'view_cloned') {
+            console.log(`View cloned: ${data.name} (${data.node_count} nodes)`);
+            this.requestViewsList();
+        } else if (data.type === 'view_updated') {
+            console.log(`View updated: ${data.name} (${data.node_count} nodes)`);
+            this.requestViewsList();
+        } else if (data.type === 'view_applied') {
+            console.log(`View applied: ${data.name} (${data.updated_count} nodes updated)`);
+            // Reload context to reflect changes
+            this.loadContext();
+            this.loadRendered();
+        } else if (data.type === 'view_deleted') {
+            console.log(`View deleted: ${data.name}`);
+            this.requestViewsList();
         } else if (data.type === 'error') {
             console.error('Server error:', data.message);
+            // Show error to user for view operations
+            if (data.message && data.message.includes('View')) {
+                alert(`Error: ${data.message}`);
+            }
         }
     }
 
@@ -934,6 +961,162 @@ class DashboardClient {
                 }
             });
         }
+    }
+
+    // View Management Methods
+    setupViewControls() {
+        const viewSelect = document.getElementById('view-select');
+        const cloneBtn = document.getElementById('view-clone-btn');
+        const readBtn = document.getElementById('view-read-btn');
+        const writeBtn = document.getElementById('view-write-btn');
+        const deleteBtn = document.getElementById('view-delete-btn');
+
+        if (!viewSelect) return;
+
+        // View selection changes
+        viewSelect.addEventListener('change', (e) => {
+            const selectedView = e.target.value;
+            this.updateViewButtons(selectedView);
+        });
+
+        // Clone button - save current state with new name
+        if (cloneBtn) {
+            cloneBtn.addEventListener('click', () => {
+                const name = prompt('Enter a name for this view:');
+                if (name && name.trim()) {
+                    this.cloneView(name.trim());
+                }
+            });
+        }
+
+        // Read button - update saved view from current agent state
+        if (readBtn) {
+            readBtn.addEventListener('click', () => {
+                const selectedView = viewSelect.value;
+                if (selectedView && confirm(`Update "${selectedView}" from current agent state?`)) {
+                    this.readView(selectedView);
+                }
+            });
+        }
+
+        // Write button - apply saved view to agent
+        if (writeBtn) {
+            writeBtn.addEventListener('click', () => {
+                const selectedView = viewSelect.value;
+                if (selectedView) {
+                    this.writeView(selectedView);
+                }
+            });
+        }
+
+        // Delete button - remove saved view
+        if (deleteBtn) {
+            deleteBtn.addEventListener('click', () => {
+                const selectedView = viewSelect.value;
+                if (selectedView && confirm(`Delete view "${selectedView}"?`)) {
+                    this.deleteView(selectedView);
+                }
+            });
+        }
+    }
+
+    updateViewButtons(selectedView) {
+        const readBtn = document.getElementById('view-read-btn');
+        const writeBtn = document.getElementById('view-write-btn');
+        const deleteBtn = document.getElementById('view-delete-btn');
+
+        const hasSelection = selectedView && selectedView !== '';
+
+        if (readBtn) readBtn.disabled = !hasSelection;
+        if (writeBtn) writeBtn.disabled = !hasSelection;
+        if (deleteBtn) deleteBtn.disabled = !hasSelection;
+    }
+
+    renderViewSelector(views) {
+        const viewSelect = document.getElementById('view-select');
+        if (!viewSelect) return;
+
+        // Remember current selection
+        const currentSelection = viewSelect.value;
+
+        // Clear options except the first (Agent View)
+        while (viewSelect.options.length > 1) {
+            viewSelect.remove(1);
+        }
+
+        // Add saved views
+        this._savedViews = views;
+        views.forEach(view => {
+            const option = document.createElement('option');
+            option.value = view.name;
+            option.textContent = `${view.name} (${view.node_count} nodes)`;
+            viewSelect.appendChild(option);
+        });
+
+        // Restore selection if still valid
+        if (currentSelection && views.some(v => v.name === currentSelection)) {
+            viewSelect.value = currentSelection;
+        } else {
+            viewSelect.value = '';
+        }
+
+        this.updateViewButtons(viewSelect.value);
+    }
+
+    // Request list of saved views from server
+    requestViewsList() {
+        if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+            return;
+        }
+        this.ws.send(JSON.stringify({ type: 'list_views' }));
+    }
+
+    // Clone current view state with a new name
+    cloneView(name) {
+        if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+            console.error('WebSocket not connected');
+            return;
+        }
+        this.ws.send(JSON.stringify({
+            type: 'clone_view',
+            name: name
+        }));
+    }
+
+    // Update saved view from current agent state
+    readView(name) {
+        if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+            console.error('WebSocket not connected');
+            return;
+        }
+        this.ws.send(JSON.stringify({
+            type: 'read_view',
+            name: name
+        }));
+    }
+
+    // Apply saved view state to agent
+    writeView(name) {
+        if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+            console.error('WebSocket not connected');
+            return;
+        }
+        this.ws.send(JSON.stringify({
+            type: 'write_view',
+            name: name
+        }));
+    }
+
+    // Delete a saved view
+    deleteView(name) {
+        if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+            console.error('WebSocket not connected');
+            return;
+        }
+        this.ws.send(JSON.stringify({
+            type: 'delete_view',
+            name: name
+        }));
     }
 
     clearSessionData() {

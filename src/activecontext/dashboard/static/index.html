@@ -125,6 +125,15 @@
             <!-- Context Objects Card -->
             <section class="card" id="context-card">
                 <h2>Context Objects <span id="context-count" class="badge">0</span></h2>
+                <div class="view-controls">
+                    <select id="view-select" title="Select a view">
+                        <option value="">Agent View (Live)</option>
+                    </select>
+                    <button id="view-clone-btn" class="control-btn" title="Clone: Snapshot current state with a new name">Clone</button>
+                    <button id="view-read-btn" class="control-btn" title="Read: Copy agent's state TO selected view" disabled>Read</button>
+                    <button id="view-write-btn" class="control-btn" title="Write: Apply selected view's state TO agent" disabled>Write</button>
+                    <button id="view-delete-btn" class="control-btn danger" title="Delete: Remove selected view" disabled>Delete</button>
+                </div>
                 <div class="card-content">
                     <!-- Sections rendered dynamically by JS -->
                     <div class="context-empty">No context objects</div>
