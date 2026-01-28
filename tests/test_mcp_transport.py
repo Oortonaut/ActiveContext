@@ -1,8 +1,8 @@
 """Tests for the MCP transport module."""
 
+from unittest.mock import MagicMock, patch
+
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
-import os
 
 from activecontext.config.schema import MCPServerConfig
 
@@ -132,7 +132,7 @@ class TestCreateTransport:
             name="test",
             transport="stdio",
             command=["python", "-m", "test_server"],
-            args=["--port", "8080"],
+            extra_args=["--port", "8080"],
         )
 
         mock_client = MagicMock()
