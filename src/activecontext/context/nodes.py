@@ -655,40 +655,12 @@ class ContextNode(ABC):
         Args:
             data: Dictionary containing serialized node data.
 
-        This is a factory method that dispatches to the appropriate subclass.
+        This is a factory method that uses the node type registry
+        to dispatch to the appropriate subclass.
         """
-        node_type = data.get("node_type")
-        if node_type == "text":
-            return TextNode._from_dict(data)
-        elif node_type == "group":
-            return GroupNode._from_dict(data)
-        elif node_type == "topic":
-            return TopicNode._from_dict(data)
-        elif node_type == "artifact":
-            return ArtifactNode._from_dict(data)
-        elif node_type == "shell":
-            return ShellNode._from_dict(data)
-        elif node_type == "lock":
-            return LockNode._from_dict(data)
-        elif node_type == "session":
-            return SessionNode._from_dict(data)
-        elif node_type == "message":
-            return MessageNode._from_dict(data)
-        elif node_type == "work":
-            return WorkNode._from_dict(data)
-        elif node_type == "mcp_server":
-            return MCPServerNode._from_dict(data)
-        elif node_type == "mcp_manager":
-            return MCPManagerNode._from_dict(data)
-        elif node_type == "mcp_tool":
-            return MCPToolNode._from_dict(data)
-        # Note: MarkdownNode removed - markdown content now uses TextNode
-        elif node_type == "agent":
-            return AgentNode._from_dict(data)
-        elif node_type == "trace":
-            return TraceNode._from_dict(data)
-        else:
-            raise ValueError(f"Unknown node type: {node_type}")
+        from activecontext.context.registry import get_node_registry
+
+        return get_node_registry().from_dict(data)
 
     # Fluent API for mode control
     def Run(self, freq: TickFrequency | None = None) -> None:

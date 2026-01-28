@@ -48,6 +48,7 @@ from activecontext.context.nodes import (
     TraceNode,
     WorkNode,
 )
+from activecontext.context.registry import NodeTypeRegistry, get_node_registry
 from activecontext.context.traceable import (
     format_value,
     get_traceable_fields,
@@ -59,6 +60,9 @@ from activecontext.context.traceable import (
 from activecontext.context.view import ChoiceView, NodeView
 
 __all__ = [
+    # Registry
+    "NodeTypeRegistry",
+    "get_node_registry",
     # Traceable
     "trace_all_fields",
     "traceable",
