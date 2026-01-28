@@ -167,6 +167,275 @@ class ScriptNamespace(dict[str, Any]):
             raise
 
 
+class NodeLookup:
+    """Dict-like accessor for node lookup by name with fuzzy matching.
+
+    Supports multiple lookup patterns:
+    - Exact variable name in namespace
+    - Exact node_id (e.g., 'text_1', 'group_2')
+    - Partial match on path (for TextNodes)
+    - Partial match on title
+    - Fuzzy matching on any of the above
+
+    Returns NodeView wrappers for nodes.
+
+    Usage:
+        nodes["my_view"]      # Exact or fuzzy lookup
+        nodes.my_view         # Attribute access
+        get("partial")        # DSL function
+    """
+
+    __slots__ = ("_namespace_getter", "_graph_getter", "_views_getter")
+
+    def __init__(
+        self,
+        namespace_getter: Callable[[], dict[str, Any]],
+        graph_getter: Callable[[], ContextGraph | None],
+        views_getter: Callable[[], dict[str, NodeView]],
+    ) -> None:
+        self._namespace_getter = namespace_getter
+        self._graph_getter = graph_getter
+        self._views_getter = views_getter
+
+    def _get_or_create_view(self, node: ContextNode) -> NodeView:
+        """Get existing view or create new one for a node."""
+        views = self._views_getter()
+        if node.node_id in views:
+            return views[node.node_id]
+        view = NodeView(node)
+        views[node.node_id] = view
+        return view
+
+    def _score_match(self, pattern: str, candidate: str) -> float:
+        """Score how well a pattern matches a candidate string.
+
+        Returns:
+            Score from 0.0 (no match) to 1.0 (exact match).
+            Partial matches return values between 0.0 and 1.0.
+        """
+        if not pattern or not candidate:
+            return 0.0
+
+        pattern_lower = pattern.lower()
+        candidate_lower = candidate.lower()
+
+        # Exact match
+        if pattern_lower == candidate_lower:
+            return 1.0
+
+        # Candidate contains pattern as substring
+        if pattern_lower in candidate_lower:
+            # Higher score for matches at start
+            if candidate_lower.startswith(pattern_lower):
+                return 0.9
+            # Score based on pattern length relative to candidate
+            return 0.5 + (len(pattern) / len(candidate)) * 0.3
+
+        # Pattern is substring of candidate (partial match)
+        if candidate_lower in pattern_lower:
+            return 0.3
+
+        return 0.0
+
+    def _find_best_match(self, name: str) -> NodeView | None:
+        """Find the best matching node for the given name.
+
+        Lookup order:
+        1. Exact match in namespace (variable name)
+        2. Exact match by node_id
+        3. Best fuzzy match considering:
+           - Variable names
+           - Node IDs
+           - File paths (for TextNodes)
+           - Titles
+
+        Returns:
+            NodeView for best match, or None if no match found.
+        """
+        namespace = self._namespace_getter()
+        graph = self._graph_getter()
+        views = self._views_getter()
+
+        if not graph:
+            return None
+
+        # 1. Exact match in namespace
+        if name in namespace:
+            value = namespace[name]
+            if isinstance(value, NodeView):
+                return value
+            if isinstance(value, ContextNode):
+                return self._get_or_create_view(value)
+
+        # 2. Exact match by node_id
+        node = graph.get_node(name)
+        if node:
+            return self._get_or_create_view(node)
+
+        # 3. Exact match in views
+        if name in views:
+            return views[name]
+
+        # 4. Fuzzy matching - collect all candidates with scores
+        candidates: list[tuple[float, str, NodeView | ContextNode]] = []
+
+        # Check namespace variables that are nodes
+        for var_name, value in namespace.items():
+            if var_name.startswith("_"):
+                continue
+            if isinstance(value, NodeView):
+                score = self._score_match(name, var_name)
+                if score > 0:
+                    candidates.append((score, var_name, value))
+            elif isinstance(value, ContextNode):
+                score = self._score_match(name, var_name)
+                if score > 0:
+                    candidates.append((score, var_name, value))
+
+        # Check all nodes in graph
+        for node in graph:
+            # Score by node_id
+            score = self._score_match(name, node.node_id)
+            if score > 0:
+                candidates.append((score, node.node_id, node))
+
+            # Score by title
+            if node.title:
+                title_score = self._score_match(name, node.title)
+                if title_score > 0:
+                    candidates.append((title_score, node.title, node))
+
+            # Score by path (for TextNodes)
+            if isinstance(node, TextNode) and node.path:
+                path = node.path
+                # Match against full path
+                path_score = self._score_match(name, path)
+                if path_score > 0:
+                    candidates.append((path_score, path, node))
+
+                # Also match against filename only
+                from pathlib import Path as PathLib
+
+                filename = PathLib(path).name
+                filename_score = self._score_match(name, filename)
+                if filename_score > 0:
+                    candidates.append((filename_score, filename, node))
+
+        # Return best match if any
+        if candidates:
+            # Sort by score descending, then by match text length (prefer shorter)
+            candidates.sort(key=lambda x: (-x[0], len(x[1])))
+            best = candidates[0][2]
+            if isinstance(best, NodeView):
+                return best
+            return self._get_or_create_view(best)
+
+        return None
+
+    def get(self, name: str) -> NodeView | None:
+        """Look up a node by name with fuzzy matching.
+
+        Args:
+            name: Name to search for (variable name, node_id, path, or title)
+
+        Returns:
+            NodeView for matching node, or None if no match found.
+
+        Raises:
+            TypeError: If name is not a string.
+        """
+        if not isinstance(name, str):
+            raise TypeError(f"get() requires a string argument, got {type(name).__name__}")
+        return self._find_best_match(name)
+
+    def __getitem__(self, name: str) -> NodeView:
+        """Look up a node by name, raising KeyError if not found.
+
+        Args:
+            name: Name to search for
+
+        Returns:
+            NodeView for matching node
+
+        Raises:
+            KeyError: If no matching node is found
+        """
+        result = self._find_best_match(name)
+        if result is None:
+            raise KeyError(f"No node found matching '{name}'")
+        return result
+
+    def __getattr__(self, name: str) -> NodeView:
+        """Attribute access for node lookup.
+
+        Args:
+            name: Attribute name (node name to search for)
+
+        Returns:
+            NodeView for matching node
+
+        Raises:
+            AttributeError: If no matching node is found
+        """
+        if name.startswith("_"):
+            raise AttributeError(f"'{type(self).__name__}' has no attribute '{name}'")
+        result = self._find_best_match(name)
+        if result is None:
+            raise AttributeError(f"No node found matching '{name}'")
+        return result
+
+    def __contains__(self, name: str) -> bool:
+        """Check if a node matching the name exists."""
+        return self._find_best_match(name) is not None
+
+    def keys(self) -> list[str]:
+        """Return all available node identifiers."""
+        identifiers: list[str] = []
+        namespace = self._namespace_getter()
+        graph = self._graph_getter()
+
+        # Add namespace variable names that are nodes
+        for var_name, value in namespace.items():
+            if var_name.startswith("_"):
+                continue
+            if isinstance(value, (NodeView, ContextNode)):
+                identifiers.append(var_name)
+
+        # Add node_ids
+        if graph:
+            for node in graph:
+                if node.node_id not in identifiers:
+                    identifiers.append(node.node_id)
+
+        return identifiers
+
+    def values(self) -> list[NodeView]:
+        """Return all available nodes as NodeViews."""
+        graph = self._graph_getter()
+        if not graph:
+            return []
+        return [self._get_or_create_view(node) for node in graph]
+
+    def items(self) -> list[tuple[str, NodeView]]:
+        """Return (node_id, NodeView) pairs for all nodes."""
+        graph = self._graph_getter()
+        if not graph:
+            return []
+        return [(node.node_id, self._get_or_create_view(node)) for node in graph]
+
+    def __len__(self) -> int:
+        """Return the number of nodes in the graph."""
+        graph = self._graph_getter()
+        return len(graph) if graph else 0
+
+    def __iter__(self) -> Any:
+        """Iterate over node identifiers."""
+        return iter(self.keys())
+
+    def __repr__(self) -> str:
+        return f"NodeLookup({len(self)} nodes)"
+
+
 class Timeline:
     """Statement timeline with controlled Python execution.
 
@@ -433,6 +702,9 @@ class Timeline:
                 # Utility functions
                 "ls": self._ls_handles,
                 "show": self._show_handle,
+                # Node lookup
+                "get": self._get_node,
+                "nodes": self._create_node_lookup(),
                 "ls_permissions": self._ls_permissions,
                 "ls_imports": self._ls_imports,
                 "ls_shell_permissions": self._ls_shell_permissions,
@@ -1755,6 +2027,38 @@ class Timeline:
         """List all context object handles with brief digests."""
         return [node.GetDigest() for node in self._context_graph]
 
+    def _create_node_lookup(self) -> NodeLookup:
+        """Create a NodeLookup accessor for the DSL namespace."""
+        return NodeLookup(
+            namespace_getter=lambda: self._namespace,
+            graph_getter=lambda: self._context_graph,
+            views_getter=lambda: self._views,
+        )
+
+    def _get_node(self, name: str) -> NodeView | None:
+        """Look up a node by name with fuzzy matching.
+
+        This is the DSL get() function for node lookup.
+
+        Args:
+            name: Name to search for. Can be:
+                - Variable name in namespace (e.g., "my_view")
+                - Node ID (e.g., "text_1", "group_2")
+                - File path or partial path (for TextNodes)
+                - Node title
+
+        Returns:
+            NodeView for matching node, or None if no match found.
+
+        Examples:
+            get("my_view")     # Lookup by variable name
+            get("text_1")      # Lookup by node ID
+            get("main.py")     # Lookup by file path
+            get("main")        # Fuzzy match on path
+        """
+        lookup = self._create_node_lookup()
+        return lookup.get(name)
+
     def _show_handle(self, obj: Any, *, lod: int | None = None, tokens: int | None = None) -> str:
         """Force render a handle (placeholder)."""
         digest = obj.GetDigest() if hasattr(obj, "GetDigest") else str(obj)
@@ -2541,6 +2845,8 @@ class Timeline:
             "branch",
             "ls",
             "show",
+            "get",
+            "nodes",
             "ls_permissions",
             "ls_imports",
             "ls_shell_permissions",
