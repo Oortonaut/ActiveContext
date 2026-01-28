@@ -51,3 +51,9 @@ nul
 
 .ac/
 .claude/
+.task-graph/
+
+# Task-graph database files (config is tracked)
+task-graph/*.db*
+task-graph/logs/
+task-graph/media/
