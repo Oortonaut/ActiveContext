@@ -146,6 +146,7 @@ class MCPIntegration:
             proxy._mcp_node = node
             proxy.tool = node.tool
             proxy.tool_nodes = node.tool_nodes
+            node._server_proxy = proxy
             self._namespace[name] = proxy
 
         # Add tool nodes to namespace with {server}_{tool} naming

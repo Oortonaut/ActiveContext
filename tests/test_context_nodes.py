@@ -6,6 +6,8 @@ Tests coverage for:
 
 from __future__ import annotations
 
+from unittest.mock import MagicMock
+
 import pytest
 
 from activecontext.context.nodes import (
@@ -501,6 +503,58 @@ class TestMCPServerNodeSerialization:
         node = ContextNode.from_dict(data)
 
         assert isinstance(node, MCPServerNode)
+
+
+class TestMCPServerNodeGetattr:
+    """Tests for MCPServerNode __getattr__ delegation to server proxy."""
+
+    def test_delegates_to_server_proxy(self):
+        """Test that __getattr__ delegates to _server_proxy."""
+        proxy = MagicMock()
+        proxy.list_directory_tree = MagicMock(return_value="tree result")
+
+        node = MCPServerNode(server_name="rider", status="connected")
+        node._server_proxy = proxy
+
+        result = node.list_directory_tree()
+        assert result == "tree result"
+        proxy.list_directory_tree.assert_called_once()
+
+    def test_raises_attribute_error_without_proxy(self):
+        """Test that __getattr__ raises AttributeError when no proxy is set."""
+        node = MCPServerNode(server_name="test")
+        with pytest.raises(AttributeError, match="MCPServerNode"):
+            _ = node.nonexistent_method
+
+    def test_raises_attribute_error_for_unknown_tool(self):
+        """Test that __getattr__ raises AttributeError for tools not on proxy."""
+        proxy = MagicMock(spec=[])  # Empty spec = no attributes
+        node = MCPServerNode(server_name="test")
+        node._server_proxy = proxy
+
+        with pytest.raises(AttributeError, match="MCPServerNode"):
+            _ = node.unknown_tool
+
+    def test_dataclass_fields_unaffected(self):
+        """Test that normal dataclass field access still works."""
+        node = MCPServerNode(server_name="test", status="connected")
+        assert node.server_name == "test"
+        assert node.status == "connected"
+        assert node.tools == []
+
+    def test_serialization_excludes_server_proxy(self):
+        """Test that _server_proxy is not included in to_dict output."""
+        proxy = MagicMock()
+        node = MCPServerNode(server_name="test")
+        node._server_proxy = proxy
+
+        data = node.to_dict()
+        assert "_server_proxy" not in data
+
+    def test_proxy_none_by_default(self):
+        """Test that _server_proxy defaults to None."""
+        node = MCPServerNode(server_name="test")
+        assert node._server_proxy is None
 
 
 # =============================================================================

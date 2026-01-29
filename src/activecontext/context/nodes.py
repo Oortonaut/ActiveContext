@@ -2776,6 +2776,19 @@ class MCPServerNode(ContextNode):
     # Tool child nodes: tool_name -> node_id
     _tool_nodes: dict[str, str] = field(default_factory=dict, repr=False)
 
+    # Runtime reference to server proxy for tool calls (not serialized)
+    _server_proxy: Any = field(default=None, repr=False, compare=False)
+
+    def __getattr__(self, name: str) -> Any:
+        """Delegate tool method access to the server proxy."""
+        proxy = self.__dict__.get("_server_proxy")
+        if proxy is not None:
+            try:
+                return getattr(proxy, name)
+            except AttributeError:
+                pass
+        raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
+
     @property
     def node_type(self) -> str:
         return "mcp_server"

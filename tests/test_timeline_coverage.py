@@ -1288,6 +1288,101 @@ class TestScriptNamespace:
             await timeline.close()
 
 
+class TestScriptNamespaceMCPLookup:
+    """Tests for ScriptNamespace MCP server node lookup by server_name."""
+
+    @pytest.fixture
+    def temp_cwd(self, tmp_path: Path) -> Path:
+        return tmp_path
+
+    @pytest.mark.asyncio
+    async def test_mcp_node_lookup_by_server_name(self, temp_cwd: Path) -> None:
+        """Test that ScriptNamespace resolves MCP server nodes by server_name."""
+        from activecontext.context.nodes import MCPServerNode
+        from activecontext.session.timeline import ScriptNamespace
+
+        graph = ContextGraph()
+        views: dict = {}
+        node = MCPServerNode(server_name="rider", status="connected")
+        graph.add_node(node)
+
+        mcp_nodes = {"rider": node}
+        ns = ScriptNamespace(
+            lambda: graph,
+            lambda: views,
+            lambda: mcp_nodes,
+            {},
+        )
+
+        # Lookup by server_name should return a NodeView
+        view = ns["rider"]
+        assert view.node_id == node.node_id
+
+    @pytest.mark.asyncio
+    async def test_mcp_lookup_caches_in_views(self, temp_cwd: Path) -> None:
+        """Test that MCP lookup caches the NodeView in views dict."""
+        from activecontext.context.nodes import MCPServerNode
+        from activecontext.session.timeline import ScriptNamespace
+
+        graph = ContextGraph()
+        views: dict = {}
+        node = MCPServerNode(server_name="fs", status="connected")
+        graph.add_node(node)
+
+        mcp_nodes = {"fs": node}
+        ns = ScriptNamespace(
+            lambda: graph,
+            lambda: views,
+            lambda: mcp_nodes,
+            {},
+        )
+
+        view1 = ns["fs"]
+        view2 = ns["fs"]
+        assert view1 is view2  # Same cached view
+        assert node.node_id in views
+
+    @pytest.mark.asyncio
+    async def test_none_mcp_getter_backward_compat(self, temp_cwd: Path) -> None:
+        """Test that None mcp_nodes_getter preserves backward compatibility."""
+        from activecontext.session.timeline import ScriptNamespace
+
+        graph = ContextGraph()
+        views: dict = {}
+        ns = ScriptNamespace(
+            lambda: graph,
+            lambda: views,
+            None,  # No MCP getter
+            {},
+        )
+
+        with pytest.raises(KeyError):
+            _ = ns["nonexistent"]
+
+    @pytest.mark.asyncio
+    async def test_namespace_prefers_explicit_bindings(self, temp_cwd: Path) -> None:
+        """Test that explicit namespace entries take precedence over MCP lookup."""
+        from activecontext.context.nodes import MCPServerNode
+        from activecontext.session.timeline import ScriptNamespace
+
+        graph = ContextGraph()
+        views: dict = {}
+        node = MCPServerNode(server_name="rider", status="connected")
+        graph.add_node(node)
+
+        mcp_nodes = {"rider": node}
+        sentinel = object()
+        ns = ScriptNamespace(
+            lambda: graph,
+            lambda: views,
+            lambda: mcp_nodes,
+            {"rider": sentinel},
+        )
+
+        # Explicit binding takes precedence
+        assert ns["rider"] is sentinel
+
+
 class TestGroupWithCurrentGroupParent:
     """Tests for node creation with current_group as parent."""
 
