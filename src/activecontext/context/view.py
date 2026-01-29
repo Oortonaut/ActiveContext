@@ -336,7 +336,7 @@ class ChoiceView(NodeView):
         if child_order is not None:
             # child_order might be a LinkedChildOrder with to_list() or a regular list
             if hasattr(child_order, "to_list"):
-                return child_order.to_list()
+                return list(child_order.to_list())
             else:
                 return list(child_order)
         else:

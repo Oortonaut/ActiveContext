@@ -7,7 +7,7 @@ import platform
 import shlex
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from rich.console import Console
 
@@ -78,7 +78,7 @@ async def run_mock_client(config: Config, agent_command: str, script: Path | Non
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=sys.stderr,
-            creationflags=creationflags,  # type: ignore[arg-type]
+            creationflags=creationflags,
         )
     except Exception as e:
         console.print(f"[red]Error spawning agent: {e}[/red]")
@@ -94,7 +94,7 @@ async def run_mock_client(config: Config, agent_command: str, script: Path | Non
     pending: dict[int | str, asyncio.Future[JsonRpcMessage]] = {}
     next_id = 0
 
-    async def send_request(method: str, params: dict) -> JsonRpcMessage:
+    async def send_request(method: str, params: dict[str, Any]) -> JsonRpcMessage:
         """Send a request to the agent and wait for response."""
         nonlocal next_id
         msg_id = next_id
@@ -108,7 +108,7 @@ async def run_mock_client(config: Config, agent_command: str, script: Path | Non
 
         return await future
 
-    async def handle_agent_messages():
+    async def handle_agent_messages() -> None:
         """Handle messages from agent."""
         async for msg in transport.messages():
             if msg.is_response() and msg.id in pending:
@@ -204,7 +204,7 @@ async def _handle_agent_request(
         # For mock client, the "final" calls the mock's method directly
         mock_method = getattr(mock, chain_method)
 
-        async def final(r):
+        async def final(r: Any) -> Any:
             return await mock_method(r, _noop)
 
         chain_fn = getattr(chain, chain_method)
@@ -223,6 +223,6 @@ async def _handle_agent_request(
     )
 
 
-async def _noop(x):
+async def _noop(x: Any) -> Any:
     """No-op callable for mock methods."""
     return x

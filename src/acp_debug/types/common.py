@@ -5,17 +5,23 @@ from __future__ import annotations
 from enum import Enum
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
-class TextContent(BaseModel):
+class AcpModel(BaseModel):
+    """Base model for ACP types with populate_by_name enabled."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class TextContent(AcpModel):
     """Text content block."""
 
     type: Literal["text"] = "text"
     text: str
 
 
-class ToolResultContent(BaseModel):
+class ToolResultContent(AcpModel):
     """Tool result content block."""
 
     type: Literal["tool_result"] = "tool_result"
@@ -25,14 +31,14 @@ class ToolResultContent(BaseModel):
 ContentBlock = TextContent | ToolResultContent | dict[str, Any]
 
 
-class FSCapabilities(BaseModel):
+class FSCapabilities(AcpModel):
     """Filesystem capabilities."""
 
     read_text_file: bool = Field(default=False, alias="readTextFile")
     write_text_file: bool = Field(default=False, alias="writeTextFile")
 
 
-class PromptCapabilities(BaseModel):
+class PromptCapabilities(AcpModel):
     """Prompt content capabilities."""
 
     image: bool = False
@@ -40,14 +46,14 @@ class PromptCapabilities(BaseModel):
     embedded_context: bool = Field(default=False, alias="embeddedContext")
 
 
-class ClientCapabilities(BaseModel):
+class ClientCapabilities(AcpModel):
     """Client capabilities sent during initialization."""
 
     fs: FSCapabilities | None = None
     terminal: bool = False
 
 
-class ClientInfo(BaseModel):
+class ClientInfo(AcpModel):
     """Client identification."""
 
     name: str
@@ -55,7 +61,7 @@ class ClientInfo(BaseModel):
     version: str | None = None
 
 
-class AgentCapabilities(BaseModel):
+class AgentCapabilities(AcpModel):
     """Agent capabilities advertised during initialization."""
 
     load_session: bool = Field(default=False, alias="loadSession")
@@ -67,7 +73,7 @@ class AgentCapabilities(BaseModel):
     )
 
 
-class AgentInfo(BaseModel):
+class AgentInfo(AcpModel):
     """Agent identification."""
 
     name: str
@@ -75,7 +81,7 @@ class AgentInfo(BaseModel):
     version: str | None = None
 
 
-class ModelInfo(BaseModel):
+class ModelInfo(AcpModel):
     """Model information."""
 
     model_id: str = Field(alias="modelId")
@@ -83,7 +89,7 @@ class ModelInfo(BaseModel):
     description: str | None = None
 
 
-class ModeInfo(BaseModel):
+class ModeInfo(AcpModel):
     """Operating mode information."""
 
     id: str
@@ -100,7 +106,7 @@ class ToolCallStatus(str, Enum):
     FAILED = "failed"
 
 
-class ToolCall(BaseModel):
+class ToolCall(AcpModel):
     """Tool call information for permission requests and updates."""
 
     tool_call_id: str = Field(alias="toolCallId")
@@ -119,7 +125,7 @@ class PermissionOptionKind(str, Enum):
     REJECT_ALWAYS = "reject_always"
 
 
-class PermissionOption(BaseModel):
+class PermissionOption(AcpModel):
     """Permission option presented to user."""
 
     option_id: str = Field(alias="optionId")
@@ -127,7 +133,7 @@ class PermissionOption(BaseModel):
     name: str
 
 
-class PlanEntry(BaseModel):
+class PlanEntry(AcpModel):
     """Entry in an execution plan."""
 
     content: str
@@ -135,7 +141,7 @@ class PlanEntry(BaseModel):
     status: str | None = None
 
 
-class AvailableCommand(BaseModel):
+class AvailableCommand(AcpModel):
     """Slash command advertised by agent."""
 
     name: str

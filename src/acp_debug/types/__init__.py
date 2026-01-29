@@ -1,6 +1,7 @@
 """ACP message types."""
 
 from acp_debug.types.common import (
+    AcpModel,
     AgentCapabilities,
     AgentInfo,
     AvailableCommand,
@@ -56,6 +57,7 @@ from acp_debug.types.responses import (
 
 __all__ = [
     # Common
+    "AcpModel",
     "AgentCapabilities",
     "AgentInfo",
     "AvailableCommand",

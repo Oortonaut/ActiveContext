@@ -5,12 +5,12 @@ from __future__ import annotations
 from enum import Enum
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import Field
 
-from acp_debug.types.common import AvailableCommand, PlanEntry, ToolCallStatus
+from acp_debug.types.common import AcpModel, AvailableCommand, PlanEntry, ToolCallStatus
 
 
-class CancelNotification(BaseModel):
+class CancelNotification(AcpModel):
     """Cancel in-progress prompt notification."""
 
     session_id: str = Field(alias="sessionId")
@@ -27,7 +27,7 @@ class SessionUpdateType(str, Enum):
     AVAILABLE_COMMANDS = "available_commands_update"
 
 
-class SessionUpdate(BaseModel):
+class SessionUpdate(AcpModel):
     """Session update notification (polymorphic based on session_update field)."""
 
     session_id: str = Field(alias="sessionId")

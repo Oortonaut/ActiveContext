@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from rich.console import Console
 
@@ -92,7 +92,7 @@ async def _handle_message(
         # For mock agent, the "final" just calls the mock's method directly
         mock_method = getattr(mock, chain_method)
 
-        async def final(r):
+        async def final(r: Any) -> Any:
             # Mock agent handles it directly
             return await mock_method(r, _noop)
 
@@ -113,7 +113,7 @@ async def _handle_message(
 
         notif = notif_type.model_validate(msg.params or {})
 
-        async def final_notif(n):
+        async def final_notif(n: Any) -> None:
             pass  # Notifications don't need forwarding in mock mode
 
         chain_fn = getattr(chain, chain_method)
@@ -127,6 +127,6 @@ async def _handle_message(
     )
 
 
-async def _noop(x):
+async def _noop(x: Any) -> Any:
     """No-op callable for mock methods."""
     return x

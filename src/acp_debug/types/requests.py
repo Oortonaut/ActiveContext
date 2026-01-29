@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import Field
 
 from acp_debug.types.common import (
+    AcpModel,
     ClientCapabilities,
     ClientInfo,
     ContentBlock,
@@ -17,7 +18,7 @@ from acp_debug.types.common import (
 # === Agent Methods (Client → Agent) ===
 
 
-class InitializeRequest(BaseModel):
+class InitializeRequest(AcpModel):
     """Initialize request from client to agent."""
 
     protocol_version: int = Field(alias="protocolVersion")
@@ -25,14 +26,14 @@ class InitializeRequest(BaseModel):
     client_info: ClientInfo = Field(alias="clientInfo")
 
 
-class NewSessionRequest(BaseModel):
+class NewSessionRequest(AcpModel):
     """Create new session request."""
 
     cwd: str
     mcp_servers: list[dict[str, Any]] | None = Field(default=None, alias="mcpServers")
 
 
-class LoadSessionRequest(BaseModel):
+class LoadSessionRequest(AcpModel):
     """Load existing session request."""
 
     session_id: str = Field(alias="sessionId")
@@ -40,28 +41,28 @@ class LoadSessionRequest(BaseModel):
     mcp_servers: list[dict[str, Any]] | None = Field(default=None, alias="mcpServers")
 
 
-class ListSessionsRequest(BaseModel):
+class ListSessionsRequest(AcpModel):
     """List available sessions request."""
 
     cwd: str
     cursor: str | None = None
 
 
-class PromptRequest(BaseModel):
+class PromptRequest(AcpModel):
     """Send prompt to agent."""
 
     session_id: str = Field(alias="sessionId")
     prompt: list[ContentBlock]
 
 
-class SetModeRequest(BaseModel):
+class SetModeRequest(AcpModel):
     """Set session mode request."""
 
     session_id: str = Field(alias="sessionId")
     mode_id: str = Field(alias="modeId")
 
 
-class SetModelRequest(BaseModel):
+class SetModelRequest(AcpModel):
     """Set session model request."""
 
     session_id: str = Field(alias="sessionId")
@@ -71,7 +72,7 @@ class SetModelRequest(BaseModel):
 # === Client Methods (Agent → Client) ===
 
 
-class PermissionRequest(BaseModel):
+class PermissionRequest(AcpModel):
     """Request permission from user."""
 
     session_id: str = Field(alias="sessionId")
@@ -79,7 +80,7 @@ class PermissionRequest(BaseModel):
     options: list[PermissionOption]
 
 
-class ReadFileRequest(BaseModel):
+class ReadFileRequest(AcpModel):
     """Read file content request."""
 
     session_id: str = Field(alias="sessionId")
@@ -88,7 +89,7 @@ class ReadFileRequest(BaseModel):
     limit: int | None = None
 
 
-class WriteFileRequest(BaseModel):
+class WriteFileRequest(AcpModel):
     """Write file content request."""
 
     session_id: str = Field(alias="sessionId")
@@ -96,7 +97,7 @@ class WriteFileRequest(BaseModel):
     content: str
 
 
-class CreateTerminalRequest(BaseModel):
+class CreateTerminalRequest(AcpModel):
     """Create terminal request."""
 
     session_id: str = Field(alias="sessionId")
@@ -106,25 +107,25 @@ class CreateTerminalRequest(BaseModel):
     output_byte_limit: int | None = Field(default=None, alias="outputByteLimit")
 
 
-class TerminalOutputRequest(BaseModel):
+class TerminalOutputRequest(AcpModel):
     """Poll terminal output request."""
 
     terminal_id: str = Field(alias="terminalId")
 
 
-class WaitForExitRequest(BaseModel):
+class WaitForExitRequest(AcpModel):
     """Wait for terminal exit request."""
 
     terminal_id: str = Field(alias="terminalId")
 
 
-class KillTerminalRequest(BaseModel):
+class KillTerminalRequest(AcpModel):
     """Kill terminal request."""
 
     terminal_id: str = Field(alias="terminalId")
 
 
-class ReleaseTerminalRequest(BaseModel):
+class ReleaseTerminalRequest(AcpModel):
     """Release terminal resources request."""
 
     terminal_id: str = Field(alias="terminalId")

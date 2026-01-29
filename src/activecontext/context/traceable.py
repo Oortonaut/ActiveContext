@@ -85,12 +85,12 @@ def format_value(value: Any) -> str:
 
 
 def traceable(
-    default: T | type[MISSING] = MISSING,
-    default_factory: Callable[[], T] | None = None,
-    formatter: Callable[[T], str] | None = None,
+    default: Any = MISSING,
+    default_factory: Callable[[], Any] | None = None,
+    formatter: Callable[[Any], str] | None = None,
     init: bool = True,
     repr: bool = True,
-) -> T:
+) -> Any:
     """Mark a field as traceable with automatic change detection.
 
     Returns a dataclass field() with metadata marking it for auto-tracing.
@@ -113,19 +113,19 @@ def traceable(
     Returns:
         A dataclass field with traceable metadata
     """
-    metadata = {TRACEABLE_KEY: True}
+    metadata: dict[str, Any] = {TRACEABLE_KEY: True}
     if formatter is not None:
         metadata[TRACEABLE_FORMATTER_KEY] = formatter
 
     if default_factory is not None:
-        return field(  # type: ignore
+        return field(
             default_factory=default_factory,
             metadata=metadata,
             init=init,
             repr=repr,
         )
     elif default is not MISSING:
-        return field(  # type: ignore
+        return field(
             default=default,
             metadata=metadata,
             init=init,
@@ -133,7 +133,7 @@ def traceable(
         )
     else:
         # No default - field is required
-        return field(  # type: ignore
+        return field(
             metadata=metadata,
             init=init,
             repr=repr,
@@ -153,7 +153,7 @@ def is_traceable(cls: type, field_name: str) -> bool:
     try:
         for f in dc_fields(cls):
             if f.name == field_name:
-                return f.metadata.get(TRACEABLE_KEY, False)
+                return bool(f.metadata.get(TRACEABLE_KEY, False))
     except TypeError:
         pass
     return False
@@ -250,7 +250,7 @@ def trace_all_fields(cls: type[T]) -> type[T]:
     """
     # Get dataclass fields
     try:
-        cls_fields = dc_fields(cls)
+        cls_fields = dc_fields(cls)  # type: ignore[arg-type]
     except TypeError:
         # Not a dataclass, return unchanged
         return cls

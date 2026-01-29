@@ -34,7 +34,7 @@ def _send_interrupt(process: asyncio.subprocess.Process) -> None:
         # On Windows, send CTRL_BREAK_EVENT to the process group
         # CTRL_C_EVENT doesn't work reliably for subprocesses
         try:
-            os.kill(process.pid, signal.CTRL_BREAK_EVENT)  # type: ignore[attr-defined]
+            os.kill(process.pid, signal.CTRL_BREAK_EVENT)
         except OSError:
             process.terminate()
     else:
@@ -132,7 +132,7 @@ async def run_proxy(config: Config, agent_command: str) -> int:
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=sys.stderr,
-            creationflags=creationflags,  # type: ignore[arg-type]
+            creationflags=creationflags,
         )
     except Exception as e:
         console.print(f"[red]Error spawning agent: {e}[/red]")

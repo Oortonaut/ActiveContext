@@ -5,6 +5,8 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from typing import Any
 
+from pydantic import BaseModel
+
 from acp_debug.extension.chain import ExtensionChain
 from acp_debug.transport.stdio import JsonRpcMessage
 from acp_debug.types.notifications import CancelNotification, SessionUpdate
@@ -41,7 +43,7 @@ from acp_debug.types.responses import (
 )
 
 # Method name to request/response type mapping
-AGENT_METHODS = {
+AGENT_METHODS: dict[str, tuple[type[BaseModel], type[BaseModel]]] = {
     "initialize": (InitializeRequest, InitializeResponse),
     "session/new": (NewSessionRequest, NewSessionResponse),
     "session/load": (LoadSessionRequest, LoadSessionResponse),
@@ -51,11 +53,11 @@ AGENT_METHODS = {
     "session/set_model": (SetModelRequest, SetModelResponse),
 }
 
-AGENT_NOTIFICATIONS = {
+AGENT_NOTIFICATIONS: dict[str, type[BaseModel]] = {
     "session/cancel": CancelNotification,
 }
 
-CLIENT_METHODS = {
+CLIENT_METHODS: dict[str, tuple[type[BaseModel], type[BaseModel] | type[None]]] = {
     "session/request_permission": (PermissionRequest, PermissionResponse),
     "fs/read_text_file": (ReadFileRequest, ReadFileResponse),
     "fs/write_text_file": (WriteFileRequest, type(None)),
@@ -66,7 +68,7 @@ CLIENT_METHODS = {
     "terminal/release": (ReleaseTerminalRequest, type(None)),
 }
 
-CLIENT_NOTIFICATIONS = {
+CLIENT_NOTIFICATIONS: dict[str, type[BaseModel]] = {
     "session/update": SessionUpdate,
 }
 
@@ -202,8 +204,8 @@ class MessageRouter:
                     params=r.model_dump(by_alias=True, exclude_none=True),
                 )
                 response = await forward(forward_msg)
-                if response and response.result is not None and resp_type is not type(None):
-                    return resp_type.model_validate(response.result)
+                if response and response.result is not None and hasattr(resp_type, "model_validate"):
+                    return resp_type.model_validate(response.result)  # type: ignore[union-attr]
                 return None
 
             chain_fn = getattr(self.chain, chain_method)

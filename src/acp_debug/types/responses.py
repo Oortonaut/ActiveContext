@@ -5,14 +5,14 @@ from __future__ import annotations
 from enum import Enum
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import Field
 
-from acp_debug.types.common import AgentCapabilities, AgentInfo, ModeInfo, ModelInfo
+from acp_debug.types.common import AcpModel, AgentCapabilities, AgentInfo, ModeInfo, ModelInfo
 
 # === Agent Method Responses ===
 
 
-class InitializeResponse(BaseModel):
+class InitializeResponse(AcpModel):
     """Initialize response from agent."""
 
     protocol_version: int = Field(alias="protocolVersion")
@@ -21,21 +21,21 @@ class InitializeResponse(BaseModel):
     auth_methods: list[dict[str, Any]] = Field(default_factory=list, alias="authMethods")
 
 
-class ModelsInfo(BaseModel):
+class ModelsInfo(AcpModel):
     """Available models information."""
 
     available_models: list[ModelInfo] = Field(alias="availableModels")
     current_model_id: str | None = Field(default=None, alias="currentModelId")
 
 
-class ModesInfo(BaseModel):
+class ModesInfo(AcpModel):
     """Available modes information."""
 
     available_modes: list[ModeInfo] = Field(alias="availableModes")
     current_mode_id: str | None = Field(default=None, alias="currentModeId")
 
 
-class NewSessionResponse(BaseModel):
+class NewSessionResponse(AcpModel):
     """New session response."""
 
     session_id: str = Field(alias="sessionId")
@@ -43,7 +43,7 @@ class NewSessionResponse(BaseModel):
     modes: ModesInfo | None = None
 
 
-class LoadSessionResponse(BaseModel):
+class LoadSessionResponse(AcpModel):
     """Load session response."""
 
     session_id: str = Field(alias="sessionId")
@@ -51,7 +51,7 @@ class LoadSessionResponse(BaseModel):
     modes: ModesInfo | None = None
 
 
-class SessionInfo(BaseModel):
+class SessionInfo(AcpModel):
     """Session information for listing."""
 
     session_id: str = Field(alias="sessionId")
@@ -59,7 +59,7 @@ class SessionInfo(BaseModel):
     created_at: str | None = Field(default=None, alias="createdAt")
 
 
-class ListSessionsResponse(BaseModel):
+class ListSessionsResponse(AcpModel):
     """List sessions response."""
 
     sessions: list[SessionInfo]
@@ -76,19 +76,19 @@ class StopReason(str, Enum):
     CANCELLED = "cancelled"
 
 
-class PromptResponse(BaseModel):
+class PromptResponse(AcpModel):
     """Prompt response."""
 
     stop_reason: StopReason = Field(alias="stopReason")
 
 
-class SetModeResponse(BaseModel):
+class SetModeResponse(AcpModel):
     """Set mode response."""
 
     mode_id: str = Field(alias="modeId")
 
 
-class SetModelResponse(BaseModel):
+class SetModelResponse(AcpModel):
     """Set model response."""
 
     model_id: str = Field(alias="modelId")
@@ -97,32 +97,32 @@ class SetModelResponse(BaseModel):
 # === Client Method Responses ===
 
 
-class PermissionOutcome(BaseModel):
+class PermissionOutcome(AcpModel):
     """Permission decision outcome."""
 
     outcome: str  # "selected" or "dismissed"
     option_id: str | None = Field(default=None, alias="optionId")
 
 
-class PermissionResponse(BaseModel):
+class PermissionResponse(AcpModel):
     """Permission response from client."""
 
     outcome: PermissionOutcome
 
 
-class ReadFileResponse(BaseModel):
+class ReadFileResponse(AcpModel):
     """Read file response."""
 
     content: str
 
 
-class CreateTerminalResponse(BaseModel):
+class CreateTerminalResponse(AcpModel):
     """Create terminal response."""
 
     terminal_id: str = Field(alias="terminalId")
 
 
-class TerminalOutputResponse(BaseModel):
+class TerminalOutputResponse(AcpModel):
     """Terminal output response."""
 
     output: str
@@ -130,7 +130,7 @@ class TerminalOutputResponse(BaseModel):
     exit_status: dict[str, Any] | None = Field(default=None, alias="exitStatus")
 
 
-class WaitForExitResponse(BaseModel):
+class WaitForExitResponse(AcpModel):
     """Wait for exit response."""
 
     exit_code: int | None = Field(default=None, alias="exitCode")

@@ -100,7 +100,7 @@ async def run_tap(config: Config, agent_command: str, output: Path | None) -> in
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=sys.stderr,
-            creationflags=creationflags,  # type: ignore[arg-type]
+            creationflags=creationflags,
         )
     except Exception as e:
         console.print(f"[red]Error spawning agent: {e}[/red]")
