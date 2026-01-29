@@ -4,16 +4,6 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
-
-from activecontext.prompts import SYSTEM_PROMPT
-
-if TYPE_CHECKING:
-    from activecontext.session.protocols import Projection
-
-# Re-export for backward compatibility
-__all__ = ["SYSTEM_PROMPT", "ParsedResponse", "parse_response", "build_user_message"]
-
 
 @dataclass
 class ParsedResponse:
@@ -78,33 +68,3 @@ def parse_response(text: str) -> ParsedResponse:
         segments.append(("prose", text.strip()))
 
     return ParsedResponse(segments=segments)
-
-
-def build_user_message(prompt: str, projection: Projection | None = None) -> str:
-    """Build the user message with optional context projection.
-
-    Args:
-        prompt: User's prompt text
-        projection: Optional projection of current context state
-
-    Returns:
-        Formatted user message
-    """
-    parts = []
-
-    if projection and projection.handles:
-        parts.append("## Current Context\n")
-        for handle_id, digest in projection.handles.items():
-            obj_type = digest.get("type", "unknown")
-            if obj_type == "text":
-                parts.append(
-                    f"- `{handle_id}`: view of {digest.get('path', '?')} "
-                    f"(state={digest.get('state', 'all')}, tokens={digest.get('tokens', 0)})"
-                )
-            elif obj_type == "group":
-                parts.append(f"- `{handle_id}`: group with {digest.get('member_count', 0)} members")
-        parts.append("")
-
-    parts.append(prompt)
-
-    return "\n".join(parts)
