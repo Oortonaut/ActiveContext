@@ -1949,6 +1949,7 @@ class Session:
         import logging
 
         from activecontext.config.schema import MCPConnectMode
+        from activecontext.session.protocols import ExecutionStatus
 
         _log = logging.getLogger("activecontext.session")
 
@@ -1957,18 +1958,22 @@ class Session:
                 continue
 
             if server_config.connect in (MCPConnectMode.CRITICAL, MCPConnectMode.AUTO):
-                try:
-                    source = f'mcp_connect("{server_config.name}")'
-                    await self._timeline.execute_statement(source)
+                source = f'mcp_connect("{server_config.name}")'
+                result = await self._timeline.execute_statement(source)
+
+                if result.status == ExecutionStatus.OK:
                     _log.info(f"Auto-connected to MCP server '{server_config.name}'")
-                except Exception as e:
+                else:
+                    error_msg = ""
+                    if result.exception:
+                        error_msg = result.exception.get("message", str(result.exception))
                     if server_config.connect == MCPConnectMode.CRITICAL:
                         raise RuntimeError(
-                            f"Critical MCP server '{server_config.name}' failed to connect: {e}"
-                        ) from e
+                            f"Critical MCP server '{server_config.name}' failed to connect: {error_msg}"
+                        )
                     else:
                         _log.warning(
-                            f"Failed to auto-connect to MCP server '{server_config.name}': {e}"
+                            f"Failed to auto-connect to MCP server '{server_config.name}': {error_msg}"
                         )
 
 

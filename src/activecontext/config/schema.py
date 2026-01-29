@@ -149,9 +149,21 @@ class ProjectionConfig:
 
 @dataclass
 class LoggingConfig:
-    """Logging configuration."""
+    """Logging configuration.
 
-    level: str | None = None  # DEBUG, INFO, WARNING, ERROR
+    Use either `level` (string name) or `verbose` (0-4 integer).
+    If both are set, `verbose` takes precedence.
+
+    Verbose levels:
+        0 = error   - errors only
+        1 = warning  - errors + warnings
+        2 = info     - normal operation (default)
+        3 = verbose  - detailed diagnostics
+        4 = trace    - everything
+    """
+
+    level: str | None = None  # TRACE, DEBUG, VERBOSE, INFO, WARNING, ERROR
+    verbose: int | None = None  # 0-4 verbosity shorthand
     file: str | None = None  # Log file path
 
 

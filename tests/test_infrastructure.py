@@ -357,7 +357,9 @@ class TestLogging:
         assert logger.name == "activecontext"
 
     def test_logging_format(self, temp_log_file):
-        """Test log message format."""
+        """Test log message format: 'HH:MM:SS level: message'."""
+        import re
+
         from activecontext.config.schema import LoggingConfig
         import activecontext.logging as logging_module
 
@@ -369,12 +371,10 @@ class TestLogging:
         logger = get_logger()
         logger.info("Test message")
 
-        # Read log file
-        log_content = Path(temp_log_file).read_text()
+        log_content = Path(temp_log_file).read_text().strip()
 
-        # Should contain timestamp and message
-        assert "Test message" in log_content
-        assert "[" in log_content  # Timestamp brackets
+        # Validate full format: HH:MM:SS info: Test message
+        assert re.match(r"\d{2}:\d{2}:\d{2} info: Test message$", log_content)
 
 
 # =============================================================================
