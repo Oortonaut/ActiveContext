@@ -219,7 +219,6 @@ class Agent(Script):
             role=message.role.value,  # Convert Role enum to string
             content=message.content,
             originator=message.originator,
-            tokens=500,  # Default token budget for messages
         )
 
         # Add via callback if available (Session handles group linking)
@@ -336,12 +335,16 @@ class Agent(Script):
                 Message(role=Role.ASSISTANT, content=full_response, originator="agent")
             )
 
-            # Parse response and execute code blocks
+            # Parse response and execute executable segments
             parsed = parse_response(full_response)
-            code_blocks = parsed.code_blocks
+            executable = [
+                s.content
+                for s in parsed.segments
+                if s.language == "python/acrepl" or s.kind == "xml"
+            ]
             execution_results: list[str] = []
 
-            for code in code_blocks:
+            for code in executable:
                 if self._cancelled:
                     return
                 async for update in self._execute_code(code):
@@ -370,8 +373,8 @@ class Agent(Script):
             turn_duration_ms = (time.time() - turn_start) * 1000
             tokens_used = len(full_response) // 4  # Rough estimate
             action_desc = None
-            if code_blocks:
-                action_desc = f"Executed {len(code_blocks)} code block(s)"
+            if executable:
+                action_desc = f"Executed {len(executable)} code block(s)"
             if self._session_node:
                 self._session_node.record_turn(
                     tokens_used=tokens_used,
@@ -385,7 +388,7 @@ class Agent(Script):
                 break
 
             # If no code was executed, the agent is done (legacy behavior)
-            if not code_blocks:
+            if not executable:
                 log.debug("No code blocks, stopping loop")
                 break
 

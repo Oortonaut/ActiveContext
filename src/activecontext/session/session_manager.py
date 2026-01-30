@@ -244,7 +244,6 @@ class Session:
         root = self._timeline._make_markdown_node(
             path="system_prompt",
             content=SYSTEM_PROMPT,
-            tokens=2000,  # Base system prompt is smaller than full combined prompt
             expansion=Expansion.ALL,  # Fully expanded
         )
 
@@ -307,7 +306,6 @@ class Session:
         # Create SessionNode for agent situational awareness
         self._session_node = SessionNode(
             node_id="session",
-            tokens=500,
             mode="running",
             tick_frequency=TickFrequency.turn(),
             session_start_time=self._created_at.timestamp(),
@@ -321,7 +319,6 @@ class Session:
         # Create MCPManagerNode singleton for tracking MCP server connections
         self._mcp_manager_node = MCPManagerNode(
             node_id="mcp_manager",
-            tokens=300,
             expansion=Expansion.CONTENT,
             mode="running",
             tick_frequency=TickFrequency.turn(),
@@ -333,7 +330,6 @@ class Session:
         # Document order: System Prompt -> Guide -> Session -> MCP -> User Messages
         self._user_messages_group = GroupNode(
             node_id="user_messages",
-            tokens=2000,
             expansion=Expansion.ALL,  # Visible in projection
             mode="running",
             tick_frequency=TickFrequency.turn(),
@@ -345,7 +341,6 @@ class Session:
         # Notifications from HOLD/WAKE level nodes appear here
         self._alerts_group = GroupNode(
             node_id="alerts",
-            tokens=500,
             expansion=Expansion.HEADER,  # Header when empty, ALL when has content
             mode="running",
             tick_frequency=TickFrequency.turn(),
@@ -878,7 +873,6 @@ class Session:
             role=message.role.value,  # Convert Role enum to string
             content=message.content,
             originator=message.originator,
-            tokens=500,  # Default token budget for messages
         )
 
         # Add via add_node() which handles current_group linking
@@ -1003,7 +997,6 @@ class Session:
             # Create missing user_messages group for backward compatibility
             session._user_messages_group = GroupNode(
                 node_id="user_messages",
-                tokens=2000,
                 expansion=Expansion.ALL,
                 mode="running",
                 tick_frequency=TickFrequency.turn(),
@@ -1021,7 +1014,6 @@ class Session:
             # Create missing alerts group for backward compatibility
             session._alerts_group = GroupNode(
                 node_id="alerts",
-                tokens=500,
                 expansion=Expansion.HEADER,
                 mode="running",
                 tick_frequency=TickFrequency.turn(),
@@ -1220,12 +1212,16 @@ class Session:
                 Message(role=Role.ASSISTANT, content=full_response, originator="agent")
             )
 
-            # Parse response and execute code blocks
+            # Parse response and execute executable segments
             parsed = parse_response(full_response)
-            code_blocks = parsed.code_blocks
+            executable = [
+                s.content
+                for s in parsed.segments
+                if s.language == "python/acrepl" or s.kind == "xml"
+            ]
             execution_results: list[str] = []
 
-            for code in code_blocks:
+            for code in executable:
                 if self._cancelled:
                     return
                 async for update in self._execute_code(code):
@@ -1253,8 +1249,8 @@ class Session:
             turn_duration_ms = (time.time() - turn_start) * 1000
             tokens_used = len(full_response) // 4  # Rough estimate
             action_desc = None
-            if code_blocks:
-                action_desc = f"Executed {len(code_blocks)} code block(s)"
+            if executable:
+                action_desc = f"Executed {len(executable)} code block(s)"
             if self._session_node:
                 self._session_node.record_turn(
                     tokens_used=tokens_used,
@@ -1268,7 +1264,7 @@ class Session:
                 break
 
             # If no code was executed, the agent is done (legacy behavior)
-            if not code_blocks:
+            if not executable:
                 log.debug("No code blocks, stopping loop")
                 break
 
@@ -1931,7 +1927,7 @@ class Session:
 
                 # Use forward slashes for cross-platform compatibility
                 safe_path = rel_path.replace("\\", "/")
-                source = f'guide = markdown("{safe_path}", tokens=1500, expansion=Expansion.ALL)'
+                source = f'guide = markdown("{safe_path}", expansion=Expansion.ALL)'
                 await self._timeline.execute_statement(source)
                 break
 
