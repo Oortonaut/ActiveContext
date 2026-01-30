@@ -1624,7 +1624,7 @@ c = await increment()
 
         The Timeline's _await_namespace_coroutines() automatically awaits any
         coroutine objects stored in the namespace. This is the feature that allows
-        `x = mcp_connect("server")` to work without explicit await.
+        async DSL functions (e.g., mcp_connect) to work without explicit await.
         """
         timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
 
@@ -1890,5 +1890,134 @@ class TestSessionModeIntegration:
             assert session.mode == "plan"
             assert mode_choice.selected_id == plan_id
 
+        finally:
+            await timeline.close()
+
+
+class TestImportScript:
+    """Test import_script() DSL function."""
+
+    @pytest.fixture
+    def temp_cwd(self, tmp_path: Path) -> Path:
+        return tmp_path
+
+    @pytest.mark.asyncio
+    async def test_import_script_executes_acrepl_blocks(self, temp_cwd: Path) -> None:
+        """import_script parses markdown and executes python/acrepl blocks."""
+        script = temp_cwd / "test_script.md"
+        script.write_text(
+            '# Test Script\n\nSome prose.\n\n```python/acrepl\n'
+            't = topic("From Script")\n```\n',
+            encoding="utf-8",
+        )
+
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
+        try:
+            result = await timeline.execute_statement('await import_script("test_script.md")')
+            assert result.status.value == "ok"
+
+            ns = timeline.get_namespace()
+            assert "t" in ns
+        finally:
+            await timeline.close()
+
+    @pytest.mark.asyncio
+    async def test_import_script_skips_comments(self, temp_cwd: Path) -> None:
+        """import_script skips lines starting with #."""
+        script = temp_cwd / "comments.md"
+        script.write_text(
+            '```python/acrepl\n# This is a comment\nt = topic("Works")\n```\n',
+            encoding="utf-8",
+        )
+
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
+        try:
+            result = await timeline.execute_statement('await import_script("comments.md")')
+            assert result.status.value == "ok"
+
+            ns = timeline.get_namespace()
+            assert "t" in ns
+        finally:
+            await timeline.close()
+
+    @pytest.mark.asyncio
+    async def test_import_script_multiple_blocks(self, temp_cwd: Path) -> None:
+        """import_script executes statements from multiple fenced blocks."""
+        script = temp_cwd / "multi.md"
+        script.write_text(
+            '# Block 1\n\n```python/acrepl\nt1 = topic("First")\n```\n\n'
+            '# Block 2\n\n```python/acrepl\nt2 = topic("Second")\n```\n',
+            encoding="utf-8",
+        )
+
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
+        try:
+            result = await timeline.execute_statement('await import_script("multi.md")')
+            assert result.status.value == "ok"
+
+            ns = timeline.get_namespace()
+            assert "t1" in ns
+            assert "t2" in ns
+        finally:
+            await timeline.close()
+
+    @pytest.mark.asyncio
+    async def test_import_script_ignores_non_acrepl_blocks(self, temp_cwd: Path) -> None:
+        """import_script only executes python/acrepl blocks, not other code blocks."""
+        script = temp_cwd / "mixed.md"
+        script.write_text(
+            '```python\n# This is regular python, not acrepl\nx = 1\n```\n\n'
+            '```python/acrepl\nt = topic("Only This")\n```\n',
+            encoding="utf-8",
+        )
+
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
+        try:
+            result = await timeline.execute_statement('await import_script("mixed.md")')
+            assert result.status.value == "ok"
+
+            ns = timeline.get_namespace()
+            assert "t" in ns
+            assert "x" not in ns  # Regular python block should not execute
+        finally:
+            await timeline.close()
+
+    @pytest.mark.asyncio
+    async def test_import_script_with_path_resolver(self, temp_cwd: Path) -> None:
+        """import_script uses path resolver callback for @prompts/ paths."""
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
+
+        def mock_resolver(path: str) -> tuple[str, str | None]:
+            if path == "@prompts/test.md":
+                return ("@prompts/test", '```python/acrepl\nt = topic("Resolved")\n```\n')
+            return (path, None)
+
+        timeline._path_resolver = mock_resolver
+
+        try:
+            result = await timeline.execute_statement('await import_script("@prompts/test.md")')
+            assert result.status.value == "ok"
+
+            ns = timeline.get_namespace()
+            assert "t" in ns
+        finally:
+            await timeline.close()
+
+    @pytest.mark.asyncio
+    async def test_import_script_in_namespace(self, temp_cwd: Path) -> None:
+        """import_script is available in the namespace."""
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
+        try:
+            assert "import_script" in timeline._namespace
+        finally:
+            await timeline.close()
+
+    @pytest.mark.asyncio
+    async def test_import_script_excluded_from_snapshot(self, temp_cwd: Path) -> None:
+        """import_script should not appear in namespace snapshots."""
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
+        try:
+            snapshot = timeline.get_namespace()
+            assert "import_script" not in snapshot
         finally:
             await timeline.close()

@@ -129,21 +129,19 @@ class ScriptNamespace(dict[str, Any]):
     Returns NodeView wrappers for nodes to enable view-based state management.
     User-defined variables take precedence over node lookups.
 
-    Lookup order: namespace → views dict → graph (by node_id) → MCP nodes (by server_name) → KeyError
+    Lookup order: namespace → views dict → graph (by node_id) → KeyError
     """
 
     def __init__(
         self,
         graph_getter: Callable[[], ContextGraph | None],
         views_getter: Callable[[], dict[str, NodeView]],
-        mcp_nodes_getter: Callable[[], dict[str, Any]] | None = None,
         *args: Any,
         **kwargs: Any,
     ) -> None:
         super().__init__(*args, **kwargs)
         self._graph_getter = graph_getter
         self._views_getter = views_getter
-        self._mcp_nodes_getter = mcp_nodes_getter
 
     def __getitem__(self, key: str) -> Any:
         try:
@@ -163,17 +161,6 @@ class ScriptNamespace(dict[str, Any]):
                     if node.node_id in views:
                         return views[node.node_id]
                     # Create new view and store by node_id
-                    view = NodeView(node)
-                    views[node.node_id] = view
-                    return view
-
-            # Fall back to MCP server node lookup by server_name
-            if self._mcp_nodes_getter is not None:
-                mcp_nodes = self._mcp_nodes_getter()
-                if key in mcp_nodes:
-                    node = mcp_nodes[key]
-                    if node.node_id in views:
-                        return views[node.node_id]
                     view = NodeView(node)
                     views[node.node_id] = view
                     return view
@@ -532,7 +519,6 @@ class Timeline:
         self._mcp_integration = MCPIntegration(
             mcp_config=mcp_config,
             context_graph=self._context_graph,
-            namespace=self._namespace,
             fire_event=self.fire_event,
         )
 
@@ -682,7 +668,6 @@ class Timeline:
         self._namespace = ScriptNamespace(
             lambda: self._context_graph,
             lambda: self._views,
-            lambda: self._mcp_integration._mcp_server_nodes,
             {
                 "__builtins__": safe_builtins,
                 "__name__": "__activecontext__",
@@ -703,6 +688,8 @@ class Timeline:
                 "sequence": self._make_sequence_view,
                 "loop_view": self._make_loop_view,
                 "state_machine": self._make_state_machine,
+                # Script import
+                "import_script": self._import_script,
                 # DAG manipulation
                 "link": self._link,
                 "unlink": self._unlink,
@@ -769,12 +756,6 @@ class Timeline:
             }
         )
 
-        # Inject connected MCP server proxies into namespace
-        self._namespace.update(self._mcp_integration.generate_namespace_bindings())
-
-        # Update MCPIntegration's namespace reference (it was initialized with the
-        # old dict before _setup_namespace replaced self._namespace)
-        self._mcp_integration._namespace = self._namespace
 
     def _setup_agent_namespace(self) -> None:
         """Add agent functions to namespace when agent manager is available.
@@ -1781,6 +1762,39 @@ class Timeline:
             return self._make_text_node(path, expansion=expansion, **kwargs)
         else:
             raise ValueError(f"Unknown media_type: {media_type}. Use 'text' or 'markdown'.")
+
+    async def _import_script(self, path: str) -> None:
+        """Import and execute a markdown script file.
+
+        Parses the file with parse_response() and executes all
+        python/acrepl fenced blocks sequentially, one line at a time.
+
+        Args:
+            path: File path (supports @prompts/ prefix via path resolver)
+        """
+        from activecontext.core.prompts import parse_response
+
+        # Resolve path via callback (supports @prompts/ prefix)
+        content: str | None = None
+        if self._path_resolver is not None:
+            _resolved_path, resolved_content = self._path_resolver(path)
+            if resolved_content is not None:
+                content = resolved_content
+
+        if content is None:
+            import os
+
+            full_path = os.path.join(self._cwd, path) if not os.path.isabs(path) else path
+            with open(full_path, encoding="utf-8") as f:
+                content = f.read()
+
+        parsed = parse_response(content)
+        for segment in parsed.segments:
+            if segment.language == "python/acrepl":
+                for stmt in segment.content.strip().split("\n"):
+                    stmt = stmt.strip()
+                    if stmt and not stmt.startswith("#"):
+                        await self.execute_statement(stmt)
 
     def _link(
         self,
@@ -2865,6 +2879,7 @@ class Timeline:
             "mcp_tools",
             "connect",
             "interact",  # Conversation delegation DSL functions
+            "import_script",
         }
         return {
             k: v for k, v in self._namespace.items() if not k.startswith("__") and k not in excluded

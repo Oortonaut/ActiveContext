@@ -5,6 +5,7 @@ Encapsulates MCP server connections, namespace bindings, and node management.
 
 from __future__ import annotations
 
+import re
 from typing import TYPE_CHECKING, Any
 
 from activecontext.context.nodes import MCPManagerNode, MCPServerNode
@@ -18,13 +19,39 @@ if TYPE_CHECKING:
     from activecontext.context.graph import ContextGraph
 
 
+def to_snake_identifier(name: str) -> str:
+    """Convert an arbitrary server name to a valid Python snake_case identifier.
+
+    Examples:
+        >>> to_snake_identifier("rust-filesystem")
+        'rust_filesystem'
+        >>> to_snake_identifier("My Server")
+        'my_server'
+        >>> to_snake_identifier("CamelCase")
+        'camel_case'
+        >>> to_snake_identifier("123-start")
+        'start'
+    """
+    # Insert underscore before uppercase transitions (CamelCase → camel_case)
+    s = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", name)
+    # Replace non-alphanumeric characters with underscores
+    s = re.sub(r"[^a-zA-Z0-9]", "_", s)
+    # Lowercase
+    s = s.lower()
+    # Collapse consecutive underscores
+    s = re.sub(r"_+", "_", s)
+    # Strip leading/trailing underscores and leading digits
+    s = s.strip("_")
+    s = re.sub(r"^[0-9]+_?", "", s)
+    return s or "server"
+
+
 class MCPIntegration:
     """Manages MCP server connections and integration with the context graph.
 
     Responsibilities:
     - Connect/disconnect MCP servers
     - Manage MCPServerNode instances
-    - Update namespace bindings when servers connect/disconnect
     - Provide query interface (list, tools)
     """
 
@@ -33,7 +60,6 @@ class MCPIntegration:
         *,
         mcp_config: MCPConfig | None = None,
         context_graph: ContextGraph,
-        namespace: dict[str, Any],
         fire_event: Callable[[str, dict[str, Any]], str | None],
     ):
         """Initialize MCP integration manager.
@@ -41,13 +67,11 @@ class MCPIntegration:
         Args:
             mcp_config: MCP configuration with server definitions
             context_graph: The session's context graph for adding nodes
-            namespace: The session's namespace dict for binding server proxies
             fire_event: Callback for MCP result events
         """
         self._mcp_client_manager = MCPClientManager(config=mcp_config)
         self._mcp_server_nodes: dict[str, MCPServerNode] = {}
         self._context_graph = context_graph
-        self._namespace = namespace
         self._fire_event = fire_event
 
     async def connect(
@@ -112,7 +136,9 @@ class MCPIntegration:
         if name in self._mcp_server_nodes:
             node = self._mcp_server_nodes[name]
         else:
+            identifier = to_snake_identifier(name)
             node = MCPServerNode(
+                node_id=identifier,
                 server_name=name,
                 expansion=expansion,
             )
@@ -135,24 +161,14 @@ class MCPIntegration:
             self._context_graph.link(node.node_id, mcp_manager.node_id)
             mcp_manager.register_server(node)
 
-        # Update namespace with the server proxy
+        # Attach ServerProxy to node (used for tool dispatch via NodeView)
         bindings = self._mcp_client_manager.generate_namespace_bindings()
         if name in bindings:
             proxy = bindings[name]
-            # Augment proxy with tool() method for accessing MCPToolNode children
             proxy._mcp_node = node
             proxy.tool = node.tool
             proxy.tool_nodes = node.tool_nodes
             node._server_proxy = proxy
-            self._namespace[name] = proxy
-
-        # Add tool nodes to namespace with {server}_{tool} naming
-        for tool_name, tool_node_id in node._tool_nodes.items():
-            tool_node = self._context_graph.get_node(tool_node_id)
-            if tool_node:
-                # e.g., filesystem_read_file
-                namespace_key = f"{name}_{tool_name}"
-                self._namespace[namespace_key] = tool_node
 
         return node
 
@@ -168,13 +184,8 @@ class MCPIntegration:
         if name in self._mcp_server_nodes:
             node = self._mcp_server_nodes[name]
 
-            # Remove tool nodes from namespace and graph
+            # Remove tool nodes from graph
             for tool_name, tool_node_id in list(node._tool_nodes.items()):
-                # Remove from namespace
-                namespace_key = f"{name}_{tool_name}"
-                if namespace_key in self._namespace:
-                    del self._namespace[namespace_key]
-                # Remove from graph
                 tool_node = self._context_graph.get_node(tool_node_id)
                 if tool_node:
                     tool_node._mark_changed(
@@ -193,10 +204,6 @@ class MCPIntegration:
         mcp_manager = self._context_graph.get_node("mcp_manager")
         if mcp_manager and isinstance(mcp_manager, MCPManagerNode):
             mcp_manager.unregister_server(name)
-
-        # Remove from namespace
-        if name in self._namespace:
-            del self._namespace[name]
 
     def list_connections(self) -> list[dict[str, Any]]:
         """List all MCP server connections and their status.
