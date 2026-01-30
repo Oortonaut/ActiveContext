@@ -57,7 +57,6 @@ class MCPIntegration:
         command: list[str] | None = None,
         url: str | None = None,
         env: dict[str, str] | None = None,
-        tokens: int = 1000,
         expansion: Expansion = Expansion.ALL,
     ) -> MCPServerNode:
         """Connect to an MCP server.
@@ -67,7 +66,6 @@ class MCPIntegration:
             command: For stdio transport: command and args to spawn server
             url: For streamable-http transport: server URL
             env: Environment variables for the server process
-            tokens: Token budget for tool documentation
             state: Initial rendering state
 
         Returns:
@@ -116,7 +114,6 @@ class MCPIntegration:
         else:
             node = MCPServerNode(
                 server_name=name,
-                tokens=tokens,
                 expansion=expansion,
             )
             self._mcp_server_nodes[name] = node

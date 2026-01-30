@@ -8,7 +8,7 @@ Execute statements in `python/acrepl` fenced code blocks:
 
 ~~~markdown
 ```python/acrepl
-v = text("src/main.py", tokens=2000)
+v = text("src/main.py")
 v.expansion = Expansion.CONTENT
 ```
 ~~~
@@ -24,7 +24,7 @@ v = text("src/main.py")   # Creates text_1
 text_1.expansion = Expansion.CONTENT  # Direct access works
 
 g = group(text_1, text_2)  # Creates group_1
-group_1.tokens = 500     # Direct access
+group_1.expansion = Expansion.CONTENT  # Direct access
 ```
 
 Display IDs follow the format `{type}_{sequence}`: `text_1`, `group_2`, `shell_3`, etc.
@@ -79,17 +79,17 @@ TickFrequency.never()       # No automatic updates
 
 ## Context Node Constructors
 
-### `text(path, *, pos="1:0", tokens=2000, expansion=Expansion.ALL, mode="paused", parent=None)`
+### `text(path, *, pos="1:0", expansion=Expansion.ALL, mode="paused", parent=None)`
 Create a text view of a file or file region.
 
 ```python
 v = text("src/main.py")                          # Entire file
-v = text("src/main.py", pos="50:0", tokens=500)  # Start at line 50
-v = text("src/main.py", tokens=500, expansion=Expansion.CONTENT)
+v = text("src/main.py", pos="50:0")               # Start at line 50
+v = text("src/main.py", expansion=Expansion.CONTENT)
 v = text("src/main.py", parent=group_node)       # Link to parent at creation
 ```
 
-### `markdown(path, *, content=None, tokens=2000, expansion=Expansion.ALL, parent=None)`
+### `markdown(path, *, content=None, expansion=Expansion.ALL, parent=None)`
 Parse a markdown file into a tree of TextNodes, where each heading section is a separate node.
 
 ```python
@@ -100,7 +100,7 @@ m = markdown("docs/guide.md", parent=docs_group) # Link to parent
 
 Returns the root TextNode. Child sections are accessible via `children_ids`.
 
-### `view(media_type, path, tokens=2000, expansion=Expansion.ALL, **kwargs)`
+### `view(media_type, path, expansion=Expansion.ALL, **kwargs)`
 Dispatcher that routes to `text()` or `markdown()` based on media type.
 
 ```python
@@ -108,7 +108,7 @@ v = view("text", "src/main.py")                  # Same as text()
 m = view("markdown", "docs/README.md")           # Same as markdown()
 ```
 
-### `group(*members, tokens=500, expansion=Expansion.CONTENT, summary=None, parent=None)`
+### `group(*members, expansion=Expansion.CONTENT, summary=None, parent=None)`
 Create a summary group over multiple nodes.
 
 ```python
@@ -117,7 +117,7 @@ g = group("node_id_1", "node_id_2")      # Group from node IDs
 g = group(v1, v2, summary="Auth module overview")
 ```
 
-### `choice(*children, selected=None, tokens=500, expansion=Expansion.ALL, parent=None)`
+### `choice(*children, selected=None, expansion=Expansion.ALL, parent=None)`
 Create a dropdown-like selection view. Only the selected child is visible.
 
 ```python
@@ -131,7 +131,7 @@ c.get_options()                                 # Get list of option titles
 
 Progression views provide structured iteration patterns for agent workflows.
 
-### `sequence(*children, tokens=500, expansion=Expansion.ALL, parent=None)`
+### `sequence(*children, expansion=Expansion.ALL, parent=None)`
 Create a sequential workflow. Agent works through steps in order.
 
 ```python
@@ -155,7 +155,7 @@ seq.completed_steps     # Set of completed step indices
 seq.render_progress()   # Markdown progress list
 ```
 
-### `loop_view(child, max_iterations=None, tokens=500, expansion=Expansion.ALL, parent=None)`
+### `loop_view(child, max_iterations=None, expansion=Expansion.ALL, parent=None)`
 Create an iterative refinement loop. Agent iterates on a single prompt.
 
 ```python
@@ -183,7 +183,7 @@ loop.render_header()    # "## Review Loop [iteration 2/5]"
 loop.render_state()     # Formatted state display
 ```
 
-### `state_machine(states, transitions, initial=None, tokens=500, expansion=Expansion.ALL, parent=None)`
+### `state_machine(states, transitions, initial=None, expansion=Expansion.ALL, parent=None)`
 Create a state machine for branching workflows.
 
 ```python
@@ -224,7 +224,7 @@ Progression views can be combined:
 
 State is automatically persisted to node tags for session save/restore.
 
-### `topic(title, *, tokens=1000, status="active", parent=None)`
+### `topic(title, *, status="active", parent=None)`
 Create a conversation topic/thread marker. Note: Topics do not have an expansion parameter.
 
 ```python
@@ -232,7 +232,7 @@ t = topic("Authentication Implementation")
 t = topic("Bug Fix", status="resolved")   # Status: active, resolved, deferred
 ```
 
-### `artifact(artifact_type="code", *, content="", language=None, tokens=500, parent=None)`
+### `artifact(artifact_type="code", *, content="", language=None, parent=None)`
 Create an artifact (code snippet, output, error). Note: Artifacts do not have an expansion parameter.
 
 ```python
@@ -275,7 +275,6 @@ All context nodes support chainable configuration methods.
 
 ```python
 node.expansion = Expansion.CONTENT     # Change rendering state
-node.tokens = 500                      # Change token budget
 node.Run(TickFrequency.turn())     # Start running with frequency
 node.Pause()                       # Stop automatic updates
 ```
@@ -292,7 +291,6 @@ Use direct assignment for configuration:
 
 ```python
 v = text("src/main.py")
-v.tokens = 2000
 v.expansion = Expansion.ALL
 v.Run(TickFrequency.turn())
 ```
@@ -372,7 +370,7 @@ branch("refactor_attempt_2")  # Same as checkpoint("refactor_attempt_2")
 
 ## Shell Execution
 
-### `shell(command, args=None, cwd=None, env=None, timeout=30.0, *, tokens=2000, expansion=Expansion.ALL)`
+### `shell(command, args=None, cwd=None, env=None, timeout=30.0, *, expansion=Expansion.ALL)`
 Execute a shell command asynchronously. Returns a ShellNode.
 
 ```python
@@ -407,7 +405,7 @@ response = await fetch("https://api.example.com/data")
 
 ## File Locking
 
-### `lock_file(lockfile, timeout=30.0, *, tokens=200, expansion=Expansion.HEADER)`
+### `lock_file(lockfile, timeout=30.0, *, expansion=Expansion.HEADER)`
 Acquire an exclusive file lock asynchronously for coordination. Returns a LockNode.
 
 The lock uses OS-level file locking (fcntl on Unix, msvcrt on Windows).
@@ -492,7 +490,7 @@ entries = work_list()
 
 ## MCP (Model Context Protocol)
 
-### `mcp_connect(name, *, command=None, url=None, env=None, tokens=1000, expansion=Expansion.ALL)`
+### `mcp_connect(name, *, command=None, url=None, env=None, expansion=Expansion.ALL)`
 Connect to an MCP server. Returns an MCPServerNode.
 
 ```python
@@ -753,11 +751,11 @@ You can use XML-style tags instead of Python syntax. Tags are converted to Pytho
 
 ```xml
 <!-- name becomes the variable name -->
-<view name="v" path="src/main.py" tokens="3000" expansion="all"/>
-<group name="g" tokens="500" expansion="content">
+<view name="v" path="src/main.py" expansion="all"/>
+<group name="g" expansion="content">
     <member ref="v"/>
 </group>
-<topic name="t" title="Feature X" tokens="1000"/>
+<topic name="t" title="Feature X"/>
 <artifact name="a" artifact_type="code" content="def foo(): pass" language="python"/>
 ```
 
@@ -768,7 +766,6 @@ Note: Use `<view>` tag for both text and markdown files. The `<text>` and `<mark
 ```xml
 <!-- Direct field assignment using assign tag -->
 <assign target="v.expansion" value="content"/>
-<assign target="v.tokens" value="500"/>
 <SetPos self="v" pos="50:0"/>
 <Run self="v" freq="turn"/>
 <Pause self="v"/>

@@ -374,7 +374,7 @@ class TestSessionLifecycleIntegration:
             proj1 = session.get_projection().render()
 
             # Create a view
-            await session.execute('v = text("test.py", tokens=500)')
+            await session.execute('v = text("test.py")')
 
             # Projection should have changed
             proj2 = session.get_projection().render()

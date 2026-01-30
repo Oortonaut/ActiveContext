@@ -4,7 +4,7 @@ Connect to external MCP servers to access their tools and resources.
 
 ## Connecting to Servers
 
-### `mcp_connect(name, *, command=None, url=None, env=None, tokens=1000, expansion=Expansion.ALL)`
+### `mcp_connect(name, *, command=None, url=None, env=None, expansion=Expansion.ALL)`
 Connect to an MCP server. Returns an MCPServerNode.
 
 ```python

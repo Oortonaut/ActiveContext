@@ -77,7 +77,6 @@ class ShellManager:
         env: dict[str, str] | None = None,
         timeout: float | None = 30.0,
         *,
-        tokens: int = 2000,
         expansion: Expansion = Expansion.ALL,
     ) -> ShellNode:
         """Execute a shell command asynchronously, returning a ShellNode.
@@ -92,7 +91,6 @@ class ShellManager:
             cwd: Working directory. If None, uses session cwd.
             env: Additional environment variables.
             timeout: Timeout in seconds (default: 30). None for no timeout.
-            tokens: Token budget for rendering output (default: 2000).
             state: Initial rendering state (default: DETAILS).
 
         Returns:
@@ -102,7 +100,6 @@ class ShellManager:
         node = ShellNode(
             command=command,
             args=args or [],
-            tokens=tokens,
             expansion=expansion,
         )
 

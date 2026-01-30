@@ -59,10 +59,10 @@ Use `hide()` / `unhide()` to control visibility (nodes still tick when hidden).
 ### Examining Code
 
 ```python
-v = text("src/auth.py", tokens=2000, expansion=Expansion.ALL)
+v = text("src/auth.py", expansion=Expansion.ALL)
 ```
 
-Always read code before suggesting changes. Adjust `tokens` based on file size.
+Always read code before suggesting changes.
 
 ### Organizing Context
 

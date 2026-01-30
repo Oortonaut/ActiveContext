@@ -62,7 +62,6 @@ All context nodes support method chaining:
 ```python
 v = text("src/main.py")
 v.expansion = Expansion.ALL
-v.tokens = 2000
 v.Run(TickFrequency.turn())
 
 v.Pause()  # Stop automatic updates
@@ -73,7 +72,6 @@ v.Pause()  # Stop automatic updates
 | Field/Method | Description |
 |--------------|-------------|
 | `.expansion = ...` | Set rendering expansion |
-| `.tokens = ...` | Set token budget |
 | `.Run(freq=None)` | Enable tick updates |
 | `.Pause()` | Disable tick updates |
 

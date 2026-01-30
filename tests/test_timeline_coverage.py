@@ -369,7 +369,7 @@ class TestViewDispatcher:
         """Test that view() with media_type='text' calls _make_text_node."""
         timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
         try:
-            result = await timeline.execute_statement('v = view("text", "test.py", tokens=500)')
+            result = await timeline.execute_statement('v = view("text", "test.py")')
             assert result.status.value == "ok"
 
             ns = timeline.get_namespace()
@@ -388,7 +388,7 @@ class TestViewDispatcher:
             md_file = temp_cwd / "test.md"
             md_file.write_text("# Hello\n\nWorld")
 
-            result = await timeline.execute_statement('v = view("markdown", "test.md", tokens=500)')
+            result = await timeline.execute_statement('v = view("markdown", "test.md")')
             assert result.status.value == "ok"
 
             ns = timeline.get_namespace()

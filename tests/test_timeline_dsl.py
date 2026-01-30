@@ -1705,13 +1705,13 @@ class TestChoiceDSL:
         try:
             # Create child nodes using markdown with content parameter
             await timeline.execute_statement(
-                'v1 = markdown("option_a.md", content="# Option A", tokens=100)'
+                'v1 = markdown("option_a.md", content="# Option A")'
             )
             await timeline.execute_statement(
-                'v2 = markdown("option_b.md", content="# Option B", tokens=100)'
+                'v2 = markdown("option_b.md", content="# Option B")'
             )
             await timeline.execute_statement(
-                'v3 = markdown("option_c.md", content="# Option C", tokens=100)'
+                'v3 = markdown("option_c.md", content="# Option C")'
             )
 
             # Create choice view
@@ -1740,10 +1740,10 @@ class TestChoiceDSL:
         try:
             # Create child nodes
             await timeline.execute_statement(
-                'v1 = markdown("opt_a.md", content="# Option A", tokens=100)'
+                'v1 = markdown("opt_a.md", content="# Option A")'
             )
             await timeline.execute_statement(
-                'v2 = markdown("opt_b.md", content="# Option B", tokens=100)'
+                'v2 = markdown("opt_b.md", content="# Option B")'
             )
 
             # Create choice with explicit selection
@@ -1772,10 +1772,10 @@ class TestChoiceDSL:
         try:
             # Create child nodes
             await timeline.execute_statement(
-                'v1 = markdown("a.md", content="# Option A", tokens=100)'
+                'v1 = markdown("a.md", content="# Option A")'
             )
             await timeline.execute_statement(
-                'v2 = markdown("b.md", content="# Option B", tokens=100)'
+                'v2 = markdown("b.md", content="# Option B")'
             )
 
             # Create choice
@@ -1851,13 +1851,13 @@ class TestSessionModeIntegration:
         try:
             # Create mode script nodes with paths matching the pattern
             await timeline.execute_statement(
-                'normal_mode = markdown("modes/normal.md", content="# Normal", tokens=100)'
+                'normal_mode = markdown("modes/normal.md", content="# Normal")'
             )
             await timeline.execute_statement(
-                'plan_mode = markdown("modes/plan.md", content="# Plan", tokens=100)'
+                'plan_mode = markdown("modes/plan.md", content="# Plan")'
             )
             await timeline.execute_statement(
-                'brave_mode = markdown("modes/brave.md", content="# Brave", tokens=100)'
+                'brave_mode = markdown("modes/brave.md", content="# Brave")'
             )
 
             # Create choice view

@@ -52,11 +52,10 @@ class NodeView:
         Args:
             node: The ContextNode to wrap
             hide: Whether the view is hidden (default False)
-            expand: Expansion state (default: uses node.expansion for migration)
+            expand: Expansion state (default: uses node.expansion)
         """
         object.__setattr__(self, "_node", node)
         object.__setattr__(self, "_hide", hide)
-        # Migration: use node.expansion as default if not specified
         object.__setattr__(self, "_expand", expand if expand is not None else node.expansion)
         object.__setattr__(self, "_tags", {})
 
@@ -87,27 +86,31 @@ class NodeView:
         object.__setattr__(self, "_expand", value)
 
     @property
-    def tags(self) -> dict[str, Any]:
-        """View-specific metadata."""
-        return self._tags
-
-    # --- Backward Compatibility: expansion property ---
-
-    @property
     def expansion(self) -> Expansion:
-        """Alias for expand (backward compatibility)."""
+        """Alias for expand."""
         return self._expand
 
     @expansion.setter
     def expansion(self, value: Expansion) -> None:
-        """Alias for expand (backward compatibility)."""
+        """Set expansion state."""
         object.__setattr__(self, "_expand", value)
+
+    @property
+    def tags(self) -> dict[str, Any]:
+        """View-specific metadata."""
+        return self._tags
 
     # --- Token Calculations ---
 
     @property
     def visible_tokens(self) -> int:
         """Tokens visible at current expand level.
+
+        Maps directly to Expansion enum:
+        - HEADER: header_tokens
+        - CONTENT: header + content
+        - INDEX: header + content + index
+        - ALL: all_tokens (header + content + children recursively)
 
         Returns:
             0 if hidden, otherwise tokens based on expand state.
@@ -119,45 +122,11 @@ class NodeView:
         if self._expand == Expansion.HEADER:
             return node.header_tokens
         elif self._expand == Expansion.CONTENT:
-            return node.header_tokens + getattr(node, "summary_tokens", 0)
-        else:  # DETAILS
-            return node.header_tokens + getattr(node, "content_tokens", node.tokens)
-
-    # --- Fluent API ---
-
-    def SetHide(self, hide: bool) -> NodeView:
-        """Set hide state (fluent API).
-
-        Args:
-            hide: Whether to hide this view
-        """
-        self.hide = hide
-        return self
-
-    def SetExpand(self, expand: Expansion) -> NodeView:
-        """Set expansion state (fluent API).
-
-        Args:
-            expand: New expansion state (HEADER, CONTENT, INDEX, ALL)
-        """
-        self.expand = expand
-        return self
-
-    def SetExpansion(self, s: Expansion) -> NodeView:
-        """Set expansion state (backward compatibility).
-
-        Args:
-            s: New expansion state
-        """
-        self.expand = s
-        # Also update node for backward compatibility during migration
-        self._node.expansion = s
-        return self
-
-    def SetTokens(self, n: int) -> NodeView:
-        """Set token budget (fluent API)."""
-        self._node.tokens = n
-        return self
+            return node.header_tokens + node.content_tokens
+        elif self._expand == Expansion.INDEX:
+            return node.header_tokens + node.content_tokens + node.index_tokens
+        else:  # ALL
+            return node.all_tokens
 
     def Run(self, freq: Any = None) -> NodeView:
         """Enable tick recomputation with given frequency."""

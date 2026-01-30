@@ -71,7 +71,6 @@ class ContextNode(ABC):
         node_id: Unique identifier (8-char UUID suffix)
         parent_ids: Set of parent node IDs (DAG allows multiple parents)
         children_ids: Set of child node IDs
-        tokens: Token budget for rendering
         state: Rendering state (HIDDEN, COLLAPSED, SUMMARY, DETAILS, ALL)
         mode: "paused" or "running" for tick processing
         tick_frequency: Tick frequency specification (turn, async, never, period)
@@ -93,7 +92,6 @@ class ContextNode(ABC):
     child_order: LinkedChildOrder | None = field(default=None, repr=False)
 
     # Rendering configuration
-    tokens: int = 1000
     expansion: Expansion = Expansion.ALL
     mode: str = "paused"
     tick_frequency: TickFrequency | None = None
@@ -157,23 +155,40 @@ class ContextNode(ABC):
 
     @property
     def header_tokens(self) -> int:
-        """Tokens for the header line.
+        """Tokens for the header line, including token counts overhead.
 
-        Computed by counting tokens in the rendered header string.
+        Computed from get_token_breakdown().collapsed (the metadata line)
+        plus TOKEN_COUNTS_OVERHEAD for the token display string in the header.
         """
-        from activecontext.core.tokens import count_tokens
+        from activecontext.context.headers import TOKEN_COUNTS_OVERHEAD
 
-        header = self.render_header()
-        return count_tokens(header)
+        return self.get_token_breakdown().collapsed + TOKEN_COUNTS_OVERHEAD
 
     @property
     def content_tokens(self) -> int:
         """Tokens for this node's own content (excluding children).
 
-        Subclasses should override to provide accurate counts.
-        Default implementation returns the configured token budget.
+        Delegates to get_token_breakdown().summary + detail, which subclasses
+        override to provide accurate counts.
         """
-        return self.tokens
+        breakdown = self.get_token_breakdown()
+        return breakdown.summary + breakdown.detail
+
+    @property
+    def index_tokens(self) -> int:
+        """Sum of immediate children's header_tokens.
+
+        Represents the cost of showing child headers in INDEX mode.
+        Returns 0 for leaf nodes or when no graph reference.
+        """
+        if not self._graph:
+            return 0
+        total = 0
+        for child_id in (self.child_order or self.children_ids):
+            child = self._graph.get_node(child_id)
+            if child:
+                total += child.header_tokens
+        return total
 
     @property
     def children_tokens(self) -> int:
@@ -185,12 +200,17 @@ class ContextNode(ABC):
         return self._cached_children_tokens
 
     @property
-    def total_tokens(self) -> int:
-        """Total tokens: header + content + children.
+    def all_tokens(self) -> int:
+        """Total tokens: header + content + all recursive children.
 
         Provides complete token count for this subtree.
         """
         return self.header_tokens + self.content_tokens + self.children_tokens
+
+    @property
+    def total_tokens(self) -> int:
+        """Alias for all_tokens. Total tokens for this subtree."""
+        return self.all_tokens
 
     @abstractmethod
     def GetDigest(self) -> dict[str, Any]:
@@ -353,6 +373,8 @@ class ContextNode(ABC):
             self.expansion,
             token_info,
             notification_level=self.notification_level.value,
+            index_tokens=self.index_tokens,
+            all_tokens=self.all_tokens,
         )
 
     def Recompute(self) -> None:
@@ -479,7 +501,6 @@ class ContextNode(ABC):
                     prev_value=prev_value,
                     curr_value=curr_value,
                     expansion=Expansion.HEADER,
-                    tokens=50,
                 )
                 existing.child_traces.append(child)
             existing.new_version = new_version
@@ -501,7 +522,6 @@ class ContextNode(ABC):
             curr_value=curr_value,
             trace_target=self,  # Set for future merges
             expansion=Expansion.HEADER,
-            tokens=50,  # Traces are compact by default
         )
         self._graph.add_node(trace_node)
 
@@ -632,7 +652,6 @@ class ContextNode(ABC):
             "parent_ids": list(self.parent_ids),
             "children_ids": list(self.children_ids),
             "child_order": child_order_list,
-            "tokens": self.tokens,
             "expansion": self.expansion.value,
             "mode": self.mode,
             "tick_frequency": self.tick_frequency.to_dict() if self.tick_frequency else None,
@@ -763,7 +782,6 @@ class TextNode(ContextNode):
             "path": self.path,
             "pos": self.pos,
             "end_pos": self.end_pos,
-            "tokens": self.tokens,
             "expansion": self.expansion.value,
             "mode": self.mode,
             "version": self.version,
@@ -934,9 +952,11 @@ class TextNode(ContextNode):
         collapsed_text = f"[{self.path}: lines, pending traces]\n"
         collapsed_tokens = count_tokens(collapsed_text)
 
-        # Summary and Detail are same for TextNode - file content
-        # Estimate based on token budget
-        detail_tokens = self.tokens
+        # Detail: estimate from line count (~10 tokens/line with line numbers)
+        detail_tokens = 0
+        if self.end_line and self.start_line:
+            line_count = max(0, self.end_line - self.start_line + 1)
+            detail_tokens = line_count * 10
 
         return TokenInfo(
             collapsed=collapsed_tokens,
@@ -986,7 +1006,6 @@ class TextNode(ContextNode):
             parent_ids=set(data.get("parent_ids", [])),
             children_ids=set(data.get("children_ids", [])),
             child_order=child_order,
-            tokens=data.get("tokens", 1000),
             expansion=Expansion(data.get("expansion", "all")),
             mode=data.get("mode", "paused"),
             tick_frequency=tick_freq,
@@ -1041,7 +1060,6 @@ class GroupNode(ContextNode):
             "type": self.node_type,
             "member_count": len(self.children_ids),
             "child_order": child_order_list,
-            "tokens": self.tokens,
             "expansion": self.expansion.value,
             "mode": self.mode,
             "version": self.version,
@@ -1183,7 +1201,6 @@ class GroupNode(ContextNode):
             parent_ids=set(data.get("parent_ids", [])),
             children_ids=set(data.get("children_ids", [])),
             child_order=child_order,
-            tokens=data.get("tokens", 500),
             expansion=Expansion(data.get("expansion", "content")),
             mode=data.get("mode", "paused"),
             tick_frequency=tick_freq,
@@ -1227,7 +1244,6 @@ class TopicNode(ContextNode):
             "title": self.title,
             "message_count": len(self.message_indices),
             "status": self.status,
-            "tokens": self.tokens,
             "expansion": self.expansion.value,
             "mode": self.mode,
             "version": self.version,
@@ -1299,7 +1315,7 @@ class TopicNode(ContextNode):
         return TokenInfo(
             collapsed=collapsed_tokens,
             summary=0,
-            detail=self.tokens,
+            detail=0,
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -1325,7 +1341,6 @@ class TopicNode(ContextNode):
             node_id=data["node_id"],
             parent_ids=set(data.get("parent_ids", [])),
             children_ids=set(data.get("children_ids", [])),
-            tokens=data.get("tokens", 1000),
             expansion=Expansion(data.get("expansion", "all")),
             mode=data.get("mode", "paused"),
             tick_frequency=tick_freq,
@@ -1369,7 +1384,6 @@ class ArtifactNode(ContextNode):
             "artifact_type": self.artifact_type,
             "language": self.language,
             "content_length": len(self.content),
-            "tokens": self.tokens,
             "expansion": self.expansion.value,
             "mode": self.mode,
             "version": self.version,
@@ -1466,7 +1480,6 @@ class ArtifactNode(ContextNode):
             node_id=data["node_id"],
             parent_ids=set(data.get("parent_ids", [])),
             children_ids=set(data.get("children_ids", [])),
-            tokens=data.get("tokens", 500),
             expansion=Expansion(data.get("expansion", "all")),
             mode=data.get("mode", "paused"),
             tick_frequency=tick_freq,
@@ -1549,7 +1562,6 @@ class ShellNode(ContextNode):
             "status": self.shell_status.value,
             "exit_code": self.exit_code,
             "duration_ms": self.duration_ms,
-            "tokens": self.tokens,
             "expansion": self.expansion.value,
             "mode": self.mode,
             "version": self.version,
@@ -1570,10 +1582,9 @@ class ShellNode(ContextNode):
     ) -> str:
         """Render summary: header + truncated output."""
         header = self.render_header(cwd=cwd)
-        summary_budget = min(self.tokens * 4, 500)
-        output_preview = self.output[:summary_budget]
-        if len(self.output) > summary_budget:
-            output_preview += f"\n... [{len(self.output) - summary_budget} more chars]"
+        output_preview = self.output[:500]
+        if len(self.output) > 500:
+            output_preview += f"\n... [{len(self.output) - 500} more chars]"
         return header + output_preview + "\n"
 
     def RenderDetail(
@@ -1586,17 +1597,9 @@ class ShellNode(ContextNode):
 
         When include_summary=True (ALL state), includes timing details.
         """
-        char_budget = self.tokens * 4
         header = self.render_header(cwd=cwd)
 
-        output_text = self.output
-        if len(output_text) + len(header) > char_budget:
-            available = char_budget - len(header) - 30
-            output_text = (
-                output_text[:available] + f"\n... [truncated, {len(self.output)} total chars]"
-            )
-
-        result = header + output_text
+        result = header + self.output
         if not result.endswith("\n"):
             result += "\n"
 
@@ -1734,7 +1737,6 @@ class ShellNode(ContextNode):
             node_id=data["node_id"],
             parent_ids=set(data.get("parent_ids", [])),
             children_ids=set(data.get("children_ids", [])),
-            tokens=data.get("tokens", 2000),
             expansion=Expansion(data.get("expansion", "all")),
             mode=data.get("mode", "paused"),
             tick_frequency=tick_freq,
@@ -1808,7 +1810,6 @@ class LockNode(ContextNode):
             "lockfile": self.lockfile,
             "status": self.lock_status.value,
             "timeout": self.timeout,
-            "tokens": self.tokens,
             "expansion": self.expansion.value,
             "mode": self.mode,
             "version": self.version,
@@ -1937,7 +1938,6 @@ class LockNode(ContextNode):
             node_id=data["node_id"],
             parent_ids=set(data.get("parent_ids", [])),
             children_ids=set(data.get("children_ids", [])),
-            tokens=data.get("tokens", 200),
             expansion=Expansion(data.get("expansion", "header")),
             mode=data.get("mode", "paused"),
             tick_frequency=tick_freq,
@@ -2029,7 +2029,6 @@ class SessionNode(ContextNode):
             "total_statements": self.total_statements_executed,
             "running_nodes": self.running_node_count,
             "graph_depth": self.graph_depth,
-            "tokens": self.tokens,
             "expansion": self.expansion.value,
             "mode": self.mode,
             "version": self.version,
@@ -2221,7 +2220,7 @@ class SessionNode(ContextNode):
         return TokenInfo(
             collapsed=collapsed_tokens,
             summary=0,
-            detail=self.tokens,
+            detail=0,
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -2260,7 +2259,6 @@ class SessionNode(ContextNode):
             node_id=data["node_id"],
             parent_ids=set(data.get("parent_ids", [])),
             children_ids=set(data.get("children_ids", [])),
-            tokens=data.get("tokens", 500),
             expansion=Expansion(data.get("expansion", "all")),
             mode=data.get("mode", "running"),  # Default to running for session node
             tick_frequency=tick_freq or TickFrequency.turn(),
@@ -2370,18 +2368,17 @@ class MessageNode(ContextNode):
             "effective_role": self.effective_role,
             "content_length": len(self.content),
             "tool_name": self.tool_name,
-            "tokens": self.tokens,
             "expansion": self.expansion.value,
             "mode": self.mode,
             "version": self.version,
         }
 
-    def _get_formatted_content(self, char_budget: int) -> str:
+    def _get_formatted_content(self) -> str:
         """Get formatted content based on message type."""
         if self.role == "tool_call":
             return self._format_tool_call()
         elif self.role == "tool_result":
-            return self._format_tool_result(char_budget)
+            return self._format_tool_result()
         return self.content
 
     def RenderCollapsed(
@@ -2399,8 +2396,7 @@ class MessageNode(ContextNode):
     ) -> str:
         """Render summary: header + truncated content preview."""
         header = self.render_header(cwd=cwd)
-        char_budget = self.tokens * 4
-        content = self._get_formatted_content(char_budget)
+        content = self._get_formatted_content()
         preview_len = min(200, len(content))
         preview = content[:preview_len]
         if len(content) > preview_len:
@@ -2413,17 +2409,13 @@ class MessageNode(ContextNode):
         cwd: str = ".",
         text_buffers: dict[str, Any] | None = None,
     ) -> str:
-        """Render detail: header + full content within budget.
+        """Render detail: header + full content.
 
         Note: Block merging happens in ProjectionEngine._render_messages()
         which groups adjacent same-role messages before rendering.
         """
         header = self.render_header(cwd=cwd)
-        char_budget = self.tokens * 4
-        content = self._get_formatted_content(char_budget)
-
-        if len(content) > char_budget:
-            content = content[: char_budget - 20] + "\n... [truncated]"
+        content = self._get_formatted_content()
 
         return header + content + "\n"
 
@@ -2435,12 +2427,9 @@ class MessageNode(ContextNode):
             parts.append(f" {args_str}")
         return "".join(parts)
 
-    def _format_tool_result(self, char_budget: int) -> str:
+    def _format_tool_result(self) -> str:
         """Format a tool result message."""
-        result = self.content
-        if len(result) > char_budget - 20:
-            result = result[: char_budget - 40] + "\n... [truncated]"
-        return f"[Result] {result}"
+        return f"[Result] {self.content}"
 
     def set_content(self, content: str) -> MessageNode:
         """Update message content."""
@@ -2503,7 +2492,6 @@ class MessageNode(ContextNode):
             node_id=data["node_id"],
             parent_ids=set(data.get("parent_ids", [])),
             children_ids=set(data.get("children_ids", [])),
-            tokens=data.get("tokens", 500),
             expansion=Expansion(data.get("expansion", "all")),
             mode=data.get("mode", "paused"),
             tick_frequency=tick_freq,
@@ -2561,7 +2549,6 @@ class WorkNode(ContextNode):
             "file_count": len(self.files),
             "conflict_count": len(self.conflicts),
             "agent_id": self.agent_id,
-            "tokens": self.tokens,
             "expansion": self.expansion.value,
             "mode": self.mode,
             "version": self.version,
@@ -2672,11 +2659,17 @@ class WorkNode(ContextNode):
         from .headers import TokenInfo
 
         # Collapsed: work metadata
-        collapsed_text = f"[Work: {self.intent} [{self.work_status}] {len(self.files)}f {len(self.conflicts)}c]\n"
+        nf, nc = len(self.files), len(self.conflicts)
+        collapsed_text = f"[Work: {self.intent} [{self.work_status}] {nf}f {nc}c]\n"
         collapsed_tokens = count_tokens(collapsed_text)
 
         # Detail: file list and conflict details
-        detail_tokens = self.tokens
+        detail_parts: list[str] = []
+        for f in self.files:
+            detail_parts.append(f"  {f.get('path', '?')} ({f.get('access', '?')})")
+        for c in self.conflicts:
+            detail_parts.append(f"  CONFLICT: {c}")
+        detail_tokens = count_tokens("\n".join(detail_parts)) if detail_parts else 0
 
         return TokenInfo(
             collapsed=collapsed_tokens,
@@ -2710,7 +2703,6 @@ class WorkNode(ContextNode):
             node_id=data["node_id"],
             parent_ids=set(data.get("parent_ids", [])),
             children_ids=set(data.get("children_ids", [])),
-            tokens=data.get("tokens", 200),
             expansion=Expansion(data.get("expansion", "all")),
             mode=data.get("mode", "paused"),
             tick_frequency=tick_freq,
@@ -2802,7 +2794,6 @@ class MCPServerNode(ContextNode):
             "tool_count": len(self.tools),
             "resource_count": len(self.resources),
             "prompt_count": len(self.prompts),
-            "tokens": self.tokens,
             "expansion": self.expansion.value,
             "mode": self.mode,
             "version": self.version,
@@ -2971,7 +2962,6 @@ class MCPServerNode(ContextNode):
                     server_name=self.server_name,
                     description=tool_data["description"],
                     input_schema=tool_data["input_schema"],
-                    tokens=200,
                     expansion=Expansion.HEADER,
                 )
                 self._graph.add_node(tool_node)
@@ -3097,8 +3087,17 @@ class MCPServerNode(ContextNode):
         summary_text = ", ".join(t.get("name", "?") for t in self.tools)
         summary_tokens = count_tokens(summary_text) if summary_text else 0
 
-        # Detail: full tool documentation
-        detail_tokens = self.tokens
+        # Detail: full tool documentation (descriptions + schemas)
+        detail_parts: list[str] = []
+        for t in self.tools:
+            name = t.get("name", "?")
+            desc = t.get("description", "")
+            detail_parts.append(f"  {name}: {desc}")
+            schema = t.get("inputSchema") or t.get("input_schema")
+            if schema:
+                import json
+                detail_parts.append(f"    {json.dumps(schema)}")
+        detail_tokens = count_tokens("\n".join(detail_parts)) if detail_parts else 0
 
         return TokenInfo(
             collapsed=collapsed_tokens,
@@ -3143,7 +3142,6 @@ class MCPServerNode(ContextNode):
             parent_ids=set(data.get("parent_ids", [])),
             children_ids=set(data.get("children_ids", [])),
             child_order=child_order,
-            tokens=data.get("tokens", 1000),
             expansion=Expansion(data.get("expansion", "all")),
             mode=data.get("mode", "paused"),
             tick_frequency=tick_freq,
@@ -3202,7 +3200,6 @@ class MCPToolNode(ContextNode):
             "tool_name": self.tool_name,
             "server_name": self.server_name,
             "has_schema": bool(self.input_schema.get("properties")),
-            "tokens": self.tokens,
             "expansion": self.expansion.value,
             "version": self.version,
         }
@@ -3295,7 +3292,12 @@ class MCPToolNode(ContextNode):
         desc = self.description[:80] if len(self.description) > 80 else self.description
         summary_tokens = count_tokens(f"**{self.tool_name}**: {desc}\n")
 
-        detail_tokens = self.tokens
+        # Detail: full description + input schema
+        detail_parts: list[str] = [self.description]
+        if self.input_schema:
+            import json
+            detail_parts.append(json.dumps(self.input_schema))
+        detail_tokens = count_tokens("\n".join(detail_parts))
 
         return TokenInfo(
             collapsed=collapsed_tokens,
@@ -3327,7 +3329,6 @@ class MCPToolNode(ContextNode):
             node_id=data["node_id"],
             parent_ids=set(data.get("parent_ids", [])),
             children_ids=set(data.get("children_ids", [])),
-            tokens=data.get("tokens", 200),
             expansion=Expansion(data.get("expansion", "header")),
             mode=data.get("mode", "paused"),
             tick_frequency=tick_freq,
@@ -3543,7 +3544,7 @@ class MCPManagerNode(ContextNode):
         return TokenInfo(
             collapsed=collapsed_tokens,
             summary=summary_tokens,
-            detail=self.tokens,
+            detail=0,
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -3572,7 +3573,6 @@ class MCPManagerNode(ContextNode):
             node_id=d.get("node_id", "mcp_manager"),
             parent_ids=set(d.get("parent_ids", [])),
             children_ids=set(d.get("children_ids", [])),
-            tokens=d.get("tokens", 300),
             expansion=Expansion(d.get("expansion", "content")),
             mode=d.get("mode", "paused"),
             tick_frequency=tick_freq,
@@ -3631,7 +3631,6 @@ class AgentNode(ContextNode):
             "task": self.task,
             "agent_state": self.agent_state,
             "message_count": self.message_count,
-            "tokens": self.tokens,
             "expansion": self.expansion.value,
             "mode": self.mode,
             "version": self.version,
@@ -3739,7 +3738,6 @@ class AgentNode(ContextNode):
             node_id=data["node_id"],
             parent_ids=set(data.get("parent_ids", [])),
             children_ids=set(data.get("children_ids", [])),
-            tokens=data.get("tokens", 200),
             expansion=Expansion(data.get("expansion", "all")),
             mode=data.get("mode", "paused"),
             tick_frequency=tick_freq,
@@ -3811,7 +3809,6 @@ class TraceNode(ContextNode):
             "versions": f"v{self.old_version}->v{self.new_version}",
             "description": self.description,
             "originator": self.originator,
-            "tokens": self.tokens,
             "expansion": self.expansion.value,
         }
 
@@ -3872,7 +3869,7 @@ class TraceNode(ContextNode):
         return TokenInfo(
             collapsed=collapsed_tokens,
             summary=0,
-            detail=self.tokens if self.content else 0,
+            detail=0,
         )
 
     def RenderDetail(
@@ -3908,7 +3905,6 @@ class TraceNode(ContextNode):
             "node_id": self.node_id,
             "parent_ids": list(self.parent_ids),
             "children_ids": list(self.children_ids),
-            "tokens": self.tokens,
             "expansion": self.expansion.value,
             "mode": self.mode,
             "version": self.version,
@@ -3946,7 +3942,6 @@ class TraceNode(ContextNode):
             node_id=data.get("node_id", str(uuid.uuid4())[-8:]),
             parent_ids=set(data.get("parent_ids", [])),
             children_ids=set(data.get("children_ids", [])),
-            tokens=data.get("tokens", 200),
             expansion=Expansion(data.get("expansion", "header")),
             mode=data.get("mode", "paused"),
             tick_frequency=tick_freq,
@@ -4022,7 +4017,6 @@ class TaskNode(ContextNode):
             "io_mode": self.io_mode,
             "status": self.status,
             "duration": duration,
-            "tokens": self.tokens,
             "expansion": self.expansion.value,
             "mode": self.mode,
         }
@@ -4119,7 +4113,7 @@ class TaskNode(ContextNode):
         return TokenInfo(
             collapsed=collapsed_tokens,
             summary=summary_tokens,
-            detail=self.tokens,
+            detail=0,
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -4145,7 +4139,6 @@ class TaskNode(ContextNode):
 
         return cls(
             node_id=data.get("node_id", ""),
-            tokens=data.get("tokens", 100),
             expansion=Expansion(data.get("expansion", Expansion.CONTENT.value)),
             mode=data.get("mode", "running"),
             tick_frequency=tick_frequency,

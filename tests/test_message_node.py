@@ -109,7 +109,6 @@ class TestMessageNodeSerialization:
         assert node.role == "assistant"
         assert node.content == "Response"
         assert node.originator == "agent"
-        assert node.tokens == 500
 
     def test_roundtrip_serialization(self) -> None:
         """Test that serialization roundtrips correctly."""

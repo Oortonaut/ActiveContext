@@ -97,7 +97,6 @@ class WorkCoordinator:
             node_id = f"work_{uuid.uuid4().hex[:8]}"
             self._work_node = WorkNode(
                 node_id=node_id,
-                tokens=200,
                 expansion=Expansion.ALL,
                 intent=entry.intent,
                 work_status=entry.status,

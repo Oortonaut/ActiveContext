@@ -45,10 +45,9 @@ class TestConstructorTags:
         assert py == "v = view('main.py')"
 
     def test_view_with_options(self):
-        xml = '<view name="v" path="main.py" tokens="2000" lod="1"/>'
+        xml = '<view name="v" path="main.py" lod="1"/>'
         py = parse_xml_to_python(xml)
         assert "v = view('main.py'" in py
-        assert "tokens=2000" in py
         assert "lod=1" in py
 
     def test_view_with_pos(self):
@@ -57,21 +56,19 @@ class TestConstructorTags:
         assert "pos='10:0'" in py
 
     def test_group_empty(self):
-        xml = '<group name="g" tokens="500"/>'
+        xml = '<group name="g"/>'
         py = parse_xml_to_python(xml)
-        assert py == "g = group(tokens=500)"
+        assert py == "g = group()"
 
     def test_group_with_members(self):
-        xml = '<group name="g" tokens="500"><member ref="v1"/><member ref="v2"/></group>'
+        xml = '<group name="g"><member ref="v1"/><member ref="v2"/></group>'
         py = parse_xml_to_python(xml)
         assert "g = group(v1, v2" in py
-        assert "tokens=500" in py
 
     def test_topic(self):
-        xml = '<topic name="t" title="Feature X" tokens="1000"/>'
+        xml = '<topic name="t" title="Feature X"/>'
         py = parse_xml_to_python(xml)
         assert "t = topic('Feature X'" in py
-        assert "tokens=1000" in py
 
     def test_artifact(self):
         xml = '<artifact name="a" type="code" content="print(1)" language="python"/>'
@@ -94,23 +91,18 @@ class TestMethodCalls:
         py = parse_xml_to_python(xml)
         assert py == "v.SetLod(level=2)"
 
-    def test_set_tokens(self):
-        xml = '<SetTokens self="v" count="500"/>'
-        py = parse_xml_to_python(xml)
-        assert py == "v.SetTokens(count=500)"
-
     def test_run(self):
         xml = '<Run self="v" freq="Sync"/>'
         py = parse_xml_to_python(xml)
         assert py == "v.Run(freq=TickFrequency.turn())"  # Sync maps to turn()
 
     def test_chained_methods_as_separate_tags(self):
-        xml = '<SetLod self="v" level="1"/><SetTokens self="v" count="500"/>'
+        xml = '<SetLod self="v" level="1"/><SetState self="v" expansion="content"/>'
         py = parse_xml_to_python(xml)
         lines = py.strip().split("\n")
         assert len(lines) == 2
         assert "v.SetLod(level=1)" in lines[0]
-        assert "v.SetTokens(count=500)" in lines[1]
+        assert "v.SetState(expansion=Expansion.CONTENT)" in lines[1]
 
 
 class TestUtilityTags:
@@ -127,11 +119,10 @@ class TestUtilityTags:
         assert py == "show(v)"
 
     def test_show_with_options(self):
-        xml = '<show self="v" lod="2" tokens="100"/>'
+        xml = '<show self="v" lod="2"/>'
         py = parse_xml_to_python(xml)
         assert "show(v" in py
         assert "lod=2" in py
-        assert "tokens=100" in py
 
     def test_done_empty(self):
         xml = "<done/>"
@@ -163,9 +154,9 @@ class TestValueFormatting:
     """Tests for proper value type conversion."""
 
     def test_integer_unquoted(self):
-        xml = '<view name="v" path="f.py" tokens="2000"/>'
+        xml = '<view name="v" path="f.py" lod="2"/>'
         py = parse_xml_to_python(xml)
-        assert "tokens=2000" in py  # No quotes
+        assert "lod=2" in py  # No quotes
 
     def test_float_unquoted(self):
         xml = '<SetWeight self="v" value="0.5"/>'

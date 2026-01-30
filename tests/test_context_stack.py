@@ -309,7 +309,7 @@ class TestToolUseDAGStructure:
 
         group_id = session.begin_tool_use("view", {"path": "main.py"})
 
-        view = TextNode(path="main.py", tokens=2000)
+        view = TextNode(path="main.py")
         session.add_node(view)
 
         session.end_tool_use(summary="Opened main.py")

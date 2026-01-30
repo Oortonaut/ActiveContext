@@ -1180,7 +1180,6 @@ class Timeline:
         path: str,
         *,
         pos: str = "1:0",
-        tokens: int = 2000,
         expansion: Expansion = Expansion.ALL,
         mode: str = "paused",
         parent: ContextNode | str | None = None,
@@ -1190,7 +1189,6 @@ class Timeline:
         Args:
             path: File path relative to session cwd
             pos: Start position as "line:col" (1-indexed)
-            tokens: Token budget for rendering
             expansion: Rendering expansion (HEADER, CONTENT, INDEX, ALL)
             mode: "paused" or "running"
             parent: Optional parent node or node ID (defaults to current_group if set)
@@ -1201,7 +1199,6 @@ class Timeline:
         node = TextNode(
             path=path,
             pos=pos,
-            tokens=tokens,
             expansion=expansion,
             mode=mode,
         )
@@ -1234,7 +1231,6 @@ class Timeline:
     def _make_group_node(
         self,
         *members: ContextNode | NodeView | str,
-        tokens: int = 500,
         expansion: Expansion = Expansion.CONTENT,
         mode: str = "paused",
         summary: str | None = None,
@@ -1244,7 +1240,6 @@ class Timeline:
 
         Args:
             *members: Child nodes, views, or node IDs to include in the group
-            tokens: Token budget for summary
             expansion: Rendering expansion (HEADER, CONTENT, INDEX, ALL)
             mode: "paused" or "running"
             summary: Optional pre-computed summary text
@@ -1254,7 +1249,6 @@ class Timeline:
             NodeView wrapping the created GroupNode
         """
         node = GroupNode(
-            tokens=tokens,
             expansion=expansion,
             mode=mode,
             cached_summary=summary,
@@ -1297,7 +1291,6 @@ class Timeline:
         self,
         *children: ContextNode | NodeView | str,
         selected: str | None = None,
-        tokens: int = 500,
         expansion: Expansion = Expansion.ALL,
         parent: ContextNode | NodeView | str | None = None,
     ) -> ChoiceView:
@@ -1309,7 +1302,6 @@ class Timeline:
         Args:
             *children: Child nodes, views, or node IDs to include as options
             selected: Node ID of the initially selected child (default: first child)
-            tokens: Token budget for the group
             expansion: Rendering expansion for the group
             parent: Optional parent node (defaults to current_group if set)
 
@@ -1320,7 +1312,7 @@ class Timeline:
 
         # Create the underlying group
         group_view = self._make_group_node(
-            *children, tokens=tokens, expansion=expansion, parent=parent
+            *children, expansion=expansion, parent=parent
         )
 
         # Default to first child if no selection specified
@@ -1339,7 +1331,6 @@ class Timeline:
     def _make_sequence_view(
         self,
         *children: ContextNode | NodeView | str,
-        tokens: int = 500,
         expansion: Expansion = Expansion.ALL,
         parent: ContextNode | NodeView | str | None = None,
     ) -> SequenceView:
@@ -1350,7 +1341,6 @@ class Timeline:
 
         Args:
             *children: Child nodes, views, or node IDs representing steps
-            tokens: Token budget for the underlying group
             expansion: Rendering expansion for the group
             parent: Optional parent node (defaults to current_group if set)
 
@@ -1368,7 +1358,7 @@ class Timeline:
 
         # Create the underlying group
         group_view = self._make_group_node(
-            *children, tokens=tokens, expansion=expansion, parent=parent
+            *children, expansion=expansion, parent=parent
         )
 
         # Create SequenceView wrapping the group (starts at first child)
@@ -1380,7 +1370,6 @@ class Timeline:
         self,
         child: ContextNode | NodeView | str,
         max_iterations: int | None = None,
-        tokens: int = 500,
         expansion: Expansion = Expansion.ALL,
         parent: ContextNode | NodeView | str | None = None,
     ) -> LoopView:
@@ -1392,7 +1381,6 @@ class Timeline:
         Args:
             child: The node, view, or node ID to iterate on
             max_iterations: Maximum iterations allowed (None = unlimited)
-            tokens: Token budget for the underlying node
             expansion: Rendering expansion
             parent: Optional parent node
 
@@ -1437,7 +1425,6 @@ class Timeline:
         states: dict[str, str] | None = None,
         transitions: dict[str, list[str]] | None = None,
         initial: str | None = None,
-        tokens: int = 500,
         expansion: Expansion = Expansion.ALL,
         parent: ContextNode | NodeView | str | None = None,
     ) -> StateView:
@@ -1451,7 +1438,6 @@ class Timeline:
             states: Mapping of state names to child node IDs
             transitions: Mapping of state names to list of allowed next states
             initial: Initial state name (default: first state)
-            tokens: Token budget for the underlying group
             expansion: Rendering expansion
             parent: Optional parent node
 
@@ -1496,12 +1482,12 @@ class Timeline:
         if states:
             node_ids = list(states.values())
             group_view = self._make_group_node(
-                *node_ids, tokens=tokens, expansion=expansion, parent=parent
+                *node_ids, expansion=expansion, parent=parent
             )
         else:
             # Empty state machine
             group_view = self._make_group_node(
-                tokens=tokens, expansion=expansion, parent=parent
+                expansion=expansion, parent=parent
             )
 
         # Default transitions: allow any state to any state
@@ -1540,7 +1526,6 @@ class Timeline:
         self,
         title: str,
         *,
-        tokens: int = 1000,
         status: str = "active",
         parent: ContextNode | NodeView | str | None = None,
     ) -> NodeView:
@@ -1548,7 +1533,6 @@ class Timeline:
 
         Args:
             title: Short title for the topic
-            tokens: Token budget for rendering
             status: "active", "resolved", or "deferred"
             parent: Optional parent node, view, or node ID (defaults to current_group if set)
 
@@ -1557,7 +1541,6 @@ class Timeline:
         """
         node = TopicNode(
             title=title,
-            tokens=tokens,
             status=status,
         )
 
@@ -1588,7 +1571,6 @@ class Timeline:
         *,
         content: str = "",
         language: str | None = None,
-        tokens: int = 500,
         parent: ContextNode | NodeView | str | None = None,
     ) -> NodeView:
         """Create an ArtifactNode for code/output.
@@ -1597,7 +1579,6 @@ class Timeline:
             artifact_type: "code", "output", "error", or "file"
             content: The artifact content
             language: Programming language (for code)
-            tokens: Token budget
             parent: Optional parent node, view, or node ID (defaults to current_group if set)
 
         Returns:
@@ -1607,7 +1588,6 @@ class Timeline:
             artifact_type=artifact_type,
             content=content,
             language=language,
-            tokens=tokens,
         )
 
         # Add to graph
@@ -1636,7 +1616,6 @@ class Timeline:
         path: str,
         *,
         content: str | None = None,
-        tokens: int = 2000,
         expansion: Expansion = Expansion.ALL,
         parent: ContextNode | NodeView | str | None = None,
     ) -> NodeView:
@@ -1648,7 +1627,6 @@ class Timeline:
         Args:
             path: File path relative to session cwd
             content: Markdown content (if None, reads from path)
-            tokens: Token budget for root node
             expansion: Rendering expansion (HEADER, CONTENT, INDEX, ALL)
             parent: Optional parent node, view, or node ID (defaults to current_group if set)
 
@@ -1701,7 +1679,6 @@ class Timeline:
             # No headings - create single TextNode for entire file
             node = TextNode(
                 path=path,
-                tokens=tokens,
                 expansion=expansion,
                 media_type=MediaType.MARKDOWN,
                 buffer_id=buffer.buffer_id,
@@ -1721,7 +1698,6 @@ class Timeline:
         for i, section in enumerate(result.sections):
             node = TextNode(
                 path=path,
-                tokens=tokens // max(len(result.sections), 1),
                 expansion=expansion,
                 media_type=MediaType.MARKDOWN,
                 buffer_id=buffer.buffer_id,
@@ -1780,7 +1756,6 @@ class Timeline:
         media_type: str,
         path: str,
         *,
-        tokens: int = 2000,
         expansion: Expansion = Expansion.ALL,
         **kwargs: Any,
     ) -> NodeView:
@@ -1791,7 +1766,6 @@ class Timeline:
         Args:
             media_type: "text" or "markdown"
             path: File path relative to session cwd
-            tokens: Token budget for rendering
             expansion: Rendering expansion
             **kwargs: Additional arguments passed to underlying function
 
@@ -1802,9 +1776,9 @@ class Timeline:
             ValueError: If media_type is not recognized
         """
         if media_type == "markdown":
-            return self._make_markdown_node(path, tokens=tokens, expansion=expansion, **kwargs)
+            return self._make_markdown_node(path, expansion=expansion, **kwargs)
         elif media_type == "text":
-            return self._make_text_node(path, tokens=tokens, expansion=expansion, **kwargs)
+            return self._make_text_node(path, expansion=expansion, **kwargs)
         else:
             raise ValueError(f"Unknown media_type: {media_type}. Use 'text' or 'markdown'.")
 
@@ -2078,7 +2052,7 @@ class Timeline:
         lookup = self._create_node_lookup()
         return lookup.get(name)
 
-    def _show_handle(self, obj: Any, *, lod: int | None = None, tokens: int | None = None) -> str:
+    def _show_handle(self, obj: Any, *, lod: int | None = None) -> str:
         """Force render a handle (placeholder)."""
         digest = obj.GetDigest() if hasattr(obj, "GetDigest") else str(obj)
         return f"[{digest}]"
@@ -2910,8 +2884,8 @@ class Timeline:
         """Execute a Python statement and record it.
 
         Supports both Python syntax and XML-style tags:
-            Python: v = view("main.py", tokens=2000)
-            XML:    <view name="v" path="main.py" tokens="2000"/>
+            Python: v = view("main.py")
+            XML:    <view name="v" path="main.py"/>
 
         If a PermissionDenied exception is raised and a permission_requester
         callback is configured, the user will be prompted for permission.

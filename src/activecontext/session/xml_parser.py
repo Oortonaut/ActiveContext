@@ -5,17 +5,16 @@ This module converts XML tags to equivalent Python statements.
 
 Syntax examples:
     <!-- Object constructors (name becomes variable) -->
-    <view name="v" path="main.py" tokens="2000" expansion="all"/>
-    <group name="g" tokens="300" expansion="content">
+    <view name="v" path="main.py" expansion="all"/>
+    <group name="g" expansion="content">
         <member ref="v"/>
         <member ref="w"/>
     </group>
-    <topic name="t" title="Feature X" tokens="1000"/>
+    <topic name="t" title="Feature X"/>
     <artifact name="a" type="code" content="..." language="python"/>
 
     <!-- Method calls (self refers to variable) -->
     <SetState self="v" s="collapsed"/>
-    <SetTokens self="v" n="500"/>
     <Run self="v" freq="turn"/>
 
     <!-- Utility functions -->

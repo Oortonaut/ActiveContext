@@ -49,7 +49,7 @@ async def test_text_creation() -> None:
         initial_count = len(session.get_context_objects())
 
         # Create a text node
-        result = await session.execute('v = text("test.py", tokens=1000)')
+        result = await session.execute('v = text("test.py")')
         assert result.status.value == "ok"
 
         # Check context objects (should have one more than initial)
@@ -62,7 +62,7 @@ async def test_text_creation() -> None:
         digest = v.GetDigest()
         assert digest["type"] == "text"
         assert digest["path"] == "test.py"
-        assert digest["tokens"] == 1000
+        assert digest["expansion"] == "all"
 
 
 @pytest.mark.asyncio
@@ -98,7 +98,7 @@ async def test_group_creation() -> None:
         # Create text nodes and group them
         await session.execute('v1 = text("a.py")')
         await session.execute('v2 = text("b.py")')
-        await session.execute("g = group(v1, v2, tokens=500)")
+        await session.execute("g = group(v1, v2)")
 
         objects = session.get_context_objects()
         assert len(objects) == initial_count + 3  # 2 text nodes + 1 group

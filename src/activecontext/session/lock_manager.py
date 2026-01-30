@@ -59,7 +59,6 @@ class LockManager:
         lockfile: str,
         timeout: float = 30.0,
         *,
-        tokens: int = 200,
         expansion: Expansion = Expansion.HEADER,
     ) -> LockNode:
         """Acquire an exclusive file lock asynchronously, returning a LockNode.
@@ -74,7 +73,6 @@ class LockManager:
         Args:
             lockfile: Path to the lock file (will be created if needed).
             timeout: Timeout in seconds for acquisition (default: 30).
-            tokens: Token budget for rendering (default: 200).
             state: Initial rendering state (default: COLLAPSED).
 
         Returns:
@@ -92,7 +90,6 @@ class LockManager:
         node = LockNode(
             lockfile=lockfile,
             timeout=timeout,
-            tokens=tokens,
             expansion=expansion,
         )
 

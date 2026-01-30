@@ -32,7 +32,6 @@ def mcp_server_node(context_graph):
     """Create an MCPServerNode added to the graph."""
     node = MCPServerNode(
         server_name="test-server",
-        tokens=1000,
         expansion=Expansion.ALL,
     )
     context_graph.add_node(node)
@@ -102,14 +101,12 @@ class TestMCPToolNodeInit:
             server_name="filesystem",
             description="Read a file",
             input_schema={"type": "object"},
-            tokens=200,
             expansion=Expansion.ALL,
         )
         assert node.tool_name == "read_file"
         assert node.server_name == "filesystem"
         assert node.description == "Read a file"
         assert node.input_schema == {"type": "object"}
-        assert node.tokens == 200
         assert node.expansion == Expansion.ALL
 
 
@@ -131,7 +128,6 @@ class TestMCPToolNodeRender:
                 },
                 "required": ["path"],
             },
-            tokens=200,
         )
 
     def test_render_collapsed(self, tool_node):
@@ -182,7 +178,6 @@ class TestMCPToolNodeDigest:
             tool_name="read_file",
             server_name="filesystem",
             input_schema={"properties": {"path": {}}},
-            tokens=200,
             expansion=Expansion.ALL,
         )
         digest = node.GetDigest()
@@ -190,7 +185,6 @@ class TestMCPToolNodeDigest:
         assert digest["tool_name"] == "read_file"
         assert digest["server_name"] == "filesystem"
         assert digest["has_schema"] is True
-        assert digest["tokens"] == 200
         assert digest["expansion"] == "all"
 
     def test_digest_no_schema(self):
@@ -210,7 +204,6 @@ class TestMCPToolNodeSerialization:
             server_name="filesystem",
             description="Read a file",
             input_schema={"type": "object"},
-            tokens=200,
         )
         data = node.to_dict()
         assert data["node_type"] == "mcp_tool"
@@ -226,7 +219,6 @@ class TestMCPToolNodeSerialization:
             server_name="filesystem",
             description="Write a file",
             input_schema={"properties": {"path": {}}},
-            tokens=300,
             expansion=Expansion.ALL,
         )
         data = original.to_dict()
@@ -235,7 +227,6 @@ class TestMCPToolNodeSerialization:
         assert restored.server_name == "filesystem"
         assert restored.description == "Write a file"
         assert restored.input_schema == {"properties": {"path": {}}}
-        assert restored.tokens == 300
         assert restored.expansion == Expansion.ALL
 
     def test_from_dict_via_factory(self):
