@@ -17,15 +17,9 @@ import uuid
 from collections.abc import AsyncIterator, Awaitable
 from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import dataclass
-from types import FunctionType
-
-# Module-level lock for stdout/stderr redirection.
-# redirect_stdout is NOT async-safe: when multiple async tasks use it concurrently,
-# they corrupt each other's contexts because sys.stdout is a global.
-# This lock ensures only one task at a time can capture output.
-_stdout_redirect_lock = asyncio.Lock()
 from io import StringIO
 from pathlib import Path
+from types import FunctionType
 from typing import TYPE_CHECKING, Any
 
 from activecontext.context.graph import ContextGraph
@@ -103,6 +97,12 @@ if TYPE_CHECKING:
     # Type for import permission requester callback:
     # async (session_id, module) -> (granted, persist, include_submodules)
     ImportPermissionRequester = Callable[[str, str], "asyncio.Future[tuple[bool, bool, bool]]"]
+
+# Module-level lock for stdout/stderr redirection.
+# redirect_stdout is NOT async-safe: when multiple async tasks use it concurrently,
+# they corrupt each other's contexts because sys.stdout is a global.
+# This lock ensures only one task at a time can capture output.
+_stdout_redirect_lock = asyncio.Lock()
 
 
 @dataclass
@@ -284,11 +284,7 @@ class NodeLookup:
         for var_name, value in namespace.items():
             if var_name.startswith("_"):
                 continue
-            if isinstance(value, NodeView):
-                score = self._score_match(name, var_name)
-                if score > 0:
-                    candidates.append((score, var_name, value))
-            elif isinstance(value, ContextNode):
+            if isinstance(value, (NodeView, ContextNode)):
                 score = self._score_match(name, var_name)
                 if score > 0:
                     candidates.append((score, var_name, value))
@@ -476,7 +472,8 @@ class Timeline:
         self._import_guard = import_guard
 
         # Import permission requester callback for ACP permission prompts
-        # Called when ImportDenied is raised: async (sid, module) -> (granted, persist, include_submodules)
+        # Called when ImportDenied is raised:
+        #   async (sid, module) -> (granted, persist, include_submodules)
         self._import_permission_requester = import_permission_requester
 
         # Permission requester callback for ACP permission prompts
@@ -1246,20 +1243,16 @@ class Timeline:
 
         # Link to parent if set
         if effective_parent:
-            if isinstance(effective_parent, (NodeView, ContextNode)):
-                parent_id = effective_parent.node_id
-            else:
-                parent_id = effective_parent
+            parent_id = (
+                effective_parent.node_id
+                if isinstance(effective_parent, (NodeView, ContextNode))
+                else effective_parent
+            )
             self._context_graph.link(node.node_id, parent_id)
 
         # Link members as children of this group
         for member in members:
-            if isinstance(member, (NodeView, ContextNode)):
-                member_id = member.node_id
-            else:
-                # member is already a node ID string
-                member_id = member
-
+            member_id = member.node_id if isinstance(member, (NodeView, ContextNode)) else member
             self._context_graph.link(member_id, node.node_id)
 
         # Create and store NodeView
@@ -1299,10 +1292,7 @@ class Timeline:
         # Default to first child if no selection specified
         if selected is None and children:
             first = children[0]
-            if isinstance(first, NodeView) or isinstance(first, ContextNode):
-                selected = first.node_id
-            else:
-                selected = first  # Already a node ID string
+            selected = first.node_id if isinstance(first, (NodeView, ContextNode)) else first
 
         # Create ChoiceView wrapping the group
         choice_view = ChoiceView(group_view.node(), selected_id=selected, expand=expansion)
@@ -1812,16 +1802,8 @@ class Timeline:
         Returns:
             True if link was created, False if failed
         """
-        if isinstance(child, (NodeView, ContextNode)):
-            child_id = child.node_id
-        else:
-            child_id = child
-
-        if isinstance(parent, (NodeView, ContextNode)):
-            parent_id = parent.node_id
-        else:
-            parent_id = parent
-
+        child_id = child.node_id if isinstance(child, (NodeView, ContextNode)) else child
+        parent_id = parent.node_id if isinstance(parent, (NodeView, ContextNode)) else parent
         return self._context_graph.link(child_id, parent_id)
 
     def _unlink(
@@ -1838,16 +1820,8 @@ class Timeline:
         Returns:
             True if link was removed, False if failed
         """
-        if isinstance(child, (NodeView, ContextNode)):
-            child_id = child.node_id
-        else:
-            child_id = child
-
-        if isinstance(parent, (NodeView, ContextNode)):
-            parent_id = parent.node_id
-        else:
-            parent_id = parent
-
+        child_id = child.node_id if isinstance(child, (NodeView, ContextNode)) else child
+        parent_id = parent.node_id if isinstance(parent, (NodeView, ContextNode)) else parent
         return self._context_graph.unlink(child_id, parent_id)
 
     def _hide(self, *nodes: NodeView | ContextNode | str) -> int:
@@ -2184,32 +2158,34 @@ class Timeline:
             httpx.Response from execution, or raises WebsitePermissionDenied if denied.
         """
         # Check permission if manager is configured
-        if self._website_permission_manager:
-            if not self._website_permission_manager.check_access(url, method):
-                # Permission denied - try to request
-                if self._website_permission_requester:
-                    granted, persist = await self._website_permission_requester(
-                        self._session_id, url, method
-                    )
+        if (
+            self._website_permission_manager
+            and not self._website_permission_manager.check_access(url, method)
+        ):
+            # Permission denied - try to request
+            if self._website_permission_requester:
+                granted, persist = await self._website_permission_requester(
+                    self._session_id, url, method
+                )
 
-                    if granted:
-                        if persist:
-                            # "Allow always" - write to config file
-                            write_website_permission_to_config(Path(self._cwd), url, method)
-                            # Reload config to pick up new rule
-                            from activecontext.config import load_config
+                if granted:
+                    if persist:
+                        # "Allow always" - write to config file
+                        write_website_permission_to_config(Path(self._cwd), url, method)
+                        # Reload config to pick up new rule
+                        from activecontext.config import load_config
 
-                            config = load_config(session_root=self._cwd)
-                            self._website_permission_manager.reload(config.sandbox)
-                        else:
-                            # "Allow once" - grant temporary access
-                            self._website_permission_manager.grant_temporary(url, method)
+                        config = load_config(session_root=self._cwd)
+                        self._website_permission_manager.reload(config.sandbox)
                     else:
-                        # Denied - raise exception
-                        raise WebsitePermissionDenied(url=url, method=method)
+                        # "Allow once" - grant temporary access
+                        self._website_permission_manager.grant_temporary(url, method)
                 else:
-                    # No requester available - raise exception
+                    # Denied - raise exception
                     raise WebsitePermissionDenied(url=url, method=method)
+            else:
+                # No requester available - raise exception
+                raise WebsitePermissionDenied(url=url, method=method)
 
         # Permission granted (or no manager) - execute request
         if self._website_permission_manager:
@@ -3050,7 +3026,10 @@ class Timeline:
                         stderr=result.stderr,
                         exception={
                             "type": "ImportError",
-                            "message": f"Import denied: '{module}' is not in the allowed modules whitelist",
+                            "message": (
+                                f"Import denied: '{module}' is not in the"
+                                " allowed modules whitelist"
+                            ),
                             "traceback": result.exception.get("traceback", ""),
                         },
                         state_trace=result.state_trace,
