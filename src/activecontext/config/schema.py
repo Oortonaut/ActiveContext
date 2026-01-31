@@ -43,23 +43,31 @@ class SessionModeConfig:
     description: str = ""
 
 
-# Package default startup statements - load reference prompts as independent trees
+def _load_startup_statements() -> list[str]:
+    """Parse startup.md into a list of DSL statements.
+
+    Extracts python/acrepl fenced blocks from the literate startup.md document
+    and returns individual lines as statements. This preserves the same list-of-strings
+    interface that Session.startup() consumes.
+    """
+    from activecontext.core.prompts import parse_response
+    from activecontext.resources import load_prompt
+
+    parsed = parse_response(load_prompt("startup"))
+    statements: list[str] = []
+    for seg in parsed.segments:
+        if seg.language == "python/acrepl":
+            for line in seg.content.strip().split("\n"):
+                line = line.strip()
+                if line and not line.startswith("#"):
+                    statements.append(line)
+    return statements
+
+
+# Package default startup statements - parsed from resources/prompts/startup.md
 # Note: context_guide is handled separately by _load_context_guide() which supports
 # project-specific overrides via CONTEXT_GUIDE.md in cwd
-PACKAGE_DEFAULT_STARTUP: list[str] = [
-    # Reference documentation
-    'markdown("@prompts/dsl_reference.md", expansion=Expansion.ALL)',
-    'markdown("@prompts/node_states.md", expansion=Expansion.ALL)',
-    'markdown("@prompts/context_graph.md", expansion=Expansion.ALL)',
-    'markdown("@prompts/work_coordination.md", expansion=Expansion.ALL)',
-    'markdown("@prompts/mcp.md", expansion=Expansion.ALL)',
-    # Mode-specific scripts (only active mode is visible via ChoiceView)
-    '_mode_normal = markdown("@prompts/modes/normal.md")',
-    '_mode_plan = markdown("@prompts/modes/plan.md")',
-    '_mode_brave = markdown("@prompts/modes/brave.md")',
-    '_mode_scripts = choice(_mode_normal, _mode_plan, _mode_brave, selected=_mode_normal.node_id)',
-    '__session__.set_mode_choice_view(_mode_scripts)',
-]
+PACKAGE_DEFAULT_STARTUP: list[str] = _load_startup_statements()
 
 
 @dataclass
@@ -283,12 +291,35 @@ class MCPServerConfig:
 
 
 @dataclass
+class MCPRootConfig:
+    """A configured filesystem root for MCP servers.
+
+    Roots are advertised to connected MCP servers via the roots/list protocol.
+    Paths are normalized to file:// URIs automatically.
+
+    Example config.yaml:
+        mcp:
+          roots:
+            - name: project
+              path: "."
+            - name: shared-lib
+              path: "/home/user/libs/shared"
+    """
+
+    name: str  # Human-readable name (e.g., "project", "shared-lib")
+    path: str  # Filesystem path (absolute or relative to cwd)
+
+
+@dataclass
 class MCPConfig:
     """MCP client configuration.
 
     Example config.yaml:
         mcp:
           allow_dynamic_servers: true
+          roots:
+            - name: project
+              path: "."
           servers:
             - name: filesystem
               command: ["npx", "-y", "@modelcontextprotocol/server-filesystem"]
@@ -301,6 +332,7 @@ class MCPConfig:
     """
 
     servers: list[MCPServerConfig] = field(default_factory=list)
+    roots: list[MCPRootConfig] = field(default_factory=list)
     allow_dynamic_servers: bool = True  # Allow mcp_connect() with inline config
 
 

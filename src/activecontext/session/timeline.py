@@ -517,6 +517,7 @@ class Timeline:
             mcp_config=mcp_config,
             context_graph=self._context_graph,
             fire_event=self.fire_event,
+            cwd=self._cwd,
         )
 
         # Shell execution manager (must be set before _setup_namespace)
@@ -543,11 +544,20 @@ class Timeline:
             cwd=cwd,
         )
 
+        # Task-graph bridge for work time tracking (no-op when not connected)
+        from activecontext.coordination.task_bridge import TaskGraphBridge
+
+        self._task_bridge = TaskGraphBridge(
+            self._mcp_integration._mcp_client_manager,
+            agent_id=session_id,
+        )
+
         # Work coordinator for multi-agent file coordination
         self._work_coordinator = WorkCoordinator(
             session_id=session_id,
             context_graph=self._context_graph,
             scratchpad_manager=scratchpad_manager,
+            task_bridge=self._task_bridge,
         )
 
         # Set up namespace with DSL functions
@@ -750,6 +760,9 @@ class Timeline:
                 "mcp_disconnect": self._mcp_integration.disconnect,
                 "mcp_list": self._mcp_integration.list_connections,
                 "mcp_tools": self._mcp_integration.list_tools,
+                "mcp_roots_add": self._mcp_integration.add_root,
+                "mcp_roots_remove": self._mcp_integration.remove_root,
+                "mcp_roots_list": self._mcp_integration.list_roots,
             }
         )
 
@@ -2853,6 +2866,9 @@ class Timeline:
             "mcp_disconnect",
             "mcp_list",
             "mcp_tools",
+            "mcp_roots_add",
+            "mcp_roots_remove",
+            "mcp_roots_list",
             "connect",
             "interact",  # Conversation delegation DSL functions
             "import_script",

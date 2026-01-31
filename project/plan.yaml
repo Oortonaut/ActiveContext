@@ -2298,6 +2298,176 @@ tasks:
   failures: []
   subtasks: []
 
+- id: mcp-001
+  title: MCP Roots Support
+  description: |
+    Implement the MCP roots protocol (2025-06-18 spec) so ActiveContext acts as a
+    proper MCP client that advertises filesystem roots to connected servers.
+
+    Core Protocol:
+    - Implement roots/list handler returning registered Root objects
+    - Send notifications/roots/list_changed when roots change
+    - Root = { uri: "file:///path/to/dir", name?: "project" }
+    - Reference: https://modelcontextprotocol.io/specification/2025-06-18/client/roots
+
+    Root Registration:
+    - Default project root: auto-register cwd as root on session creation
+    - On mcp_connect(): deliver current roots to newly connected server
+    - Dynamic registration: roots DSL function or config-driven
+    - Normalize file:// URIs (strip scheme, handle Windows drive letters)
+
+    Configuration:
+    - config.yaml mcp.roots section for declarative root definitions
+    - CLI --root name path flag for ad-hoc root registration
+    - Per-server root filtering (optional, servers may only need subset)
+
+    Filename Normalizer:
+    - The path normalizer in resolve_path() / _expand_path_roots() may need to be
+      extracted into a stateful PathNormalizer class that tracks registered roots
+    - file:// URI <-> OS path bidirectional conversion
+    - Cross-platform: Windows file:///C:/... vs Unix file:///home/...
+
+    Files likely affected:
+    - src/activecontext/mcp/client.py (roots handler registration)
+    - src/activecontext/mcp/types.py (Root dataclass)
+    - src/activecontext/config/schema.py (MCPConfig.roots, RootConfig)
+    - src/activecontext/session/session_manager.py (auto-register cwd root)
+    - src/activecontext/__main__.py (--root CLI flag)
+    - New: src/activecontext/mcp/roots.py (RootsManager)
+  status: pending
+  stream: A
+  depends_on: []
+  blocks: []
+  estimate:
+    points: 8
+    confidence: medium
+    rationale: Protocol implementation + path normalization + config + CLI integration
+  execution:
+    agent_id: null
+    session_id: null
+    attempt: 0
+    max_attempts: 3
+    started: null
+    completed: null
+  actual:
+    tokens:
+      input: 0
+      output: 0
+      cache_read: 0
+      cache_create: 0
+    cost_usd: 0.0
+    wall_time_seconds: 0
+  failures: []
+  subtasks:
+  - id: mcp-001-a
+    title: Root dataclass and RootsManager
+    description: |
+      Create Root dataclass (uri, name) and RootsManager class.
+      file:// URI normalization (strip scheme, Windows drive letters).
+      Register/unregister/list roots. Emit change notifications.
+    status: pending
+  - id: mcp-001-b
+    title: Protocol handler in MCP client
+    description: |
+      Handle roots/list requests from servers.
+      Send notifications/roots/list_changed on root changes.
+      Deliver roots on mcp_connect().
+    status: pending
+  - id: mcp-001-c
+    title: Config and CLI support
+    description: |
+      Add mcp.roots config section and RootConfig dataclass.
+      Add --root name path CLI flag to __main__.py.
+      Auto-register cwd as default project root.
+    status: pending
+  - id: mcp-001-d
+    title: Extract PathNormalizer with state
+    description: |
+      Move path normalization logic into a stateful class that
+      knows about registered roots. Bidirectional file:// <-> OS path.
+    status: pending
+
+- id: coord-001
+  title: Worker Task-Graph Integration
+  description: |
+    Route work discovered by workers (via work_on/work_check/work_done) through
+    the task-graph MCP server for time tracking, task creation, and claiming.
+
+    Current State:
+    - Workers use work_on("intent", "file1.py", "file2.py") to register work
+    - ScratchpadManager tracks file locks and conflicts
+    - No integration with external task tracking (task-graph MCP)
+
+    Desired Behavior:
+    - When a worker calls work_on(), also create a task in task-graph
+    - Auto-claim the task (claim=true on create, or create then claim)
+    - When work_done() is called, mark task as completed in task-graph
+    - Track wall time between work_on() and work_done()
+    - work_update() could update task description/status in task-graph
+
+    task-graph MCP Integration:
+    - Use mcp_connect("task-graph") to connect to task-graph server
+    - create() call with optional claim=true parameter
+    - update() to set state="completed" on work_done()
+    - log_metrics() for time tracking data
+
+    Design Considerations:
+    - Should be opt-in (only when task-graph MCP is connected)
+    - Graceful degradation: if task-graph unavailable, work_on still works locally
+    - May need a TaskGraphBridge class in coordination/ that wraps MCP calls
+    - Consider batching: don't create a task for every tiny work_on() call
+
+    Files likely affected:
+    - src/activecontext/coordination/scratchpad.py (hook into work lifecycle)
+    - src/activecontext/session/timeline.py (WorkCoordinator methods)
+    - New: src/activecontext/coordination/task_bridge.py (TaskGraphBridge)
+  status: pending
+  stream: A
+  depends_on: []
+  blocks: []
+  estimate:
+    points: 5
+    confidence: medium
+    rationale: MCP tool invocation pattern exists, need lifecycle hooks and bridge
+  execution:
+    agent_id: null
+    session_id: null
+    attempt: 0
+    max_attempts: 3
+    started: null
+    completed: null
+  actual:
+    tokens:
+      input: 0
+      output: 0
+      cache_read: 0
+      cache_create: 0
+    cost_usd: 0.0
+    wall_time_seconds: 0
+  failures: []
+  subtasks:
+  - id: coord-001-a
+    title: TaskGraphBridge class
+    description: |
+      Create coordination/task_bridge.py with TaskGraphBridge.
+      Wraps task-graph MCP calls (create, update, claim, log_metrics).
+      Graceful no-op when task-graph is not connected.
+    status: pending
+  - id: coord-001-b
+    title: Hook work lifecycle into task-graph
+    description: |
+      work_on() -> create + claim task in task-graph
+      work_update() -> update task description
+      work_done() -> mark completed + log wall time
+    status: pending
+  - id: coord-001-c
+    title: Configuration and opt-in
+    description: |
+      Config flag for enabling task-graph integration.
+      Auto-detect when task-graph MCP is connected.
+      claim=true semantics on create call.
+    status: pending
+
 velocity:
   history:
   - date: '2026-01-20'

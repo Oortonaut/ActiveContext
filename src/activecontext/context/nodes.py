@@ -388,6 +388,64 @@ class ContextNode(ABC):
         """
         pass
 
+    # --- NodePlugin protocol adapters ---
+    # These bridge the existing PascalCase methods to the snake_case
+    # NodePlugin protocol. Existing subclasses override the PascalCase
+    # originals; these adapters forward to them.
+
+    def render_content(
+        self,
+        cwd: str = ".",
+        text_buffers: dict[str, Any] | None = None,
+    ) -> str:
+        """Render the content section (main body).
+
+        Adapter for NodePlugin protocol. Delegates to RenderSummary
+        and strips the header (which render_header provides separately).
+        Subclasses may override this directly for composable rendering.
+        """
+        summary = self.RenderSummary(cwd=cwd, text_buffers=text_buffers)
+        header = self.render_header(cwd=cwd)
+        # Strip the header prefix — content is everything after it
+        if summary.startswith(header):
+            return summary[len(header):]
+        return summary
+
+    def render_detail(
+        self,
+        cwd: str = ".",
+        text_buffers: dict[str, Any] | None = None,
+    ) -> str:
+        """Render the detail section (extra content beyond content level).
+
+        Adapter for NodePlugin protocol. Delegates to RenderDetail
+        and strips header + content (which the other methods provide).
+        Subclasses may override this directly for composable rendering.
+        """
+        detail = self.RenderDetail(
+            include_summary=True, cwd=cwd, text_buffers=text_buffers,
+        )
+        header = self.render_header(cwd=cwd)
+        content = self.render_content(cwd=cwd, text_buffers=text_buffers)
+        prefix = header + content
+        if detail.startswith(prefix):
+            return detail[len(prefix):]
+        return detail
+
+    def tick(self) -> None:
+        """Synchronous state materialization point.
+
+        Adapter for NodePlugin protocol. Delegates to Recompute().
+        """
+        self.Recompute()
+
+    def get_digest(self) -> dict[str, Any]:
+        """Return compact metadata for the handles dict.
+
+        Adapter for NodePlugin protocol. Delegates to GetDigest().
+        """
+        return self.GetDigest()
+
     def _mark_changed(
         self,
         description: str = "",

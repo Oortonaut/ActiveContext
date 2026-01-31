@@ -2,8 +2,8 @@
 
 Provides hierarchical YAML-based configuration with:
 - System-level config (/etc/activecontext/ or %PROGRAMDATA%)
-- User-level config (~/.ac/ or %APPDATA%)
 - Project-level config ($session_root/.ac/)
+- User-level config (~/.ac/ or %APPDATA%)
 - Environment variable overrides (highest priority)
 
 Example usage:

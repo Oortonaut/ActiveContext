@@ -89,11 +89,36 @@ async def _main() -> None:
     await acp.run_agent(agent, use_unstable_protocol=True)
 
 
+def _parse_args() -> list[tuple[str, str]]:
+    """Parse CLI arguments.
+
+    Returns:
+        List of (name, path) tuples from --root flags.
+    """
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        prog="activecontext",
+        description="ActiveContext ACP agent",
+    )
+    parser.add_argument(
+        "--root",
+        action="append",
+        nargs=2,
+        metavar=("NAME", "PATH"),
+        help="Register a filesystem root: --root project /path/to/dir",
+    )
+    args, _ = parser.parse_known_args()
+    return [(name, path) for name, path in (args.root or [])]
+
+
 def main() -> None:
     """Run the ActiveContext ACP agent."""
     import asyncio
 
     from activecontext.config import load_config
+
+    cli_roots = _parse_args()
 
     # When stdin is piped (IDE or echo), silence stderr and root logger
     # to prevent tracebacks from interfering with ACP protocol
@@ -107,6 +132,13 @@ def main() -> None:
     _expand_env_vars()
     config = load_config()
     setup_logging(config.logging)
+
+    # Store CLI roots for session creation
+    if cli_roots:
+        from activecontext.session.mcp_integration import set_cli_roots
+
+        set_cli_roots(cli_roots)
+        log.info("CLI roots: %s", cli_roots)
 
     log.info("Starting ActiveContext ACP agent...")
     asyncio.run(_main())

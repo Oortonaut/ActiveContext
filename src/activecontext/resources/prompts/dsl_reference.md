@@ -557,6 +557,15 @@ Wait for all specified nodes to complete. Alias for multiple-node wait.
 wait_all(shell_node1, shell_node2)  # Resume when all complete
 ```
 
+### `import_script(path)`
+Import and execute a markdown script file. Parses the file and executes all
+`python/acrepl` fenced blocks sequentially. Supports `@prompts/` paths.
+
+```python
+await import_script("@prompts/startup.md")
+await import_script("./my-setup.md")
+```
+
 ## Multi-Agent Functions
 
 These functions are available when an agent manager is configured (typically in multi-agent scenarios).

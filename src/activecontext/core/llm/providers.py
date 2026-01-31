@@ -5,7 +5,6 @@ Loads provider definitions and role-to-model mappings from providers.yaml.
 
 from __future__ import annotations
 
-import importlib.resources
 from dataclasses import dataclass, field
 from functools import lru_cache
 from typing import Any, cast
@@ -48,11 +47,10 @@ class RoleConfig:
 @lru_cache(maxsize=1)
 def _load_providers_yaml() -> dict[str, Any]:
     """Load providers.yaml from package resources."""
-    files = importlib.resources.files("activecontext.core.llm")
-    yaml_path = files.joinpath("providers.yaml")
-    with importlib.resources.as_file(yaml_path) as path, open(path) as f:
-        result = yaml.safe_load(f)
-        return cast(dict[str, Any], result)
+    from activecontext.resources import load_resource
+
+    content = load_resource("config/providers.yaml")
+    return cast(dict[str, Any], yaml.safe_load(content))
 
 
 def _build_provider_configs() -> dict[str, ProviderConfig]:

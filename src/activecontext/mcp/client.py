@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any
 from mcp import types
 from mcp.client.session import ClientSession
 
+from activecontext.mcp.roots import RootsManager
 from activecontext.mcp.transport import create_transport
 from activecontext.mcp.types import (
     MCPConnectionStatus,
@@ -37,6 +38,7 @@ class MCPConnection:
     resources: list[MCPResourceInfo] = field(default_factory=list)
     prompts: list[MCPPromptInfo] = field(default_factory=list)
     error_message: str | None = None
+    _roots_manager: RootsManager | None = None
     _transport_context: Any = None
     _read_stream: Any = None
     _write_stream: Any = None
@@ -49,7 +51,29 @@ class MCPConnection:
             streams = await self._transport_context.__aenter__()
             self._read_stream, self._write_stream = streams[0], streams[1]
 
-            self.session = ClientSession(self._read_stream, self._write_stream)
+            # Build roots callback if a RootsManager is available
+            kwargs: dict[str, Any] = {}
+            if self._roots_manager is not None:
+                roots_mgr = self._roots_manager
+
+                async def _list_roots_cb(
+                    _context: Any,
+                ) -> types.ListRootsResult:
+                    from pydantic import FileUrl
+
+                    our_roots = roots_mgr.list_roots()
+                    return types.ListRootsResult(
+                        roots=[
+                            types.Root(uri=FileUrl(r.uri), name=r.name)
+                            for r in our_roots
+                        ]
+                    )
+
+                kwargs["list_roots_callback"] = _list_roots_cb
+
+            self.session = ClientSession(
+                self._read_stream, self._write_stream, **kwargs
+            )
             await self.session.__aenter__()
             await self.session.initialize()
 
@@ -135,6 +159,19 @@ class MCPConnection:
         self.resources = []
         self.prompts = []
         _log.info(f"Disconnected from MCP server '{self.name}'")
+
+    async def notify_roots_changed(self) -> None:
+        """Send roots/list_changed notification to the server."""
+        if self.session and self.status == MCPConnectionStatus.CONNECTED:
+            try:
+                await self.session.send_roots_list_changed()
+                _log.debug("Sent roots_list_changed to '%s'", self.name)
+            except Exception:
+                _log.debug(
+                    "Failed to send roots_list_changed to '%s'",
+                    self.name,
+                    exc_info=True,
+                )
 
     async def call_tool(self, tool_name: str, arguments: dict[str, Any]) -> MCPToolResult:
         """Call a tool on this server."""
@@ -236,10 +273,40 @@ class MCPClientManager:
     connections: dict[str, MCPConnection] = field(default_factory=dict)
     config: MCPConfig | None = None
     _permission_callback: MCPPermissionCallback | None = None
+    _roots_manager: RootsManager | None = None
+    _roots_unregister: Callable[[], None] | None = field(
+        default=None, repr=False
+    )
 
     def set_permission_callback(self, callback: MCPPermissionCallback) -> None:
         """Set callback for permission checks: (server_name, tool_name, args) -> allowed."""
         self._permission_callback = callback
+
+    def set_roots_manager(self, manager: RootsManager) -> None:
+        """Set the roots manager — all connections will advertise these roots.
+
+        Registers a change callback that broadcasts roots/list_changed
+        to all connected servers when roots are added or removed.
+        """
+        if self._roots_unregister is not None:
+            self._roots_unregister()
+        self._roots_manager = manager
+        self._roots_unregister = manager.on_change(self._on_roots_changed)
+
+    def _on_roots_changed(self) -> None:
+        """Synchronous callback from RootsManager — schedule async notifications."""
+        import asyncio
+
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(self._broadcast_roots_changed())
+        except RuntimeError:
+            _log.debug("No running event loop for roots_list_changed broadcast")
+
+    async def _broadcast_roots_changed(self) -> None:
+        """Notify all connected servers that the roots list has changed."""
+        for conn in self.connections.values():
+            await conn.notify_roots_changed()
 
     async def connect(
         self,
@@ -283,7 +350,9 @@ class MCPClientManager:
             await existing.disconnect()
 
         # Create and connect
-        connection = MCPConnection(name=name, config=config)
+        connection = MCPConnection(
+            name=name, config=config, _roots_manager=self._roots_manager
+        )
         await connection.connect()
         self.connections[name] = connection
         return connection

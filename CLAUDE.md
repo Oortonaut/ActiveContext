@@ -110,14 +110,25 @@ src/activecontext/
 │   ├── transport.py      # stdio/SSE transports
 │   ├── types.py          # MCPToolInfo, MCPToolResult, etc.
 │   └── permissions.py    # MCP permission integration
-├── prompts/              # LLM reference prompts
-│   ├── system.md         # System prompt template
-│   ├── dsl_reference.md  # DSL function documentation
-│   ├── node_states.md    # NodeState documentation
-│   ├── context_graph.md  # DAG manipulation guide
-│   ├── context_guide.md  # Context management guide
-│   ├── work_coordination.md  # Multi-agent coordination guide
-│   └── mcp.md            # MCP usage guide
+├── prompts/              # Compatibility shim (delegates to resources/)
+│   └── __init__.py       # Re-exports load_prompt, SYSTEM_PROMPT, etc.
+├── resources/            # Bundled package resources
+│   ├── __init__.py       # load_resource(), load_prompt(), list_prompts()
+│   ├── prompts/          # LLM reference prompts
+│   │   ├── system.md     # System prompt template
+│   │   ├── dsl_reference.md  # DSL function documentation
+│   │   ├── node_states.md    # NodeState documentation
+│   │   ├── context_graph.md  # DAG manipulation guide
+│   │   ├── context_guide.md  # Context management guide
+│   │   ├── work_coordination.md  # Multi-agent coordination guide
+│   │   ├── mcp.md            # MCP usage guide
+│   │   ├── startup.md        # Default session startup script
+│   │   └── modes/            # Session mode scripts
+│   │       ├── normal.md
+│   │       ├── plan.md
+│   │       └── brave.md
+│   └── config/
+│       └── providers.yaml    # LLM provider definitions
 ├── dashboard/            # Web monitoring interface
 │   ├── server.py         # Dashboard server (start/stop)
 │   ├── routes.py         # HTTP API routes

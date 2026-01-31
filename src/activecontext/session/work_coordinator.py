@@ -15,6 +15,7 @@ from activecontext.context.state import Expansion
 if TYPE_CHECKING:
     from activecontext.context.graph import ContextGraph
     from activecontext.coordination.scratchpad import ScratchpadManager
+    from activecontext.coordination.task_bridge import TaskGraphBridge
 
 
 class WorkCoordinator:
@@ -30,6 +31,7 @@ class WorkCoordinator:
         session_id: str,
         context_graph: ContextGraph,
         scratchpad_manager: ScratchpadManager | None,
+        task_bridge: TaskGraphBridge | None = None,
     ) -> None:
         """Initialize WorkCoordinator.
 
@@ -37,10 +39,12 @@ class WorkCoordinator:
             session_id: Session identifier for this agent
             context_graph: Graph for adding WorkNodes
             scratchpad_manager: Manager for cross-agent coordination
+            task_bridge: Optional bridge to task-graph MCP for time tracking
         """
         self._session_id = session_id
         self._context_graph = context_graph
         self._scratchpad_manager = scratchpad_manager
+        self._task_bridge = task_bridge
         self._work_node: WorkNode | None = None
 
     @property
@@ -48,7 +52,7 @@ class WorkCoordinator:
         """Get the current WorkNode, if any."""
         return self._work_node
 
-    def work_on(
+    async def work_on(
         self,
         intent: str,
         *files: str,
@@ -59,6 +63,7 @@ class WorkCoordinator:
 
         Creates a WorkNode in the context graph to display coordination status.
         Also registers with the project-wide scratchpad for cross-agent visibility.
+        When task-graph is connected, creates and claims a task for time tracking.
 
         Args:
             intent: Human-readable description of work
@@ -114,6 +119,13 @@ class WorkCoordinator:
             self._work_node.set_conflicts([c.to_dict() for c in conflicts])
             self._work_node.agent_id = entry.id
 
+        # Create + claim task in task-graph (no-op when bridge inactive)
+        if self._task_bridge and self._task_bridge.is_active:
+            description = f"Files: {', '.join(files)}" if files else None
+            await self._task_bridge.create_task(
+                intent, description=description, claim=True
+            )
+
         return self._work_node
 
     def work_check(self, *files: str, mode: str = "write") -> list[dict[str, str]]:
@@ -137,7 +149,7 @@ class WorkCoordinator:
         conflicts = self._scratchpad_manager.get_conflicts(list(files), mode)
         return [c.to_dict() for c in conflicts]
 
-    def work_update(
+    async def work_update(
         self,
         intent: str | None = None,
         files: list[str] | None = None,
@@ -194,12 +206,17 @@ class WorkCoordinator:
             conflicts = self._scratchpad_manager.get_conflicts(all_paths, mode)
             self._work_node.set_conflicts([c.to_dict() for c in conflicts])
 
+        # Update task description in task-graph (no-op when bridge inactive)
+        if self._task_bridge and self._task_bridge.is_active and intent:
+            await self._task_bridge.update_task(description=intent)
+
         return self._work_node
 
-    def work_done(self) -> None:
+    async def work_done(self) -> None:
         """Mark work as complete and unregister.
 
-        Removes this agent's entry from the scratchpad and hides the WorkNode.
+        Removes this agent's entry from the scratchpad, hides the WorkNode,
+        and completes the task-graph task with wall time metrics.
         """
         if not self._scratchpad_manager:
             return
@@ -209,6 +226,10 @@ class WorkCoordinator:
         if self._work_node:
             self._work_node.work_status = "done"
             self._work_node.expansion = Expansion.HEADER
+
+        # Complete task in task-graph with wall time (no-op when bridge inactive)
+        if self._task_bridge and self._task_bridge.is_active:
+            await self._task_bridge.complete_task(reason="work_done")
 
     def work_list(self) -> list[dict[str, Any]]:
         """List all active work entries from all agents.

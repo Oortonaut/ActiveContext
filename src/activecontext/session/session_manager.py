@@ -568,7 +568,7 @@ class Session:
             name = path[9:]  # Remove "@prompts/"
             if name.endswith(".md"):
                 name = name[:-3]  # Remove ".md"
-            from activecontext.prompts import load_prompt
+            from activecontext.resources import load_prompt
 
             content = load_prompt(name)
             return (f"@prompts/{name}", content)
@@ -1914,7 +1914,7 @@ class Session:
 
         guide_paths = [
             Path(self._cwd) / "CONTEXT_GUIDE.md",
-            Path(__file__).parent.parent / "prompts" / "context_guide.md",
+            Path(__file__).parent.parent / "resources" / "prompts" / "context_guide.md",
         ]
 
         for guide_path in guide_paths:
