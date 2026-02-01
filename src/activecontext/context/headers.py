@@ -89,10 +89,7 @@ def format_token_info(
         visible = all_tokens
 
     # Build breakdown: header+content+index (omit +0 when no index)
-    if index > 0:
-        breakdown = f"{header}+{content}+{index}"
-    else:
-        breakdown = f"{header}+{content}"
+    breakdown = f"{header}+{content}+{index}" if index > 0 else f"{header}+{content}"
 
     return f"(tokens: {visible} / {breakdown} of {all_tokens})"
 

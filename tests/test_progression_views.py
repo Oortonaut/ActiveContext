@@ -813,9 +813,7 @@ class TestSequenceViewApplySelection:
 class TestProjectionEngineIntegration:
     """Tests for progression views integration with ProjectionEngine."""
 
-    def test_sequence_view_in_projection(
-        self, mock_graph_with_steps, projection_engine
-    ):
+    def test_sequence_view_in_projection(self, mock_graph_with_steps, projection_engine):
         """Test that SequenceView filtering works through projection engine."""
         parent = mock_graph_with_steps.get_node("parent")
         seq = SequenceView(parent, expand=Expansion.ALL)

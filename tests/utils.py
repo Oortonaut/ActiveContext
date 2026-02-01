@@ -115,9 +115,7 @@ def create_mock_llm_response(content: str = "Test response") -> dict[str, Any]:
     return response
 
 
-def create_mock_llm_stream_chunk(
-    text: str = "chunk", is_final: bool = False
-) -> dict[str, Any]:
+def create_mock_llm_stream_chunk(text: str = "chunk", is_final: bool = False) -> dict[str, Any]:
     """Create a mock streaming chunk from LiteLLM.
 
     Args:

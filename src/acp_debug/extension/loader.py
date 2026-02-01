@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import importlib.util
 import sys
 from pathlib import Path
@@ -70,11 +71,7 @@ def _load_extensions_from_file(path: Path) -> list[ACPExtension]:
 
         for name in dir(module):
             obj = getattr(module, name)
-            if (
-                isinstance(obj, type)
-                and issubclass(obj, ACPExtension)
-                and obj not in base_classes
-            ):
+            if isinstance(obj, type) and issubclass(obj, ACPExtension) and obj not in base_classes:
                 # Instantiate the extension
                 instance = obj()
                 extensions.append(instance)
@@ -86,24 +83,18 @@ def _load_extensions_from_file(path: Path) -> list[ACPExtension]:
     return extensions
 
 
-def reload_extensions(
-    config: Config, current_extensions: list[ACPExtension]
-) -> list[ACPExtension]:
+def reload_extensions(config: Config, current_extensions: list[ACPExtension]) -> list[ACPExtension]:
     """Reload extensions from configured paths.
 
     Calls on_shutdown() on current extensions before replacing them.
     """
     # Shutdown current extensions
     for ext in current_extensions:
-        try:
+        with contextlib.suppress(Exception):
             ext.on_shutdown()
-        except Exception:
-            pass
 
     # Clear any cached modules
-    modules_to_remove = [
-        name for name in sys.modules if name.startswith("acp_debug_ext_")
-    ]
+    modules_to_remove = [name for name in sys.modules if name.startswith("acp_debug_ext_")]
     for name in modules_to_remove:
         del sys.modules[name]
 

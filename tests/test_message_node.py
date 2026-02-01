@@ -1,13 +1,8 @@
 """Tests for MessageNode and conversation rendering with IDs."""
 
-import time
-
-import pytest
-
 from activecontext.context.graph import ContextGraph
 from activecontext.context.nodes import MessageNode
 from activecontext.context.state import Expansion
-from activecontext.core.projection_engine import ProjectionConfig, ProjectionEngine
 
 
 class TestMessageNodeBasics:
@@ -206,5 +201,3 @@ class TestMessageNodeInGraph:
 
         message_nodes = graph.get_nodes_by_type("message")
         assert len(message_nodes) == 3
-
-

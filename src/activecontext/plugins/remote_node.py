@@ -22,15 +22,12 @@ from activecontext.context.nodes import ContextNode
 from activecontext.context.state import Expansion
 from activecontext.plugins.protocol import (
     MethodCall,
-    NodeNotification,
     RenderSnapshot,
-    SyncResult,
     TokenEstimate,
 )
 from activecontext.plugins.wire import (
     Methods,
     NodeSyncParams,
-    NodeSyncResult,
     PendingCall,
 )
 
@@ -88,12 +85,8 @@ class RemoteNode(ContextNode):
 
     # Cached state from last sync
     _cached_state: dict[str, Any] = field(default_factory=dict)
-    _cached_renders: RenderSnapshot = field(
-        default_factory=RenderSnapshot
-    )
-    _cached_tokens: TokenEstimate = field(
-        default_factory=TokenEstimate
-    )
+    _cached_renders: RenderSnapshot = field(default_factory=RenderSnapshot)
+    _cached_tokens: TokenEstimate = field(default_factory=TokenEstimate)
     _cached_digest: dict[str, Any] = field(default_factory=dict)
 
     # Pending operations
@@ -334,9 +327,7 @@ class RemoteNode(ContextNode):
         old_version = self.version
 
         try:
-            raw_result = await self._connection.send_request(
-                Methods.NODE_SYNC, params
-            )
+            raw_result = await self._connection.send_request(Methods.NODE_SYNC, params)
             self._apply_sync_result(raw_result)
             self._pending_calls.clear()
             self._dirty = False
@@ -345,9 +336,7 @@ class RemoteNode(ContextNode):
 
             # Notify parents if state changed
             if self.version != old_version:
-                self.notify_parents(
-                    f"Remote node {self._actual_node_type} synced"
-                )
+                self.notify_parents(f"Remote node {self._actual_node_type} synced")
 
         except Exception as e:
             logger.error(
@@ -429,9 +418,7 @@ class RemoteNode(ContextNode):
         # Guard against infinite recursion during init: _cached_state
         # itself may not exist yet.
         if name.startswith("_"):
-            raise AttributeError(
-                f"'{type(self).__name__}' object has no attribute '{name}'"
-            )
+            raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
         try:
             cached = object.__getattribute__(self, "_cached_state")
         except AttributeError:
@@ -440,9 +427,7 @@ class RemoteNode(ContextNode):
             ) from None
         if name in cached:
             return cached[name]
-        raise AttributeError(
-            f"'{type(self).__name__}' object has no attribute '{name}'"
-        )
+        raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
 
     # ------------------------------------------------------------------
     # Serialization

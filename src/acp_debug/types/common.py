@@ -65,12 +65,8 @@ class AgentCapabilities(AcpModel):
     """Agent capabilities advertised during initialization."""
 
     load_session: bool = Field(default=False, alias="loadSession")
-    prompt_capabilities: PromptCapabilities | None = Field(
-        default=None, alias="promptCapabilities"
-    )
-    session_capabilities: dict[str, Any] = Field(
-        default_factory=dict, alias="sessionCapabilities"
-    )
+    prompt_capabilities: PromptCapabilities | None = Field(default=None, alias="promptCapabilities")
+    session_capabilities: dict[str, Any] = Field(default_factory=dict, alias="sessionCapabilities")
 
 
 class AgentInfo(AcpModel):

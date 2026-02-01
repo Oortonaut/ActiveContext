@@ -170,7 +170,6 @@ class NodeView:
         else:
             setattr(self._node, name, value)
 
-
     def to_dict(self) -> dict[str, Any]:
         """Serialize view state for session persistence."""
         return {
@@ -333,7 +332,7 @@ class ChoiceView(NodeView):
                 if self._selected_id is None:
                     views[child_id].hide = True
                 else:
-                    views[child_id].hide = (child_id != self._selected_id)
+                    views[child_id].hide = child_id != self._selected_id
                 # Selected child keeps its own expand mode
 
     def get_options(self) -> list[str]:
@@ -416,7 +415,6 @@ class ChoiceView(NodeView):
             selected_title = options[0] if options else "?"
 
         return f"{selected_title} [{' | '.join(options)}]"
-
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize view state for session persistence."""

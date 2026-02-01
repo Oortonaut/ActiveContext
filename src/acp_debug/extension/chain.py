@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 from collections.abc import Awaitable, Callable
 from typing import TypeVar
 
@@ -62,10 +63,8 @@ class ExtensionChain:
     def shutdown_all(self) -> None:
         """Call on_shutdown() on all extensions."""
         for ext in self.extensions:
-            try:
+            with contextlib.suppress(Exception):
                 ext.on_shutdown()
-            except Exception:
-                pass
 
     def _build_chain(
         self,

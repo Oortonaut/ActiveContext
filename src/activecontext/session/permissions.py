@@ -885,10 +885,7 @@ def write_shell_permission_to_config(
     data["sandbox"].setdefault("shell_permissions", [])
 
     # Build pattern - use the full command string
-    if args:
-        pattern = f"{command} {' '.join(args)}"
-    else:
-        pattern = command
+    pattern = f"{command} {' '.join(args)}" if args else command
 
     # Check if rule already exists
     existing_patterns = {
@@ -1276,10 +1273,7 @@ class URLTypeValidator:
 
         # Try IPv6 (with or without brackets)
         value_stripped = value.strip("[]")
-        if URLTypeValidator._is_valid_ipv6(value_stripped):
-            return True
-
-        return False
+        return bool(URLTypeValidator._is_valid_ipv6(value_stripped))
 
     @staticmethod
     def _is_valid_ipv4(value: str) -> bool:
@@ -1489,9 +1483,8 @@ class WebsitePermissionManager:
         # Check rules (first match wins)
         for rule in self.rules:
             result = self._url_matcher.match(rule.pattern, url)
-            if result.matched:
-                if "ALL" in rule.methods or method in rule.methods:
-                    return rule.allow
+            if result.matched and ("ALL" in rule.methods or method in rule.methods):
+                return rule.allow
 
         # No match - use default policy
         return not self.deny_by_default

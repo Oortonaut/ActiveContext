@@ -46,9 +46,7 @@ class CAPTransport(Protocol):
         """
         ...
 
-    async def send_request(
-        self, method: str, params: Any = None, timeout: float = 30.0
-    ) -> Any:
+    async def send_request(self, method: str, params: Any = None, timeout: float = 30.0) -> Any:
         """Send a request and wait for response.
 
         Args:

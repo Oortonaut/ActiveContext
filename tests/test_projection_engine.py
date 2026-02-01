@@ -15,7 +15,6 @@ from activecontext.context.state import Expansion
 from activecontext.core.projection_engine import ProjectionConfig, ProjectionEngine, RenderPath
 from tests.utils import create_mock_context_node
 
-
 # =============================================================================
 # Fixtures
 # =============================================================================
@@ -246,7 +245,7 @@ class TestRenderPathRendering:
     def test_render_path_calls_render(self, projection_engine, mock_graph):
         """Test that Render is called for each visible node."""
         path = projection_engine._collect_render_path(mock_graph)
-        sections = projection_engine._render_path(mock_graph, path, cwd="/test")
+        projection_engine._render_path(mock_graph, path, cwd="/test")
 
         running_node = mock_graph.get_node("running1")
         paused_node = mock_graph.get_node("paused_root")

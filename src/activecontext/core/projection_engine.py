@@ -20,7 +20,7 @@ if TYPE_CHECKING:
     from activecontext.context.content import ContentRegistry
     from activecontext.context.graph import ContextGraph
     from activecontext.context.nodes import ContextNode
-    from activecontext.context.view import ChoiceView, NodeView
+    from activecontext.context.view import NodeView
 
 
 @dataclass

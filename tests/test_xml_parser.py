@@ -195,7 +195,7 @@ class TestMultipleCommands:
         <Run self="v" freq="Sync"/>
         """
         py = parse_xml_to_python(xml)
-        lines = [l.strip() for l in py.strip().split("\n") if l.strip()]
+        lines = [line.strip() for line in py.strip().split("\n") if line.strip()]
         assert len(lines) == 3
         assert "v = view" in lines[0]
         assert "v.SetLod" in lines[1]

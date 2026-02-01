@@ -314,7 +314,7 @@ class ShellManager:
             Number of tasks cancelled.
         """
         cancelled = 0
-        for node_id, task in list(self._shell_tasks.items()):
+        for _node_id, task in list(self._shell_tasks.items()):
             if not task.done():
                 task.cancel()
                 cancelled += 1

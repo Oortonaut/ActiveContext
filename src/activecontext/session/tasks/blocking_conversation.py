@@ -264,10 +264,12 @@ class BlockingConversationTask:
         history = []
         for i, question in enumerate(self._questions):
             response = self._responses[i] if i < len(self._responses) else None
-            history.append({
-                "question": question,
-                "response": response,
-            })
+            history.append(
+                {
+                    "question": question,
+                    "response": response,
+                }
+            )
         return history
 
     # -------------------------------------------------------------------------
@@ -275,7 +277,7 @@ class BlockingConversationTask:
     # -------------------------------------------------------------------------
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "BlockingConversationTask":
+    def from_dict(cls, data: dict[str, Any]) -> BlockingConversationTask:
         """Create a task from serialized data.
 
         Args:

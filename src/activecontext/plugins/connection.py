@@ -10,7 +10,8 @@ Wraps PluginTransport with protocol-level concerns:
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from activecontext.plugins.cap_transport import CAPTransport
 from activecontext.plugins.descriptor import NodePluginDescriptor, PluginSource
@@ -27,6 +28,7 @@ from activecontext.plugins.wire import (
     InitializeResult,
     Methods,
     NodeTypeSchema,
+    ParamSchema,
     PluginConnectionStatus,
     RootInfo,
     ServerCapabilities,
@@ -150,9 +152,7 @@ class PluginConnection:
             PluginTransportError: If connection or handshake fails.
         """
         if self._status != PluginConnectionStatus.DISCONNECTED:
-            raise PluginTransportError(
-                f"Cannot connect: status is {self._status.value}"
-            )
+            raise PluginTransportError(f"Cannot connect: status is {self._status.value}")
 
         self._status = PluginConnectionStatus.CONNECTING
 
@@ -239,9 +239,7 @@ class PluginConnection:
         self._descriptors = []
         logger.info("CAP disconnected from '%s'", self.name)
 
-    async def send_request(
-        self, method: str, params: Any = None, timeout: float = 30.0
-    ) -> Any:
+    async def send_request(self, method: str, params: Any = None, timeout: float = 30.0) -> Any:
         """Send a request to the plugin server.
 
         Args:
@@ -256,9 +254,7 @@ class PluginConnection:
             PluginTransportError: If not connected.
         """
         if self._status != PluginConnectionStatus.CONNECTED:
-            raise PluginTransportError(
-                f"Not connected (status: {self._status.value})"
-            )
+            raise PluginTransportError(f"Not connected (status: {self._status.value})")
         assert self._transport is not None
         return await self._transport.send_request(method, params, timeout)
 
@@ -270,9 +266,7 @@ class PluginConnection:
             params: Parameters (dataclass or dict).
         """
         if self._status != PluginConnectionStatus.CONNECTED:
-            raise PluginTransportError(
-                f"Not connected (status: {self._status.value})"
-            )
+            raise PluginTransportError(f"Not connected (status: {self._status.value})")
         assert self._transport is not None
         await self._transport.send_notification(method, params)
 
@@ -302,9 +296,7 @@ class PluginConnection:
                         )
                     )
             except Exception as e:
-                logger.error(
-                    "CAP host API error for %s: %s", method, e
-                )
+                logger.error("CAP host API error for %s: %s", method, e)
 
         if self._user_notification_cb:
             try:
@@ -344,26 +336,17 @@ class PluginConnection:
         """Parse a single node type schema from wire format."""
         from activecontext.plugins.wire import (
             MethodSchema,
-            ParamSchema,
             PropertySchema,
         )
 
         # Parse constructor
         raw_ctor = raw.get("constructor", {})
         constructor = ConstructorSchema(
-            positional=[
-                self._parse_param(p)
-                for p in raw_ctor.get("positional", [])
-            ],
+            positional=[self._parse_param(p) for p in raw_ctor.get("positional", [])],
             variadic=(
-                self._parse_param(raw_ctor["variadic"])
-                if raw_ctor.get("variadic")
-                else None
+                self._parse_param(raw_ctor["variadic"]) if raw_ctor.get("variadic") else None
             ),
-            named=[
-                self._parse_param(p)
-                for p in raw_ctor.get("named", [])
-            ],
+            named=[self._parse_param(p) for p in raw_ctor.get("named", [])],
         )
 
         # Parse properties
@@ -400,7 +383,7 @@ class PluginConnection:
 
     def _parse_param(self, raw: dict[str, Any]) -> ParamSchema:
         """Parse a parameter schema from wire format."""
-        from activecontext.plugins.wire import MISSING, ParamSchema
+        from activecontext.plugins.wire import MISSING
 
         return ParamSchema(
             name=raw["name"],

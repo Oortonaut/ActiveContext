@@ -39,7 +39,6 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
-
 # ---------------------------------------------------------------------------
 # Protocol constants
 # ---------------------------------------------------------------------------
@@ -156,9 +155,7 @@ class InitializeResult:
     node_types: list[NodeTypeSchema] = field(default_factory=list)
     """Node types this server provides, with full schemas."""
 
-    server_capabilities: ServerCapabilities = field(
-        default_factory=lambda: ServerCapabilities()
-    )
+    server_capabilities: ServerCapabilities = field(default_factory=lambda: ServerCapabilities())
     """Capabilities the server supports."""
 
 
@@ -653,6 +650,7 @@ def to_jsonrpc_request(method: str, params: Any, id: int | str) -> dict[str, Any
     if params is not None:
         if hasattr(params, "__dataclass_fields__"):
             from dataclasses import asdict
+
             msg["params"] = asdict(params)
         else:
             msg["params"] = params
@@ -676,6 +674,7 @@ def to_jsonrpc_notification(method: str, params: Any) -> dict[str, Any]:
     if params is not None:
         if hasattr(params, "__dataclass_fields__"):
             from dataclasses import asdict
+
             msg["params"] = asdict(params)
         else:
             msg["params"] = params
@@ -698,6 +697,7 @@ def to_jsonrpc_response(result: Any, id: int | str) -> dict[str, Any]:
     }
     if hasattr(result, "__dataclass_fields__"):
         from dataclasses import asdict
+
         msg["result"] = asdict(result)
     else:
         msg["result"] = result
@@ -705,7 +705,10 @@ def to_jsonrpc_response(result: Any, id: int | str) -> dict[str, Any]:
 
 
 def to_jsonrpc_error(
-    code: int, message: str, id: int | str | None, data: Any = None,
+    code: int,
+    message: str,
+    id: int | str | None,
+    data: Any = None,
 ) -> dict[str, Any]:
     """Build a JSON-RPC 2.0 error response.
 

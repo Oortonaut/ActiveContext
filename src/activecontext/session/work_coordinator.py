@@ -121,10 +121,8 @@ class WorkCoordinator:
 
         # Create + claim task in task-graph (no-op when bridge inactive)
         if self._task_bridge and self._task_bridge.is_active:
-            description = f"Files: {', '.join(files)}" if files else None
-            await self._task_bridge.create_task(
-                intent, description=description, claim=True
-            )
+            description = f"Files: {', '.join(files)}" if files else ""
+            await self._task_bridge.create_task(intent, description=description, claim=True)
 
         return self._work_node
 

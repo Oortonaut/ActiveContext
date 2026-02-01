@@ -204,7 +204,11 @@ class MessageRouter:
                     params=r.model_dump(by_alias=True, exclude_none=True),
                 )
                 response = await forward(forward_msg)
-                if response and response.result is not None and hasattr(resp_type, "model_validate"):
+                if (
+                    response
+                    and response.result is not None
+                    and hasattr(resp_type, "model_validate")
+                ):
                     return resp_type.model_validate(response.result)  # type: ignore[union-attr]
                 return None
 

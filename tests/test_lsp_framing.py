@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+
 import pytest
 
 from activecontext.transport.lsp.framing import (
@@ -147,7 +148,7 @@ class TestReadMessage:
     @pytest.mark.asyncio
     async def test_read_unicode_content(self, make_reader) -> None:
         """Unicode content is properly decoded."""
-        body = '{"message":"Hello, \u4e16\u754c!"}'.encode("utf-8")
+        body = '{"message":"Hello, \u4e16\u754c!"}'.encode()
         data = f"Content-Length: {len(body)}\r\n\r\n".encode() + body
         reader = make_reader(data)
 

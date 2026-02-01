@@ -20,13 +20,15 @@ def create_parser() -> argparse.ArgumentParser:
         version="%(prog)s 0.1.0",
     )
     parser.add_argument(
-        "-v", "--verbose",
+        "-v",
+        "--verbose",
         action="count",
         default=0,
         help="Increase verbosity (can be repeated)",
     )
     parser.add_argument(
-        "-q", "--quiet",
+        "-q",
+        "--quiet",
         action="store_true",
         help="Suppress non-error output",
     )
@@ -121,6 +123,7 @@ def run_cli(args: Sequence[str]) -> int:
 
     # Load config
     from acp_debug.config import load_config
+
     config = load_config(
         config_path=parsed.config,
         extensions=parsed.extensions,
@@ -130,15 +133,19 @@ def run_cli(args: Sequence[str]) -> int:
     # Dispatch to mode
     if parsed.mode == "proxy":
         from acp_debug.modes.proxy import run_proxy
+
         return asyncio.run(run_proxy(config, parsed.agent))
     elif parsed.mode == "mock-agent":
         from acp_debug.modes.mock_agent import run_mock_agent
+
         return asyncio.run(run_mock_agent(config, parsed.script))
     elif parsed.mode == "mock-client":
         from acp_debug.modes.mock_client import run_mock_client
+
         return asyncio.run(run_mock_client(config, parsed.agent, parsed.script))
     elif parsed.mode == "tap":
         from acp_debug.modes.tap import run_tap
+
         return asyncio.run(run_tap(config, parsed.agent, parsed.output))
     else:
         parser.print_help()

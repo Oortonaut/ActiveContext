@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from activecontext.core.tokens import (
     CHARS_PER_TOKEN,
     EXTENSION_MAP,

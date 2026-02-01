@@ -23,9 +23,7 @@ class ProxyTransport:
     ide_transport: StdioTransport
     agent_transport: StdioTransport
     router: MessageRouter
-    _pending_requests: dict[int | str, asyncio.Future[JsonRpcMessage]] = field(
-        default_factory=dict
-    )
+    _pending_requests: dict[int | str, asyncio.Future[JsonRpcMessage]] = field(default_factory=dict)
     _next_id: int = 0
     _running: bool = False
 
@@ -52,9 +50,7 @@ class ProxyTransport:
 
             if msg.is_request():
                 # Route request through extensions
-                response = await self.router.route_to_agent(
-                    msg, self._forward_to_agent_and_wait
-                )
+                response = await self.router.route_to_agent(msg, self._forward_to_agent_and_wait)
                 if response:
                     await self.ide_transport.write_message(response)
 
@@ -75,9 +71,7 @@ class ProxyTransport:
 
             if msg.is_request():
                 # Agent is requesting something from IDE (e.g., permission)
-                response = await self.router.route_to_client(
-                    msg, self._forward_to_ide_and_wait
-                )
+                response = await self.router.route_to_client(msg, self._forward_to_ide_and_wait)
                 if response:
                     await self.agent_transport.write_message(response)
 

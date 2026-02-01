@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import platform
 import shlex
 import sys
@@ -165,10 +166,8 @@ async def run_mock_client(config: Config, agent_command: str, script: Path | Non
         pass
     finally:
         handler_task.cancel()
-        try:
+        with contextlib.suppress(asyncio.CancelledError):
             await handler_task
-        except asyncio.CancelledError:
-            pass
 
         chain.shutdown_all()
 

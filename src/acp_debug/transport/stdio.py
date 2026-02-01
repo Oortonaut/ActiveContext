@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import sys
 from collections.abc import AsyncIterator
@@ -150,7 +151,5 @@ class StdioTransport:
         """Close the transport."""
         if self.writer is not None:
             self.writer.close()
-            try:
+            with contextlib.suppress(Exception):
                 await self.writer.wait_closed()
-            except Exception:
-                pass

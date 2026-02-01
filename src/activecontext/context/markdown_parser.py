@@ -258,10 +258,7 @@ def render_with_tags(content: str, result: ParseResult, base_id: str = "") -> st
 
     for i, section in enumerate(result.sections):
         line_idx = section.start_line - 1  # 0-indexed
-        if base_id:
-            node_id = f"{base_id}_{i}"
-        else:
-            node_id = f"text_{i}"
+        node_id = f"{base_id}_{i}" if base_id else f"text_{i}"
         lines[line_idx] = section.render_heading(result.total_lines, node_id)
 
     return "\n".join(lines)

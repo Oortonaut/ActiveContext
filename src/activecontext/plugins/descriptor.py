@@ -78,10 +78,6 @@ class NodePluginDescriptor:
     def __post_init__(self) -> None:
         """Validate descriptor consistency."""
         if self.source == PluginSource.REMOTE and self.server_name is None:
-            raise ValueError(
-                f"Remote plugin '{self.node_type}' must specify server_name"
-            )
+            raise ValueError(f"Remote plugin '{self.node_type}' must specify server_name")
         if self.source != PluginSource.REMOTE and self.node_cls is None:
-            raise ValueError(
-                f"Local/builtin plugin '{self.node_type}' must specify node_cls"
-            )
+            raise ValueError(f"Local/builtin plugin '{self.node_type}' must specify node_cls")

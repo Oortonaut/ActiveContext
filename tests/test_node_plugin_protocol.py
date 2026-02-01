@@ -8,11 +8,8 @@ Verifies that:
 
 from __future__ import annotations
 
-from typing import Any
-
 import pytest
 
-from activecontext.context.headers import TokenInfo
 from activecontext.context.nodes import (
     ArtifactNode,
     ContextNode,

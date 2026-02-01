@@ -83,7 +83,7 @@ class AgentSpawner:
 
         # Spawn synchronously using existing loop
         try:
-            loop = asyncio.get_running_loop()
+            asyncio.get_running_loop()  # Verify we're in async context
             # Create a coroutine and schedule it
             coro = self._agent_manager.spawn_agent(
                 agent_type=agent_type,
@@ -95,9 +95,9 @@ class AgentSpawner:
             # Use ensure_future to schedule the coroutine
             future = asyncio.ensure_future(coro)
             return future  # type: ignore  # Will be awaited by exec
-        except RuntimeError:
+        except RuntimeError as err:
             # No running loop - shouldn't happen in normal DSL execution
-            raise RuntimeError("spawn() must be called in async context")
+            raise RuntimeError("spawn() must be called in async context") from err
 
     async def spawn_async(
         self,
@@ -162,7 +162,7 @@ class AgentSpawner:
 
         # Send message (sync operation via scratchpad)
         try:
-            loop = asyncio.get_running_loop()
+            asyncio.get_running_loop()  # Verify we're in async context
             coro = self._agent_manager.send_message(
                 sender=sender,
                 recipient=recipient,
@@ -170,8 +170,8 @@ class AgentSpawner:
                 node_refs=ref_ids,
             )
             return asyncio.ensure_future(coro)  # type: ignore
-        except RuntimeError:
-            raise RuntimeError("send() must be called in async context")
+        except RuntimeError as err:
+            raise RuntimeError("send() must be called in async context") from err
 
     def send_update(
         self,
@@ -217,7 +217,7 @@ class AgentSpawner:
 
         # Send message (sync operation via scratchpad)
         try:
-            loop = asyncio.get_running_loop()
+            asyncio.get_running_loop()  # Verify we're in async context
             coro = self._agent_manager.send_message(
                 sender=sender,
                 recipient=parent_id,
@@ -227,8 +227,8 @@ class AgentSpawner:
             future = asyncio.ensure_future(coro)
             # Don't set _done_called - agent continues running
             return future  # type: ignore
-        except RuntimeError:
-            raise RuntimeError("send_update() must be called in async context")
+        except RuntimeError as err:
+            raise RuntimeError("send_update() must be called in async context") from err
 
     def recv_messages(self) -> list[dict[str, Any]]:
         """Receive pending messages for this agent.

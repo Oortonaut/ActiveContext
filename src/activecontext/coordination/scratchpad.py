@@ -298,10 +298,7 @@ class ScratchpadManager:
             return True
 
         # Check if either is a glob pattern matching the other
-        if fnmatch.fnmatch(p1, p2) or fnmatch.fnmatch(p2, p1):
-            return True
-
-        return False
+        return bool(fnmatch.fnmatch(p1, p2) or fnmatch.fnmatch(p2, p1))
 
     def get_all_entries(self) -> list[WorkEntry]:
         """Get all current work entries."""

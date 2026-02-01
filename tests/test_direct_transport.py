@@ -157,7 +157,6 @@ async def test_cancel_sets_flag() -> None:
 @pytest.mark.asyncio
 async def test_cancel_interrupts_prompt() -> None:
     """Test that cancel() interrupts an ongoing prompt."""
-    import asyncio
 
     async with ActiveContext() as ctx:
         session = await ctx.create_session(cwd="/tmp")

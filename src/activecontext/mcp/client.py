@@ -63,17 +63,12 @@ class MCPConnection:
 
                     our_roots = roots_mgr.list_roots()
                     return types.ListRootsResult(
-                        roots=[
-                            types.Root(uri=FileUrl(r.uri), name=r.name)
-                            for r in our_roots
-                        ]
+                        roots=[types.Root(uri=FileUrl(r.uri), name=r.name) for r in our_roots]
                     )
 
                 kwargs["list_roots_callback"] = _list_roots_cb
 
-            self.session = ClientSession(
-                self._read_stream, self._write_stream, **kwargs
-            )
+            self.session = ClientSession(self._read_stream, self._write_stream, **kwargs)
             await self.session.__aenter__()
             await self.session.initialize()
 
@@ -274,9 +269,7 @@ class MCPClientManager:
     config: MCPConfig | None = None
     _permission_callback: MCPPermissionCallback | None = None
     _roots_manager: RootsManager | None = None
-    _roots_unregister: Callable[[], None] | None = field(
-        default=None, repr=False
-    )
+    _roots_unregister: Callable[[], None] | None = field(default=None, repr=False)
 
     def set_permission_callback(self, callback: MCPPermissionCallback) -> None:
         """Set callback for permission checks: (server_name, tool_name, args) -> allowed."""
@@ -350,9 +343,7 @@ class MCPClientManager:
             await existing.disconnect()
 
         # Create and connect
-        connection = MCPConnection(
-            name=name, config=config, _roots_manager=self._roots_manager
-        )
+        connection = MCPConnection(name=name, config=config, _roots_manager=self._roots_manager)
         await connection.connect()
         self.connections[name] = connection
         return connection

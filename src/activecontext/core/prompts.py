@@ -28,9 +28,7 @@ _XML_DSL_TAGS = frozenset(
     }
 )
 
-_XML_TAG_PATTERN = re.compile(
-    r"<(" + "|".join(sorted(_XML_DSL_TAGS)) + r")[\s/>]"
-)
+_XML_TAG_PATTERN = re.compile(r"<(" + "|".join(sorted(_XML_DSL_TAGS)) + r")[\s/>]")
 
 # Fenced code block pattern: ```<language> ... ```
 # MULTILINE so ^ matches line starts; DOTALL so . matches newlines.
@@ -146,9 +144,7 @@ def _split_prose(text: str) -> list[Segment]:
             _flush(current_kind)
             current_lines = []
             current_kind = None
-            segments.append(
-                Segment(kind="xml", content=stripped, mime_type="application/xml")
-            )
+            segments.append(Segment(kind="xml", content=stripped, mime_type="application/xml"))
         else:
             # Regular prose line
             if current_kind == "quoted":
@@ -214,8 +210,6 @@ def parse_response(text: str) -> ParsedResponse:
 
     # If no segments found, treat entire text as prose
     if not segments:
-        segments.append(
-            Segment(kind="prose", content=text.strip(), mime_type="text/markdown")
-        )
+        segments.append(Segment(kind="prose", content=text.strip(), mime_type="text/markdown"))
 
     return ParsedResponse(segments=segments)
