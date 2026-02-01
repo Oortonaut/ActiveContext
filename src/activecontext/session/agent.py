@@ -8,7 +8,7 @@ executes code blocks from LLM responses.
 from __future__ import annotations
 
 import asyncio
-import os
+import contextlib
 import time
 from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, Any
@@ -115,6 +115,7 @@ class Agent(Script):
             website_permission_requester=website_permission_requester,
             scratchpad_manager=scratchpad_manager,
             mcp_config=mcp_config,
+            llm_provider=llm,
         )
 
         # LLM provider for generating responses
@@ -145,6 +146,9 @@ class Agent(Script):
         # Add node callback (set by Session)
         self._add_node_callback: Any = None
 
+        # Context dump writer (set by Session)
+        self._context_dump: Any = None
+
     # -------------------------------------------------------------------------
     # TaskProtocol overrides
     # -------------------------------------------------------------------------
@@ -161,10 +165,8 @@ class Agent(Script):
         self._wake_event.set()  # Wake up if waiting
         if self._agent_task and not self._agent_task.done():
             self._agent_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._agent_task
-            except asyncio.CancelledError:
-                pass
         await super().stop()
 
     def to_dict(self) -> dict[str, Any]:
@@ -303,13 +305,17 @@ class Agent(Script):
             projection = self._get_projection_callback()
             projection_content = projection.render()
 
-            # Debug logging
-            if os.environ.get("AC_DEBUG"):
-                tokens_est = len(projection_content) // 4 if projection_content else 0
-                log.debug("=== ITERATION %d ===", iteration)
-                log.debug("=== PROJECTION (%d tokens) ===", tokens_est)
-                log.debug("%s", projection_content or "(empty)")
-                log.debug("=== END PROJECTION ===")
+            # Log projection size
+            n_chars = len(projection_content or "")
+            tokens_est = n_chars // 4
+            log.debug(
+                "Iteration %d, projection %d chars (~%d tokens)",
+                iteration, n_chars, tokens_est,
+            )
+
+            # Write context dump file if configured
+            if self._context_dump:
+                self._context_dump.write(projection)
 
             # Send only the projection to the LLM (no system prompt)
             messages = [
@@ -549,3 +555,7 @@ class Agent(Script):
     def set_add_node_callback(self, callback: Any) -> None:
         """Set the add node callback."""
         self._add_node_callback = callback
+
+    def set_context_dump(self, dump_writer: Any) -> None:
+        """Set the context dump writer."""
+        self._context_dump = dump_writer
