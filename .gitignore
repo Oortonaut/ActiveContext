@@ -51,6 +51,8 @@ nul
 
 .ac/
 .claude/
+.mcacp/
+.playwright-mcp/
 .task-graph/
 
 # Task-graph database files (config is tracked)
