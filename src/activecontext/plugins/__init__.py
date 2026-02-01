@@ -18,7 +18,14 @@ Architecture:
 from activecontext.plugins.cap_transport import CAPTransport
 from activecontext.plugins.descriptor import NodePluginDescriptor, PluginSource
 from activecontext.plugins.protocol import NodePlugin
+from activecontext.plugins.tcp_transport import TcpTransport
 from activecontext.plugins.transport import StdioTransport
+from activecontext.plugins.transport_factory import (
+    TransportConfig,
+    create_transport,
+    list_available_transports,
+)
+from activecontext.plugins.ws_transport import WebSocketTransport
 
 __all__ = [
     "CAPTransport",
@@ -26,4 +33,9 @@ __all__ = [
     "NodePluginDescriptor",
     "PluginSource",
     "StdioTransport",
+    "TcpTransport",
+    "TransportConfig",
+    "WebSocketTransport",
+    "create_transport",
+    "list_available_transports",
 ]

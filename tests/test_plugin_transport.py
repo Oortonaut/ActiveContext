@@ -23,11 +23,8 @@ from activecontext.plugins.transport import (
 )
 from activecontext.plugins.wire import (
     ErrorCodes,
-    Methods,
-    NodeTypeSchema,
     PluginConnectionStatus,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -204,9 +201,7 @@ class TestPluginTransport:
 
             async def respond() -> None:
                 await stdin.write_event.wait()
-                stdout.push(
-                    _jsonrpc_error(ErrorCodes.NODE_NOT_FOUND, "Not found", 1)
-                )
+                stdout.push(_jsonrpc_error(ErrorCodes.NODE_NOT_FOUND, "Not found", 1))
 
             asyncio.create_task(respond())
 
@@ -238,15 +233,11 @@ class TestPluginTransport:
         mock_process.kill = MagicMock()
         mock_process.wait = AsyncMock()
 
-        transport = PluginTransport(
-            command=["test"], on_notification=on_notif
-        )
+        transport = PluginTransport(command=["test"], on_notification=on_notif)
 
         with patch("asyncio.create_subprocess_exec", return_value=mock_process):
             await transport.start()
-            stdout.push(
-                _jsonrpc_notification("node/dirty", {"node_id": "sh_1"})
-            )
+            stdout.push(_jsonrpc_notification("node/dirty", {"node_id": "sh_1"}))
             # Give reader time to process
             await asyncio.sleep(0.05)
             stdout.push_eof()
@@ -307,9 +298,7 @@ class TestPluginTransport:
             await transport.start()
 
             # Start a request but don't await it yet
-            req_task = asyncio.create_task(
-                transport.send_request("test", timeout=10)
-            )
+            req_task = asyncio.create_task(transport.send_request("test", timeout=10))
             await asyncio.sleep(0.05)
 
             # Stop should cancel the pending request
@@ -415,7 +404,7 @@ class TestPluginConnection:
 
             asyncio.create_task(respond())
 
-            result = await conn.connect(session_id="sess_1", cwd="/project")
+            await conn.connect(session_id="sess_1", cwd="/project")
 
             assert conn.status == PluginConnectionStatus.CONNECTED
             assert conn.server_name == "test-server"

@@ -183,9 +183,9 @@ def _get_node_type(cls: type) -> str:
 
     # Fallback: try instantiating with defaults
     try:
-        instance = cls.__new__(cls)
+        instance: Any = object.__new__(cls)
         if hasattr(instance, "node_type"):
-            return instance.node_type
+            return str(instance.node_type)
     except Exception:
         pass
 
@@ -217,7 +217,7 @@ def _extract_constructor(cls: type, hints: dict[str, Any]) -> ConstructorSchema:
         # Determine if the field has a default
         if f.default is not dataclasses.MISSING:
             default = f.default
-        elif f.default_factory is not dataclasses.MISSING:  # type: ignore[misc]
+        elif f.default_factory is not dataclasses.MISSING:
             default = f.default_factory()
         else:
             default = MISSING
@@ -576,9 +576,7 @@ def validate_schema(schema: NodeTypeSchema) -> list[str]:
     for p in schema.constructor.positional:
         if p.default is MISSING:
             if seen_optional:
-                errors.append(
-                    f"Required positional param '{p.name}' after optional"
-                )
+                errors.append(f"Required positional param '{p.name}' after optional")
         else:
             seen_optional = True
 
@@ -693,20 +691,20 @@ def generate_dsl_doc(schema: NodeTypeSchema) -> str:
 
     # Properties
     if schema.properties:
-        read_only = [p for p in schema.properties if p.readable and not p.writable]
-        read_write = [p for p in schema.properties if p.readable and p.writable]
+        read_only = [prop for prop in schema.properties if prop.readable and not prop.writable]
+        read_write = [prop for prop in schema.properties if prop.readable and prop.writable]
 
         if read_only:
             lines.append("")
             lines.append("  Properties (read-only):")
-            for p in read_only:
-                lines.append(f"    {p.name} ({p.type}): {p.description}")
+            for prop in read_only:
+                lines.append(f"    {prop.name} ({prop.type}): {prop.description}")
 
         if read_write:
             lines.append("")
             lines.append("  Properties (read-write):")
-            for p in read_write:
-                lines.append(f"    {p.name} ({p.type}): {p.description}")
+            for prop in read_write:
+                lines.append(f"    {prop.name} ({prop.type}): {prop.description}")
 
     # Methods
     if schema.methods:
@@ -744,3 +742,109 @@ def _format_method_sig(method: MethodSchema) -> str:
         ret = f" -> {method.returns}"
 
     return f"{method.name}({', '.join(parts)}){ret}"
+
+
+# ---------------------------------------------------------------------------
+# Multi-schema documentation
+# ---------------------------------------------------------------------------
+
+
+def generate_plugin_docs(schemas: list[NodeTypeSchema], title: str = "Plugin Node Types") -> str:
+    """Generate markdown documentation for multiple plugin node types.
+
+    Produces a comprehensive reference document suitable for LLM prompts
+    or user documentation. Groups schemas by node_type and includes full
+    DSL signatures, parameters, properties, and methods.
+
+    Args:
+        schemas: List of NodeTypeSchemas to document.
+        title: Title for the generated document.
+
+    Returns:
+        Formatted markdown documentation string.
+    """
+    if not schemas:
+        return f"# {title}\n\nNo plugin node types registered.\n"
+
+    lines: list[str] = []
+    lines.append(f"# {title}\n")
+    lines.append(
+        "Functions available from plugin servers. "
+        "These extend the built-in DSL with additional node types.\n"
+    )
+
+    for schema in sorted(schemas, key=lambda s: s.node_type):
+        lines.append("")
+        lines.append(f"## {schema.node_type}")
+        lines.append("")
+
+        # Signature
+        sig = generate_dsl_signature(schema)
+        lines.append("```python")
+        lines.append(sig)
+        lines.append("```")
+        lines.append("")
+
+        # Description
+        if schema.description:
+            lines.append(schema.description)
+            lines.append("")
+
+        # Parameters
+        all_params = (
+            schema.constructor.positional
+            + ([schema.constructor.variadic] if schema.constructor.variadic else [])
+            + schema.constructor.named
+        )
+        if all_params:
+            lines.append("**Parameters:**")
+            lines.append("")
+            for p in schema.constructor.positional:
+                desc = p.description or "[required]"
+                lines.append(f"- `{p.name}` (`{p.type}`): {desc}")
+            if schema.constructor.variadic:
+                v = schema.constructor.variadic
+                desc = v.description or "Variadic arguments"
+                lines.append(f"- `*{v.name}` (`{v.type}`): {desc}")
+            for p in schema.constructor.named:
+                default_str = _format_default(p.default)
+                desc = p.description or ""
+                if desc:
+                    lines.append(f"- `{p.name}` (`{p.type}`): {desc} (default: {default_str})")
+                else:
+                    lines.append(f"- `{p.name}` (`{p.type}`): default: {default_str}")
+            lines.append("")
+
+        # Properties
+        if schema.properties:
+            read_only = [prop for prop in schema.properties if prop.readable and not prop.writable]
+            read_write = [prop for prop in schema.properties if prop.readable and prop.writable]
+
+            if read_only:
+                lines.append("**Properties (read-only):**")
+                lines.append("")
+                for prop in read_only:
+                    desc = prop.description or ""
+                    lines.append(f"- `{prop.name}` (`{prop.type}`): {desc}")
+                lines.append("")
+
+            if read_write:
+                lines.append("**Properties (read-write):**")
+                lines.append("")
+                for prop in read_write:
+                    desc = prop.description or ""
+                    lines.append(f"- `{prop.name}` (`{prop.type}`): {desc}")
+                lines.append("")
+
+        # Methods
+        if schema.methods:
+            lines.append("**Methods:**")
+            lines.append("")
+            for m in schema.methods:
+                sig = _format_method_sig(m)
+                desc = m.description or ""
+                chain = " [chainable]" if m.chainable else ""
+                lines.append(f"- `{sig}`: {desc}{chain}")
+            lines.append("")
+
+    return "\n".join(lines)

@@ -7,21 +7,17 @@ serialization round-trip, and async tick with mocked connections.
 
 from __future__ import annotations
 
-import asyncio
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from activecontext.context.headers import TokenInfo
 from activecontext.context.state import Expansion
 from activecontext.plugins.protocol import (
-    MethodCall,
     RenderSnapshot,
     TokenEstimate,
 )
 from activecontext.plugins.remote_node import RemoteNode, _estimate_tokens
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -70,9 +66,7 @@ def _make_sync_result(
 def _mock_connection(sync_result: dict[str, Any] | None = None) -> MagicMock:
     """Create a mock PluginConnection with send_request as AsyncMock."""
     conn = MagicMock()
-    conn.send_request = AsyncMock(
-        return_value=sync_result or _make_sync_result()
-    )
+    conn.send_request = AsyncMock(return_value=sync_result or _make_sync_result())
     return conn
 
 
@@ -142,16 +136,12 @@ class TestCachedRenders:
 
     def test_render_content_from_cache(self) -> None:
         """render_content returns cached content."""
-        node = _make_node(
-            _cached_renders=RenderSnapshot(content="body text\n")
-        )
+        node = _make_node(_cached_renders=RenderSnapshot(content="body text\n"))
         assert node.render_content() == "body text\n"
 
     def test_render_detail_from_cache(self) -> None:
         """render_detail returns cached detail."""
-        node = _make_node(
-            _cached_renders=RenderSnapshot(detail="detail text\n")
-        )
+        node = _make_node(_cached_renders=RenderSnapshot(detail="detail text\n"))
         assert node.render_detail() == "detail text\n"
 
     def test_render_summary_combines_header_and_content(self) -> None:
@@ -219,9 +209,7 @@ class TestFallbackRenders:
 
     def test_display_name_from_cached_state(self) -> None:
         """get_display_name reads display_name from cached state."""
-        node = _make_node(
-            _cached_state={"display_name": "Lint Results"}
-        )
+        node = _make_node(_cached_state={"display_name": "Lint Results"})
         assert node.get_display_name() == "Lint Results"
 
 
@@ -339,12 +327,8 @@ class TestSerialization:
         """to_dict includes all remote-specific fields."""
         node = _make_node(
             _cached_state={"errors": 3},
-            _cached_renders=RenderSnapshot(
-                header="h", content="c", detail="d"
-            ),
-            _cached_tokens=TokenEstimate(
-                collapsed=10, summary=20, detail=30
-            ),
+            _cached_renders=RenderSnapshot(header="h", content="c", detail="d"),
+            _cached_tokens=TokenEstimate(collapsed=10, summary=20, detail=30),
             _cached_digest={"id": "test"},
         )
         d = node.to_dict()
@@ -367,12 +351,8 @@ class TestSerialization:
         """from_dict(to_dict()) produces equivalent node."""
         original = _make_node(
             _cached_state={"errors": 3},
-            _cached_renders=RenderSnapshot(
-                header="h", content="c", detail="d"
-            ),
-            _cached_tokens=TokenEstimate(
-                collapsed=10, summary=20, detail=30
-            ),
+            _cached_renders=RenderSnapshot(header="h", content="c", detail="d"),
+            _cached_tokens=TokenEstimate(collapsed=10, summary=20, detail=30),
             _cached_digest={"id": "test"},
         )
         original.expansion = Expansion.CONTENT
@@ -591,9 +571,7 @@ class TestTickErrorHandling:
     async def test_rpc_failure_marks_stale(self) -> None:
         """Failed sync marks node as stale."""
         conn = MagicMock()
-        conn.send_request = AsyncMock(
-            side_effect=Exception("Connection lost")
-        )
+        conn.send_request = AsyncMock(side_effect=Exception("Connection lost"))
         node = _make_node(_connection=conn)
         node.mark_dirty()
 
@@ -651,11 +629,7 @@ class TestTokenEstimation:
 
     def test_cached_tokens_returned(self) -> None:
         """get_token_breakdown returns cached values."""
-        node = _make_node(
-            _cached_tokens=TokenEstimate(
-                collapsed=10, summary=20, detail=30
-            )
-        )
+        node = _make_node(_cached_tokens=TokenEstimate(collapsed=10, summary=20, detail=30))
         info = node.get_token_breakdown()
         assert info.collapsed == 10
         assert info.summary == 20
@@ -718,9 +692,7 @@ class TestDigest:
 
     def test_cached_digest(self) -> None:
         """GetDigest returns cached digest when available."""
-        node = _make_node(
-            _cached_digest={"id": "r1", "type": "lint", "errors": 3}
-        )
+        node = _make_node(_cached_digest={"id": "r1", "type": "lint", "errors": 3})
         d = node.GetDigest()
         assert d == {"id": "r1", "type": "lint", "errors": 3}
 

@@ -20,16 +20,14 @@ Threading model:
 from __future__ import annotations
 
 import asyncio
-import json
+import contextlib
 import logging
 import os
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
-from activecontext.plugins.wire import (
-    ErrorCodes,
-    to_jsonrpc_notification,
-    to_jsonrpc_request,
-)
+from activecontext.plugins.serialization import CAPSerializer, JsonSerializer
+from activecontext.plugins.wire import ErrorCodes
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +69,7 @@ class PluginTransport:
         env: dict[str, str] | None = None,
         cwd: str | None = None,
         on_notification: NotificationCallback | None = None,
+        serializer: CAPSerializer | None = None,
     ) -> None:
         """Initialize transport configuration.
 
@@ -79,11 +78,13 @@ class PluginTransport:
             env: Additional environment variables (merged with os.environ).
             cwd: Working directory for the subprocess.
             on_notification: Callback for server → host notifications.
+            serializer: Wire format serializer. Defaults to JsonSerializer.
         """
         self._command = command
         self._env = env
         self._cwd = cwd
         self._on_notification = on_notification
+        self._serializer: CAPSerializer = serializer or JsonSerializer()
 
         self._process: asyncio.subprocess.Process | None = None
         self._reader_task: asyncio.Task[None] | None = None
@@ -132,9 +133,7 @@ class PluginTransport:
             ) from e
 
         self._started = True
-        self._reader_task = asyncio.create_task(
-            self._read_loop(), name="cap-transport-reader"
-        )
+        self._reader_task = asyncio.create_task(self._read_loop(), name="cap-transport-reader")
         logger.info(
             "CAP transport started: %s (pid=%s)",
             " ".join(self._command),
@@ -155,18 +154,14 @@ class PluginTransport:
         # Cancel all pending requests
         for future in self._pending.values():
             if not future.done():
-                future.set_exception(
-                    PluginTransportError("Transport shutting down")
-                )
+                future.set_exception(PluginTransportError("Transport shutting down"))
         self._pending.clear()
 
         # Cancel reader task
         if self._reader_task and not self._reader_task.done():
             self._reader_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._reader_task
-            except asyncio.CancelledError:
-                pass
 
         # Terminate subprocess
         if self._process and self._process.returncode is None:
@@ -184,9 +179,7 @@ class PluginTransport:
         self._stopping = False
         logger.info("CAP transport stopped")
 
-    async def send_request(
-        self, method: str, params: Any = None, timeout: float = 30.0
-    ) -> Any:
+    async def send_request(self, method: str, params: Any = None, timeout: float = 30.0) -> Any:
         """Send a JSON-RPC request and wait for the response.
 
         Args:
@@ -208,12 +201,12 @@ class PluginTransport:
         request_id = self._next_id
         self._next_id += 1
 
-        msg = to_jsonrpc_request(method, params, id=request_id)
+        data = self._serializer.encode_request(method, params, id=request_id)
         future: asyncio.Future[Any] = asyncio.get_event_loop().create_future()
         self._pending[request_id] = future
 
         try:
-            await self._write(msg)
+            await self._write_bytes(data)
             return await asyncio.wait_for(future, timeout=timeout)
         except asyncio.TimeoutError:
             self._pending.pop(request_id, None)
@@ -235,21 +228,24 @@ class PluginTransport:
         if not self.is_running:
             raise PluginTransportError("Transport not running")
 
-        msg = to_jsonrpc_notification(method, params)
-        await self._write(msg)
+        data = self._serializer.encode_notification(method, params)
+        await self._write_bytes(data)
 
-    async def _write(self, msg: dict[str, Any]) -> None:
-        """Write a JSON-RPC message to stdin."""
+    async def _write_bytes(self, data: bytes) -> None:
+        """Write serialized bytes to stdin with NDJSON framing.
+
+        Appends a newline after the serialized payload and writes
+        under the write lock to prevent interleaving.
+        """
         assert self._process is not None
         assert self._process.stdin is not None
 
-        data = json.dumps(msg, separators=(",", ":")) + "\n"
         async with self._write_lock:
-            self._process.stdin.write(data.encode("utf-8"))
+            self._process.stdin.write(data + b"\n")
             await self._process.stdin.drain()
 
     async def _read_loop(self) -> None:
-        """Background task: read JSON-RPC messages from stdout."""
+        """Background task: read and decode messages from stdout."""
         assert self._process is not None
         assert self._process.stdout is not None
 
@@ -260,14 +256,14 @@ class PluginTransport:
                     # EOF — subprocess exited
                     break
 
-                line_str = line.decode("utf-8").strip()
-                if not line_str:
+                stripped = line.strip()
+                if not stripped:
                     continue
 
                 try:
-                    msg = json.loads(line_str)
-                except json.JSONDecodeError as e:
-                    logger.warning("CAP: invalid JSON from server: %s", e)
+                    msg = self._serializer.decode(stripped)
+                except (ValueError, Exception) as e:
+                    logger.warning("CAP: invalid message from server: %s", e)
                     continue
 
                 self._dispatch(msg)
@@ -281,9 +277,7 @@ class PluginTransport:
             if not self._stopping:
                 for future in self._pending.values():
                     if not future.done():
-                        future.set_exception(
-                            PluginTransportError("Server connection lost")
-                        )
+                        future.set_exception(PluginTransportError("Server connection lost"))
                 self._pending.clear()
 
     def _dispatch(self, msg: dict[str, Any]) -> None:
@@ -367,10 +361,8 @@ class PluginTransport:
             result: Result value (dataclass or dict).
             request_id: The id from the server's request.
         """
-        from activecontext.plugins.wire import to_jsonrpc_response
-
-        msg = to_jsonrpc_response(result, id=request_id)
-        await self._write(msg)
+        data = self._serializer.encode_response(result, id=request_id)
+        await self._write_bytes(data)
 
     async def send_error_response(
         self,
@@ -387,10 +379,8 @@ class PluginTransport:
             request_id: The id from the server's request.
             data: Optional additional error data.
         """
-        from activecontext.plugins.wire import to_jsonrpc_error
-
-        msg = to_jsonrpc_error(code, message, id=request_id, data=data)
-        await self._write(msg)
+        encoded = self._serializer.encode_error(code, message, id=request_id, data=data)
+        await self._write_bytes(encoded)
 
 
 # Backward-compatible alias: StdioTransport is the concrete name,

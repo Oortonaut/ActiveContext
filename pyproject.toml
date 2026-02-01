@@ -53,6 +53,7 @@ src = ["src", "tests"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]
+ignore = ["SIM117", "SIM102"]
 
 [tool.mypy]
 python_version = "3.10"
@@ -71,6 +72,7 @@ asyncio_mode = "auto"
 
 [dependency-groups]
 dev = [
+    "msgpack>=1.1.2",
     "pytest-cov>=7.0.0",
     "pytest-timeout>=2.4.0",
 ]

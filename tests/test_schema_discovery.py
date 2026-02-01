@@ -96,9 +96,7 @@ class TestIntrospection:
         """Named params should all have non-MISSING defaults."""
         schema = introspect_node_class(ShellNode)
         for p in schema.constructor.named:
-            assert p.default is not MISSING, (
-                f"Named param '{p.name}' has no default"
-            )
+            assert p.default is not MISSING, f"Named param '{p.name}' has no default"
 
 
 class TestJsonSchemaConversion:
@@ -206,9 +204,7 @@ class TestJsonSchemaConversion:
         restored = from_json_schema(original.node_type, js)
 
         # Same number of positional params
-        assert len(restored.constructor.positional) == len(
-            original.constructor.positional
-        )
+        assert len(restored.constructor.positional) == len(original.constructor.positional)
         # Same positional names
         assert [p.name for p in restored.constructor.positional] == [
             p.name for p in original.constructor.positional
@@ -381,3 +377,142 @@ class TestDSLGeneration:
         doc = generate_dsl_doc(schema)
         assert doc.startswith("shell(")
         assert len(doc) > 50  # should be non-trivial
+
+
+class TestPluginDocsGeneration:
+    """Test multi-schema documentation generation."""
+
+    def test_empty_schemas(self) -> None:
+        """Empty schema list produces minimal doc."""
+        from activecontext.plugins.schema import generate_plugin_docs
+
+        doc = generate_plugin_docs([])
+        assert "No plugin node types registered" in doc
+
+    def test_single_schema(self) -> None:
+        """Single schema produces formatted docs."""
+        from activecontext.plugins.schema import generate_plugin_docs
+
+        schema = NodeTypeSchema(
+            node_type="test_plugin",
+            description="A test plugin node",
+            constructor=ConstructorSchema(
+                positional=[ParamSchema(name="name", type="str", description="Node name")],
+                named=[ParamSchema(name="count", type="int", default=5)],
+            ),
+            properties=[
+                PropertySchema(
+                    name="value",
+                    type="int",
+                    readable=True,
+                    writable=False,
+                    description="Current value",
+                )
+            ],
+            methods=[
+                MethodSchema(
+                    name="reset",
+                    description="Reset to defaults",
+                    returns="None",
+                )
+            ],
+        )
+        doc = generate_plugin_docs([schema])
+        assert "# Plugin Node Types" in doc  # Default title
+        assert "## test_plugin" in doc
+        assert "A test plugin node" in doc
+        assert "name" in doc
+        assert "count" in doc
+        assert "value" in doc
+        assert "reset()" in doc
+
+    def test_multiple_schemas_sorted(self) -> None:
+        """Multiple schemas are sorted by node_type."""
+        from activecontext.plugins.schema import generate_plugin_docs
+
+        schema1 = NodeTypeSchema(node_type="zebra", description="Last alphabetically")
+        schema2 = NodeTypeSchema(node_type="apple", description="First alphabetically")
+        schema3 = NodeTypeSchema(node_type="banana", description="Middle")
+
+        doc = generate_plugin_docs([schema1, schema2, schema3])
+        # Find positions of each type in the doc
+        apple_pos = doc.find("## apple")
+        banana_pos = doc.find("## banana")
+        zebra_pos = doc.find("## zebra")
+
+        assert apple_pos < banana_pos < zebra_pos
+
+    def test_custom_title(self) -> None:
+        """Custom title is used in doc."""
+        from activecontext.plugins.schema import generate_plugin_docs
+
+        schema = NodeTypeSchema(node_type="test")
+        doc = generate_plugin_docs([schema], title="My Custom Plugins")
+        assert "# My Custom Plugins" in doc
+
+    def test_real_node_multi_doc(self) -> None:
+        """Generate docs from real introspected nodes."""
+        from activecontext.plugins.schema import generate_plugin_docs
+
+        shell_schema = introspect_node_class(ShellNode)
+        topic_schema = introspect_node_class(TopicNode)
+        artifact_schema = introspect_node_class(ArtifactNode)
+
+        doc = generate_plugin_docs([shell_schema, topic_schema, artifact_schema])
+        assert "## artifact" in doc
+        assert "## shell" in doc
+        assert "## topic" in doc
+        # Verify sorted order
+        assert doc.find("## artifact") < doc.find("## shell") < doc.find("## topic")
+
+
+class TestSchemaDiscoveryIntegration:
+    """Integration tests for the full schema discovery flow."""
+
+    def test_introspect_to_json_schema(self) -> None:
+        """Full flow: introspect -> convert to JSON Schema -> validate."""
+        schema = introspect_node_class(ShellNode)
+        js = to_json_schema(schema)
+        errors = validate_schema(schema)
+
+        assert errors == []
+        assert js["type"] == "object"
+        assert "properties" in js
+
+    def test_schema_roundtrip_preserves_info(self) -> None:
+        """Introspect -> JSON Schema -> back preserves essential info."""
+        original = introspect_node_class(TopicNode)
+        js = to_json_schema(original)
+        restored = from_json_schema(original.node_type, js, description=original.description)
+
+        # Same node_type
+        assert restored.node_type == original.node_type
+        # Same number of required params
+        assert len(restored.constructor.positional) == len(original.constructor.positional)
+        # Same positional param names
+        assert [p.name for p in restored.constructor.positional] == [
+            p.name for p in original.constructor.positional
+        ]
+
+    def test_introspected_schema_generates_valid_signature(self) -> None:
+        """Introspected schema produces valid DSL signature."""
+        schema = introspect_node_class(ArtifactNode)
+        sig = generate_dsl_signature(schema)
+
+        # Should be a valid Python-like signature
+        assert sig.startswith("artifact(")
+        assert sig.endswith(")")
+        # Should not have syntax errors (basic check)
+        assert sig.count("(") == sig.count(")")
+
+    def test_introspected_schema_generates_comprehensive_doc(self) -> None:
+        """Introspected schema produces comprehensive documentation."""
+        schema = introspect_node_class(ShellNode)
+        doc = generate_dsl_doc(schema)
+
+        # Should have signature
+        assert "shell(" in doc
+        # Should have description
+        assert len(doc) > 100
+        # Should be multi-line
+        assert "\n" in doc

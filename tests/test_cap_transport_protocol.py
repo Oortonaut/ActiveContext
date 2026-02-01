@@ -89,9 +89,7 @@ class FakeTransport:
         self._running = False
         self.stopped = True
 
-    async def send_request(
-        self, method: str, params: Any = None, timeout: float = 30.0
-    ) -> Any:
+    async def send_request(self, method: str, params: Any = None, timeout: float = 30.0) -> Any:
         self.requests.append((method, params))
         return self._response
 
@@ -125,9 +123,7 @@ class TestCAPTransportProtocol:
 
     def test_runtime_checkable(self) -> None:
         """CAPTransport is decorated with @runtime_checkable."""
-        assert hasattr(CAPTransport, "__protocol_attrs__") or isinstance(
-            CAPTransport, type
-        )
+        assert hasattr(CAPTransport, "__protocol_attrs__") or isinstance(CAPTransport, type)
         # The key check: isinstance works at runtime
         fake = FakeTransport()
         assert isinstance(fake, CAPTransport)
@@ -135,6 +131,20 @@ class TestCAPTransportProtocol:
     def test_stdio_transport_satisfies_protocol(self) -> None:
         """StdioTransport (PluginTransport) is a CAPTransport."""
         transport = StdioTransport(command=["echo"])
+        assert isinstance(transport, CAPTransport)
+
+    def test_tcp_transport_satisfies_protocol(self) -> None:
+        """TcpTransport satisfies the CAPTransport protocol."""
+        from activecontext.plugins.tcp_transport import TcpTransport
+
+        transport = TcpTransport(host="localhost", port=9000)
+        assert isinstance(transport, CAPTransport)
+
+    def test_websocket_transport_satisfies_protocol(self) -> None:
+        """WebSocketTransport satisfies the CAPTransport protocol."""
+        from activecontext.plugins.ws_transport import WebSocketTransport
+
+        transport = WebSocketTransport(url="ws://localhost:8080")
         assert isinstance(transport, CAPTransport)
 
     def test_plugin_transport_is_stdio_transport(self) -> None:
@@ -277,6 +287,7 @@ class TestTransportInjection:
         )
 
         with patch("asyncio.create_subprocess_exec", return_value=mock_process):
+
             async def respond() -> None:
                 await stdin.write_event.wait()
                 stdout.push(_jsonrpc_response(init_result, 1))
