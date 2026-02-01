@@ -114,7 +114,8 @@ Debug options:
 | Variable | Description |
 |----------|-------------|
 | `AC_LOG` | File path for diagnostic logs |
-| `AC_DEBUG` | Print projection contents to stderr |
+| `AC_LOG_CONTEXT` | Directory for context dump files (`context-000001.md`, ...) |
+| `AC_LOG_CONTEXT_N` | Max context dump files to keep (oldest rotated out) |
 
 ## Development
 

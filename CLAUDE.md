@@ -207,7 +207,10 @@ Models are auto-discovered from available API keys. The first available model be
 | Variable | Description |
 |----------|-------------|
 | `AC_LOG` | File path for diagnostic logs. Logs all ACP messages with timestamps. |
-| `AC_DEBUG` | Set to any value to print projection contents to stderr. |
+| `AC_LOG_CONTEXT` | Directory for context dump files (`context-000001.md`, ...). |
+| `AC_LOG_CONTEXT_N` | Max context dump files to keep (oldest rotated out). |
+
+CLI equivalents: `--log-context DIR` and `--log-context-n N`.
 
 Example ACP config with logging:
 ```json
@@ -218,7 +221,8 @@ Example ACP config with logging:
       "args": ["-m", "activecontext"],
       "env": {
         "ANTHROPIC_API_KEY": "sk-...",
-        "AC_LOG": "C:\\Users\\You\\activecontext.log"
+        "AC_LOG": "C:\\Users\\You\\activecontext.log",
+        "AC_LOG_CONTEXT": "C:\\Users\\You\\ctx-dumps"
       }
     }
   }
@@ -265,6 +269,8 @@ projection:
 logging:
   level: INFO
   file: ~/activecontext.log
+  context_dir: ~/ctx-dumps    # Write context-NNNNNN.md per prompt turn
+  context_n: 10               # Keep only the 10 most recent dumps
 
 user:
   display_name: Ace         # Shown in message history
@@ -804,8 +810,8 @@ shell(f"pytest -v {user_path}")
 
 1. **Reproduce first** - Isolate the minimal case that triggers the issue
 2. **Enable logging:**
-   - `AC_DEBUG=1` - Projection output to stderr
    - `AC_LOG=./debug.log` - Full ACP message traces
+   - `--log-context ./ctx-dumps` - Numbered context dump files per prompt turn
    - Rider logs: `%LOCALAPPDATA%\JetBrains\Rider*/log/acp/`
 3. **Add targeted logging** - Don't shotgun print statements
 4. **Use pytest flags** - `-xvs` for output and stop-on-first-failure
@@ -816,7 +822,7 @@ shell(f"pytest -v {user_path}")
 - **Token budget**: Default 16k; set appropriate `tokens` parameter on nodes
 - **Avoid N+1**: Use `asyncio.gather()` for independent parallel operations
 - **Hot paths**: `ProjectionEngine.build()`, `ContextGraph` traversal, `Timeline.execute_statement()`
-- **Profiling**: Use `AC_DEBUG=1` and `AC_LOG`
+- **Profiling**: Use `AC_LOG` and `--log-context` for full projection snapshots
 
 ### Additional Practices
 
