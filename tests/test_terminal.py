@@ -1,13 +1,14 @@
 """Tests for terminal execution functionality."""
 
 import asyncio
+import contextlib
 import sys
 
 import pytest
 
+from activecontext.session.xml_parser import parse_xml_to_python
 from activecontext.terminal.result import ShellResult
 from activecontext.terminal.subprocess_executor import SubprocessTerminalExecutor
-from activecontext.session.xml_parser import parse_xml_to_python
 
 
 class TestShellResult:
@@ -164,13 +165,11 @@ class TestSubprocessTerminalExecutor:
     async def test_env_variables(self, executor):
         if sys.platform == "win32":
             result = await executor.execute(
-                "cmd", args=["/c", "echo %TEST_VAR%"],
-                env={"TEST_VAR": "test_value"}
+                "cmd", args=["/c", "echo %TEST_VAR%"], env={"TEST_VAR": "test_value"}
             )
         else:
             result = await executor.execute(
-                "sh", args=["-c", "echo $TEST_VAR"],
-                env={"TEST_VAR": "test_value"}
+                "sh", args=["-c", "echo $TEST_VAR"], env={"TEST_VAR": "test_value"}
             )
         assert result.success
         assert "test_value" in result.output
@@ -216,16 +215,15 @@ class TestTimelineShellIntegration:
         """Create timeline and cleanup after test."""
         from activecontext.context.graph import ContextGraph
         from activecontext.session.timeline import Timeline
+
         tl = Timeline(session_id="test", context_graph=ContextGraph(), cwd=str(tmp_path))
         yield tl
         # Cancel all background shell tasks
         for task in tl._shell_manager._shell_tasks.values():
             if not task.done():
                 task.cancel()
-                try:
+                with contextlib.suppress(asyncio.CancelledError):
                     await task
-                except asyncio.CancelledError:
-                    pass
 
     @pytest.mark.asyncio
     async def test_shell_in_timeline(self, timeline):
@@ -233,7 +231,9 @@ class TestTimelineShellIntegration:
 
         # Execute shell via timeline (Windows needs cmd.exe for echo)
         if sys.platform == "win32":
-            result = await timeline.execute_statement('result = shell("cmd", args=["/c", "echo", "hello"])')
+            result = await timeline.execute_statement(
+                'result = shell("cmd", args=["/c", "echo", "hello"])'
+            )
         else:
             result = await timeline.execute_statement('result = shell("echo", args=["hello"])')
         assert result.status.value == "ok"
@@ -251,8 +251,6 @@ class TestTimelineShellIntegration:
 
     @pytest.mark.asyncio
     async def test_shell_as_expression(self, timeline):
-        import asyncio
-
         # Execute shell as expression (result printed)
         if sys.platform == "win32":
             result = await timeline.execute_statement('shell("cmd", args=["/c", "echo", "test"])')
@@ -266,9 +264,7 @@ class TestTimelineShellIntegration:
     async def test_shell_command_not_found(self, timeline):
         import asyncio
 
-        result = await timeline.execute_statement(
-            'r = shell("nonexistent_command_xyz_123")'
-        )
+        result = await timeline.execute_statement('r = shell("nonexistent_command_xyz_123")')
         assert result.status.value == "ok"  # Statement executed successfully
 
         # Wait for background task and process results
