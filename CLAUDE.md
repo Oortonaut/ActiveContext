@@ -162,10 +162,10 @@ async with ActiveContext() as ctx:
     session = await ctx.create_session(cwd=".")
 
     # Execute Python directly
-    await session.execute('v = text("main.py", tokens=2000, state=NodeState.ALL)')
+    await session.execute('v = text("main.py", expansion=Expansion.ALL)')
 
     # Or stream updates from a prompt
-    async for update in session.prompt("v.SetState(NodeState.SUMMARY)"):
+    async for update in session.prompt("v.expansion = Expansion.CONTENT"):
         print(update)
 
     # Access namespace and context objects
@@ -418,35 +418,35 @@ See `src/activecontext/prompts/dsl_reference.md` for complete documentation.
 ### Core Functions
 
 ```python
-from activecontext import NodeState, TickFrequency
+from activecontext import Expansion, TickFrequency
 
 # File views
-v = text("main.py", pos="1:0", tokens=2000, state=NodeState.ALL)
-v.SetState(NodeState.SUMMARY).SetTokens(500)
+v = text("main.py", pos="1:0", expansion=Expansion.ALL)
+v.expansion = Expansion.CONTENT
 v.Run(TickFrequency.turn())
 
 # Groups
-g = group(v1, v2, state=NodeState.SUMMARY)
+g = group(v1, v2, expansion=Expansion.CONTENT)
 g = group("node_id_1", "node_id_2", summary="Auth module overview")
 
 # Topics and artifacts
 t = topic("Authentication Implementation")
-a = artifact("def foo(): pass", artifact_type="code", language="python")
+a = artifact("code", content="def foo(): pass", language="python")
 
 # DAG manipulation
-link(group_node, view_node)
-unlink(group_node, view_node)
+link(view_node, group_node)    # (child, parent)
+unlink(view_node, group_node)
 
 # Checkpointing
 checkpoint("before_refactor")
 restore("before_refactor")
-branch("before_refactor", "attempt_2")
+branch("attempt_2")
 ```
 
 ### Shell Execution
 
 ```python
-s = shell("pytest", "-v", "tests/", timeout=120)
+s = shell("pytest", args=["-v", "tests/"], timeout=120)
 # s.is_complete, s.is_success, s.exit_code, s.output
 wait(s)  # Wait for completion
 ```
@@ -473,8 +473,8 @@ work_done()
 
 ```python
 done("Refactoring complete")
-wait(shell_node1, shell_node2)      # Wait for all
-wait_any(s1, s2, s3)                # Wait for first
+wait_all(shell_node1, shell_node2)  # Wait for all
+wait_any(s1, s2, s3)               # Wait for first
 ```
 
 ## Key Design Invariants
@@ -483,12 +483,12 @@ wait_any(s1, s2, s3)                # Wait for first
 2. **1:1 session-timeline**: Each session has exactly one statement timeline
 3. **DAG structure**: Context nodes form a directed acyclic graph with parent-child relationships
 4. **Groups are summaries**: A group is a summarized facade over its members
-5. **State-based rendering**: NodeState controls visibility and detail level
-   - HIDDEN: Not shown in projection (but still ticked)
-   - COLLAPSED: Metadata only, aim for 50 or fewer tokens of content
-   - SUMMARY: Agent-generated summary
-   - DETAILS: Full view with child settings
-   - ALL: Everything including traces, SUMMARY union DETAILS
+5. **Expansion-based rendering**: Expansion enum controls visibility and detail level
+   - HEADER: Title and metadata only (~50 tokens)
+   - CONTENT: Main content/summary (default for groups)
+   - INDEX: Content plus section headings
+   - ALL: Full view with all details (default for views)
+   - Use `hide()`/`unhide()` to toggle visibility in projection
 6. **Permission boundaries**: File, shell, import, and web access require explicit grants
 
 ## Claude Code Permission Matching

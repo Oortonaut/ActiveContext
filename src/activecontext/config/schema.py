@@ -451,6 +451,22 @@ class LSPConfig:
 
 
 @dataclass
+class DashboardConfig:
+    """Dashboard web server configuration.
+
+    Controls whether the web dashboard auto-starts when the first session is created.
+
+    Example config.yaml:
+        dashboard:
+          auto_start: true
+          port: 31993
+    """
+
+    auto_start: bool = False  # Opt-in, default off
+    port: int = 31993  # Default port matching /dashboard command
+
+
+@dataclass
 class Config:
     """Root configuration object.
 
@@ -468,6 +484,7 @@ class Config:
     plugins: PluginsConfig = field(default_factory=PluginsConfig)
     acp: ACPConfig = field(default_factory=ACPConfig)
     lsp: LSPConfig = field(default_factory=LSPConfig)
+    dashboard: DashboardConfig = field(default_factory=DashboardConfig)
 
     # Extension point for future config sections
     extra: dict[str, Any] = field(default_factory=dict)

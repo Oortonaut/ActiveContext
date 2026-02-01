@@ -54,15 +54,22 @@ def _patch_acp_schema() -> None:
     NewSessionRequest, but the ACP spec says it should be OPTIONAL.
     See: docs/acp-protocol.md - mcpServers has '?' suffix indicating optional.
 
-    This patch makes mcpServers optional with an empty list default.
+    Also patches McpServerStdio.env to be optional (empty list default),
+    since clients commonly omit env when no environment overrides are needed.
     """
-    from acp.schema import NewSessionRequest
+    from acp.schema import McpServerStdio, NewSessionRequest
 
     field = NewSessionRequest.model_fields.get("mcp_servers")
     if field and field.is_required():
         field.default = []
         NewSessionRequest.model_rebuild(force=True)
         log.debug("Patched NewSessionRequest.mcp_servers to be optional")
+
+    env_field = McpServerStdio.model_fields.get("env")
+    if env_field and env_field.is_required():
+        env_field.default = []
+        McpServerStdio.model_rebuild(force=True)
+        log.debug("Patched McpServerStdio.env to be optional")
 
 
 async def _main() -> None:

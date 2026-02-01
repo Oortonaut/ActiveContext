@@ -616,6 +616,9 @@ class ContextGraph:
             "running_node_ids": list(self._running_nodes),
             "type_counters": dict(self._type_counters),
             "root_context_id": self._root_context_id,
+            "checkpoints": {
+                name: cp.to_dict() for name, cp in self._checkpoints.items()
+            },
         }
 
     @classmethod
@@ -652,6 +655,10 @@ class ContextGraph:
 
         # Restore root context ID
         graph._root_context_id = data.get("root_context_id")
+
+        # Restore checkpoints
+        for name, cp_data in data.get("checkpoints", {}).items():
+            graph._checkpoints[name] = Checkpoint.from_dict(cp_data)
 
         return graph
 

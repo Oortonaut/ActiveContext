@@ -987,6 +987,114 @@ class TestACPDashboardCommand:
 
 
 # ============================================================================
+# TestDashboardAutoStart
+# ============================================================================
+
+
+class TestDashboardAutoStart:
+    """Test dashboard auto-start via config."""
+
+    @pytest.mark.asyncio
+    async def test_auto_start_when_config_enabled(self):
+        """Should auto-start dashboard when config.dashboard.auto_start=True."""
+        from activecontext.config.schema import DashboardConfig
+
+        agent = _make_agent()
+
+        mock_config = MagicMock()
+        mock_config.dashboard = DashboardConfig(auto_start=True, port=31993)
+
+        with (
+            patch("activecontext.config.get_config", return_value=mock_config),
+            patch("activecontext.dashboard.is_dashboard_running", return_value=False),
+            patch("activecontext.dashboard.start_dashboard", new_callable=AsyncMock) as mock_start,
+        ):
+            await agent._auto_start_dashboard_if_needed()
+
+            mock_start.assert_called_once()
+            assert mock_start.call_args.kwargs["port"] == 31993
+            assert mock_start.call_args.kwargs["transport_type"] == "acp"
+
+    @pytest.mark.asyncio
+    async def test_no_auto_start_when_config_disabled(self):
+        """Should not auto-start when config.dashboard.auto_start=False."""
+        from activecontext.config.schema import DashboardConfig
+
+        agent = _make_agent()
+
+        mock_config = MagicMock()
+        mock_config.dashboard = DashboardConfig(auto_start=False)
+
+        with (
+            patch("activecontext.config.get_config", return_value=mock_config),
+            patch("activecontext.dashboard.start_dashboard", new_callable=AsyncMock) as mock_start,
+        ):
+            await agent._auto_start_dashboard_if_needed()
+
+            mock_start.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_no_auto_start_when_already_running(self):
+        """Should skip auto-start if dashboard already running."""
+        from activecontext.config.schema import DashboardConfig
+
+        agent = _make_agent()
+
+        mock_config = MagicMock()
+        mock_config.dashboard = DashboardConfig(auto_start=True, port=31993)
+
+        with (
+            patch("activecontext.config.get_config", return_value=mock_config),
+            patch("activecontext.dashboard.is_dashboard_running", return_value=True),
+            patch("activecontext.dashboard.start_dashboard", new_callable=AsyncMock) as mock_start,
+        ):
+            await agent._auto_start_dashboard_if_needed()
+
+            mock_start.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_auto_start_handles_port_conflict(self):
+        """Should not crash when port is in use."""
+        from activecontext.config.schema import DashboardConfig
+
+        agent = _make_agent()
+
+        mock_config = MagicMock()
+        mock_config.dashboard = DashboardConfig(auto_start=True, port=31993)
+
+        with (
+            patch("activecontext.config.get_config", return_value=mock_config),
+            patch("activecontext.dashboard.is_dashboard_running", return_value=False),
+            patch(
+                "activecontext.dashboard.start_dashboard",
+                new_callable=AsyncMock,
+                side_effect=OSError("Address already in use"),
+            ),
+        ):
+            # Should not raise
+            await agent._auto_start_dashboard_if_needed()
+
+    @pytest.mark.asyncio
+    async def test_auto_start_custom_port(self):
+        """Should use configured port."""
+        from activecontext.config.schema import DashboardConfig
+
+        agent = _make_agent()
+
+        mock_config = MagicMock()
+        mock_config.dashboard = DashboardConfig(auto_start=True, port=9999)
+
+        with (
+            patch("activecontext.config.get_config", return_value=mock_config),
+            patch("activecontext.dashboard.is_dashboard_running", return_value=False),
+            patch("activecontext.dashboard.start_dashboard", new_callable=AsyncMock) as mock_start,
+        ):
+            await agent._auto_start_dashboard_if_needed()
+
+            assert mock_start.call_args.kwargs["port"] == 9999
+
+
+# ============================================================================
 # TestACPCancel
 # ============================================================================
 
@@ -1067,16 +1175,20 @@ class TestACPCancel:
         assert "s1" not in agent._chunk_buffers
 
     @pytest.mark.asyncio
-    async def test_cancel_removes_from_closed_set(self):
-        """_cleanup_closed_session removes session from _closed_sessions to prevent unbounded growth."""
+    async def test_cancel_keeps_session_in_closed_set(self):
+        """Cancel keeps session in _closed_sessions so prompt handler can detect cancellation.
+
+        The session is removed from _closed_sessions by the prompt handler after
+        it returns stop_reason="cancelled", not during cancel cleanup.
+        """
         agent = _make_agent()
         mock_session = _make_mock_session()
         agent._manager.get_session = AsyncMock(return_value=mock_session)
 
         await agent.cancel(session_id="s1")
 
-        # After full cleanup, session should not be in _closed_sessions
-        assert "s1" not in agent._closed_sessions
+        # Session stays in _closed_sessions until prompt handler consumes it
+        assert "s1" in agent._closed_sessions
 
 
 # ============================================================================
@@ -1167,6 +1279,53 @@ class TestACPExtMethods:
 # ============================================================================
 # TestACPPermissionRequests
 # ============================================================================
+
+
+class TestACPPermissionWiring:
+    """Test that permission requesters are wired into sessions."""
+
+    @pytest.mark.asyncio
+    async def test_create_session_passes_permission_requesters(self):
+        """create_session should receive agent's permission callbacks."""
+        agent = _make_agent()
+        agent._conn = MagicMock()
+        mock_session = _make_mock_session()
+        agent._manager.create_session = AsyncMock(return_value=mock_session)
+        agent._manager.get_session = AsyncMock(return_value=None)
+
+        # Patch post-setup to avoid side effects
+        with (
+            patch.object(agent, "_post_session_setup", new_callable=AsyncMock),
+            patch.object(agent, "_start_agent_loop", new_callable=AsyncMock),
+            patch.object(agent, "_setup_conversation_callbacks"),
+        ):
+            await agent.new_session(cwd=".")
+
+        call_kwargs = agent._manager.create_session.call_args.kwargs
+        assert call_kwargs["permission_requester"] is not None
+        assert call_kwargs["shell_permission_requester"] is not None
+        assert call_kwargs["website_permission_requester"] is not None
+        assert call_kwargs["import_permission_requester"] is not None
+        # Verify they're the right methods (bound methods compare equal)
+        assert call_kwargs["permission_requester"] == agent._request_file_permission
+        assert call_kwargs["shell_permission_requester"] == agent._request_shell_permission
+
+    def test_wire_permission_requesters_sets_timeline_callbacks(self):
+        """_wire_permission_requesters should set all 4 timeline callbacks."""
+        agent = _make_agent()
+        mock_session = MagicMock()
+        mock_session.timeline = MagicMock()
+        mock_session.timeline._permission_requester = None
+        mock_session.timeline._shell_permission_requester = None
+        mock_session.timeline._website_permission_requester = None
+        mock_session.timeline._import_permission_requester = None
+
+        agent._wire_permission_requesters(mock_session)
+
+        assert mock_session.timeline._permission_requester is not None
+        assert mock_session.timeline._shell_permission_requester is not None
+        assert mock_session.timeline._website_permission_requester is not None
+        assert mock_session.timeline._import_permission_requester is not None
 
 
 class TestACPPermissionRequests:
@@ -1859,7 +2018,12 @@ class TestACPCleanupClosedSession:
     """Test _cleanup_closed_session."""
 
     def test_cleanup_removes_metadata(self):
-        """_cleanup_closed_session removes all tracking state."""
+        """_cleanup_closed_session removes metadata but keeps _closed_sessions entry.
+
+        The _closed_sessions entry is kept so the prompt handler can detect
+        cancellation and return stop_reason="cancelled". The prompt handler
+        is responsible for discarding from _closed_sessions after consuming it.
+        """
         agent = _make_agent()
         agent._sessions_cwd["s1"] = "/a"
         agent._sessions_model["s1"] = "m"
@@ -1871,7 +2035,8 @@ class TestACPCleanupClosedSession:
         assert "s1" not in agent._sessions_cwd
         assert "s1" not in agent._sessions_model
         assert "s1" not in agent._sessions_mode
-        assert "s1" not in agent._closed_sessions
+        # _closed_sessions entry is intentionally kept for prompt handler
+        assert "s1" in agent._closed_sessions
 
     def test_cleanup_idempotent(self):
         """_cleanup_closed_session is safe to call twice."""

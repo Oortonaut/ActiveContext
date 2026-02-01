@@ -1689,17 +1689,18 @@ class Session:
                 async for update in self._prompt_direct(content):
                     yield update
 
-            # Send completion notification
-            yield SessionUpdate(
-                kind=UpdateKind.PROJECTION_READY,
-                session_id=self._session_id,
-                payload={
-                    "message_id": message_id,
-                    "completed": True,
-                    "handles": self.get_projection().handles,
-                },
-                timestamp=time.time(),
-            )
+            # Send completion notification (skip if cancelled)
+            if not self._cancelled:
+                yield SessionUpdate(
+                    kind=UpdateKind.PROJECTION_READY,
+                    session_id=self._session_id,
+                    payload={
+                        "message_id": message_id,
+                        "completed": True,
+                        "handles": self.get_projection().handles,
+                    },
+                    timestamp=time.time(),
+                )
 
         except asyncio.CancelledError:
             raise

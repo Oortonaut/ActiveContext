@@ -646,6 +646,18 @@ class ActiveContextAgent:
 
     # --- End import permission requests ---
 
+    def _wire_permission_requesters(self, session: Session) -> None:
+        """Wire ACP permission request callbacks into a session's timeline.
+
+        Called for sessions loaded from disk (Session.from_file) which don't
+        receive permission requesters through the constructor.
+        """
+        tl = session.timeline
+        tl._permission_requester = self._request_file_permission
+        tl._shell_permission_requester = self._request_shell_permission
+        tl._website_permission_requester = self._request_website_permission
+        tl._import_permission_requester = self._request_import_permission
+
     def on_connect(self, conn: Client) -> None:
         """Called when a client connects."""
         self._conn = conn
@@ -796,6 +808,7 @@ class ActiveContextAgent:
                     )
                     if loaded:
                         log.info("Resuming session %s (from disk)", jetbrains_uuid)
+                        self._wire_permission_requesters(loaded)
                         self._manager._sessions[jetbrains_uuid] = loaded
                         session = loaded
 
@@ -805,10 +818,10 @@ class ActiveContextAgent:
                 session = await self._manager.create_session(
                     cwd=cwd,
                     session_id=jetbrains_uuid,  # Will generate UUID if None
-                    permission_requester=None,
-                    shell_permission_requester=None,
-                    website_permission_requester=None,
-                    import_permission_requester=None,
+                    permission_requester=self._request_file_permission,
+                    shell_permission_requester=self._request_shell_permission,
+                    website_permission_requester=self._request_website_permission,
+                    import_permission_requester=self._request_import_permission,
                     skip_startup=True,
                 )
                 log.info("Created session %s", session.session_id)
@@ -937,6 +950,7 @@ class ActiveContextAgent:
                 return None
 
             # Register with manager
+            self._wire_permission_requesters(session)
             self._manager._sessions[session_id] = session
 
             # Set up ACP terminal executor
@@ -1181,11 +1195,13 @@ class ActiveContextAgent:
                 except asyncio.CancelledError:
                     log.info("Message %s cancelled for session %s", message_id, session_id)
                     if session_id in self._closed_sessions:
+                        self._closed_sessions.discard(session_id)
                         return acp.PromptResponse(stop_reason="cancelled")
                     raise
 
                 # Check if session was cancelled during processing
                 if session_id in self._closed_sessions:
+                    self._closed_sessions.discard(session_id)
                     return acp.PromptResponse(stop_reason="cancelled")
 
                 return acp.PromptResponse(stop_reason="end_turn")
@@ -1290,6 +1306,7 @@ class ActiveContextAgent:
         # Check if session was cancelled - return cancelled stop reason per ACP spec
         if session_id in self._closed_sessions:
             log.info("Returning cancelled for session %s", session_id)
+            self._closed_sessions.discard(session_id)
             return acp.PromptResponse(stop_reason="cancelled")
 
         # Auto-save session after each prompt (skip for cancelled sessions)
@@ -1420,11 +1437,10 @@ class ActiveContextAgent:
         self._sessions_model.pop(session_id, None)
         self._sessions_mode.pop(session_id, None)
 
-        # Remove from closed sessions set to prevent unbounded growth
-        # This is safe because:
-        # - The session is cancelled in the manager
-        # - Any new prompt for this session will get "session not found" error
-        self._closed_sessions.discard(session_id)
+        # NOTE: We intentionally do NOT discard from _closed_sessions here.
+        # The prompt handler checks _closed_sessions to return stop_reason="cancelled",
+        # and that check may happen after this cleanup runs. The discard happens
+        # in the prompt handler's finally block or on session close.
 
         log.debug("Cleaned up session tracking for %s", session_id)
 
@@ -1894,6 +1910,9 @@ class ActiveContextAgent:
         except Exception as e:
             log.warning("Startup failed for session %s: %s", session_id, e)
 
+        # Auto-start dashboard if configured
+        await self._auto_start_dashboard_if_needed()
+
         # Advertise available slash commands to client
         try:
             await self._send_session_update(
@@ -1906,6 +1925,37 @@ class ActiveContextAgent:
             log.debug("Sent available commands for session %s", session_id)
         except Exception as e:
             log.warning("Failed to send available commands for session %s: %s", session_id, e)
+
+    async def _auto_start_dashboard_if_needed(self) -> None:
+        """Auto-start dashboard if config enables it and not already running."""
+        from activecontext.config import get_config
+        from activecontext.dashboard import is_dashboard_running, start_dashboard
+
+        config = get_config()
+
+        if not config.dashboard.auto_start:
+            return
+        if is_dashboard_running():
+            return
+
+        port = config.dashboard.port
+        try:
+            await start_dashboard(
+                port=port,
+                manager=self._manager,
+                get_current_model=lambda: self._current_model_id,
+                sessions_model=self._sessions_model,
+                sessions_mode=self._sessions_mode,
+                get_client_info=self.get_client_info,
+                transport_type="acp",
+            )
+        except RuntimeError:
+            # Already running (race with manual start)
+            pass
+        except OSError as e:
+            log.warning("Dashboard auto-start failed (port %d): %s", port, e)
+        except Exception as e:
+            log.warning("Dashboard auto-start failed: %s", e)
 
     def _get_available_commands(self) -> list[AvailableCommand]:
         """Build list of available slash commands for ACP clients."""

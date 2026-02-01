@@ -39,6 +39,7 @@ from activecontext.config.paths import (
 )
 from activecontext.config.schema import (
     Config,
+    DashboardConfig,
     LLMConfig,
     LoggingConfig,
     PluginConnectMode,
@@ -69,6 +70,7 @@ __all__ = [
     "reset_config",
     "on_config_reload",
     # Schema types
+    "DashboardConfig",
     "LLMConfig",
     "RoleProviderConfig",
     "SessionConfig",

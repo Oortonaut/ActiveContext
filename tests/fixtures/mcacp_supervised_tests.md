@@ -94,7 +94,8 @@ Tests are ordered by dependency — later tests assume earlier ones passed.
 **Prompt**:
 ```
 Execute this statement and show me the result:
-v = text("pyproject.toml", tokens=500, state=NodeState.SUMMARY)
+v = text("pyproject.toml", expansion=Expansion.CONTENT)
+show(v)
 ```
 
 **Verify**:
@@ -111,7 +112,7 @@ v = text("pyproject.toml", tokens=500, state=NodeState.SUMMARY)
 **Prompt**:
 ```
 Run this and tell me the output:
-s = shell("git", "log", "--oneline", "-3")
+s = shell("git", args=["log", "--oneline", "-3"])
 wait(s)
 ```
 
@@ -129,10 +130,10 @@ wait(s)
 **Prompt**:
 ```
 Execute these statements:
-v1 = text("src/activecontext/__init__.py", tokens=200)
-v2 = text("src/activecontext/session/protocols.py", tokens=200)
+v1 = text("src/activecontext/__init__.py", expansion=Expansion.CONTENT)
+v2 = text("src/activecontext/session/protocols.py", expansion=Expansion.CONTENT)
 g = group(v1, v2, summary="Core API surface")
-g.SetState(NodeState.SUMMARY)
+g.expansion = Expansion.CONTENT
 ```
 
 **Verify**:
@@ -151,7 +152,7 @@ Prompt 1:
 ```
 Execute:
 checkpoint("before_experiment")
-a = artifact("print('hello world')", artifact_type="code", language="python")
+a = artifact("code", content="print('hello world')", language="python")
 ```
 
 Prompt 2:
@@ -312,7 +313,7 @@ Execute: this_function_does_not_exist()
 
 Then follow up:
 ```
-Execute: v = text("pyproject.toml", tokens=100)
+Execute: v = text("pyproject.toml", expansion=Expansion.CONTENT)
 ```
 
 **Verify**:

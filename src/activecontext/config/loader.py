@@ -22,6 +22,7 @@ from activecontext.config.paths import get_config_paths
 from activecontext.config.schema import (
     ACPConfig,
     Config,
+    DashboardConfig,
     FilePermissionConfig,
     ImportConfig,
     LLMConfig,
@@ -315,6 +316,13 @@ def dict_to_config(data: dict[str, Any]) -> Config:
         auto_create_nodes=lsp_data.get("auto_create_nodes", True),
     )
 
+    # Dashboard config
+    dashboard_data = data.get("dashboard", {})
+    dashboard = DashboardConfig(
+        auto_start=dashboard_data.get("auto_start", False),
+        port=dashboard_data.get("port", 31993),
+    )
+
     # Extra fields for extensibility
     known_keys = {
         "llm",
@@ -327,6 +335,7 @@ def dict_to_config(data: dict[str, Any]) -> Config:
         "user",
         "lsp",
         "acp",
+        "dashboard",
     }
     extra = {k: v for k, v in data.items() if k not in known_keys}
 
@@ -341,6 +350,7 @@ def dict_to_config(data: dict[str, Any]) -> Config:
         plugins=plugins,
         acp=acp,
         lsp=lsp,
+        dashboard=dashboard,
         extra=extra,
     )
 
