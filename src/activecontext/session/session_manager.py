@@ -8,6 +8,7 @@ ticks, and projections.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import time
 import uuid
 from collections.abc import AsyncIterator
@@ -17,11 +18,13 @@ from typing import TYPE_CHECKING, Any
 
 from activecontext.context.graph import ContextGraph
 from activecontext.context.nodes import (
+    ArtifactNode,
     GroupNode,
     MCPManagerNode,
     MessageNode,
     SessionNode,
     TextNode,
+    TraceNode,
 )
 from activecontext.context.state import Expansion, TickFrequency
 from activecontext.context.view import view_from_dict
@@ -30,6 +33,7 @@ from activecontext.logging import get_logger
 from activecontext.session.agent import Agent
 from activecontext.session.permissions import ImportGuard, PermissionManager, ShellPermissionManager
 from activecontext.session.protocols import (
+    ExecutionResult,
     Projection,
     SessionUpdate,
     UpdateKind,
@@ -228,6 +232,13 @@ class Session:
         self._primary_agent.set_projection_callback(self.get_projection)
         self._primary_agent.set_add_node_callback(self.add_node)
 
+        # Context dump writer (initialized from config)
+        from activecontext.context.dump import ContextDumpWriter
+
+        self._context_dump = ContextDumpWriter.from_config(config) if config else None
+        if self._context_dump:
+            self._primary_agent.set_context_dump(self._context_dump)
+
     def _add_system_prompt_node(self) -> None:
         """Add the system prompt as a fully expanded TextNode tree.
 
@@ -328,9 +339,12 @@ class Session:
 
         # Create User Messages group for queued async messages
         # Document order: System Prompt -> Guide -> Session -> MCP -> User Messages
+        # HEADER expansion: queued messages are invisible in projection.
+        # They are consumed by _process_next_message and re-created as
+        # canonical conversation nodes via _add_message / per-segment creation.
         self._user_messages_group = GroupNode(
             node_id="user_messages",
-            expansion=Expansion.ALL,  # Visible in projection
+            expansion=Expansion.HEADER,  # Queued messages don't render
             mode="running",
             tick_frequency=TickFrequency.turn(),
         )
@@ -485,7 +499,6 @@ class Session:
         """
         self._title = title
 
-
     @property
     def mode(self) -> str:
         """Get the current session mode ID."""
@@ -497,12 +510,30 @@ class Session:
         Args:
             mode_id: The new mode ID (e.g., 'normal', 'plan', 'brave')
         """
+        old_mode_id = self._mode_id
         self._mode_id = mode_id
         if self._mode_choice_view is not None and self._mode_node_ids:
             # Look up node ID from mode mapping
             node_id = self._mode_node_ids.get(mode_id)
             if node_id:
                 self._mode_choice_view.select(node_id)
+
+        # Emit mode change update for ACP transport
+        if old_mode_id != mode_id and self._emit_update_callback:
+            import asyncio
+            import time
+
+            from activecontext.session.protocols import SessionUpdate, UpdateKind
+
+            update = SessionUpdate(
+                kind=UpdateKind.NODE_CHANGED,
+                session_id=self._session_id,
+                payload={"mode_changed": mode_id, "old_mode": old_mode_id},
+                timestamp=time.time(),
+            )
+            # Schedule the callback to run in the event loop
+            with contextlib.suppress(RuntimeError):
+                asyncio.create_task(self._emit_update_callback(update))
 
     def set_mode_choice_view(self, choice_view: Any) -> None:
         """Register the ChoiceView that manages mode scripts.
@@ -850,6 +881,73 @@ class Session:
 
         return group_id
 
+    def begin_repl_call(self, source: str, language: str) -> str:
+        """Begin a REPL execution scope.
+
+        Creates a GroupNode with an ArtifactNode child for the source code,
+        then pushes the group onto the context stack.  DSL nodes created
+        during execution become children of this group automatically.
+
+        Mirrors the begin_tool_use/end_tool_use pattern.
+
+        Args:
+            source: The source code to execute.
+            language: Language tag (e.g. "python/acrepl").
+
+        Returns:
+            The group node ID.
+        """
+        first_line = source.split("\n")[0][:60]
+        group = GroupNode(summary_prompt=f"repl: {first_line}")
+        self.add_node(group)
+
+        code_node = ArtifactNode(
+            content=source,
+            artifact_type="repl",
+            language=language,
+        )
+        self._timeline.context_graph.add_node(code_node)
+        self._timeline.context_graph.link(code_node.node_id, group.node_id)
+
+        self.push_group(group.node_id)
+        return group.node_id
+
+    def end_repl_call(self, result: ExecutionResult) -> str | None:
+        """End the current REPL execution scope.
+
+        If the execution produced output (stdout, stderr, or exception),
+        creates a TraceNode as a child of the current group.  Then pops
+        the group from the context stack.
+
+        Args:
+            result: The execution result from _execute_code_inner.
+
+        Returns:
+            The popped group ID, or None if no group was active.
+        """
+        has_output = result.stdout or result.stderr or result.exception
+
+        if has_output and self.current_group:
+            # Build description from available output
+            parts: list[str] = []
+            if result.stdout:
+                parts.append(result.stdout.rstrip())
+            if result.stderr:
+                parts.append(f"[stderr] {result.stderr.rstrip()}")
+            if result.exception:
+                exc_type = result.exception.get("type", "Error")
+                exc_msg = result.exception.get("message", "")
+                parts.append(f"{exc_type}: {exc_msg}")
+
+            trace = TraceNode(
+                description="\n".join(parts),
+                content="\n".join(parts),
+            )
+            self._timeline.context_graph.add_node(trace)
+            self._timeline.context_graph.link(trace.node_id, self.current_group)
+
+        return self.pop_group()
+
     def _add_message(self, message: Message) -> MessageNode:
         """Add a message to conversation and sync to context graph.
 
@@ -997,7 +1095,7 @@ class Session:
             # Create missing user_messages group for backward compatibility
             session._user_messages_group = GroupNode(
                 node_id="user_messages",
-                expansion=Expansion.ALL,
+                expansion=Expansion.HEADER,
                 mode="running",
                 tick_frequency=TickFrequency.turn(),
             )
@@ -1079,7 +1177,9 @@ class Session:
             timestamp=time.time(),
         )
 
-    def queue_user_message(self, content: str, message_id: str | None = None) -> MessageNode:
+    def queue_user_message(
+        self, content: str, message_id: str | None = None, metadata: dict[str, Any] | None = None
+    ) -> MessageNode:
         """Queue a user message without blocking.
 
         Creates a MessageNode for the user's message, adds it to the user_messages
@@ -1088,12 +1188,17 @@ class Session:
         Args:
             content: The message content
             message_id: Optional explicit message ID (auto-generated if not provided)
+            metadata: Optional metadata including content_type and mime_type
 
         Returns:
             The created MessageNode
         """
         if message_id is None:
             message_id = f"msg_{uuid.uuid4().hex[:8]}"
+
+        metadata = metadata or {}
+        content_type = metadata.get("content_type", "text")
+        mime_type = metadata.get("mime_type")
 
         msg = MessageNode(
             node_id=message_id,
@@ -1102,6 +1207,8 @@ class Session:
             originator="user",
             expansion=Expansion.ALL,
             mode="running",
+            content_type=content_type,
+            mime_type=mime_type,
         )
 
         # Add to context graph
@@ -1114,7 +1221,7 @@ class Session:
         # Wake agent if idle
         self._wake_event.set()
 
-        log.debug(f"Queued user message {message_id}: {content[:50]}...")
+        log.debug(f"Queued user message {message_id}: {content[:50]}... (type={content_type})")
         return msg
 
     def has_pending_messages(self) -> bool:
@@ -1151,15 +1258,13 @@ class Session:
     async def _prompt_with_llm(self, content: str) -> AsyncIterator[SessionUpdate]:
         """Process prompt using the LLM provider.
 
-        Runs an agent loop: LLM responds, code is executed, results feed back
-        to LLM until it calls done() or produces no code blocks.
+        Runs an agent loop: LLM responds, response is split into per-segment
+        nodes (prose → MessageNode, executable → REPL call group, fenced →
+        ArtifactNode), executable segments are run, and results feed back to
+        the LLM until it calls done() or produces no code blocks.
 
-        The LLM only sees the projection - no system prompt. User and assistant
-        messages are added to the context graph and appear in the projection
-        based on their visibility state.
+        The LLM only sees the projection — no system prompt.
         """
-        import os
-
         from activecontext.core.llm.provider import Message, Role
         from activecontext.core.prompts import parse_response
 
@@ -1180,13 +1285,17 @@ class Session:
             projection = self.get_projection()
             projection_content = projection.render()
 
-            # Debug logging
-            if os.environ.get("AC_DEBUG"):
-                tokens_est = len(projection_content) // 4 if projection_content else 0
-                log.debug("=== ITERATION %d ===", iteration)
-                log.debug("=== PROJECTION (%d tokens) ===", tokens_est)
-                log.debug("%s", projection_content or "(empty)")
-                log.debug("=== END PROJECTION ===")
+            # Log projection size
+            n_chars = len(projection_content or "")
+            tokens_est = n_chars // 4
+            log.debug(
+                "Iteration %d, projection %d chars (~%d tokens)",
+                iteration, n_chars, tokens_est,
+            )
+
+            # Write context dump file if configured
+            if self._context_dump:
+                self._context_dump.write(projection)
 
             # Send only the projection to the LLM (no system prompt)
             messages = [
@@ -1207,38 +1316,72 @@ class Session:
                         timestamp=time.time(),
                     )
 
-            # Add assistant response to context graph and message history
-            self._add_message(
+            log.debug("LLM response: %d chars", len(full_response))
+
+            # Keep full response in message history for persistence/replay
+            self._message_history.append(
                 Message(role=Role.ASSISTANT, content=full_response, originator="agent")
             )
 
-            # Parse response and execute executable segments
+            # --- Per-segment node creation ---
             parsed = parse_response(full_response)
-            executable = [
-                s.content
-                for s in parsed.segments
-                if s.language == "python/acrepl" or s.kind == "xml"
-            ]
-            execution_results: list[str] = []
+            had_executable = False
 
-            for code in executable:
+            for segment in parsed.segments:
                 if self._cancelled:
                     return
-                async for update in self._execute_code(code):
-                    yield update
-                    # Collect execution output for feedback
-                    if update.kind == UpdateKind.STATEMENT_EXECUTED:
-                        stdout = update.payload.get("stdout", "")
-                        stderr = update.payload.get("stderr", "")
-                        exception = update.payload.get("exception")
-                        if stdout:
-                            execution_results.append(f"Output:\n{stdout}")
-                        if stderr:
-                            execution_results.append(f"Stderr:\n{stderr}")
-                        if exception:
-                            execution_results.append(
-                                f"Error: {exception.get('type')}: {exception.get('message')}"
-                            )
+
+                is_executable = segment.language == "python/acrepl" or segment.kind == "xml"
+
+                if is_executable:
+                    # Executable: wrap in REPL call group
+                    had_executable = True
+                    lang = segment.language if segment.language else "xml"
+                    self.begin_repl_call(segment.content, lang)
+
+                    result = await self._execute_code_inner(segment.content)
+
+                    # Yield transport updates for ACP consumers
+                    yield SessionUpdate(
+                        kind=UpdateKind.STATEMENT_EXECUTED,
+                        session_id=self._session_id,
+                        payload={
+                            "execution_id": result.execution_id,
+                            "statement_id": result.statement_id,
+                            "status": result.status.value,
+                            "stdout": result.stdout,
+                            "stderr": result.stderr,
+                            "exception": result.exception,
+                            "state_trace": {
+                                "added": result.state_trace.added,
+                                "changed": result.state_trace.changed,
+                                "deleted": result.state_trace.deleted,
+                            },
+                            "duration_ms": result.duration_ms,
+                        },
+                        timestamp=time.time(),
+                    )
+
+                    self.end_repl_call(result)
+
+                elif segment.kind in ("prose", "quoted"):
+                    # Prose / blockquotes → assistant MessageNode
+                    if segment.content.strip():
+                        msg = MessageNode(
+                            role="assistant",
+                            content=segment.content,
+                            originator="agent",
+                        )
+                        self.add_node(msg)
+
+                elif segment.kind == "fenced":
+                    # Non-executable fenced block → ArtifactNode
+                    art = ArtifactNode(
+                        content=segment.content,
+                        artifact_type="code",
+                        language=segment.language or None,
+                    )
+                    self.add_node(art)
 
             # Run tick phase
             tick_updates = await self.tick()
@@ -1249,8 +1392,12 @@ class Session:
             turn_duration_ms = (time.time() - turn_start) * 1000
             tokens_used = len(full_response) // 4  # Rough estimate
             action_desc = None
-            if executable:
-                action_desc = f"Executed {len(executable)} code block(s)"
+            if had_executable:
+                exec_count = sum(
+                    1 for s in parsed.segments
+                    if s.language == "python/acrepl" or s.kind == "xml"
+                )
+                action_desc = f"Executed {exec_count} code block(s)"
             if self._session_node:
                 self._session_node.record_turn(
                     tokens_used=tokens_used,
@@ -1264,16 +1411,9 @@ class Session:
                 break
 
             # If no code was executed, the agent is done (legacy behavior)
-            if not executable:
+            if not had_executable:
                 log.debug("No code blocks, stopping loop")
                 break
-
-            # Add execution results as a message (will appear in next projection)
-            if execution_results:
-                result_content = "Execution results:\n" + "\n".join(execution_results)
-            else:
-                result_content = "Code executed successfully."
-            self._add_message(Message(role=Role.USER, content=result_content, originator="system"))
 
     async def _prompt_direct(self, content: str) -> AsyncIterator[SessionUpdate]:
         """Process prompt in direct execution mode (no LLM)."""
@@ -1300,8 +1440,17 @@ class Session:
                 timestamp=time.time(),
             )
 
+    async def _execute_code_inner(self, source: str) -> ExecutionResult:
+        """Execute a code block and return the result.
+
+        This is the core execution path — it runs the statement on the
+        timeline and returns the structured result.  No SessionUpdates
+        are emitted; callers decide how to surface the result.
+        """
+        return await self._timeline.execute_statement(source)
+
     async def _execute_code(self, source: str) -> AsyncIterator[SessionUpdate]:
-        """Execute a code block and yield updates."""
+        """Execute a code block and yield SessionUpdates for the ACP transport."""
         yield SessionUpdate(
             kind=UpdateKind.STATEMENT_PARSED,
             session_id=self._session_id,
@@ -1316,7 +1465,7 @@ class Session:
             timestamp=time.time(),
         )
 
-        result = await self._timeline.execute_statement(source)
+        result = await self._execute_code_inner(source)
 
         yield SessionUpdate(
             kind=UpdateKind.STATEMENT_EXECUTED,
@@ -1509,8 +1658,10 @@ class Session:
     async def _process_next_message(self) -> AsyncIterator[SessionUpdate]:
         """Process the next pending user message.
 
-        Gets the oldest unprocessed message, processes it through the LLM,
-        and marks it as processed.
+        Gets the oldest unprocessed message from the user_messages inbox,
+        marks it as processed, and processes it through the LLM.
+        The user_messages group uses HEADER expansion so queued messages
+        don't appear in the projection — no removal needed.
 
         Yields:
             SessionUpdate objects for the message processing
@@ -1522,31 +1673,28 @@ class Session:
         # Process oldest message first (FIFO)
         msg = messages[0]
         content = msg.content
-        log.debug("Processing message %s: %s", msg.node_id, content[:50])
+        message_id = msg.node_id
+        log.debug("Processing message %s: %s", message_id, content[:50])
 
-        # Mark as in-progress
-        msg.tags["processing"] = True
+        # Mark as processed so it won't be picked up again.
+        # The node stays in the graph (under HEADER-expansion group)
+        # but is invisible in projections.
+        self.mark_message_processed(message_id)
 
         try:
             if self._llm:
-                # LLM-powered mode
                 async for update in self._prompt_with_llm(content):
                     yield update
             else:
-                # Direct execution mode (fallback)
                 async for update in self._prompt_direct(content):
                     yield update
-
-            # Mark as processed
-            self.mark_message_processed(msg.node_id)
-            msg.tags.pop("processing", None)
 
             # Send completion notification
             yield SessionUpdate(
                 kind=UpdateKind.PROJECTION_READY,
                 session_id=self._session_id,
                 payload={
-                    "message_id": msg.node_id,
+                    "message_id": message_id,
                     "completed": True,
                     "handles": self.get_projection().handles,
                 },
@@ -1554,17 +1702,14 @@ class Session:
             )
 
         except asyncio.CancelledError:
-            msg.tags.pop("processing", None)
             raise
         except Exception as e:
-            log.error("Error processing message %s: %s", msg.node_id, e)
-            msg.tags.pop("processing", None)
-            msg.tags["error"] = str(e)
+            log.error("Error processing message %s: %s", message_id, e)
             yield SessionUpdate(
                 kind=UpdateKind.ERROR,
                 session_id=self._session_id,
                 payload={
-                    "message_id": msg.node_id,
+                    "message_id": message_id,
                     "error": str(e),
                 },
                 timestamp=time.time(),
@@ -1965,11 +2110,13 @@ class Session:
                         error_msg = result.exception.get("message", str(result.exception))
                     if server_config.connect == MCPConnectMode.CRITICAL:
                         raise RuntimeError(
-                            f"Critical MCP server '{server_config.name}' failed to connect: {error_msg}"
+                            f"Critical MCP server '{server_config.name}'"
+                            f" failed to connect: {error_msg}"
                         )
                     else:
                         _log.warning(
-                            f"Failed to auto-connect to MCP server '{server_config.name}': {error_msg}"
+                            "Failed to auto-connect to MCP server"
+                            f" '{server_config.name}': {error_msg}"
                         )
 
 
