@@ -2,15 +2,12 @@
 
 from __future__ import annotations
 
-import tempfile
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-import pytest
-
 from activecontext.context.nodes import WorkNode
-from activecontext.context.state import Expansion, TickFrequency
+from activecontext.context.state import Expansion
 from activecontext.coordination import (
     Conflict,
     FileAccess,
@@ -122,7 +119,7 @@ class TestScratchpadManager:
 
     def test_register_twice_updates(self, tmp_path: Path) -> None:
         manager = ScratchpadManager(str(tmp_path))
-        entry1 = manager.register(
+        manager.register(
             session_id="session-1",
             intent="First intent",
         )
@@ -283,9 +280,7 @@ class TestScratchpadManager:
 
         # Manually set heartbeat to past
         scratchpad = manager._load()
-        scratchpad.entries[0].heartbeat_at = datetime.now(timezone.utc) - timedelta(
-            seconds=600
-        )
+        scratchpad.entries[0].heartbeat_at = datetime.now(timezone.utc) - timedelta(seconds=600)
         manager._save(scratchpad)
 
         # Cleanup with 5 min threshold
@@ -322,7 +317,14 @@ class TestWorkNode:
             work_status="active",
             agent_id="abc12345",
             files=[{"path": "src/main.py", "mode": "write"}],
-            conflicts=[{"agent_id": "def67890", "file": "src/main.py", "their_mode": "write", "their_intent": "Also editing"}],
+            conflicts=[
+                {
+                    "agent_id": "def67890",
+                    "file": "src/main.py",
+                    "their_mode": "write",
+                    "their_intent": "Also editing",
+                }
+            ],
         )
         digest = node.GetDigest()
         assert digest["type"] == "work"
@@ -435,7 +437,9 @@ class TestWorkNode:
         node = WorkNode(node_id="work_123", intent="Test")
         assert node.version == 0
 
-        node.set_conflicts([{"agent_id": "other", "file": "x.py", "their_mode": "write", "their_intent": "Test"}])
+        node.set_conflicts(
+            [{"agent_id": "other", "file": "x.py", "their_mode": "write", "their_intent": "Test"}]
+        )
         assert len(node.conflicts) == 1
         assert node.version == 1  # Should have incremented
 
