@@ -10,7 +10,6 @@ import pytest
 
 from activecontext import ActiveContext
 from activecontext.context.graph import ContextGraph
-from activecontext.context.state import Expansion
 from activecontext.session.timeline import Timeline
 
 
@@ -36,7 +35,7 @@ class TestCheckpointRestore:
             await timeline.execute_statement("g = group(v1, v2)")
 
             ns = timeline.get_namespace()
-            v1_id = ns["v1"].node_id
+            ns["v1"].node_id
 
             # Verify v1 is linked to g
             assert ns["g"].node_id in ns["v1"].parent_ids
@@ -371,14 +370,14 @@ class TestSessionLifecycleIntegration:
             session = await ctx.create_session(cwd="/tmp")
 
             # Get initial projection
-            proj1 = session.get_projection().render()
+            session.get_projection().render()
 
             # Create a view
             await session.execute('v = text("test.py")')
 
             # Projection should have changed
             proj2 = session.get_projection().render()
-            
+
             # New projection should contain view info
             assert "test.py" in proj2
 

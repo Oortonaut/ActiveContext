@@ -290,7 +290,8 @@ class TestBackwardCompatibility:
         assert config.llm.provider is None
 
         # But API key should be available via fetch_secret
-        from activecontext.config import fetch_secret, clear_secret_cache
+        from activecontext.config import clear_secret_cache, fetch_secret
+
         clear_secret_cache()  # Clear cache to pick up monkeypatched env
         assert fetch_secret("ANTHROPIC_API_KEY") == "test-key"
 
@@ -331,3 +332,238 @@ class TestConfigCaching:
         global_config = get_config()
         # Should be different objects (project not cached as global)
         assert project_config is not global_config
+
+
+class TestLSPConfig:
+    """Test LSP configuration loading and defaults."""
+
+    @pytest.fixture(autouse=True)
+    def reset_global_config(self) -> None:
+        """Reset global config cache before each test."""
+        reset_config()
+
+    @pytest.fixture
+    def temp_config_dir(self, tmp_path: Path) -> Path:
+        """Create a temporary config directory."""
+        config_dir = tmp_path / ".ac"
+        config_dir.mkdir()
+        return config_dir
+
+    def test_lsp_config_defaults(self) -> None:
+        """Test that LSPConfig has correct defaults."""
+        config = load_config()
+        assert config.lsp.enabled is False
+        assert config.lsp.mode == "lsp"
+        assert config.lsp.sync_kind == 1  # Full sync
+        assert config.lsp.auto_create_nodes is True
+
+    def test_lsp_config_from_yaml(self, temp_config_dir: Path) -> None:
+        """Test loading LSP config from YAML."""
+        config_file = temp_config_dir / "config.yaml"
+        config_file.write_text(
+            """
+lsp:
+  enabled: true
+  mode: multiplexed
+  sync_kind: 2
+  auto_create_nodes: false
+"""
+        )
+        config = load_config(session_root=str(temp_config_dir.parent))
+        assert config.lsp.enabled is True
+        assert config.lsp.mode == "multiplexed"
+        assert config.lsp.sync_kind == 2  # Incremental sync
+        assert config.lsp.auto_create_nodes is False
+
+    def test_lsp_config_partial(self, temp_config_dir: Path) -> None:
+        """Test that partial LSP config merges with defaults."""
+        config_file = temp_config_dir / "config.yaml"
+        config_file.write_text(
+            """
+lsp:
+  enabled: true
+  mode: multiplexed
+"""
+        )
+        config = load_config(session_root=str(temp_config_dir.parent))
+        assert config.lsp.enabled is True
+        assert config.lsp.mode == "multiplexed"
+        # Defaults should still apply
+        assert config.lsp.sync_kind == 1
+        assert config.lsp.auto_create_nodes is True
+
+
+class TestPluginConfig:
+    """Test plugin configuration loading and defaults."""
+
+    @pytest.fixture(autouse=True)
+    def reset_global_config(self) -> None:
+        """Reset global config cache before each test."""
+        reset_config()
+
+    @pytest.fixture
+    def temp_config_dir(self, tmp_path: Path) -> Path:
+        """Create a temporary config directory."""
+        config_dir = tmp_path / ".ac"
+        config_dir.mkdir()
+        return config_dir
+
+    def test_plugin_config_defaults(self) -> None:
+        """Test that PluginsConfig has correct defaults."""
+        config = load_config()
+        assert config.plugins.allow_dynamic_servers is True
+        assert len(config.plugins.servers) == 0
+
+    def test_plugin_servers_from_config(self, temp_config_dir: Path) -> None:
+        """Test loading plugin server config."""
+        config_file = temp_config_dir / "config.yaml"
+        config_file.write_text(
+            """
+plugins:
+  allow_dynamic_servers: true
+  servers:
+    - name: shell-extended
+      command: ["path/to/shell-plugin"]
+      transport: stdio
+      connect: auto
+      timeout: 30.0
+      env:
+        PATH: "${PATH}"
+    - name: remote-tools
+      url: "stdio://shared-server:8080"
+      connect: manual
+      redirect: true
+"""
+        )
+        config = load_config(session_root=str(temp_config_dir.parent))
+        assert config.plugins.allow_dynamic_servers is True
+        assert len(config.plugins.servers) == 2
+
+        # Check stdio server
+        shell = config.plugins.servers[0]
+        assert shell.name == "shell-extended"
+        assert shell.command == ["path/to/shell-plugin"]
+        assert shell.transport == "stdio"
+        from activecontext.config.schema import PluginConnectMode
+
+        assert shell.connect == PluginConnectMode.AUTO
+        assert shell.timeout == 30.0
+        assert shell.env == {"PATH": "${PATH}"}
+        assert shell.url is None
+        assert shell.redirect is False
+
+        # Check remote server
+        remote = config.plugins.servers[1]
+        assert remote.name == "remote-tools"
+        assert remote.url == "stdio://shared-server:8080"
+        assert remote.connect == PluginConnectMode.MANUAL
+        assert remote.redirect is True
+        assert remote.command is None
+
+    def test_plugin_connect_modes(self, temp_config_dir: Path) -> None:
+        """Test all plugin connection modes."""
+        config_file = temp_config_dir / "config.yaml"
+        config_file.write_text(
+            """
+plugins:
+  servers:
+    - name: critical-plugin
+      command: ["plugin"]
+      connect: critical
+    - name: auto-plugin
+      command: ["plugin"]
+      connect: auto
+    - name: manual-plugin
+      command: ["plugin"]
+      connect: manual
+    - name: never-plugin
+      command: ["plugin"]
+      connect: never
+"""
+        )
+        config = load_config(session_root=str(temp_config_dir.parent))
+        from activecontext.config.schema import PluginConnectMode
+
+        assert config.plugins.servers[0].connect == PluginConnectMode.CRITICAL
+        assert config.plugins.servers[1].connect == PluginConnectMode.AUTO
+        assert config.plugins.servers[2].connect == PluginConnectMode.MANUAL
+        assert config.plugins.servers[3].connect == PluginConnectMode.NEVER
+
+    def test_plugin_config_partial(self, temp_config_dir: Path) -> None:
+        """Test that partial plugin config merges with defaults."""
+        config_file = temp_config_dir / "config.yaml"
+        config_file.write_text(
+            """
+plugins:
+  servers:
+    - name: simple-plugin
+      command: ["plugin"]
+"""
+        )
+        config = load_config(session_root=str(temp_config_dir.parent))
+        assert len(config.plugins.servers) == 1
+
+        plugin = config.plugins.servers[0]
+        assert plugin.name == "simple-plugin"
+        assert plugin.command == ["plugin"]
+        # Defaults should apply
+        from activecontext.config.schema import PluginConnectMode
+
+        assert plugin.transport == "stdio"
+        assert plugin.connect == PluginConnectMode.MANUAL
+        assert plugin.timeout == 30.0
+        assert plugin.env == {}
+        assert plugin.url is None
+        assert plugin.redirect is False
+
+    def test_plugin_config_no_dynamic_servers(self, temp_config_dir: Path) -> None:
+        """Test disabling dynamic plugin servers."""
+        config_file = temp_config_dir / "config.yaml"
+        config_file.write_text(
+            """
+plugins:
+  allow_dynamic_servers: false
+  servers:
+    - name: static-only
+      command: ["plugin"]
+"""
+        )
+        config = load_config(session_root=str(temp_config_dir.parent))
+        assert config.plugins.allow_dynamic_servers is False
+        assert len(config.plugins.servers) == 1
+
+    def test_plugin_config_empty_servers_list(self, temp_config_dir: Path) -> None:
+        """Test plugin config with empty servers list."""
+        config_file = temp_config_dir / "config.yaml"
+        config_file.write_text(
+            """
+plugins:
+  allow_dynamic_servers: false
+  servers: []
+"""
+        )
+        config = load_config(session_root=str(temp_config_dir.parent))
+        assert config.plugins.allow_dynamic_servers is False
+        assert len(config.plugins.servers) == 0
+
+    def test_plugin_config_invalid_server_skipped(self, temp_config_dir: Path) -> None:
+        """Test that invalid plugin server entries are skipped."""
+        config_file = temp_config_dir / "config.yaml"
+        config_file.write_text(
+            """
+plugins:
+  servers:
+    - name: valid-plugin
+      command: ["plugin"]
+    - invalid: missing-name
+    - name: ""
+      command: ["plugin"]
+    - name: another-valid
+      command: ["plugin2"]
+"""
+        )
+        config = load_config(session_root=str(temp_config_dir.parent))
+        # Only valid servers should be loaded
+        assert len(config.plugins.servers) == 2
+        assert config.plugins.servers[0].name == "valid-plugin"
+        assert config.plugins.servers[1].name == "another-valid"

@@ -10,11 +10,7 @@ from activecontext.session.protocols import Projection, ProjectionSection
 
 def _executable(parsed: ParsedResponse) -> list[str]:
     """Extract executable segment contents (python/acrepl fenced + XML)."""
-    return [
-        s.content
-        for s in parsed.segments
-        if s.language == "python/acrepl" or s.kind == "xml"
-    ]
+    return [s.content for s in parsed.segments if s.language == "python/acrepl" or s.kind == "xml"]
 
 
 class TestBlockSplitting:
@@ -218,7 +214,7 @@ Done."""
         xml_segs = [s for s in parsed.segments if s.kind == "xml"]
         assert len(xml_segs) == 1
         assert xml_segs[0].mime_type == "application/xml"
-        assert 'view' in xml_segs[0].content
+        assert "view" in xml_segs[0].content
 
     def test_quoted_mime_type(self) -> None:
         """Blockquote segments get text/markdown mime type with 'quoted' kind."""
@@ -312,7 +308,7 @@ Here it is."""
         parsed = parse_response(text)
         xml = [s for s in parsed.segments if s.kind == "xml"]
         assert len(xml) == 1
-        assert '<view' in xml[0].content
+        assert "<view" in xml[0].content
 
     def test_self_closing_shell(self) -> None:
         """Self-closing <shell/> tag detected as xml segment."""
@@ -322,7 +318,7 @@ Done."""
         parsed = parse_response(text)
         xml = [s for s in parsed.segments if s.kind == "xml"]
         assert len(xml) == 1
-        assert '<shell' in xml[0].content
+        assert "<shell" in xml[0].content
 
     def test_done_tag(self) -> None:
         """<done/> tag detected as xml segment."""
@@ -331,7 +327,7 @@ Done."""
         parsed = parse_response(text)
         xml = [s for s in parsed.segments if s.kind == "xml"]
         assert len(xml) == 1
-        assert '<done' in xml[0].content
+        assert "<done" in xml[0].content
 
     def test_multiple_xml_commands(self) -> None:
         """Multiple XML commands each become separate xml segments."""
@@ -370,9 +366,9 @@ x = v.content
         parsed = parse_response(text)
         exe = _executable(parsed)
         assert len(exe) == 3
-        assert '<view' in exe[0]
-        assert 'x = v.content' in exe[1]
-        assert '<done' in exe[2]
+        assert "<view" in exe[0]
+        assert "x = v.content" in exe[1]
+        assert "<done" in exe[2]
 
     def test_xml_in_blockquote_not_detected(self) -> None:
         """XML inside a blockquote should stay as quoted text."""
@@ -390,7 +386,7 @@ Done."""
         parsed = parse_response(text)
         xml = [s for s in parsed.segments if s.kind == "xml"]
         assert len(xml) == 1
-        assert '<link' in xml[0].content
+        assert "<link" in xml[0].content
 
 
 class TestMessageActor:

@@ -2,19 +2,13 @@
 
 from __future__ import annotations
 
-import asyncio
-import json
 import time
-from datetime import datetime
 from pathlib import Path
-from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from starlette.websockets import WebSocketDisconnect
-
 
 # ============================================================================
 # Test Data Fixtures
@@ -227,22 +221,23 @@ def app_with_mocks(
     mock_index.exists.return_value = False
     mock_static_dir.__truediv__ = lambda self, x: mock_index
 
-    with patch("activecontext.dashboard.routes.get_manager") as mock_get_manager, \
-         patch("activecontext.dashboard.routes.get_dashboard_status") as mock_get_status, \
-         patch("activecontext.dashboard.routes.get_current_model_id") as mock_get_model, \
-         patch("activecontext.dashboard.routes.get_session_model") as mock_get_session_model, \
-         patch("activecontext.dashboard.routes.get_session_mode") as mock_get_session_mode, \
-         patch("activecontext.dashboard.routes.get_static_dir") as mock_get_static, \
-         patch("activecontext.dashboard.routes.get_context_data") as mock_get_context, \
-         patch("activecontext.dashboard.routes.get_timeline_data") as mock_get_timeline, \
-         patch("activecontext.dashboard.routes.get_projection_data") as mock_get_projection, \
-         patch("activecontext.dashboard.routes.get_message_history_data") as mock_get_messages, \
-         patch("activecontext.dashboard.routes.get_rendered_projection_data") as mock_get_rendered, \
-         patch("activecontext.dashboard.routes.get_client_capabilities_data") as mock_get_client, \
-         patch("activecontext.dashboard.routes.get_session_features_data") as mock_get_features, \
-         patch("activecontext.dashboard.routes.get_llm_status") as mock_get_llm, \
-         patch("activecontext.dashboard.routes.get_session_summary") as mock_get_summary:
-
+    with (
+        patch("activecontext.dashboard.routes.get_manager") as mock_get_manager,
+        patch("activecontext.dashboard.routes.get_dashboard_status") as mock_get_status,
+        patch("activecontext.dashboard.routes.get_current_model_id") as mock_get_model,
+        patch("activecontext.dashboard.routes.get_session_model") as mock_get_session_model,
+        patch("activecontext.dashboard.routes.get_session_mode") as mock_get_session_mode,
+        patch("activecontext.dashboard.routes.get_static_dir") as mock_get_static,
+        patch("activecontext.dashboard.routes.get_context_data") as mock_get_context,
+        patch("activecontext.dashboard.routes.get_timeline_data") as mock_get_timeline,
+        patch("activecontext.dashboard.routes.get_projection_data") as mock_get_projection,
+        patch("activecontext.dashboard.routes.get_message_history_data") as mock_get_messages,
+        patch("activecontext.dashboard.routes.get_rendered_projection_data") as mock_get_rendered,
+        patch("activecontext.dashboard.routes.get_client_capabilities_data") as mock_get_client,
+        patch("activecontext.dashboard.routes.get_session_features_data") as mock_get_features,
+        patch("activecontext.dashboard.routes.get_llm_status") as mock_get_llm,
+        patch("activecontext.dashboard.routes.get_session_summary") as mock_get_summary,
+    ):
         # Configure mocks
         mock_get_manager.return_value = mock_manager
         mock_get_status.return_value = mock_dashboard_status
@@ -282,6 +277,7 @@ def app_with_mocks(
         }
 
         from activecontext.dashboard.routes import create_app
+
         app = create_app()
 
         yield app, mocks
@@ -312,6 +308,7 @@ class TestCreateApp:
             mock_static.return_value = mock_dir
 
             from activecontext.dashboard.routes import create_app
+
             app = create_app()
             assert isinstance(app, FastAPI)
 
@@ -323,6 +320,7 @@ class TestCreateApp:
             mock_static.return_value = mock_dir
 
             from activecontext.dashboard.routes import create_app
+
             app = create_app()
             assert app.title == "ActiveContext Dashboard"
             assert app.version == "0.1.0"
@@ -335,6 +333,7 @@ class TestCreateApp:
             mock_static.return_value = mock_dir
 
             from activecontext.dashboard.routes import create_app
+
             app = create_app()
 
             route_paths = [route.path for route in app.routes]
@@ -352,6 +351,7 @@ class TestCreateApp:
             mock_static.return_value = mock_dir
 
             from activecontext.dashboard.routes import create_app
+
             app = create_app()
 
             route_paths = [route.path for route in app.routes]
@@ -370,6 +370,7 @@ class TestCreateApp:
             mock_static.return_value = mock_dir
 
             from activecontext.dashboard.routes import create_app
+
             app = create_app()
 
             route_paths = [route.path for route in app.routes]
@@ -385,6 +386,7 @@ class TestCreateApp:
 
             with patch("activecontext.dashboard.routes.StaticFiles"):
                 from activecontext.dashboard.routes import create_app
+
                 app = create_app()
 
                 # Check static mount exists
@@ -411,6 +413,7 @@ class TestIndexRoute:
             mock_static.return_value = mock_dir
 
             from activecontext.dashboard.routes import create_app
+
             app = create_app()
 
             with TestClient(app) as client:
@@ -429,6 +432,7 @@ class TestIndexRoute:
             mock_static.return_value = tmp_path
 
             from activecontext.dashboard.routes import create_app
+
             app = create_app()
 
             with TestClient(app) as client:
@@ -532,14 +536,17 @@ class TestSessionsListEndpoint:
 
     def test_sessions_returns_empty_when_no_manager(self):
         """GET /api/sessions should return empty list when no manager."""
-        with patch("activecontext.dashboard.routes.get_manager") as mock_get_manager, \
-             patch("activecontext.dashboard.routes.get_static_dir") as mock_static:
+        with (
+            patch("activecontext.dashboard.routes.get_manager") as mock_get_manager,
+            patch("activecontext.dashboard.routes.get_static_dir") as mock_static,
+        ):
             mock_get_manager.return_value = None
             mock_dir = MagicMock(spec=Path)
             mock_dir.exists.return_value = False
             mock_static.return_value = mock_dir
 
             from activecontext.dashboard.routes import create_app
+
             app = create_app()
 
             with TestClient(app) as client:
@@ -584,14 +591,17 @@ class TestSessionContextEndpoint:
 
     def test_context_returns_503_when_no_manager(self):
         """GET /api/sessions/{id}/context should return 503 when no manager."""
-        with patch("activecontext.dashboard.routes.get_manager") as mock_get_manager, \
-             patch("activecontext.dashboard.routes.get_static_dir") as mock_static:
+        with (
+            patch("activecontext.dashboard.routes.get_manager") as mock_get_manager,
+            patch("activecontext.dashboard.routes.get_static_dir") as mock_static,
+        ):
             mock_get_manager.return_value = None
             mock_dir = MagicMock(spec=Path)
             mock_dir.exists.return_value = False
             mock_static.return_value = mock_dir
 
             from activecontext.dashboard.routes import create_app
+
             app = create_app()
 
             with TestClient(app) as client:
@@ -604,14 +614,17 @@ class TestSessionContextEndpoint:
         mock_manager = MagicMock()
         mock_manager.get_session = AsyncMock(return_value=None)
 
-        with patch("activecontext.dashboard.routes.get_manager") as mock_get_manager, \
-             patch("activecontext.dashboard.routes.get_static_dir") as mock_static:
+        with (
+            patch("activecontext.dashboard.routes.get_manager") as mock_get_manager,
+            patch("activecontext.dashboard.routes.get_static_dir") as mock_static,
+        ):
             mock_get_manager.return_value = mock_manager
             mock_dir = MagicMock(spec=Path)
             mock_dir.exists.return_value = False
             mock_static.return_value = mock_dir
 
             from activecontext.dashboard.routes import create_app
+
             app = create_app()
 
             with TestClient(app) as client:
@@ -650,14 +663,17 @@ class TestSessionTimelineEndpoint:
 
     def test_timeline_returns_503_when_no_manager(self):
         """GET /api/sessions/{id}/timeline should return 503 when no manager."""
-        with patch("activecontext.dashboard.routes.get_manager") as mock_get_manager, \
-             patch("activecontext.dashboard.routes.get_static_dir") as mock_static:
+        with (
+            patch("activecontext.dashboard.routes.get_manager") as mock_get_manager,
+            patch("activecontext.dashboard.routes.get_static_dir") as mock_static,
+        ):
             mock_get_manager.return_value = None
             mock_dir = MagicMock(spec=Path)
             mock_dir.exists.return_value = False
             mock_static.return_value = mock_dir
 
             from activecontext.dashboard.routes import create_app
+
             app = create_app()
 
             with TestClient(app) as client:
@@ -669,14 +685,17 @@ class TestSessionTimelineEndpoint:
         mock_manager = MagicMock()
         mock_manager.get_session = AsyncMock(return_value=None)
 
-        with patch("activecontext.dashboard.routes.get_manager") as mock_get_manager, \
-             patch("activecontext.dashboard.routes.get_static_dir") as mock_static:
+        with (
+            patch("activecontext.dashboard.routes.get_manager") as mock_get_manager,
+            patch("activecontext.dashboard.routes.get_static_dir") as mock_static,
+        ):
             mock_get_manager.return_value = mock_manager
             mock_dir = MagicMock(spec=Path)
             mock_dir.exists.return_value = False
             mock_static.return_value = mock_dir
 
             from activecontext.dashboard.routes import create_app
+
             app = create_app()
 
             with TestClient(app) as client:
@@ -714,14 +733,17 @@ class TestSessionProjectionEndpoint:
 
     def test_projection_returns_503_when_no_manager(self):
         """GET /api/sessions/{id}/projection should return 503 when no manager."""
-        with patch("activecontext.dashboard.routes.get_manager") as mock_get_manager, \
-             patch("activecontext.dashboard.routes.get_static_dir") as mock_static:
+        with (
+            patch("activecontext.dashboard.routes.get_manager") as mock_get_manager,
+            patch("activecontext.dashboard.routes.get_static_dir") as mock_static,
+        ):
             mock_get_manager.return_value = None
             mock_dir = MagicMock(spec=Path)
             mock_dir.exists.return_value = False
             mock_static.return_value = mock_dir
 
             from activecontext.dashboard.routes import create_app
+
             app = create_app()
 
             with TestClient(app) as client:
@@ -733,14 +755,17 @@ class TestSessionProjectionEndpoint:
         mock_manager = MagicMock()
         mock_manager.get_session = AsyncMock(return_value=None)
 
-        with patch("activecontext.dashboard.routes.get_manager") as mock_get_manager, \
-             patch("activecontext.dashboard.routes.get_static_dir") as mock_static:
+        with (
+            patch("activecontext.dashboard.routes.get_manager") as mock_get_manager,
+            patch("activecontext.dashboard.routes.get_static_dir") as mock_static,
+        ):
             mock_get_manager.return_value = mock_manager
             mock_dir = MagicMock(spec=Path)
             mock_dir.exists.return_value = False
             mock_static.return_value = mock_dir
 
             from activecontext.dashboard.routes import create_app
+
             app = create_app()
 
             with TestClient(app) as client:
@@ -778,14 +803,17 @@ class TestSessionMessageHistoryEndpoint:
 
     def test_message_history_returns_503_when_no_manager(self):
         """GET /api/sessions/{id}/message-history should return 503 when no manager."""
-        with patch("activecontext.dashboard.routes.get_manager") as mock_get_manager, \
-             patch("activecontext.dashboard.routes.get_static_dir") as mock_static:
+        with (
+            patch("activecontext.dashboard.routes.get_manager") as mock_get_manager,
+            patch("activecontext.dashboard.routes.get_static_dir") as mock_static,
+        ):
             mock_get_manager.return_value = None
             mock_dir = MagicMock(spec=Path)
             mock_dir.exists.return_value = False
             mock_static.return_value = mock_dir
 
             from activecontext.dashboard.routes import create_app
+
             app = create_app()
 
             with TestClient(app) as client:
@@ -797,14 +825,17 @@ class TestSessionMessageHistoryEndpoint:
         mock_manager = MagicMock()
         mock_manager.get_session = AsyncMock(return_value=None)
 
-        with patch("activecontext.dashboard.routes.get_manager") as mock_get_manager, \
-             patch("activecontext.dashboard.routes.get_static_dir") as mock_static:
+        with (
+            patch("activecontext.dashboard.routes.get_manager") as mock_get_manager,
+            patch("activecontext.dashboard.routes.get_static_dir") as mock_static,
+        ):
             mock_get_manager.return_value = mock_manager
             mock_dir = MagicMock(spec=Path)
             mock_dir.exists.return_value = False
             mock_static.return_value = mock_dir
 
             from activecontext.dashboard.routes import create_app
+
             app = create_app()
 
             with TestClient(app) as client:
@@ -843,14 +874,17 @@ class TestSessionRenderedEndpoint:
 
     def test_rendered_returns_503_when_no_manager(self):
         """GET /api/sessions/{id}/rendered should return 503 when no manager."""
-        with patch("activecontext.dashboard.routes.get_manager") as mock_get_manager, \
-             patch("activecontext.dashboard.routes.get_static_dir") as mock_static:
+        with (
+            patch("activecontext.dashboard.routes.get_manager") as mock_get_manager,
+            patch("activecontext.dashboard.routes.get_static_dir") as mock_static,
+        ):
             mock_get_manager.return_value = None
             mock_dir = MagicMock(spec=Path)
             mock_dir.exists.return_value = False
             mock_static.return_value = mock_dir
 
             from activecontext.dashboard.routes import create_app
+
             app = create_app()
 
             with TestClient(app) as client:
@@ -862,14 +896,17 @@ class TestSessionRenderedEndpoint:
         mock_manager = MagicMock()
         mock_manager.get_session = AsyncMock(return_value=None)
 
-        with patch("activecontext.dashboard.routes.get_manager") as mock_get_manager, \
-             patch("activecontext.dashboard.routes.get_static_dir") as mock_static:
+        with (
+            patch("activecontext.dashboard.routes.get_manager") as mock_get_manager,
+            patch("activecontext.dashboard.routes.get_static_dir") as mock_static,
+        ):
             mock_get_manager.return_value = mock_manager
             mock_dir = MagicMock(spec=Path)
             mock_dir.exists.return_value = False
             mock_static.return_value = mock_dir
 
             from activecontext.dashboard.routes import create_app
+
             app = create_app()
 
             with TestClient(app) as client:
@@ -939,14 +976,17 @@ class TestSessionFeaturesEndpoint:
 
     def test_features_returns_503_when_no_manager(self):
         """GET /api/sessions/{id}/features should return 503 when no manager."""
-        with patch("activecontext.dashboard.routes.get_manager") as mock_get_manager, \
-             patch("activecontext.dashboard.routes.get_static_dir") as mock_static:
+        with (
+            patch("activecontext.dashboard.routes.get_manager") as mock_get_manager,
+            patch("activecontext.dashboard.routes.get_static_dir") as mock_static,
+        ):
             mock_get_manager.return_value = None
             mock_dir = MagicMock(spec=Path)
             mock_dir.exists.return_value = False
             mock_static.return_value = mock_dir
 
             from activecontext.dashboard.routes import create_app
+
             app = create_app()
 
             with TestClient(app) as client:
@@ -958,14 +998,17 @@ class TestSessionFeaturesEndpoint:
         mock_manager = MagicMock()
         mock_manager.get_session = AsyncMock(return_value=None)
 
-        with patch("activecontext.dashboard.routes.get_manager") as mock_get_manager, \
-             patch("activecontext.dashboard.routes.get_static_dir") as mock_static:
+        with (
+            patch("activecontext.dashboard.routes.get_manager") as mock_get_manager,
+            patch("activecontext.dashboard.routes.get_static_dir") as mock_static,
+        ):
             mock_get_manager.return_value = mock_manager
             mock_dir = MagicMock(spec=Path)
             mock_dir.exists.return_value = False
             mock_static.return_value = mock_dir
 
             from activecontext.dashboard.routes import create_app
+
             app = create_app()
 
             with TestClient(app) as client:
@@ -1076,11 +1119,13 @@ class TestWebSocketEndpoint:
                 websocket.receive_json()
 
                 # Send set_expansion with invalid expansion
-                websocket.send_json({
-                    "type": "set_expansion",
-                    "node_id": "node-1",
-                    "expansion": "invalid_value",
-                })
+                websocket.send_json(
+                    {
+                        "type": "set_expansion",
+                        "node_id": "node-1",
+                        "expansion": "invalid_value",
+                    }
+                )
 
                 # Should receive error
                 response = websocket.receive_json()
@@ -1101,11 +1146,13 @@ class TestWebSocketEndpoint:
                 websocket.receive_json()
 
                 # Send set_expansion for non-existent node
-                websocket.send_json({
-                    "type": "set_expansion",
-                    "node_id": "nonexistent",
-                    "expansion": "header",
-                })
+                websocket.send_json(
+                    {
+                        "type": "set_expansion",
+                        "node_id": "nonexistent",
+                        "expansion": "header",
+                    }
+                )
 
                 # Should receive error
                 response = websocket.receive_json()
@@ -1131,19 +1178,22 @@ class TestWebSocketEndpoint:
         mock_manager = MagicMock()
         mock_manager.get_session = AsyncMock(return_value=mock_session)
 
-        with patch("activecontext.dashboard.routes.get_manager") as mock_get_manager, \
-             patch("activecontext.dashboard.routes.get_static_dir") as mock_static, \
-             patch("activecontext.dashboard.routes.get_session_model") as mock_get_model, \
-             patch("activecontext.dashboard.routes.get_session_mode") as mock_get_mode, \
-             patch("activecontext.dashboard.routes.get_client_capabilities_data") as mock_get_client, \
-             patch("activecontext.dashboard.routes.get_session_features_data") as mock_get_features, \
-             patch("activecontext.dashboard.routes.get_context_data") as mock_get_context, \
-             patch("activecontext.dashboard.routes.get_timeline_data") as mock_get_timeline, \
-             patch("activecontext.dashboard.routes.get_projection_data") as mock_get_projection, \
-             patch("activecontext.dashboard.routes.get_message_history_data") as mock_get_messages, \
-             patch("activecontext.dashboard.routes.get_rendered_projection_data") as mock_get_rendered, \
-             patch("activecontext.dashboard.routes.broadcast_update") as mock_broadcast:
-
+        with (
+            patch("activecontext.dashboard.routes.get_manager") as mock_get_manager,
+            patch("activecontext.dashboard.routes.get_static_dir") as mock_static,
+            patch("activecontext.dashboard.routes.get_session_model") as mock_get_model,
+            patch("activecontext.dashboard.routes.get_session_mode") as mock_get_mode,
+            patch("activecontext.dashboard.routes.get_client_capabilities_data") as mock_get_client,
+            patch("activecontext.dashboard.routes.get_session_features_data") as mock_get_features,
+            patch("activecontext.dashboard.routes.get_context_data") as mock_get_context,
+            patch("activecontext.dashboard.routes.get_timeline_data") as mock_get_timeline,
+            patch("activecontext.dashboard.routes.get_projection_data") as mock_get_projection,
+            patch("activecontext.dashboard.routes.get_message_history_data") as mock_get_messages,
+            patch(
+                "activecontext.dashboard.routes.get_rendered_projection_data"
+            ) as mock_get_rendered,
+            patch("activecontext.dashboard.routes.broadcast_update") as mock_broadcast,
+        ):
             mock_get_manager.return_value = mock_manager
             mock_dir = MagicMock(spec=Path)
             mock_dir.exists.return_value = False
@@ -1156,10 +1206,16 @@ class TestWebSocketEndpoint:
             mock_get_timeline.return_value = {"statements": [], "count": 0}
             mock_get_projection.return_value = {"total_used": 0, "sections": []}
             mock_get_messages.return_value = {"messages": [], "count": 0}
-            mock_get_rendered.return_value = {"rendered": "", "total_tokens": 0, "sections": [], "section_count": 0}
+            mock_get_rendered.return_value = {
+                "rendered": "",
+                "total_tokens": 0,
+                "sections": [],
+                "section_count": 0,
+            }
             mock_broadcast.return_value = None
 
             from activecontext.dashboard.routes import create_app
+
             app = create_app()
 
             with TestClient(app) as client:
@@ -1168,11 +1224,13 @@ class TestWebSocketEndpoint:
                     websocket.receive_json()
 
                     # Send set_expansion
-                    websocket.send_json({
-                        "type": "set_expansion",
-                        "node_id": "node-1",
-                        "expansion": "header",
-                    })
+                    websocket.send_json(
+                        {
+                            "type": "set_expansion",
+                            "node_id": "node-1",
+                            "expansion": "header",
+                        }
+                    )
 
                     # Should receive confirmation
                     response = websocket.receive_json()
@@ -1186,14 +1244,17 @@ class TestWebSocketEndpoint:
         mock_manager = MagicMock()
         mock_manager.get_session = AsyncMock(return_value=None)
 
-        with patch("activecontext.dashboard.routes.get_manager") as mock_get_manager, \
-             patch("activecontext.dashboard.routes.get_static_dir") as mock_static:
+        with (
+            patch("activecontext.dashboard.routes.get_manager") as mock_get_manager,
+            patch("activecontext.dashboard.routes.get_static_dir") as mock_static,
+        ):
             mock_get_manager.return_value = mock_manager
             mock_dir = MagicMock(spec=Path)
             mock_dir.exists.return_value = False
             mock_static.return_value = mock_dir
 
             from activecontext.dashboard.routes import create_app
+
             app = create_app()
 
             with TestClient(app) as client:
@@ -1211,9 +1272,11 @@ class TestWebSocketEndpoint:
         mock_manager = MagicMock()
         mock_manager.get_session = AsyncMock(return_value=mock_session)
 
-        with patch("activecontext.dashboard.routes.get_manager") as mock_get_manager, \
-             patch("activecontext.dashboard.routes.get_static_dir") as mock_static, \
-             patch("activecontext.dashboard.routes.get_context_data") as mock_context:
+        with (
+            patch("activecontext.dashboard.routes.get_manager") as mock_get_manager,
+            patch("activecontext.dashboard.routes.get_static_dir") as mock_static,
+            patch("activecontext.dashboard.routes.get_context_data") as mock_context,
+        ):
             mock_get_manager.return_value = mock_manager
             mock_dir = MagicMock(spec=Path)
             mock_dir.exists.return_value = False
@@ -1222,6 +1285,7 @@ class TestWebSocketEndpoint:
             mock_context.side_effect = Exception("Context data error")
 
             from activecontext.dashboard.routes import create_app
+
             app = create_app()
 
             with TestClient(app) as client:
@@ -1259,7 +1323,7 @@ class TestHandleWebsocketCommand:
                     "type": "set_expansion",
                     "node_id": "node-1",
                     "expansion": "collapsed",
-                }
+                },
             )
 
             mock_handler.assert_called_once()
@@ -1272,11 +1336,7 @@ class TestHandleWebsocketCommand:
 
         from activecontext.dashboard.routes import _handle_websocket_command
 
-        await _handle_websocket_command(
-            mock_websocket,
-            "session-1",
-            {"type": "unknown_command"}
-        )
+        await _handle_websocket_command(mock_websocket, "session-1", {"type": "unknown_command"})
 
         mock_websocket.send_json.assert_called_once()
         call_args = mock_websocket.send_json.call_args[0][0]
@@ -1351,8 +1411,10 @@ class TestBroadcastUpdate:
     @pytest.mark.asyncio
     async def test_broadcast_sends_to_connection_manager(self):
         """broadcast_update should send via connection_manager."""
-        with patch("activecontext.dashboard.routes.connection_manager") as mock_conn_mgr, \
-             patch("activecontext.dashboard.routes.format_session_update") as mock_format:
+        with (
+            patch("activecontext.dashboard.routes.connection_manager") as mock_conn_mgr,
+            patch("activecontext.dashboard.routes.format_session_update") as mock_format,
+        ):
             mock_conn_mgr.broadcast = AsyncMock()
             mock_format.return_value = {"type": "update", "data": {}}
 
@@ -1376,8 +1438,10 @@ class TestBroadcastUpdate:
     @pytest.mark.asyncio
     async def test_broadcast_includes_formatted_message(self):
         """broadcast_update should broadcast the formatted message."""
-        with patch("activecontext.dashboard.routes.connection_manager") as mock_conn_mgr, \
-             patch("activecontext.dashboard.routes.format_session_update") as mock_format:
+        with (
+            patch("activecontext.dashboard.routes.connection_manager") as mock_conn_mgr,
+            patch("activecontext.dashboard.routes.format_session_update") as mock_format,
+        ):
             mock_conn_mgr.broadcast = AsyncMock()
             expected_message = {
                 "type": "update",
@@ -1410,14 +1474,17 @@ class TestErrorHandling:
 
     def test_all_session_endpoints_return_503_when_no_manager(self):
         """All session endpoints should return 503 when manager not initialized."""
-        with patch("activecontext.dashboard.routes.get_manager") as mock_get_manager, \
-             patch("activecontext.dashboard.routes.get_static_dir") as mock_static:
+        with (
+            patch("activecontext.dashboard.routes.get_manager") as mock_get_manager,
+            patch("activecontext.dashboard.routes.get_static_dir") as mock_static,
+        ):
             mock_get_manager.return_value = None
             mock_dir = MagicMock(spec=Path)
             mock_dir.exists.return_value = False
             mock_static.return_value = mock_dir
 
             from activecontext.dashboard.routes import create_app
+
             app = create_app()
 
             endpoints = [
@@ -1440,14 +1507,17 @@ class TestErrorHandling:
         mock_manager = MagicMock()
         mock_manager.get_session = AsyncMock(return_value=None)
 
-        with patch("activecontext.dashboard.routes.get_manager") as mock_get_manager, \
-             patch("activecontext.dashboard.routes.get_static_dir") as mock_static:
+        with (
+            patch("activecontext.dashboard.routes.get_manager") as mock_get_manager,
+            patch("activecontext.dashboard.routes.get_static_dir") as mock_static,
+        ):
             mock_get_manager.return_value = mock_manager
             mock_dir = MagicMock(spec=Path)
             mock_dir.exists.return_value = False
             mock_static.return_value = mock_dir
 
             from activecontext.dashboard.routes import create_app
+
             app = create_app()
 
             endpoints = [
@@ -1479,14 +1549,17 @@ class TestEdgeCases:
         mock_manager = MagicMock()
         mock_manager.list_sessions = AsyncMock(return_value=[])
 
-        with patch("activecontext.dashboard.routes.get_manager") as mock_get_manager, \
-             patch("activecontext.dashboard.routes.get_static_dir") as mock_static:
+        with (
+            patch("activecontext.dashboard.routes.get_manager") as mock_get_manager,
+            patch("activecontext.dashboard.routes.get_static_dir") as mock_static,
+        ):
             mock_get_manager.return_value = mock_manager
             mock_dir = MagicMock(spec=Path)
             mock_dir.exists.return_value = False
             mock_static.return_value = mock_dir
 
             from activecontext.dashboard.routes import create_app
+
             app = create_app()
 
             with TestClient(app) as client:
@@ -1570,3 +1643,310 @@ class TestConnectionManagerIntegration:
 
                     ws2.send_text("ping")
                     assert ws2.receive_text() == "pong"
+
+    def test_websocket_set_hidden_missing_params(self, app_with_mocks):
+        """Test set_hidden command with missing parameters."""
+        app, mocks = app_with_mocks
+
+        with TestClient(app) as client, client.websocket_connect("/ws/session-1") as ws:
+            # Skip init message
+            ws.receive_json()
+
+            # Missing node_id
+            ws.send_json({"type": "set_hidden", "hidden": True})
+            response = ws.receive_json()
+            assert response["type"] == "error"
+            assert "Missing" in response["message"]
+
+            # Missing hidden
+            ws.send_json({"type": "set_hidden", "node_id": "node-1"})
+            response = ws.receive_json()
+            assert response["type"] == "error"
+            assert "Missing" in response["message"]
+
+    def test_websocket_set_hidden_view_not_found(self, app_with_mocks):
+        """Test set_hidden command when view doesn't exist."""
+        app, mocks = app_with_mocks
+
+        with TestClient(app) as client, client.websocket_connect("/ws/session-1") as ws:
+            # Skip init message
+            ws.receive_json()
+
+            ws.send_json({"type": "set_hidden", "node_id": "nonexistent", "hidden": True})
+            response = ws.receive_json()
+            assert response["type"] == "error"
+            assert "View not found" in response["message"]
+
+    def test_websocket_set_hidden_success(self, app_with_mocks):
+        """Test successful set_hidden command."""
+        app, mocks = app_with_mocks
+
+        # Add a view to the timeline
+        mock_view = MagicMock()
+        mock_view.hide = False
+        mocks["session"].timeline.views = {"node-1": mock_view}
+
+        with TestClient(app) as client, client.websocket_connect("/ws/session-1") as ws:
+            # Skip init message
+            ws.receive_json()
+
+            ws.send_json({"type": "set_hidden", "node_id": "node-1", "hidden": True})
+
+            # First message is broadcast update
+            broadcast_msg = ws.receive_json()
+            assert broadcast_msg["type"] == "update"
+            assert broadcast_msg["kind"] == "node_changed"
+
+            # Second message is confirmation
+            response = ws.receive_json()
+            assert response["type"] == "hidden_changed"
+            assert response["node_id"] == "node-1"
+            assert response["new_hidden"] is True
+            assert mock_view.hide is True
+
+    def test_websocket_list_views(self, app_with_mocks):
+        """Test list_views command."""
+        app, mocks = app_with_mocks
+
+        with TestClient(app) as client, client.websocket_connect("/ws/session-1") as ws:
+            # Skip init message
+            ws.receive_json()
+
+            # Mock view manager
+            with patch("activecontext.dashboard.views.get_view_manager") as mock_get_vm:
+                mock_vm = MagicMock()
+                mock_vm.list_views.return_value = [
+                    {"name": "view1", "created_at": 123456.0},
+                    {"name": "view2", "created_at": 123457.0},
+                ]
+                mock_get_vm.return_value = mock_vm
+
+                ws.send_json({"type": "list_views"})
+                response = ws.receive_json()
+                assert response["type"] == "views_list"
+                assert len(response["views"]) == 2
+                assert response["views"][0]["name"] == "view1"
+
+    def test_websocket_clone_view_missing_name(self, app_with_mocks):
+        """Test clone_view command with missing name."""
+        app, mocks = app_with_mocks
+
+        with TestClient(app) as client, client.websocket_connect("/ws/session-1") as ws:
+            # Skip init message
+            ws.receive_json()
+
+            ws.send_json({"type": "clone_view"})
+            response = ws.receive_json()
+            assert response["type"] == "error"
+            assert "Missing view name" in response["message"]
+
+    def test_websocket_clone_view_success(self, app_with_mocks):
+        """Test successful clone_view command."""
+        app, mocks = app_with_mocks
+
+        with TestClient(app) as client, client.websocket_connect("/ws/session-1") as ws:
+            # Skip init message
+            ws.receive_json()
+
+            # Mock view manager
+            with patch("activecontext.dashboard.views.get_view_manager") as mock_get_vm:
+                mock_vm = MagicMock()
+                mock_snapshot = MagicMock()
+                mock_snapshot.name = "test-view"
+                mock_snapshot.node_states = {"node-1": {}, "node-2": {}}
+                mock_snapshot.created_at = 123456.0
+                mock_vm.clone_view.return_value = mock_snapshot
+                mock_get_vm.return_value = mock_vm
+
+                ws.send_json({"type": "clone_view", "name": "test-view"})
+                response = ws.receive_json()
+                assert response["type"] == "view_cloned"
+                assert response["name"] == "test-view"
+                assert response["node_count"] == 2
+                assert response["created_at"] == 123456.0
+
+    def test_websocket_clone_view_error(self, app_with_mocks):
+        """Test clone_view command with error."""
+        app, mocks = app_with_mocks
+
+        with TestClient(app) as client, client.websocket_connect("/ws/session-1") as ws:
+            # Skip init message
+            ws.receive_json()
+
+            # Mock view manager that raises error
+            with patch("activecontext.dashboard.views.get_view_manager") as mock_get_vm:
+                mock_vm = MagicMock()
+                mock_vm.clone_view.side_effect = ValueError("View already exists")
+                mock_get_vm.return_value = mock_vm
+
+                ws.send_json({"type": "clone_view", "name": "duplicate"})
+                response = ws.receive_json()
+                assert response["type"] == "error"
+                assert "View already exists" in response["message"]
+
+    def test_websocket_read_view_missing_name(self, app_with_mocks):
+        """Test read_view command with missing name."""
+        app, mocks = app_with_mocks
+
+        with TestClient(app) as client, client.websocket_connect("/ws/session-1") as ws:
+            # Skip init message
+            ws.receive_json()
+
+            ws.send_json({"type": "read_view"})
+            response = ws.receive_json()
+            assert response["type"] == "error"
+            assert "Missing view name" in response["message"]
+
+    def test_websocket_read_view_success(self, app_with_mocks):
+        """Test successful read_view command."""
+        app, mocks = app_with_mocks
+
+        with TestClient(app) as client, client.websocket_connect("/ws/session-1") as ws:
+            # Skip init message
+            ws.receive_json()
+
+            # Mock view manager
+            with patch("activecontext.dashboard.views.get_view_manager") as mock_get_vm:
+                mock_vm = MagicMock()
+                mock_snapshot = MagicMock()
+                mock_snapshot.name = "test-view"
+                mock_snapshot.node_states = {"node-1": {}}
+                mock_snapshot.updated_at = 123456.0
+                mock_vm.read_view.return_value = mock_snapshot
+                mock_get_vm.return_value = mock_vm
+
+                ws.send_json({"type": "read_view", "name": "test-view"})
+                response = ws.receive_json()
+                assert response["type"] == "view_updated"
+                assert response["name"] == "test-view"
+                assert response["node_count"] == 1
+                assert response["updated_at"] == 123456.0
+
+    def test_websocket_read_view_error(self, app_with_mocks):
+        """Test read_view command with error."""
+        app, mocks = app_with_mocks
+
+        with TestClient(app) as client, client.websocket_connect("/ws/session-1") as ws:
+            # Skip init message
+            ws.receive_json()
+
+            # Mock view manager that raises error
+            with patch("activecontext.dashboard.views.get_view_manager") as mock_get_vm:
+                mock_vm = MagicMock()
+                mock_vm.read_view.side_effect = ValueError("View not found")
+                mock_get_vm.return_value = mock_vm
+
+                ws.send_json({"type": "read_view", "name": "missing"})
+                response = ws.receive_json()
+                assert response["type"] == "error"
+                assert "View not found" in response["message"]
+
+    def test_websocket_write_view_missing_name(self, app_with_mocks):
+        """Test write_view command with missing name."""
+        app, mocks = app_with_mocks
+
+        with TestClient(app) as client, client.websocket_connect("/ws/session-1") as ws:
+            # Skip init message
+            ws.receive_json()
+
+            ws.send_json({"type": "write_view"})
+            response = ws.receive_json()
+            assert response["type"] == "error"
+            assert "Missing view name" in response["message"]
+
+    def test_websocket_write_view_success(self, app_with_mocks):
+        """Test successful write_view command."""
+        app, mocks = app_with_mocks
+
+        with TestClient(app) as client, client.websocket_connect("/ws/session-1") as ws:
+            # Skip init message
+            ws.receive_json()
+
+            # Mock view manager
+            with patch("activecontext.dashboard.views.get_view_manager") as mock_get_vm:
+                mock_vm = MagicMock()
+                mock_vm.write_view.return_value = 3  # Updated 3 nodes
+                mock_get_vm.return_value = mock_vm
+
+                ws.send_json({"type": "write_view", "name": "test-view"})
+
+                # First message is broadcast update
+                broadcast_msg = ws.receive_json()
+                assert broadcast_msg["type"] == "update"
+                assert broadcast_msg["kind"] == "node_changed"
+
+                # Second message is confirmation
+                response = ws.receive_json()
+                assert response["type"] == "view_applied"
+                assert response["name"] == "test-view"
+                assert response["updated_count"] == 3
+
+    def test_websocket_write_view_error(self, app_with_mocks):
+        """Test write_view command with error."""
+        app, mocks = app_with_mocks
+
+        with TestClient(app) as client, client.websocket_connect("/ws/session-1") as ws:
+            # Skip init message
+            ws.receive_json()
+
+            # Mock view manager that raises error
+            with patch("activecontext.dashboard.views.get_view_manager") as mock_get_vm:
+                mock_vm = MagicMock()
+                mock_vm.write_view.side_effect = ValueError("View not found")
+                mock_get_vm.return_value = mock_vm
+
+                ws.send_json({"type": "write_view", "name": "missing"})
+                response = ws.receive_json()
+                assert response["type"] == "error"
+                assert "View not found" in response["message"]
+
+    def test_websocket_delete_view_missing_name(self, app_with_mocks):
+        """Test delete_view command with missing name."""
+        app, mocks = app_with_mocks
+
+        with TestClient(app) as client, client.websocket_connect("/ws/session-1") as ws:
+            # Skip init message
+            ws.receive_json()
+
+            ws.send_json({"type": "delete_view"})
+            response = ws.receive_json()
+            assert response["type"] == "error"
+            assert "Missing view name" in response["message"]
+
+    def test_websocket_delete_view_success(self, app_with_mocks):
+        """Test successful delete_view command."""
+        app, mocks = app_with_mocks
+
+        with TestClient(app) as client, client.websocket_connect("/ws/session-1") as ws:
+            # Skip init message
+            ws.receive_json()
+
+            # Mock view manager
+            with patch("activecontext.dashboard.views.get_view_manager") as mock_get_vm:
+                mock_vm = MagicMock()
+                mock_vm.delete_view.return_value = True
+                mock_get_vm.return_value = mock_vm
+
+                ws.send_json({"type": "delete_view", "name": "test-view"})
+                response = ws.receive_json()
+                assert response["type"] == "view_deleted"
+                assert response["name"] == "test-view"
+
+    def test_websocket_delete_view_not_found(self, app_with_mocks):
+        """Test delete_view command when view not found."""
+        app, mocks = app_with_mocks
+
+        with TestClient(app) as client, client.websocket_connect("/ws/session-1") as ws:
+            # Skip init message
+            ws.receive_json()
+
+            # Mock view manager
+            with patch("activecontext.dashboard.views.get_view_manager") as mock_get_vm:
+                mock_vm = MagicMock()
+                mock_vm.delete_view.return_value = False
+                mock_get_vm.return_value = mock_vm
+
+                ws.send_json({"type": "delete_view", "name": "missing"})
+                response = ws.receive_json()
+                assert response["type"] == "error"
+                assert "not found" in response["message"]

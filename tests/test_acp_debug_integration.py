@@ -44,7 +44,9 @@ class TestGracefulShutdownIntegration:
         """)
 
         process = await asyncio.create_subprocess_exec(
-            PYTHON, "-c", script,
+            PYTHON,
+            "-c",
+            script,
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
@@ -85,7 +87,9 @@ class TestGracefulShutdownIntegration:
         """)
 
         process = await asyncio.create_subprocess_exec(
-            PYTHON, "-c", script,
+            PYTHON,
+            "-c",
+            script,
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
@@ -123,7 +127,9 @@ class TestGracefulShutdownIntegration:
         """)
 
         process = await asyncio.create_subprocess_exec(
-            PYTHON, "-c", script,
+            PYTHON,
+            "-c",
+            script,
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
@@ -144,7 +150,9 @@ class TestGracefulShutdownIntegration:
         script = "import sys; sys.exit(42)"
 
         process = await asyncio.create_subprocess_exec(
-            PYTHON, "-c", script,
+            PYTHON,
+            "-c",
+            script,
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
@@ -180,7 +188,9 @@ class TestGracefulShutdownIntegration:
         """)
 
         process = await asyncio.create_subprocess_exec(
-            PYTHON, "-c", script,
+            PYTHON,
+            "-c",
+            script,
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
@@ -230,7 +240,9 @@ class TestShutdownWithConfig:
         """)
 
         process = await asyncio.create_subprocess_exec(
-            PYTHON, "-c", script,
+            PYTHON,
+            "-c",
+            script,
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,

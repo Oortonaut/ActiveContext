@@ -3,10 +3,8 @@
 from __future__ import annotations
 
 import asyncio
-import platform
-import sys
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -104,11 +102,11 @@ class TestSignalHandling:
         process = MagicMock()
         process.pid = 12345
 
-        with patch("acp_debug.modes.proxy._WINDOWS", True):
-            with patch("os.kill") as mock_kill:
-                import signal
-                _send_interrupt(process)
-                mock_kill.assert_called_once_with(12345, signal.CTRL_BREAK_EVENT)
+        with patch("acp_debug.modes.proxy._WINDOWS", True), patch("os.kill") as mock_kill:
+            import signal
+
+            _send_interrupt(process)
+            mock_kill.assert_called_once_with(12345, signal.CTRL_BREAK_EVENT)
 
     def test_send_interrupt_unix(self) -> None:
         """_send_interrupt sends SIGINT on Unix."""
@@ -117,11 +115,11 @@ class TestSignalHandling:
         process = MagicMock()
         process.pid = 12345
 
-        with patch("acp_debug.modes.proxy._WINDOWS", False):
-            with patch("os.kill") as mock_kill:
-                import signal
-                _send_interrupt(process)
-                mock_kill.assert_called_once_with(12345, signal.SIGINT)
+        with patch("acp_debug.modes.proxy._WINDOWS", False), patch("os.kill") as mock_kill:
+            import signal
+
+            _send_interrupt(process)
+            mock_kill.assert_called_once_with(12345, signal.SIGINT)
 
     def test_send_interrupt_fallback_on_error(self) -> None:
         """_send_interrupt falls back to terminate on OSError."""
@@ -152,11 +150,11 @@ class TestSignalHandling:
         process = MagicMock()
         process.pid = 12345
 
-        with patch("acp_debug.modes.proxy._WINDOWS", False):
-            with patch("os.kill") as mock_kill:
-                import signal
-                _send_terminate(process)
-                mock_kill.assert_called_once_with(12345, signal.SIGTERM)
+        with patch("acp_debug.modes.proxy._WINDOWS", False), patch("os.kill") as mock_kill:
+            import signal
+
+            _send_terminate(process)
+            mock_kill.assert_called_once_with(12345, signal.SIGTERM)
 
 
 class TestGracefulShutdown:

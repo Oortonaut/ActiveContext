@@ -46,8 +46,10 @@ class ACPTestClient:
 
                 try:
                     line = await asyncio.wait_for(self.reader.readline(), timeout=remaining)
-                except asyncio.TimeoutError:
-                    raise TimeoutError(f"Timeout waiting for response to request {request_id}")
+                except asyncio.TimeoutError as exc:
+                    raise TimeoutError(
+                        f"Timeout waiting for response to request {request_id}"
+                    ) from exc
 
                 if not line:
                     raise ConnectionError("Agent closed connection")

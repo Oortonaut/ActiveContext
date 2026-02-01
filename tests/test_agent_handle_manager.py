@@ -2,15 +2,14 @@
 
 from __future__ import annotations
 
+from unittest.mock import AsyncMock, Mock
+
 import pytest
-from unittest.mock import AsyncMock, Mock, MagicMock, patch
-from datetime import datetime, timezone
 
 from activecontext.agents.handle import AgentHandle
 from activecontext.agents.manager import AgentManager
-from activecontext.agents.schema import AgentEntry, AgentMessage, AgentState
 from activecontext.agents.registry import AgentTypeRegistry
-
+from activecontext.agents.schema import AgentEntry, AgentMessage, AgentState
 
 # =============================================================================
 # Fixtures
@@ -22,23 +21,27 @@ def mock_scratchpad_manager():
     """Create a mock ScratchpadManager."""
     manager = Mock()
     manager._cwd = "/test/project"
-    manager.register_agent = Mock(return_value=AgentEntry(
-        id="test1234",
-        session_id="sess-1234",
-        agent_type="explorer",
-        task="Test task",
-        parent_id=None,
-        state=AgentState.SPAWNED,
-    ))
+    manager.register_agent = Mock(
+        return_value=AgentEntry(
+            id="test1234",
+            session_id="sess-1234",
+            agent_type="explorer",
+            task="Test task",
+            parent_id=None,
+            state=AgentState.SPAWNED,
+        )
+    )
     manager.get_agent = Mock(return_value=None)
     manager.get_all_agents = Mock(return_value=[])
     manager.update_agent = Mock(return_value=None)
-    manager.send_message = Mock(return_value=AgentMessage(
-        id="msg-1234",
-        sender="agent_a",
-        recipient="agent_b",
-        content="Hello",
-    ))
+    manager.send_message = Mock(
+        return_value=AgentMessage(
+            id="msg-1234",
+            sender="agent_a",
+            recipient="agent_b",
+            content="Hello",
+        )
+    )
     manager.get_messages = Mock(return_value=[])
     manager.mark_message_status = Mock()
     manager.unregister_agent = Mock()
@@ -231,26 +234,20 @@ class TestAgentManagerInit:
         self, mock_session_manager, mock_scratchpad_manager, type_registry
     ):
         """Test init with provided type registry."""
-        manager = AgentManager(
-            mock_session_manager, mock_scratchpad_manager, type_registry
-        )
+        manager = AgentManager(mock_session_manager, mock_scratchpad_manager, type_registry)
 
         assert manager._type_registry is type_registry
         assert manager._session_manager is mock_session_manager
         assert manager._scratchpad_manager is mock_scratchpad_manager
 
-    def test_init_creates_default_registry(
-        self, mock_session_manager, mock_scratchpad_manager
-    ):
+    def test_init_creates_default_registry(self, mock_session_manager, mock_scratchpad_manager):
         """Test init creates default registry when not provided."""
         manager = AgentManager(mock_session_manager, mock_scratchpad_manager)
 
         assert manager._type_registry is not None
         assert isinstance(manager._type_registry, AgentTypeRegistry)
 
-    def test_init_creates_empty_caches(
-        self, mock_session_manager, mock_scratchpad_manager
-    ):
+    def test_init_creates_empty_caches(self, mock_session_manager, mock_scratchpad_manager):
         """Test init creates empty agent caches."""
         manager = AgentManager(mock_session_manager, mock_scratchpad_manager)
 
@@ -282,9 +279,7 @@ class TestAgentManagerSpawn:
         mock_session_manager.create_session.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_spawn_agent_with_cwd(
-        self, agent_manager, mock_session_manager
-    ):
+    async def test_spawn_agent_with_cwd(self, agent_manager, mock_session_manager):
         """Test spawn_agent with custom cwd."""
         await agent_manager.spawn_agent(
             agent_type="explorer",
@@ -337,9 +332,7 @@ class TestAgentManagerGetAgent:
 
         assert result is agent_entry
 
-    def test_get_agent_from_scratchpad(
-        self, agent_manager, mock_scratchpad_manager, agent_entry
-    ):
+    def test_get_agent_from_scratchpad(self, agent_manager, mock_scratchpad_manager, agent_entry):
         """Test get_agent falls back to scratchpad."""
         mock_scratchpad_manager.get_agent.return_value = agent_entry
 
@@ -393,16 +386,12 @@ class TestAgentManagerUpdateState:
     """Tests for update_agent_state method."""
 
     @pytest.mark.asyncio
-    async def test_update_state_success(
-        self, agent_manager, mock_scratchpad_manager, agent_entry
-    ):
+    async def test_update_state_success(self, agent_manager, mock_scratchpad_manager, agent_entry):
         """Test update_agent_state updates state."""
         mock_scratchpad_manager.update_agent.return_value = agent_entry
         agent_manager._agents["agent123"] = agent_entry
 
-        result = await agent_manager.update_agent_state(
-            "agent123", AgentState.PAUSED
-        )
+        result = await agent_manager.update_agent_state("agent123", AgentState.PAUSED)
 
         assert result is agent_entry
         mock_scratchpad_manager.update_agent.assert_called_with(
@@ -416,9 +405,7 @@ class TestAgentManagerUpdateState:
         """Test update_agent_state with new task."""
         mock_scratchpad_manager.update_agent.return_value = agent_entry
 
-        await agent_manager.update_agent_state(
-            "agent123", AgentState.RUNNING, task="New task"
-        )
+        await agent_manager.update_agent_state("agent123", AgentState.RUNNING, task="New task")
 
         mock_scratchpad_manager.update_agent.assert_called_with(
             "agent123", state=AgentState.RUNNING, task="New task"
@@ -460,9 +447,7 @@ class TestAgentManagerMessaging:
         mock_scratchpad_manager.send_message.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_send_message_with_refs(
-        self, agent_manager, mock_scratchpad_manager
-    ):
+    async def test_send_message_with_refs(self, agent_manager, mock_scratchpad_manager):
         """Test send_message with node refs."""
         await agent_manager.send_message(
             sender="agent_a",
@@ -478,25 +463,19 @@ class TestAgentManagerMessaging:
         """Test get_messages retrieves from scratchpad."""
         agent_manager.get_messages("agent123", status="pending")
 
-        mock_scratchpad_manager.get_messages.assert_called_with(
-            "agent123", "pending"
-        )
+        mock_scratchpad_manager.get_messages.assert_called_with("agent123", "pending")
 
     def test_mark_message_delivered(self, agent_manager, mock_scratchpad_manager):
         """Test mark_message_delivered updates status."""
         agent_manager.mark_message_delivered("msg-123")
 
-        mock_scratchpad_manager.mark_message_status.assert_called_with(
-            "msg-123", "delivered"
-        )
+        mock_scratchpad_manager.mark_message_status.assert_called_with("msg-123", "delivered")
 
     def test_mark_message_read(self, agent_manager, mock_scratchpad_manager):
         """Test mark_message_read updates status."""
         agent_manager.mark_message_read("msg-123")
 
-        mock_scratchpad_manager.mark_message_status.assert_called_with(
-            "msg-123", "read"
-        )
+        mock_scratchpad_manager.mark_message_status.assert_called_with("msg-123", "read")
 
 
 class TestAgentManagerSharedNodes:
@@ -594,9 +573,7 @@ class TestAgentManagerLifecycle:
         mock_scratchpad_manager.unregister_agent.assert_called_with("agent123")
 
     @pytest.mark.asyncio
-    async def test_terminate_agent_without_session(
-        self, agent_manager, mock_scratchpad_manager
-    ):
+    async def test_terminate_agent_without_session(self, agent_manager, mock_scratchpad_manager):
         """Test terminate_agent works without cached session."""
         await agent_manager.terminate_agent("agent123")
 
@@ -608,9 +585,7 @@ class TestAgentManagerLifecycle:
 class TestAgentManagerPendingMessages:
     """Tests for has_pending_messages method."""
 
-    def test_has_pending_messages_true(
-        self, agent_manager, mock_scratchpad_manager
-    ):
+    def test_has_pending_messages_true(self, agent_manager, mock_scratchpad_manager):
         """Test has_pending_messages returns True when messages exist."""
         mock_scratchpad_manager.get_messages.return_value = [Mock()]
 
@@ -618,9 +593,7 @@ class TestAgentManagerPendingMessages:
 
         assert result is True
 
-    def test_has_pending_messages_false(
-        self, agent_manager, mock_scratchpad_manager
-    ):
+    def test_has_pending_messages_false(self, agent_manager, mock_scratchpad_manager):
         """Test has_pending_messages returns False when no messages."""
         mock_scratchpad_manager.get_messages.return_value = []
 

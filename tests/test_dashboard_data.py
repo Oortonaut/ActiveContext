@@ -1,25 +1,22 @@
 """Comprehensive tests for src/activecontext/dashboard/data.py"""
 
-import pytest
-from datetime import datetime
-from unittest.mock import MagicMock, patch, PropertyMock
-from dataclasses import dataclass
-from typing import Any
 from enum import Enum
+from unittest.mock import MagicMock, PropertyMock, patch
+
+import pytest
 
 from activecontext.dashboard.data import (
-    get_llm_status,
-    get_session_summary,
-    get_context_data,
-    get_timeline_data,
-    get_projection_data,
-    get_message_history_data,
-    get_rendered_projection_data,
-    get_client_capabilities_data,
-    get_session_features_data,
     format_session_update,
+    get_client_capabilities_data,
+    get_context_data,
+    get_llm_status,
+    get_message_history_data,
+    get_projection_data,
+    get_rendered_projection_data,
+    get_session_features_data,
+    get_session_summary,
+    get_timeline_data,
 )
-
 
 # =============================================================================
 # Fixtures
@@ -240,6 +237,7 @@ class TestGetSessionSummary:
     def test_returns_cwd_as_string(self, mock_session):
         """Should return the current working directory as a string."""
         from pathlib import Path
+
         mock_session.cwd = Path("/my/project/path")
 
         result = get_session_summary(mock_session, "model", "mode")
@@ -678,6 +676,7 @@ class TestGetMessageHistoryData:
 
     def test_handles_object_messages_with_enum_role(self, mock_session):
         """Should handle message objects with Enum role."""
+
         class Role(Enum):
             USER = "user"
             ASSISTANT = "assistant"
@@ -947,7 +946,9 @@ class TestGetSessionFeaturesData:
     @patch("activecontext.dashboard.server.get_transport_type")
     @patch("activecontext.dashboard.server.get_client_info")
     @patch("activecontext.dashboard.server.get_protocol_version")
-    def test_returns_model_from_param(self, mock_protocol, mock_client, mock_transport, mock_session):
+    def test_returns_model_from_param(
+        self, mock_protocol, mock_client, mock_transport, mock_session
+    ):
         """Should return model from parameter when provided."""
         mock_transport.return_value = "stdio"
         mock_client.return_value = None
@@ -960,7 +961,9 @@ class TestGetSessionFeaturesData:
     @patch("activecontext.dashboard.server.get_transport_type")
     @patch("activecontext.dashboard.server.get_client_info")
     @patch("activecontext.dashboard.server.get_protocol_version")
-    def test_returns_model_from_session(self, mock_protocol, mock_client, mock_transport, mock_session):
+    def test_returns_model_from_session(
+        self, mock_protocol, mock_client, mock_transport, mock_session
+    ):
         """Should return model from session.llm when param is None."""
         mock_transport.return_value = "stdio"
         mock_client.return_value = None
@@ -1015,7 +1018,9 @@ class TestGetSessionFeaturesData:
     @patch("activecontext.dashboard.server.get_transport_type")
     @patch("activecontext.dashboard.server.get_client_info")
     @patch("activecontext.dashboard.server.get_protocol_version")
-    def test_returns_transport_and_client_info(self, mock_protocol, mock_client, mock_transport, mock_session):
+    def test_returns_transport_and_client_info(
+        self, mock_protocol, mock_client, mock_transport, mock_session
+    ):
         """Should return transport and client information."""
         mock_transport.return_value = "acp"
         mock_client.return_value = {"name": "Rider", "version": "2024.3"}
@@ -1153,7 +1158,15 @@ class TestDataModuleIntegration:
     @patch("activecontext.dashboard.data.get_available_models")
     @patch("activecontext.core.tokens.count_tokens")
     def test_full_session_data_collection(
-        self, mock_count, mock_models, mock_providers, mock_session, mock_node, mock_statement, mock_execution, mock_section
+        self,
+        mock_count,
+        mock_models,
+        mock_providers,
+        mock_session,
+        mock_node,
+        mock_statement,
+        mock_execution,
+        mock_section,
     ):
         """Should collect all session data without errors."""
         # Setup LLM mocks
@@ -1282,6 +1295,7 @@ class TestEdgeCases:
     def test_session_with_pathlib_cwd(self, mock_session):
         """Should convert pathlib.Path cwd to string."""
         from pathlib import Path
+
         mock_session.cwd = Path("/test/path")
 
         result = get_session_summary(mock_session, "model", "mode")
@@ -1347,8 +1361,8 @@ class TestGetCurrentViewSnapshot:
 
     def test_captures_view_state(self, mock_session):
         """Should capture hide and expand state for each view."""
-        from activecontext.dashboard.data import get_current_view_snapshot
         from activecontext.context.state import Expansion
+        from activecontext.dashboard.data import get_current_view_snapshot
 
         view1 = MagicMock()
         view1.hide = False
@@ -1388,8 +1402,8 @@ class TestApplyViewSnapshot:
 
     def test_applies_state_to_existing_views(self, mock_session):
         """Should apply hide and expand state to matching views."""
-        from activecontext.dashboard.data import apply_view_snapshot
         from activecontext.context.state import Expansion
+        from activecontext.dashboard.data import apply_view_snapshot
 
         view1 = MagicMock()
         view1.hide = False
@@ -1425,8 +1439,8 @@ class TestApplyViewSnapshot:
 
     def test_handles_invalid_expansion(self, mock_session):
         """Should report error for invalid expansion values."""
-        from activecontext.dashboard.data import apply_view_snapshot
         from activecontext.context.state import Expansion
+        from activecontext.dashboard.data import apply_view_snapshot
 
         view1 = MagicMock()
         view1.hide = False

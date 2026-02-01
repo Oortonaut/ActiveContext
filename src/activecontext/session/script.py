@@ -71,6 +71,7 @@ class Script(TaskProtocol):
         website_permission_requester: WebsitePermissionRequester | None = None,
         scratchpad_manager: ScratchpadManager | None = None,
         mcp_config: MCPConfig | None = None,
+        llm_provider: Any | None = None,
     ) -> None:
         """Initialize the Script.
 
@@ -120,6 +121,7 @@ class Script(TaskProtocol):
                 website_permission_requester=website_permission_requester,
                 scratchpad_manager=scratchpad_manager,
                 mcp_config=mcp_config,
+                llm_provider=llm_provider,
             )
 
     # -------------------------------------------------------------------------

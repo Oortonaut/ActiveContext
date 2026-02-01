@@ -9,13 +9,12 @@ Tests coverage for:
 from __future__ import annotations
 
 import os
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
 from activecontext.core.llm.litellm_provider import LiteLLMProvider
-from activecontext.session.session_manager import Session, SessionManager
-
+from activecontext.session.session_manager import SessionManager
 
 # =============================================================================
 # Fixtures

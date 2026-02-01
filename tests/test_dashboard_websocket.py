@@ -82,9 +82,7 @@ class TestConnect:
         assert mock_websocket in manager._connections["session1"]
 
     @pytest.mark.asyncio
-    async def test_connect_multiple_to_same_session(
-        self, manager: ConnectionManager
-    ) -> None:
+    async def test_connect_multiple_to_same_session(self, manager: ConnectionManager) -> None:
         """Multiple websockets can connect to the same session."""
         ws1 = MockWebSocket()
         ws2 = MockWebSocket()
@@ -137,9 +135,7 @@ class TestDisconnect:
         assert "session1" not in manager._connections
 
     @pytest.mark.asyncio
-    async def test_disconnect_preserves_other_connections(
-        self, manager: ConnectionManager
-    ) -> None:
+    async def test_disconnect_preserves_other_connections(self, manager: ConnectionManager) -> None:
         """Disconnect should preserve other connections in same session."""
         ws1 = MockWebSocket()
         ws2 = MockWebSocket()
@@ -161,9 +157,7 @@ class TestDisconnect:
         await manager.disconnect(mock_websocket, "nonexistent")
 
     @pytest.mark.asyncio
-    async def test_disconnect_nonexistent_websocket(
-        self, manager: ConnectionManager
-    ) -> None:
+    async def test_disconnect_nonexistent_websocket(self, manager: ConnectionManager) -> None:
         """Disconnect should handle websocket not in session gracefully."""
         ws1 = MockWebSocket()
         ws2 = MockWebSocket()
@@ -200,9 +194,7 @@ class TestBroadcast:
         assert message in ws3.sent_messages
 
     @pytest.mark.asyncio
-    async def test_broadcast_only_to_target_session(
-        self, manager: ConnectionManager
-    ) -> None:
+    async def test_broadcast_only_to_target_session(self, manager: ConnectionManager) -> None:
         """Broadcast should only send to target session."""
         ws1 = MockWebSocket()
         ws2 = MockWebSocket()
@@ -217,9 +209,7 @@ class TestBroadcast:
         assert message not in ws2.sent_messages
 
     @pytest.mark.asyncio
-    async def test_broadcast_removes_dead_connections(
-        self, manager: ConnectionManager
-    ) -> None:
+    async def test_broadcast_removes_dead_connections(self, manager: ConnectionManager) -> None:
         """Broadcast should remove connections that fail to send."""
         ws_good = MockWebSocket()
         ws_dead = MockWebSocket(should_fail=True)
@@ -256,9 +246,7 @@ class TestBroadcast:
         assert manager.get_connection_count("session1") == 0
 
     @pytest.mark.asyncio
-    async def test_broadcast_nonexistent_session(
-        self, manager: ConnectionManager
-    ) -> None:
+    async def test_broadcast_nonexistent_session(self, manager: ConnectionManager) -> None:
         """Broadcast to nonexistent session should do nothing."""
         # Should not raise
         await manager.broadcast("nonexistent", {"type": "test"})
@@ -275,9 +263,7 @@ class TestBroadcastAll:
     """Tests for the broadcast_all method."""
 
     @pytest.mark.asyncio
-    async def test_broadcast_all_sends_to_all_sessions(
-        self, manager: ConnectionManager
-    ) -> None:
+    async def test_broadcast_all_sends_to_all_sessions(self, manager: ConnectionManager) -> None:
         """Broadcast_all should send to all connections in all sessions."""
         ws1 = MockWebSocket()
         ws2 = MockWebSocket()
@@ -295,17 +281,13 @@ class TestBroadcastAll:
         assert message in ws3.sent_messages
 
     @pytest.mark.asyncio
-    async def test_broadcast_all_with_no_connections(
-        self, manager: ConnectionManager
-    ) -> None:
+    async def test_broadcast_all_with_no_connections(self, manager: ConnectionManager) -> None:
         """Broadcast_all with no connections should do nothing."""
         # Should not raise
         await manager.broadcast_all({"type": "test"})
 
     @pytest.mark.asyncio
-    async def test_broadcast_all_removes_dead_connections(
-        self, manager: ConnectionManager
-    ) -> None:
+    async def test_broadcast_all_removes_dead_connections(self, manager: ConnectionManager) -> None:
         """Broadcast_all should remove dead connections from all sessions."""
         ws_good = MockWebSocket()
         ws_dead = MockWebSocket(should_fail=True)
@@ -327,17 +309,13 @@ class TestGetConnectionCount:
     """Tests for the get_connection_count method."""
 
     @pytest.mark.asyncio
-    async def test_get_connection_count_empty(
-        self, manager: ConnectionManager
-    ) -> None:
+    async def test_get_connection_count_empty(self, manager: ConnectionManager) -> None:
         """Get connection count with no connections should return 0."""
         assert manager.get_connection_count() == 0
         assert manager.get_connection_count("session1") == 0
 
     @pytest.mark.asyncio
-    async def test_get_connection_count_specific_session(
-        self, manager: ConnectionManager
-    ) -> None:
+    async def test_get_connection_count_specific_session(self, manager: ConnectionManager) -> None:
         """Get connection count for specific session."""
         ws1 = MockWebSocket()
         ws2 = MockWebSocket()
@@ -351,9 +329,7 @@ class TestGetConnectionCount:
         assert manager.get_connection_count("session2") == 1
 
     @pytest.mark.asyncio
-    async def test_get_connection_count_total(
-        self, manager: ConnectionManager
-    ) -> None:
+    async def test_get_connection_count_total(self, manager: ConnectionManager) -> None:
         """Get total connection count across all sessions."""
         ws1 = MockWebSocket()
         ws2 = MockWebSocket()
@@ -380,9 +356,7 @@ class TestCloseAll:
     """Tests for the close_all method."""
 
     @pytest.mark.asyncio
-    async def test_close_all_closes_all_connections(
-        self, manager: ConnectionManager
-    ) -> None:
+    async def test_close_all_closes_all_connections(self, manager: ConnectionManager) -> None:
         """Close_all should close all websocket connections."""
         ws1 = MockWebSocket()
         ws2 = MockWebSocket()
@@ -399,9 +373,7 @@ class TestCloseAll:
         assert ws3.closed is True
 
     @pytest.mark.asyncio
-    async def test_close_all_passes_reason(
-        self, manager: ConnectionManager
-    ) -> None:
+    async def test_close_all_passes_reason(self, manager: ConnectionManager) -> None:
         """Close_all should pass the reason to websocket close."""
         ws = MockWebSocket()
         await manager.connect(ws, "session1")
@@ -411,9 +383,7 @@ class TestCloseAll:
         assert ws.close_reason == "Test shutdown reason"
 
     @pytest.mark.asyncio
-    async def test_close_all_clears_connections(
-        self, manager: ConnectionManager
-    ) -> None:
+    async def test_close_all_clears_connections(self, manager: ConnectionManager) -> None:
         """Close_all should clear all connections."""
         ws1 = MockWebSocket()
         ws2 = MockWebSocket()
@@ -433,9 +403,7 @@ class TestCloseAll:
         assert manager._connections == {}
 
     @pytest.mark.asyncio
-    async def test_close_all_handles_close_exceptions(
-        self, manager: ConnectionManager
-    ) -> None:
+    async def test_close_all_handles_close_exceptions(self, manager: ConnectionManager) -> None:
         """Close_all should handle exceptions during close gracefully."""
 
         class FailingCloseWebSocket(MockWebSocket):
@@ -514,9 +482,7 @@ class TestConcurrency:
             assert len(ws.sent_messages) == 10
 
     @pytest.mark.asyncio
-    async def test_concurrent_connect_and_broadcast(
-        self, manager: ConnectionManager
-    ) -> None:
+    async def test_concurrent_connect_and_broadcast(self, manager: ConnectionManager) -> None:
         """Concurrent connects and broadcasts should be thread-safe."""
         websockets = [MockWebSocket() for _ in range(5)]
 
@@ -524,9 +490,7 @@ class TestConcurrency:
             await manager.connect(ws, "session1")
             await manager.broadcast("session1", {"from": idx})
 
-        await asyncio.gather(
-            *[connect_and_broadcast(ws, i) for i, ws in enumerate(websockets)]
-        )
+        await asyncio.gather(*[connect_and_broadcast(ws, i) for i, ws in enumerate(websockets)])
 
         # All should be connected
         assert manager.get_connection_count("session1") == 5
@@ -536,9 +500,7 @@ class TestEdgeCases:
     """Tests for edge cases and boundary conditions."""
 
     @pytest.mark.asyncio
-    async def test_same_websocket_multiple_sessions(
-        self, manager: ConnectionManager
-    ) -> None:
+    async def test_same_websocket_multiple_sessions(self, manager: ConnectionManager) -> None:
         """Same websocket can be in multiple sessions."""
         ws = MockWebSocket()
 
@@ -550,9 +512,7 @@ class TestEdgeCases:
         assert manager.get_connection_count() == 2
 
     @pytest.mark.asyncio
-    async def test_reconnect_same_websocket(
-        self, manager: ConnectionManager
-    ) -> None:
+    async def test_reconnect_same_websocket(self, manager: ConnectionManager) -> None:
         """Reconnecting same websocket to same session should work."""
         ws = MockWebSocket()
 
@@ -563,9 +523,7 @@ class TestEdgeCases:
         assert manager.get_connection_count("session1") == 1
 
     @pytest.mark.asyncio
-    async def test_broadcast_with_mixed_healthy_dead(
-        self, manager: ConnectionManager
-    ) -> None:
+    async def test_broadcast_with_mixed_healthy_dead(self, manager: ConnectionManager) -> None:
         """Broadcast with mix of healthy and dead connections."""
         ws_good1 = MockWebSocket()
         ws_dead1 = MockWebSocket(should_fail=True)
@@ -633,9 +591,7 @@ class TestEdgeCases:
             await manager.disconnect(ws, session_id)
 
     @pytest.mark.asyncio
-    async def test_get_connection_count_after_operations(
-        self, manager: ConnectionManager
-    ) -> None:
+    async def test_get_connection_count_after_operations(self, manager: ConnectionManager) -> None:
         """Connection count should be accurate after various operations."""
         ws1 = MockWebSocket()
         ws2 = MockWebSocket()

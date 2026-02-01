@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 from pathlib import Path
 
 import pytest
@@ -19,15 +20,12 @@ from activecontext.session.permissions import (
     ImportDenied,
     ImportGuard,
     LiteralSegment,
-    MatchResult,
     PatternMatcher,
     PermissionDenied,
     PermissionManager,
-    PermissionRule,
     PlaceholderSegment,
     ShellPermissionDenied,
     ShellPermissionManager,
-    ShellPermissionRule,
     TypeValidator,
     is_typed_pattern,
     make_safe_import,
@@ -410,14 +408,17 @@ class TestTimelineIntegration:
 
         config = SandboxConfig(allow_cwd=False)
         manager = PermissionManager.from_config(str(temp_cwd), config)
-        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd), permission_manager=manager)
+        timeline = Timeline(
+            "test-session",
+            context_graph=ContextGraph(),
+            cwd=str(temp_cwd),
+            permission_manager=manager,
+        )
 
         try:
             # Use forward slashes to avoid Windows path escaping issues
             file_path = (temp_cwd / "allowed.txt").as_posix()
-            result = await timeline.execute_statement(
-                f'open("{file_path}", "r").read()'
-            )
+            result = await timeline.execute_statement(f'open("{file_path}", "r").read()')
 
             assert result.status.value == "error"
             assert result.exception is not None
@@ -432,7 +433,12 @@ class TestTimelineIntegration:
 
         config = SandboxConfig(allow_cwd=True)
         manager = PermissionManager.from_config(str(temp_cwd), config)
-        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd), permission_manager=manager)
+        timeline = Timeline(
+            "test-session",
+            context_graph=ContextGraph(),
+            cwd=str(temp_cwd),
+            permission_manager=manager,
+        )
 
         try:
             # Use forward slashes to avoid Windows path escaping issues
@@ -459,7 +465,12 @@ class TestTimelineIntegration:
             ],
         )
         manager = PermissionManager.from_config(str(temp_cwd), config)
-        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd), permission_manager=manager)
+        timeline = Timeline(
+            "test-session",
+            context_graph=ContextGraph(),
+            cwd=str(temp_cwd),
+            permission_manager=manager,
+        )
 
         try:
             result = await timeline.execute_statement("ls_permissions()")
@@ -1040,9 +1051,7 @@ class TestPermissionRequestFlow:
         manager = PermissionManager.from_config(str(temp_cwd), config)
 
         # Mock permission requester that always grants once
-        async def mock_requester(
-            session_id: str, path: str, mode: str
-        ) -> tuple[bool, bool]:
+        async def mock_requester(session_id: str, path: str, mode: str) -> tuple[bool, bool]:
             return (True, False)  # granted=True, persist=False
 
         timeline = Timeline(
@@ -1075,9 +1084,7 @@ class TestPermissionRequestFlow:
         manager = PermissionManager.from_config(str(temp_cwd), config)
 
         # Mock permission requester that grants always
-        async def mock_requester(
-            session_id: str, path: str, mode: str
-        ) -> tuple[bool, bool]:
+        async def mock_requester(session_id: str, path: str, mode: str) -> tuple[bool, bool]:
             return (True, True)  # granted=True, persist=True
 
         timeline = Timeline(
@@ -1114,9 +1121,7 @@ class TestPermissionRequestFlow:
         manager = PermissionManager.from_config(str(temp_cwd), config)
 
         # Mock permission requester that denies
-        async def mock_requester(
-            session_id: str, path: str, mode: str
-        ) -> tuple[bool, bool]:
+        async def mock_requester(session_id: str, path: str, mode: str) -> tuple[bool, bool]:
             return (False, False)  # denied
 
         timeline = Timeline(
@@ -1523,8 +1528,9 @@ class TestShellTimelineIntegration:
     async def test_timeline_blocks_unauthorized_shell(self, temp_cwd: Path) -> None:
         """Test Timeline blocks unauthorized shell commands."""
         import asyncio
-        from activecontext.session.timeline import Timeline
+
         from activecontext.context.nodes import ShellNode, ShellStatus
+        from activecontext.session.timeline import Timeline
 
         config = SandboxConfig(shell_deny_by_default=True)
         manager = ShellPermissionManager.from_config(config)
@@ -1563,8 +1569,9 @@ class TestShellTimelineIntegration:
         """Test Timeline allows authorized shell commands."""
         import asyncio
         import sys
+
+        from activecontext.context.nodes import ShellNode
         from activecontext.session.timeline import Timeline
-        from activecontext.context.nodes import ShellNode, ShellStatus
 
         # Windows uses cmd.exe for echo; Unix uses echo directly
         if sys.platform == "win32":
@@ -1641,9 +1648,7 @@ class TestShellTimelineIntegration:
             await timeline.close()
 
     @pytest.mark.asyncio
-    async def test_timeline_without_shell_permission_manager(
-        self, temp_cwd: Path
-    ) -> None:
+    async def test_timeline_without_shell_permission_manager(self, temp_cwd: Path) -> None:
         """Test Timeline works without shell permission manager (no restrictions)."""
         from activecontext.session.timeline import Timeline
 
@@ -1670,10 +1675,12 @@ class TestShellPermissionRequestFlow:
     async def timeline_factory(self, temp_cwd: Path):
         """Factory for creating timelines with proper cleanup."""
         import asyncio
+
         timelines: list = []
 
         def create(**kwargs):
             from activecontext.session.timeline import Timeline
+
             tl = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd), **kwargs)
             timelines.append(tl)
             return tl
@@ -1685,10 +1692,8 @@ class TestShellPermissionRequestFlow:
             for task in tl._shell_manager._shell_tasks.values():
                 if not task.done():
                     task.cancel()
-                    try:
+                    with contextlib.suppress(asyncio.CancelledError):
                         await task
-                    except asyncio.CancelledError:
-                        pass
 
     @pytest.mark.asyncio
     async def test_shell_permission_request_allow_once(self, timeline_factory) -> None:
@@ -1714,7 +1719,9 @@ class TestShellPermissionRequestFlow:
         assert "exit=126" not in result.stdout
 
     @pytest.mark.asyncio
-    async def test_shell_permission_request_allow_always(self, temp_cwd: Path, timeline_factory) -> None:
+    async def test_shell_permission_request_allow_always(
+        self, temp_cwd: Path, timeline_factory
+    ) -> None:
         """Test allow_always persists shell permission to config."""
         import asyncio
 
@@ -1776,6 +1783,7 @@ class TestShellPermissionRequestFlow:
 
         # Wait for background task and process results
         import asyncio
+
         await asyncio.sleep(0.2)
         timeline.process_pending_shell_results()
 
@@ -1792,6 +1800,7 @@ class TestShellPermissionRequestFlow:
     async def test_no_shell_requester_returns_denied(self, timeline_factory) -> None:
         """Test that without a requester, shell command is denied."""
         import asyncio
+
         from activecontext.context.nodes import ShellNode, ShellStatus
 
         config = SandboxConfig(shell_deny_by_default=True)
@@ -2092,9 +2101,7 @@ class TestPatternMatcher:
         """Test matching multiple placeholders."""
         matcher = PatternMatcher(cwd=temp_cwd)
 
-        result = matcher.match(
-            "cp {src:path} {dst:str}", "cp", ["test_file.txt", "output.txt"]
-        )
+        result = matcher.match("cp {src:path} {dst:str}", "cp", ["test_file.txt", "output.txt"])
         assert result.matched
         assert result.captures == {"src": "test_file.txt", "dst": "output.txt"}
 
@@ -2423,9 +2430,7 @@ class TestURLPatternMatcher:
         from activecontext.session.permissions import URLPatternMatcher
 
         matcher = URLPatternMatcher()
-        result = matcher.match(
-            "https://api.github.com/repos", "https://api.github.com/repos"
-        )
+        result = matcher.match("https://api.github.com/repos", "https://api.github.com/repos")
         assert result.matched is True
 
     def test_glob_pattern(self) -> None:
@@ -2531,7 +2536,6 @@ class TestWebsitePermissionManager:
 
     def test_allow_localhost(self, tmp_path: Path) -> None:
         """Test allow_localhost setting."""
-        from activecontext.config.schema import WebsitePermissionConfig
 
         config = SandboxConfig(
             website_permissions=[],
@@ -2603,9 +2607,7 @@ class TestWriteWebsitePermissionToConfig:
         """Test creating a new config file with website permission."""
         from activecontext.session.permissions import write_website_permission_to_config
 
-        write_website_permission_to_config(
-            tmp_path, "https://api.github.com/*", "GET"
-        )
+        write_website_permission_to_config(tmp_path, "https://api.github.com/*", "GET")
 
         config_path = tmp_path / ".ac" / "config.yaml"
         assert config_path.exists()

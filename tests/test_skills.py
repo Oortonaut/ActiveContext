@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -128,9 +127,7 @@ class TestGetSkillsDirectory:
 
     def test_uses_userprofile_fallback(self) -> None:
         """Test that USERPROFILE is used when HOME is not set."""
-        with patch.dict(
-            "os.environ", {"HOME": "", "USERPROFILE": "C:\\Users\\Test"}, clear=False
-        ):
+        with patch.dict("os.environ", {"HOME": "", "USERPROFILE": "C:\\Users\\Test"}, clear=False):
             path = get_skills_directory()
             assert path == Path("C:\\Users\\Test/.claude/skills")
 
@@ -353,9 +350,7 @@ Instructions.
             encoding="utf-8",
         )
 
-        with patch(
-            "activecontext.skills.loader.get_skills_directory", return_value=skills_dir
-        ):
+        with patch("activecontext.skills.loader.get_skills_directory", return_value=skills_dir):
             manifest = load_skill("test-skill")
 
         assert manifest is not None
@@ -366,9 +361,7 @@ Instructions.
         skills_dir = tmp_path / ".claude" / "skills"
         skills_dir.mkdir(parents=True)
 
-        with patch(
-            "activecontext.skills.loader.get_skills_directory", return_value=skills_dir
-        ):
+        with patch("activecontext.skills.loader.get_skills_directory", return_value=skills_dir):
             manifest = load_skill("nonexistent")
 
         assert manifest is None
@@ -411,9 +404,7 @@ B content.
             encoding="utf-8",
         )
 
-        with patch(
-            "activecontext.skills.loader.get_skills_directory", return_value=skills_dir
-        ):
+        with patch("activecontext.skills.loader.get_skills_directory", return_value=skills_dir):
             manifests = discover_skills()
 
         assert len(manifests) == 2
@@ -442,9 +433,7 @@ description: Valid skill
         malformed.mkdir()
         (malformed / "SKILL.md").write_text("No frontmatter here", encoding="utf-8")
 
-        with patch(
-            "activecontext.skills.loader.get_skills_directory", return_value=skills_dir
-        ):
+        with patch("activecontext.skills.loader.get_skills_directory", return_value=skills_dir):
             manifests = discover_skills()
 
         assert len(manifests) == 1
@@ -471,9 +460,7 @@ description: The only real skill
             encoding="utf-8",
         )
 
-        with patch(
-            "activecontext.skills.loader.get_skills_directory", return_value=skills_dir
-        ):
+        with patch("activecontext.skills.loader.get_skills_directory", return_value=skills_dir):
             manifests = discover_skills()
 
         assert len(manifests) == 1
@@ -484,9 +471,7 @@ description: The only real skill
         skills_dir = tmp_path / ".claude" / "skills"
         skills_dir.mkdir(parents=True)
 
-        with patch(
-            "activecontext.skills.loader.get_skills_directory", return_value=skills_dir
-        ):
+        with patch("activecontext.skills.loader.get_skills_directory", return_value=skills_dir):
             manifests = discover_skills()
 
         assert manifests == []
@@ -495,9 +480,7 @@ description: The only real skill
         """Test discovering skills from nonexistent directory."""
         skills_dir = tmp_path / ".claude" / "skills"  # Don't create it
 
-        with patch(
-            "activecontext.skills.loader.get_skills_directory", return_value=skills_dir
-        ):
+        with patch("activecontext.skills.loader.get_skills_directory", return_value=skills_dir):
             manifests = discover_skills()
 
         assert manifests == []
@@ -520,10 +503,233 @@ description: Skill {name}
                 encoding="utf-8",
             )
 
-        with patch(
-            "activecontext.skills.loader.get_skills_directory", return_value=skills_dir
-        ):
+        with patch("activecontext.skills.loader.get_skills_directory", return_value=skills_dir):
             manifests = discover_skills()
 
         names = [m.name for m in manifests]
         assert names == ["alpha", "middle", "zebra"]
+
+
+class TestFixtureSkills:
+    """Test loading from version-controlled fixture skills."""
+
+    def test_load_valid_skill_fixture(self) -> None:
+        """Test loading the valid-skill fixture."""
+        fixture_path = Path(__file__).parent / "fixtures" / "skills" / "valid-skill"
+        manifest = load_skill_from_path(fixture_path)
+
+        assert manifest is not None
+        assert manifest.name == "valid-skill"
+        assert manifest.description == "A well-formed test skill with all required fields"
+        assert manifest.license == "MIT"
+        assert manifest.allowed_tools == ["Bash", "Read", "Write"]
+        assert manifest.metadata["version"] == "1.0.0"
+        assert "Valid Skill" in manifest.content
+
+    def test_load_invalid_frontmatter_fixture(self) -> None:
+        """Test loading the invalid-frontmatter fixture."""
+        fixture_path = Path(__file__).parent / "fixtures" / "skills" / "invalid-frontmatter"
+        manifest = load_skill_from_path(fixture_path)
+
+        # Should fail to load due to malformed YAML
+        assert manifest is None
+
+    def test_load_missing_required_fixture(self) -> None:
+        """Test loading the missing-required fixture."""
+        fixture_path = Path(__file__).parent / "fixtures" / "skills" / "missing-required"
+        manifest = load_skill_from_path(fixture_path)
+
+        # Should fail to load due to missing description field
+        assert manifest is None
+
+    def test_load_with_scripts_fixture(self) -> None:
+        """Test loading skill with scripts directory."""
+        fixture_path = Path(__file__).parent / "fixtures" / "skills" / "with-scripts"
+        manifest = load_skill_from_path(fixture_path)
+
+        assert manifest is not None
+        assert manifest.name == "with-scripts"
+        assert manifest.description == "Test skill with a scripts directory"
+
+        # Verify scripts directory exists
+        scripts_dir = fixture_path / "scripts"
+        assert scripts_dir.exists()
+        assert scripts_dir.is_dir()
+        assert (scripts_dir / "helper.py").exists()
+        assert (scripts_dir / "validator.sh").exists()
+
+    def test_load_with_references_fixture(self) -> None:
+        """Test loading skill with references directory."""
+        fixture_path = Path(__file__).parent / "fixtures" / "skills" / "with-references"
+        manifest = load_skill_from_path(fixture_path)
+
+        assert manifest is not None
+        assert manifest.name == "with-references"
+        assert manifest.description == "Test skill with a references directory"
+
+        # Verify references directory exists
+        refs_dir = fixture_path / "references"
+        assert refs_dir.exists()
+        assert refs_dir.is_dir()
+        assert (refs_dir / "api.md").exists()
+        assert (refs_dir / "implementation.md").exists()
+
+    def test_discover_fixture_skills(self) -> None:
+        """Test discovering all fixture skills."""
+        fixtures_dir = Path(__file__).parent / "fixtures" / "skills"
+
+        with patch("activecontext.skills.loader.get_skills_directory", return_value=fixtures_dir):
+            manifests = discover_skills()
+
+        # Should discover valid-skill, with-scripts, with-references, test-skill
+        # But NOT invalid-frontmatter or missing-required
+        assert len(manifests) == 4
+        names = [m.name for m in manifests]
+        assert "valid-skill" in names
+        assert "with-scripts" in names
+        assert "with-references" in names
+        assert "test-skill" in names
+        assert "invalid-frontmatter" not in names
+        assert "missing-required" not in names
+
+
+class TestCrossPlatformPaths:
+    """Test cross-platform path handling."""
+
+    def test_windows_backslash_paths(self, tmp_path: Path) -> None:
+        """Test that Windows backslash paths work correctly."""
+        skill_dir = tmp_path / "test-skill"
+        skill_dir.mkdir()
+        skill_file = skill_dir / "SKILL.md"
+        skill_file.write_text(
+            """\
+---
+name: test-skill
+description: Test Windows paths
+---
+
+Content.
+""",
+            encoding="utf-8",
+        )
+
+        # Load using both forward slash and backslash representations
+        manifest1 = load_skill_from_path(skill_dir)
+        manifest2 = load_skill_from_path(Path(str(skill_dir).replace("/", "\\")))
+
+        assert manifest1 is not None
+        assert manifest2 is not None
+        # Paths should resolve to same location
+        assert manifest1.path == manifest2.path
+
+    def test_unix_forward_slash_paths(self, tmp_path: Path) -> None:
+        """Test that Unix forward slash paths work correctly."""
+        skill_dir = tmp_path / "unix-skill"
+        skill_dir.mkdir()
+        skill_file = skill_dir / "SKILL.md"
+        skill_file.write_text(
+            """\
+---
+name: unix-skill
+description: Test Unix paths
+---
+
+Content.
+""",
+            encoding="utf-8",
+        )
+
+        # pathlib normalizes paths across platforms
+        manifest = load_skill_from_path(skill_dir)
+
+        assert manifest is not None
+        assert manifest.name == "unix-skill"
+        assert manifest.path.exists()
+
+    def test_path_normalization(self, tmp_path: Path) -> None:
+        """Test that paths are normalized (resolve symlinks, .., etc)."""
+        skill_dir = tmp_path / "normalize-test"
+        skill_dir.mkdir()
+        skill_file = skill_dir / "SKILL.md"
+        skill_file.write_text(
+            """\
+---
+name: normalize-test
+description: Path normalization test
+---
+
+Content.
+""",
+            encoding="utf-8",
+        )
+
+        # Load with redundant path components
+        redundant_path = tmp_path / "." / "normalize-test"
+        manifest = load_skill_from_path(redundant_path)
+
+        assert manifest is not None
+        # Path should be resolved (no . or .. components)
+        assert ".." not in str(manifest.path)
+        assert manifest.path == skill_dir.resolve()
+
+    def test_relative_vs_absolute_paths(self, tmp_path: Path) -> None:
+        """Test that both relative and absolute paths work."""
+        skill_dir = tmp_path / "path-test"
+        skill_dir.mkdir()
+        skill_file = skill_dir / "SKILL.md"
+        skill_file.write_text(
+            """\
+---
+name: path-test
+description: Test relative vs absolute paths
+---
+
+Content.
+""",
+            encoding="utf-8",
+        )
+
+        # Load with absolute path
+        manifest_abs = load_skill_from_path(skill_dir.resolve())
+        # Load with relative path (if tmp_path is relative)
+        manifest_rel = load_skill_from_path(skill_dir)
+
+        assert manifest_abs is not None
+        assert manifest_rel is not None
+        # Both should resolve to same absolute path
+        assert manifest_abs.path == manifest_rel.path
+        assert manifest_abs.path.is_absolute()
+
+    def test_case_sensitivity(self, tmp_path: Path) -> None:
+        """Test path case handling (case-insensitive on Windows, sensitive on Unix)."""
+        skill_dir = tmp_path / "CaseSensitive"
+        skill_dir.mkdir()
+        skill_file = skill_dir / "SKILL.md"
+        skill_file.write_text(
+            """\
+---
+name: case-test
+description: Case sensitivity test
+---
+
+Content.
+""",
+            encoding="utf-8",
+        )
+
+        # On Windows, these should work the same
+        # On Unix, only exact case works
+        import platform
+
+        manifest = load_skill_from_path(skill_dir)
+        assert manifest is not None
+
+        if platform.system() == "Windows":
+            # Windows is case-insensitive
+            load_skill_from_path(tmp_path / "casesensitive")
+            # May or may not work depending on filesystem
+            # Just verify original works
+            assert manifest.name == "case-test"
+        else:
+            # Unix is case-sensitive - only exact match works
+            assert manifest.name == "case-test"

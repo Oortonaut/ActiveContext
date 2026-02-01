@@ -33,6 +33,8 @@ class AgentMessage:
     status: str = "pending"  # pending, delivered, read
     reply_to: str | None = None  # For threading
     metadata: dict[str, Any] = field(default_factory=dict)
+    content_type: str = "text"  # Content type: text, image, audio, etc.
+    mime_type: str | None = None  # MIME type (e.g., "image/png", "audio/wav")
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -46,6 +48,8 @@ class AgentMessage:
             "status": self.status,
             "reply_to": self.reply_to,
             "metadata": self.metadata,
+            "content_type": self.content_type,
+            "mime_type": self.mime_type,
         }
 
     @classmethod
@@ -63,6 +67,8 @@ class AgentMessage:
             status=data.get("status", "pending"),
             reply_to=data.get("reply_to"),
             metadata=data.get("metadata", {}),
+            content_type=data.get("content_type", "text"),
+            mime_type=data.get("mime_type"),
         )
 
 

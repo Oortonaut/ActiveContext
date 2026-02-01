@@ -2,19 +2,18 @@
 
 from __future__ import annotations
 
+from unittest.mock import Mock
+
 import pytest
-from unittest.mock import Mock, MagicMock
-from dataclasses import dataclass
 
-from activecontext.context.nodes import (
-    MCPToolNode,
-    MCPServerNode,
-    Expansion,
-    ContextNode,
-)
 from activecontext.context.graph import ContextGraph
+from activecontext.context.nodes import (
+    ContextNode,
+    Expansion,
+    MCPServerNode,
+    MCPToolNode,
+)
 from activecontext.mcp.types import MCPConnectionStatus, MCPToolInfo
-
 
 # =============================================================================
 # Fixtures
@@ -168,7 +167,6 @@ class TestMCPToolNodeRender:
         assert "`encoding`" in result  # Optional param without *
 
 
-
 class TestMCPToolNodeDigest:
     """Tests for MCPToolNode.GetDigest()."""
 
@@ -276,9 +274,7 @@ class TestMCPServerNodeToolChildren:
             assert mcp_server_node.node_id in node.parent_ids
             assert node_id in mcp_server_node.children_ids
 
-    def test_tool_method_returns_tool_node(
-        self, context_graph, mcp_server_node, mock_connection
-    ):
+    def test_tool_method_returns_tool_node(self, context_graph, mcp_server_node, mock_connection):
         """Test MCPServerNode.tool() returns the correct MCPToolNode."""
         mcp_server_node.update_from_connection(mock_connection)
 
@@ -296,9 +292,7 @@ class TestMCPServerNodeToolChildren:
         tool = mcp_server_node.tool("nonexistent")
         assert tool is None
 
-    def test_tool_nodes_property(
-        self, context_graph, mcp_server_node, mock_connection
-    ):
+    def test_tool_nodes_property(self, context_graph, mcp_server_node, mock_connection):
         """Test MCPServerNode.tool_nodes returns all tool children."""
         mcp_server_node.update_from_connection(mock_connection)
 
@@ -312,9 +306,7 @@ class TestMCPServerNodeToolChildren:
 class TestMCPServerNodeToolDiff:
     """Tests for tool diff/update on reconnection."""
 
-    def test_reconnect_adds_new_tools(
-        self, context_graph, mcp_server_node, mock_connection
-    ):
+    def test_reconnect_adds_new_tools(self, context_graph, mcp_server_node, mock_connection):
         """Test reconnection adds new tools."""
         # Initial connection with 2 tools
         mcp_server_node.update_from_connection(mock_connection)
@@ -337,9 +329,7 @@ class TestMCPServerNodeToolDiff:
         assert tool is not None
         assert tool.description == "Delete a file"
 
-    def test_reconnect_removes_old_tools(
-        self, context_graph, mcp_server_node, mock_connection
-    ):
+    def test_reconnect_removes_old_tools(self, context_graph, mcp_server_node, mock_connection):
         """Test reconnection removes tools that no longer exist."""
         # Initial connection with 2 tools
         mcp_server_node.update_from_connection(mock_connection)
@@ -354,9 +344,7 @@ class TestMCPServerNodeToolDiff:
         assert "write_file" not in mcp_server_node._tool_nodes
         assert context_graph.get_node(write_node_id) is None  # Removed from graph
 
-    def test_reconnect_updates_changed_tools(
-        self, context_graph, mcp_server_node, mock_connection
-    ):
+    def test_reconnect_updates_changed_tools(self, context_graph, mcp_server_node, mock_connection):
         """Test reconnection updates tools with changed schema."""
         # Initial connection
         mcp_server_node.update_from_connection(mock_connection)
@@ -407,9 +395,7 @@ class TestMCPServerNodeToolDiff:
 class TestMCPServerNodeSerialization:
     """Tests for MCPServerNode serialization with tool nodes."""
 
-    def test_to_dict_includes_tool_nodes(
-        self, context_graph, mcp_server_node, mock_connection
-    ):
+    def test_to_dict_includes_tool_nodes(self, context_graph, mcp_server_node, mock_connection):
         """Test MCPServerNode.to_dict() includes _tool_nodes mapping."""
         mcp_server_node.update_from_connection(mock_connection)
         data = mcp_server_node.to_dict()
@@ -453,9 +439,7 @@ class TestMCPToolNodeIntegration:
         node = MCPToolNode(tool_name="read_file", server_name="filesystem")
         assert node.get_display_name() == "filesystem.read_file"
 
-    def test_child_order_populated_on_link(
-        self, context_graph, mcp_server_node, mock_connection
-    ):
+    def test_child_order_populated_on_link(self, context_graph, mcp_server_node, mock_connection):
         """Test that tool nodes are added to child_order for projection rendering."""
         mcp_server_node.update_from_connection(mock_connection)
 
@@ -465,9 +449,7 @@ class TestMCPToolNodeIntegration:
         for node_id in mcp_server_node._tool_nodes.values():
             assert node_id in mcp_server_node.child_order
 
-    def test_projection_includes_tool_nodes(
-        self, context_graph, mcp_server_node, mock_connection
-    ):
+    def test_projection_includes_tool_nodes(self, context_graph, mcp_server_node, mock_connection):
         """Test that projection engine includes tool nodes in render path."""
         from activecontext.core.projection_engine import ProjectionEngine
 

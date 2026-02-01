@@ -39,7 +39,9 @@ class TestInitialize:
         assert isinstance(agent_info["name"], str), "agentInfo.name must be string"
         assert isinstance(agent_info["version"], str), "agentInfo.version must be string"
 
-    async def test_initialize_returns_protocol_version(self, initialized_client: ACPTestClient) -> None:
+    async def test_initialize_returns_protocol_version(
+        self, initialized_client: ACPTestClient
+    ) -> None:
         """Initialize response must include protocolVersion (spec required)."""
         response = await initialize_agent(initialized_client)
         result = response["result"]
@@ -47,7 +49,9 @@ class TestInitialize:
         assert "protocolVersion" in result, f"Missing protocolVersion: {result}"
         assert isinstance(result["protocolVersion"], int), "protocolVersion must be int"
 
-    async def test_initialize_returns_agent_capabilities(self, initialized_client: ACPTestClient) -> None:
+    async def test_initialize_returns_agent_capabilities(
+        self, initialized_client: ACPTestClient
+    ) -> None:
         """Initialize response must have agentCapabilities (spec required)."""
         response = await initialize_agent(initialized_client)
         result = response["result"]
@@ -56,7 +60,9 @@ class TestInitialize:
         caps = result["agentCapabilities"]
         assert isinstance(caps, dict), "agentCapabilities must be dict"
 
-    async def test_agent_capabilities_has_required_fields(self, initialized_client: ACPTestClient) -> None:
+    async def test_agent_capabilities_has_required_fields(
+        self, initialized_client: ACPTestClient
+    ) -> None:
         """agentCapabilities must have loadSession and promptCapabilities (spec required)."""
         response = await initialize_agent(initialized_client)
         caps = response["result"]["agentCapabilities"]

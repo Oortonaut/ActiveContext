@@ -36,6 +36,8 @@ from activecontext.context.nodes import (
 )
 from activecontext.context.state import Expansion, NotificationLevel, TickFrequency
 from activecontext.context.view import NodeView
+from activecontext.plugins.connection import PluginConnection
+from activecontext.plugins.manager import PluginConnectionInfo, PluginManager
 from activecontext.session.agent_spawner import AgentSpawner
 from activecontext.session.lock_manager import LockManager
 from activecontext.session.mcp_integration import MCPIntegration
@@ -73,7 +75,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from activecontext.agents.manager import AgentManager
-    from activecontext.config.schema import FileWatchConfig, MCPConfig
+    from activecontext.config.schema import FileWatchConfig, MCPConfig, PluginsConfig
     from activecontext.context.buffer import TextBuffer
     from activecontext.context.view import ChoiceView, LoopView, SequenceView, StateView
     from activecontext.coordination.scratchpad import ScratchpadManager
@@ -103,6 +105,25 @@ if TYPE_CHECKING:
 # they corrupt each other's contexts because sys.stdout is a global.
 # This lock ensures only one task at a time can capture output.
 _stdout_redirect_lock = asyncio.Lock()
+
+
+# Plugin management errors
+class PluginNotFoundError(ValueError):
+    """Raised when a plugin node type is not found."""
+
+    pass
+
+
+class PluginLoadError(RuntimeError):
+    """Raised when a plugin fails to load."""
+
+    pass
+
+
+class PluginInUseError(RuntimeError):
+    """Raised when attempting to unload a plugin that has active nodes."""
+
+    pass
 
 
 @dataclass
@@ -456,6 +477,8 @@ class Timeline:
         website_permission_requester: WebsitePermissionRequester | None = None,
         scratchpad_manager: ScratchpadManager | None = None,
         mcp_config: MCPConfig | None = None,
+        plugins_config: PluginsConfig | None = None,
+        llm_provider: Any | None = None,
     ) -> None:
         self._session_id = session_id
         self._cwd = cwd
@@ -544,10 +567,24 @@ class Timeline:
             cwd=cwd,
         )
 
+        # Plugin manager for CAP plugin server connections (must be set before _setup_namespace)
+        from activecontext.context.registry import get_node_registry
+
+        def _plugin_fire_event(event_name: str, **kwargs: Any) -> None:
+            self.fire_event(event_name, kwargs)
+
+        self._plugin_manager = PluginManager(
+            registry=get_node_registry(),
+            session_id=session_id,
+            cwd=cwd,
+            fire_event=_plugin_fire_event,
+        )
+        self._plugins_config = plugins_config
+
         # Task-graph bridge for work time tracking (no-op when not connected)
         from activecontext.coordination.task_bridge import TaskGraphBridge
 
-        self._task_bridge = TaskGraphBridge(
+        self._task_bridge = TaskGraphBridge.from_mcp_manager(
             self._mcp_integration._mcp_client_manager,
             agent_id=session_id,
         )
@@ -559,6 +596,9 @@ class Timeline:
             scratchpad_manager=scratchpad_manager,
             task_bridge=self._task_bridge,
         )
+
+        # LLM provider for summarization (optional, provided by Session)
+        self._llm_provider = llm_provider
 
         # Set up namespace with DSL functions
         self._setup_namespace()
@@ -738,6 +778,10 @@ class Timeline:
                 # File locking
                 "lock_file": self._lock_manager.acquire,
                 "lock_release": self._lock_manager.release,
+                # LLM summarization
+                "summarize": self._summarize,
+                # Help system
+                "help": self._help,
             },
         )
 
@@ -766,6 +810,118 @@ class Timeline:
             }
         )
 
+        # Add plugin functions
+        self._namespace.update(
+            {
+                "plugin_connect": self._plugin_connect,
+                "plugin_disconnect": self._plugin_disconnect,
+                "plugin_list": self._plugin_list,
+                "plugin_load": self._plugin_load,
+                "plugin_unload": self._plugin_unload,
+                "plugin_available": self._plugin_available,
+                "plugin_info": self._plugin_info,
+                "plugin_docs": self.plugin_docs,
+            }
+        )
+
+        # Register node type constructors from already-connected plugins
+        self._register_all_plugin_node_types()
+
+        # Load skill-provided Python functions from active skills
+        self._load_skill_functions()
+
+    def _load_skill_functions(self) -> None:
+        """Load Python functions from active skills' scripts/ directories.
+
+        For each active skill:
+        1. Scan skills/{skill_name}/scripts/ for .py files
+        2. Import modules and extract functions
+        3. Register in namespace with optional skill_ prefix
+        4. Respect allowed_tools from manifest for sandboxing
+        """
+        import importlib.util
+        import logging
+        import sys
+
+        from activecontext.skills.loader import get_skills_directory
+        from activecontext.skills.manager import SkillManager
+
+        _log = logging.getLogger(__name__)
+
+        # Create temporary skill manager to get active skills
+        # In a real implementation, this would be injected from Session
+        skill_manager = SkillManager()
+
+        skills_dir = get_skills_directory()
+        if not skills_dir.exists():
+            return
+
+        active_skills = skill_manager.list_active_skills()
+        if not active_skills:
+            return
+
+        for manifest in active_skills:
+            skill_path = manifest.path
+            if not skill_path:
+                continue
+
+            scripts_dir = skill_path / "scripts"
+            if not scripts_dir.exists() or not scripts_dir.is_dir():
+                continue
+
+            # Load all .py files in scripts/
+            for py_file in scripts_dir.glob("*.py"):
+                if py_file.name.startswith("_"):
+                    continue  # Skip private modules
+
+                module_name = f"skill_{manifest.name}_{py_file.stem}"
+
+                try:
+                    # Load the module
+                    spec = importlib.util.spec_from_file_location(module_name, py_file)
+                    if spec is None or spec.loader is None:
+                        _log.warning("Could not load spec for %s", py_file)
+                        continue
+
+                    module = importlib.util.module_from_spec(spec)
+                    sys.modules[module_name] = module
+                    spec.loader.exec_module(module)
+
+                    # Extract callable functions (exclude classes and privates)
+                    for attr_name in dir(module):
+                        if attr_name.startswith("_"):
+                            continue
+
+                        attr = getattr(module, attr_name)
+                        if not callable(attr):
+                            continue
+
+                        # Skip imported functions (only include functions defined in this module)
+                        if hasattr(attr, "__module__") and attr.__module__ != module_name:
+                            continue
+
+                        # Register with skill_ prefix to avoid collisions
+                        func_name = f"skill_{attr_name}"
+
+                        # TODO: Implement allowed_tools sandboxing
+                        # For now, just register the function
+                        # In a full implementation, wrap the function to check
+                        # manifest.allowed_tools before allowing tool access
+
+                        self._namespace[func_name] = attr
+                        _log.debug(
+                            "Loaded skill function '%s' from %s",
+                            func_name,
+                            py_file,
+                        )
+
+                except Exception as e:
+                    _log.warning(
+                        "Failed to load skill script %s: %s",
+                        py_file,
+                        e,
+                    )
+                    continue
 
     def _setup_agent_namespace(self) -> None:
         """Add agent functions to namespace when agent manager is available.
@@ -1273,7 +1429,6 @@ class Timeline:
         self._views[node.node_id] = view
         return view
 
-
     def _make_choice_view(
         self,
         *children: ContextNode | NodeView | str,
@@ -1298,9 +1453,7 @@ class Timeline:
         from activecontext.context.view import ChoiceView
 
         # Create the underlying group
-        group_view = self._make_group_node(
-            *children, expansion=expansion, parent=parent
-        )
+        group_view = self._make_group_node(*children, expansion=expansion, parent=parent)
 
         # Default to first child if no selection specified
         if selected is None and children:
@@ -1341,9 +1494,7 @@ class Timeline:
         from activecontext.context.view import SequenceView
 
         # Create the underlying group
-        group_view = self._make_group_node(
-            *children, expansion=expansion, parent=parent
-        )
+        group_view = self._make_group_node(*children, expansion=expansion, parent=parent)
 
         # Create SequenceView wrapping the group (starts at first child)
         seq_view = SequenceView(group_view.node(), expand=expansion)
@@ -1465,14 +1616,10 @@ class Timeline:
         # Create the underlying group with all state nodes as children
         if states:
             node_ids = list(states.values())
-            group_view = self._make_group_node(
-                *node_ids, expansion=expansion, parent=parent
-            )
+            group_view = self._make_group_node(*node_ids, expansion=expansion, parent=parent)
         else:
             # Empty state machine
-            group_view = self._make_group_node(
-                expansion=expansion, parent=parent
-            )
+            group_view = self._make_group_node(expansion=expansion, parent=parent)
 
         # Default transitions: allow any state to any state
         if transitions is None and states:
@@ -1799,6 +1946,95 @@ class Timeline:
                     if stmt and not stmt.startswith("#"):
                         await self.execute_statement(stmt)
 
+    async def _summarize(
+        self,
+        node_or_view: ContextNode | NodeView | str,
+        *,
+        force: bool = False,
+        max_tokens: int = 500,
+    ) -> str:
+        """Generate an LLM-based summary for a TextNode.
+
+        Args:
+            node_or_view: TextNode, NodeView, or node ID to summarize
+            force: Force regeneration even if cached summary exists
+            max_tokens: Maximum tokens for the summary
+
+        Returns:
+            The generated summary string
+
+        Raises:
+            ValueError: If node is not a TextNode or LLM provider is not available
+        """
+        import hashlib
+
+        from activecontext.core.llm.provider import Message, Role
+
+        # Resolve to node
+        if isinstance(node_or_view, str):
+            node = self._context_graph.get_node(node_or_view)
+            if node is None:
+                raise ValueError(f"Node not found: {node_or_view}")
+        elif isinstance(node_or_view, NodeView):
+            node = node_or_view.node()
+        else:
+            node = node_or_view
+
+        # Verify it's a TextNode
+        if not isinstance(node, TextNode):
+            raise ValueError(f"summarize() only works with TextNode, got {type(node).__name__}")
+
+        # Check if LLM provider is available
+        if self._llm_provider is None:
+            raise ValueError("LLM provider not available for summarization")
+
+        # Get raw file lines for hashing (to detect actual content changes)
+        import os
+
+        file_path = (
+            os.path.join(self._cwd, node.path) if not os.path.isabs(node.path) else node.path
+        )
+        try:
+            with open(file_path, encoding="utf-8", errors="replace") as f:
+                raw_content = f.read()
+        except (FileNotFoundError, PermissionError):
+            raw_content = ""
+
+        # Compute content hash for staleness detection (based on raw file content)
+        content_hash = hashlib.sha256(raw_content.encode()).hexdigest()[:16]
+
+        # Use cached summary if available and not stale
+        if not force and node.cached_summary and not node.summary_stale:
+            if node.content_hash == content_hash:
+                return node.cached_summary
+
+        # Get rendered content for LLM prompt
+        content = node.RenderDetail(cwd=self._cwd)
+
+        # Generate summary via LLM
+        prompt = f"""Summarize the following file content in {max_tokens} tokens or less.
+Focus on the key purpose, structure, and important details.
+
+File: {node.path}
+
+Content:
+{content}
+
+Provide a concise summary:"""
+
+        messages = [Message(role=Role.USER, content=prompt)]
+
+        result = await self._llm_provider.complete(messages, max_tokens=max_tokens)
+        summary = str(result.content.strip())
+
+        # Cache the summary
+        node.cached_summary = summary
+        node.summary_stale = False
+        node.content_hash = content_hash
+        node._mark_changed(description="Summary generated")
+
+        return summary
+
     def _link(
         self,
         child: ContextNode | NodeView | str,
@@ -2058,6 +2294,78 @@ class Timeline:
         digest = obj.GetDigest() if hasattr(obj, "GetDigest") else str(obj)
         return f"[{digest}]"
 
+    def _help(
+        self,
+        target: Any = None,
+    ) -> Any:
+        """DSL help() function: get documentation for nodes or the DSL.
+
+        Can be called three ways:
+        - help(node_instance) -- equivalent to node_instance.help()
+        - help("node_type") -- show help for a type by name (e.g., "shell")
+        - help() -- return general DSL reference as a TextNode
+
+        Args:
+            target: A node instance, a type name string, or None for DSL reference.
+
+        Returns:
+            HelpNode for node/type targets, or TextNode for DSL reference.
+        """
+        from activecontext.context.nodes import ContextNode, HelpNode, _extract_help_content
+        from activecontext.context.registry import get_node_registry
+
+        if target is None:
+            # No args: return DSL reference as a TextNode
+            from activecontext.context.nodes import TextNode
+
+            dsl_node = TextNode(
+                path="@prompts/dsl_reference.md",
+                expansion=Expansion.CONTENT,
+                tracing=False,
+            )
+            self._context_graph.add_node(dsl_node)
+            # Link under context root if available
+            root = self._context_graph.get_node("context")
+            if root:
+                self._context_graph.link(dsl_node.node_id, "context")
+            view = NodeView(dsl_node)
+            self._views[dsl_node.node_id] = view
+            return dsl_node
+
+        if isinstance(target, ContextNode):
+            # Node instance: delegate to .help()
+            return target.help()
+
+        if isinstance(target, str):
+            # Type name string: look up in registry and generate help
+            registry = get_node_registry()
+            node_cls = registry.get(target)
+            if node_cls is None:
+                raise ValueError(
+                    f"Unknown node type: {target!r}. "
+                    f"Available: {', '.join(t for t, _ in registry.list_types())}"
+                )
+            help_content = _extract_help_content(node_cls)
+            help_node = HelpNode(
+                parent_node_type=target,
+                _help_content=help_content,
+                expansion=Expansion.CONTENT,
+                tracing=False,
+            )
+            self._context_graph.add_node(help_node)
+            # Link under context root if available
+            root = self._context_graph.get_node("context")
+            if root:
+                self._context_graph.link(help_node.node_id, "context")
+            view = NodeView(help_node)
+            self._views[help_node.node_id] = view
+            return help_node
+
+        raise TypeError(
+            f"help() expects a node instance, type name string, or no arguments. "
+            f"Got: {type(target).__name__}"
+        )
+
     def process_pending_shell_results(self) -> list[str]:
         """Process pending shell results and update nodes.
 
@@ -2067,6 +2375,347 @@ class Timeline:
             List of node IDs that were updated.
         """
         return self._shell_manager.process_pending_results()
+
+    # =========================================================================
+    # Plugin DSL functions
+    # =========================================================================
+
+    async def _plugin_connect(
+        self,
+        name: str,
+        command: list[str] | None = None,
+        **kwargs: Any,
+    ) -> PluginConnection:
+        """DSL: plugin_connect("my-server", ["python", "-m", "my_plugin"])
+
+        Connect to a plugin server, register its node types, and add
+        constructor functions to the DSL namespace.
+
+        Args:
+            name: Server name. If command is None, looks up from config.
+            command: Command to spawn (stdio transport).
+            **kwargs: Additional args passed to PluginManager.connect()
+                      (env, cwd, transport).
+
+        Returns:
+            The PluginConnection handle.
+        """
+        # If no command given, resolve from config
+        if command is None:
+            config = self._plugins_config
+            if config is not None:
+                for server_cfg in config.servers:
+                    if server_cfg.name == name and server_cfg.command:
+                        command = server_cfg.command
+                        kwargs.setdefault("env", server_cfg.env or None)
+                        break
+
+        conn = await self._plugin_manager.connect(name, command=command, **kwargs)
+        # Update namespace with node type constructors from this server
+        self._register_plugin_node_types(name)
+        return conn
+
+    async def _plugin_disconnect(self, name: str) -> None:
+        """DSL: plugin_disconnect("my-server")
+
+        Disconnect from a plugin server and remove its node type
+        constructors from the DSL namespace.
+        """
+        # Remove node type constructors before disconnecting
+        self._unregister_plugin_node_types(name)
+        await self._plugin_manager.disconnect(name)
+
+    def _plugin_list(self) -> list[PluginConnectionInfo]:
+        """DSL: plugin_list()
+
+        List all active plugin connections with their status and node types.
+        """
+        return self._plugin_manager.list_connections()
+
+    def _plugin_load(self, node_type: str) -> Any:
+        """DSL: plugin_load("custom_lint")
+
+        Load a plugin node type from the filesystem.
+
+        Args:
+            node_type: The node type to load (e.g., "custom_lint").
+
+        Returns:
+            PluginInfo for the loaded plugin.
+
+        Raises:
+            PluginNotFoundError: If the plugin cannot be found.
+            PluginLoadError: If the plugin fails to load.
+        """
+        from activecontext.context.registry import get_node_registry
+
+        registry = get_node_registry()
+
+        # Check if already loaded
+        if registry.get(node_type) is not None:
+            info = registry.get_plugin_info(node_type)
+            if info:
+                return info
+            raise PluginLoadError(f"Plugin '{node_type}' is loaded but has no info")
+
+        # Try to load from standard plugin directories
+        from pathlib import Path as PathLib
+
+        home = PathLib.home()
+        user_plugins_dir = home / ".ac" / "plugins" / "nodes"
+        import os
+
+        cwd = PathLib(os.getcwd())
+        project_plugins_dir = cwd / ".ac" / "plugins" / "nodes"
+
+        for plugin_dir in [user_plugins_dir, project_plugins_dir]:
+            if not plugin_dir.exists():
+                continue
+
+            # Try to find a .py file matching the node_type
+            for py_file in plugin_dir.glob("*.py"):
+                normalized_stem = py_file.stem.replace("_", "")
+                normalized_type = node_type.replace("_", "")
+                if py_file.stem == node_type or normalized_stem == normalized_type:
+                    try:
+                        loaded_type = registry.load_from_module(py_file.stem)
+                        if loaded_type == node_type:
+                            info = registry.get_plugin_info(node_type)
+                            if info:
+                                return info
+                            raise PluginLoadError(f"Plugin '{node_type}' loaded but has no info")
+                    except (ImportError, ValueError) as e:
+                        raise PluginLoadError(f"Failed to load plugin '{node_type}': {e}") from e
+
+        raise PluginNotFoundError(f"Plugin '{node_type}' not found in plugin directories")
+
+    def _plugin_unload(self, node_type: str) -> bool:
+        """DSL: plugin_unload("custom_lint")
+
+        Unload a plugin node type.
+
+        Args:
+            node_type: The node type to unload.
+
+        Returns:
+            True if successfully unloaded, False if not found.
+
+        Raises:
+            PluginInUseError: If there are active nodes of this type.
+            ValueError: If attempting to unload a builtin type.
+        """
+        from activecontext.context.registry import get_node_registry
+
+        registry = get_node_registry()
+
+        # Check if there are active nodes of this type
+        has_active = False
+        for _node_id, node in self._context_graph._nodes.items():
+            if node.node_type == node_type:
+                has_active = True
+                break
+
+        try:
+            return registry.unload_plugin(node_type, force=False, has_active_nodes=has_active)
+        except RuntimeError as e:
+            raise PluginInUseError(str(e)) from e
+
+    def _plugin_available(self) -> list[str]:
+        """DSL: plugin_available()
+
+        List available plugins that can be loaded (but aren't currently loaded).
+
+        Returns:
+            List of node_type strings for available but not loaded plugins.
+        """
+        from activecontext.context.registry import get_node_registry
+
+        registry = get_node_registry()
+        discovered = registry.discover_plugins()
+
+        # Filter to only unloaded plugins
+        return [p.node_type for p in discovered if not p.is_loaded]
+
+    def _plugin_info(self, node_type: str) -> Any:
+        """DSL: plugin_info("custom_lint")
+
+        Get information about a registered plugin (loaded or builtin).
+
+        Args:
+            node_type: The node type to query.
+
+        Returns:
+            PluginInfo for the node type.
+
+        Raises:
+            PluginNotFoundError: If the node type is not registered.
+        """
+        from activecontext.context.registry import get_node_registry
+
+        registry = get_node_registry()
+        info = registry.get_plugin_info(node_type)
+
+        if info is None:
+            raise PluginNotFoundError(f"Node type '{node_type}' is not registered")
+
+        return info
+
+    def _register_plugin_node_types(self, server_name: str) -> None:
+        """Register node type constructors from a plugin server into the namespace.
+
+        For each node type provided by the server, creates a factory function
+        that calls PluginManager.create_node(). The factory is added to the
+        namespace under the node type name (e.g., "lint", "code_graph").
+
+        Args:
+            server_name: Name of the connected plugin server.
+        """
+        conn = self._plugin_manager.get_connection(server_name)
+        if conn is None:
+            return
+
+        for nt_schema in conn.node_types:
+            type_name = nt_schema.node_type
+            # Skip names that collide with builtin DSL functions
+            if type_name in (
+                "text",
+                "group",
+                "topic",
+                "artifact",
+                "markdown",
+                "shell",
+                "view",
+                "choice",
+                "sequence",
+                "loop_view",
+                "state_machine",
+            ):
+                import logging
+
+                logging.getLogger(__name__).warning(
+                    "Plugin node type '%s' from '%s' conflicts with builtin DSL "
+                    "function; skipping namespace registration",
+                    type_name,
+                    server_name,
+                )
+                continue
+            self._namespace[type_name] = self._make_plugin_node_factory(server_name, type_name)
+
+    def _unregister_plugin_node_types(self, server_name: str) -> None:
+        """Remove node type constructors for a plugin server from the namespace.
+
+        Args:
+            server_name: Name of the plugin server being disconnected.
+        """
+        conn = self._plugin_manager.get_connection(server_name)
+        if conn is None:
+            return
+
+        for nt_schema in conn.node_types:
+            type_name = nt_schema.node_type
+            self._namespace.pop(type_name, None)
+
+    def _register_all_plugin_node_types(self) -> None:
+        """Register node type constructors for all connected plugin servers.
+
+        Called during _setup_namespace to restore constructors after namespace reset.
+        """
+        for conn_name in list(self._plugin_manager._connections):
+            self._register_plugin_node_types(conn_name)
+
+    def plugin_docs(self) -> str:
+        """Generate markdown documentation for all registered plugin node types.
+
+        Returns:
+            Formatted markdown string documenting all plugin schemas.
+        """
+        from activecontext.plugins.schema import generate_plugin_docs
+
+        # Collect schemas from all connected plugin servers
+        schemas: list[Any] = []
+        for conn_name in list(self._plugin_manager._connections):
+            conn = self._plugin_manager.get_connection(conn_name)
+            if conn is not None:
+                schemas.extend(conn.node_types)
+
+        return generate_plugin_docs(schemas, title="Available Plugin Node Types")
+
+    def _make_plugin_node_factory(self, server_name: str, node_type: str) -> Any:
+        """Create a DSL factory function for a plugin node type.
+
+        The returned async callable creates a RemoteNode on the given server
+        and adds it to the context graph.
+
+        Args:
+            server_name: Plugin server to create nodes on.
+            node_type: The node type string.
+
+        Returns:
+            An async callable ``(*args, **kwargs) -> RemoteNode``.
+        """
+
+        async def factory(*args: Any, **kwargs: Any) -> Any:
+            node = await self._plugin_manager.create_node(server_name, node_type, *args, **kwargs)
+            # Add remote node to the context graph and link to root
+            self._context_graph.add_node(node)
+            self._context_graph.link(node.node_id, "context")
+            # Auto-link to current group if set
+            if self._current_group_id:
+                self._context_graph.link(node.node_id, self._current_group_id)
+            return node
+
+        factory.__name__ = node_type
+        factory.__qualname__ = f"Timeline._plugin_factory.{node_type}"
+        factory.__doc__ = f"Create a '{node_type}' node on plugin server '{server_name}'."
+        return factory
+
+    async def _setup_plugins(self) -> None:
+        """Connect to plugin servers configured with auto_connect.
+
+        Called during session startup (after __init__) since connection
+        is async. Mirrors _setup_mcp_autoconnect for MCP servers.
+        """
+        import logging
+
+        _log = logging.getLogger(__name__)
+
+        config = self._plugins_config
+        if config is None:
+            # Fall back to global config
+            from activecontext.config import get_config
+
+            try:
+                config = get_config().plugins
+            except Exception:
+                return
+
+        for server_cfg in config.servers:
+            from activecontext.config.schema import PluginConnectMode
+
+            if server_cfg.connect == PluginConnectMode.AUTO and server_cfg.command:
+                try:
+                    await self._plugin_manager.connect(
+                        name=server_cfg.name,
+                        command=server_cfg.command,
+                        env=server_cfg.env or None,
+                    )
+                    # Register constructors in namespace
+                    self._register_plugin_node_types(server_cfg.name)
+                    _log.info("Auto-connected to plugin '%s'", server_cfg.name)
+                except Exception as e:
+                    _log.warning(
+                        "Failed to auto-connect plugin '%s': %s",
+                        server_cfg.name,
+                        e,
+                    )
+
+    async def process_pending_plugin_results(self) -> list[str]:
+        """Sync dirty remote plugin nodes. Called during tick.
+
+        Returns:
+            List of node IDs that were synced.
+        """
+        return await self._plugin_manager.process_pending_results()
 
     # =========================================================================
     # File locking DSL functions
@@ -2094,6 +2743,9 @@ class Timeline:
 
         # Disconnect from all MCP servers
         await self._mcp_integration.cleanup()
+
+        # Disconnect from all plugin servers
+        await self._plugin_manager.disconnect_all()
 
         # Give cancelled tasks a chance to complete
         if self._shell_manager.has_pending_tasks() or self._lock_manager.has_pending_tasks():
@@ -2171,9 +2823,8 @@ class Timeline:
             httpx.Response from execution, or raises WebsitePermissionDenied if denied.
         """
         # Check permission if manager is configured
-        if (
-            self._website_permission_manager
-            and not self._website_permission_manager.check_access(url, method)
+        if self._website_permission_manager and not self._website_permission_manager.check_access(
+            url, method
         ):
             # Permission denied - try to request
             if self._website_permission_requester:
@@ -2647,8 +3298,8 @@ class Timeline:
         nodes: list[ShellNode | LockNode] = []
         for node_id in condition.node_ids:
             node = self._context_graph.get_node(node_id)
-            if isinstance(node, (ShellNode, LockNode)):
-                nodes.append(node)
+            if node is not None and node.node_type in ("shell", "lock"):
+                nodes.append(node)  # type: ignore[arg-type]
 
         if not nodes:
             # No valid nodes found - treat as satisfied with error
@@ -2658,9 +3309,9 @@ class Timeline:
         failed_nodes: list[ShellNode | LockNode] = []
         for n in nodes:
             if (
-                isinstance(n, ShellNode)
+                n.node_type == "shell"
                 and n.shell_status == ShellStatus.FAILED
-                or isinstance(n, LockNode)
+                or n.node_type == "lock"
                 and n.lock_status in (LockStatus.ERROR, LockStatus.TIMEOUT)
             ):
                 failed_nodes.append(n)
@@ -2668,7 +3319,7 @@ class Timeline:
         if failed_nodes and condition.failure_prompt:
             failed = failed_nodes[0]
             # Build prompt based on node type
-            if isinstance(failed, ShellNode):
+            if failed.node_type == "shell":
                 prompt = condition.failure_prompt.format(
                     node=failed,
                     node_id=failed.node_id,
@@ -2774,7 +3425,7 @@ class Timeline:
 
     def _format_wake_prompt(self, template: str, node: ShellNode | LockNode) -> str:
         """Format a wake prompt template with node-specific attributes."""
-        if isinstance(node, ShellNode):
+        if node.node_type == "shell":
             return template.format(
                 node=node,
                 node_id=node.node_id,
@@ -2857,6 +3508,7 @@ class Timeline:
             "wait_any",
             "lock_file",
             "lock_release",
+            "summarize",
             "work_on",
             "work_check",
             "work_update",
@@ -2872,6 +3524,15 @@ class Timeline:
             "connect",
             "interact",  # Conversation delegation DSL functions
             "import_script",
+            "help",
+            "plugin_connect",
+            "plugin_disconnect",
+            "plugin_list",
+            "plugin_load",
+            "plugin_unload",
+            "plugin_available",
+            "plugin_info",
+            "plugin_docs",
         }
         return {
             k: v for k, v in self._namespace.items() if not k.startswith("__") and k not in excluded
@@ -3043,8 +3704,7 @@ class Timeline:
                         exception={
                             "type": "ImportError",
                             "message": (
-                                f"Import denied: '{module}' is not in the"
-                                " allowed modules whitelist"
+                                f"Import denied: '{module}' is not in the allowed modules whitelist"
                             ),
                             "traceback": result.exception.get("traceback", ""),
                         },

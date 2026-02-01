@@ -7,15 +7,13 @@ These tests focus on:
 - Error handling paths
 """
 
-import asyncio
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from activecontext.session.timeline import Timeline
 from activecontext.context.graph import ContextGraph
 from activecontext.context.state import Expansion
+from activecontext.session.timeline import Timeline
 
 
 class TestReplayFrom:
@@ -156,9 +154,7 @@ class TestShellExecution:
         """Test shell execution with timeout."""
         timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
         try:
-            result = await timeline.execute_statement(
-                's = shell("echo", ["test"], timeout=60.0)'
-            )
+            result = await timeline.execute_statement('s = shell("echo", ["test"], timeout=60.0)')
             assert result.status.value == "ok"
 
             ns = timeline.get_namespace()
@@ -227,9 +223,7 @@ class TestLockManagement:
         """Test lock acquisition with custom timeout."""
         timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
         try:
-            result = await timeline.execute_statement(
-                'lock = lock_file(".test.lock", timeout=5.0)'
-            )
+            result = await timeline.execute_statement('lock = lock_file(".test.lock", timeout=5.0)')
             assert result.status.value == "ok"
         finally:
             await timeline.close()

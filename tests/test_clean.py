@@ -1,6 +1,5 @@
 """Tests for the clean module."""
 
-import pytest
 from pathlib import Path
 
 
@@ -202,6 +201,135 @@ class TestMoreThan10Items:
         captured = capsys.readouterr()
         assert "Removed 12 items" in captured.out
         assert "... and 2 more" in captured.out
+
+
+class TestCleanAdditionalDirs:
+    """Tests for cleaning additional directory types."""
+
+    def test_clean_removes_ruff_cache(self, tmp_path: Path):
+        from activecontext.clean import clean
+
+        ruff_cache = tmp_path / ".ruff_cache"
+        ruff_cache.mkdir()
+        (ruff_cache / "0.1.0").mkdir()
+
+        clean(tmp_path)
+
+        assert not ruff_cache.exists()
+
+    def test_clean_removes_build_dir(self, tmp_path: Path):
+        from activecontext.clean import clean
+
+        build_dir = tmp_path / "build"
+        build_dir.mkdir()
+        (build_dir / "lib").mkdir()
+
+        clean(tmp_path)
+
+        assert not build_dir.exists()
+
+    def test_clean_removes_dist_dir(self, tmp_path: Path):
+        from activecontext.clean import clean
+
+        dist_dir = tmp_path / "dist"
+        dist_dir.mkdir()
+        (dist_dir / "package-1.0.tar.gz").write_bytes(b"tarball")
+
+        clean(tmp_path)
+
+        assert not dist_dir.exists()
+
+    def test_clean_removes_egg_info_dir(self, tmp_path: Path):
+        from activecontext.clean import clean
+
+        egg_dir = tmp_path / "mypackage.egg-info"
+        egg_dir.mkdir()
+        (egg_dir / "PKG-INFO").write_text("egg info")
+
+        clean(tmp_path)
+
+        assert not egg_dir.exists()
+
+    def test_clean_preserves_pyc_in_venv(self, tmp_path: Path):
+        from activecontext.clean import clean
+
+        # .pyc inside .venv should not be removed
+        venv_pyc = tmp_path / ".venv" / "lib" / "site-packages" / "module.pyc"
+        venv_pyc.parent.mkdir(parents=True)
+        venv_pyc.write_bytes(b"bytecode")
+
+        clean(tmp_path)
+
+        assert venv_pyc.exists()
+
+    def test_clean_preserves_pyo_in_git(self, tmp_path: Path):
+        from activecontext.clean import clean
+
+        # .pyo inside .git should not be removed
+        git_pyo = tmp_path / ".git" / "hooks" / "module.pyo"
+        git_pyo.parent.mkdir(parents=True)
+        git_pyo.write_bytes(b"optimized")
+
+        clean(tmp_path)
+
+        assert git_pyo.exists()
+
+    def test_clean_mixed_artifacts(self, tmp_path: Path, capsys):
+        from activecontext.clean import clean
+
+        # Create a mix of dirs and files
+        (tmp_path / "__pycache__").mkdir()
+        (tmp_path / ".mypy_cache").mkdir()
+        pyc = tmp_path / "test.pyc"
+        pyc.write_bytes(b"bytecode")
+
+        clean(tmp_path)
+
+        captured = capsys.readouterr()
+        assert "Removed 3 items" in captured.out
+
+    def test_clean_preserves_source_files(self, tmp_path: Path):
+        from activecontext.clean import clean
+
+        # Create a normal .py file and a .pyc
+        py_file = tmp_path / "module.py"
+        py_file.write_text("print('hello')")
+        pyc_file = tmp_path / "module.pyc"
+        pyc_file.write_bytes(b"bytecode")
+
+        clean(tmp_path)
+
+        # .py should be preserved, .pyc should be removed
+        assert py_file.exists()
+        assert not pyc_file.exists()
+
+
+class TestConstants:
+    """Tests for module-level constants."""
+
+    def test_dirs_to_remove_list(self):
+        from activecontext.clean import DIRS_TO_REMOVE
+
+        assert "__pycache__" in DIRS_TO_REMOVE
+        assert ".pytest_cache" in DIRS_TO_REMOVE
+        assert ".mypy_cache" in DIRS_TO_REMOVE
+        assert ".ruff_cache" in DIRS_TO_REMOVE
+        assert "build" in DIRS_TO_REMOVE
+        assert "dist" in DIRS_TO_REMOVE
+        assert "*.egg-info" in DIRS_TO_REMOVE
+
+    def test_files_to_remove_list(self):
+        from activecontext.clean import FILES_TO_REMOVE
+
+        assert "*.pyc" in FILES_TO_REMOVE
+        assert "*.pyo" in FILES_TO_REMOVE
+
+    def test_exclude_dirs_set(self):
+        from activecontext.clean import EXCLUDE_DIRS
+
+        assert ".venv" in EXCLUDE_DIRS
+        assert ".git" in EXCLUDE_DIRS
+        assert "node_modules" in EXCLUDE_DIRS
 
 
 class TestScriptExecution:

@@ -105,6 +105,7 @@ class TestMCPConnectionConnect:
         class MockTransportContext:
             async def __aenter__(self):
                 return (mock_read, mock_write)
+
             async def __aexit__(self, *args):
                 pass
 
@@ -114,7 +115,9 @@ class TestMCPConnectionConnect:
         mock_session.list_resources = AsyncMock(return_value=Mock(resources=[]))
         mock_session.list_prompts = AsyncMock(return_value=Mock(prompts=[]))
 
-        with patch("activecontext.mcp.client.create_transport", new_callable=AsyncMock) as mock_create:
+        with patch(
+            "activecontext.mcp.client.create_transport", new_callable=AsyncMock
+        ) as mock_create:
             mock_create.return_value = MockTransportContext()
             with patch("activecontext.mcp.client.ClientSession", return_value=mock_session):
                 await mcp_connection.connect()
@@ -132,6 +135,7 @@ class TestMCPConnectionConnect:
                 nonlocal status_during_connect
                 status_during_connect = mcp_connection.status
                 return (Mock(), Mock())
+
             async def __aexit__(self_inner, *args):
                 pass
 
@@ -140,7 +144,9 @@ class TestMCPConnectionConnect:
         mock_session.list_resources = AsyncMock(return_value=Mock(resources=[]))
         mock_session.list_prompts = AsyncMock(return_value=Mock(prompts=[]))
 
-        with patch("activecontext.mcp.client.create_transport", new_callable=AsyncMock) as mock_create:
+        with patch(
+            "activecontext.mcp.client.create_transport", new_callable=AsyncMock
+        ) as mock_create:
             mock_create.return_value = MockTransportContext()
             with patch("activecontext.mcp.client.ClientSession", return_value=mock_session):
                 await mcp_connection.connect()
@@ -150,9 +156,11 @@ class TestMCPConnectionConnect:
     @pytest.mark.asyncio
     async def test_connect_discovers_tools(self, mcp_connection):
         """Test that connect discovers server tools."""
+
         class MockTransportContext:
             async def __aenter__(self):
                 return (Mock(), Mock())
+
             async def __aexit__(self, *args):
                 pass
 
@@ -166,7 +174,9 @@ class TestMCPConnectionConnect:
         mock_session.list_resources = AsyncMock(return_value=Mock(resources=[]))
         mock_session.list_prompts = AsyncMock(return_value=Mock(prompts=[]))
 
-        with patch("activecontext.mcp.client.create_transport", new_callable=AsyncMock) as mock_create:
+        with patch(
+            "activecontext.mcp.client.create_transport", new_callable=AsyncMock
+        ) as mock_create:
             mock_create.return_value = MockTransportContext()
             with patch("activecontext.mcp.client.ClientSession", return_value=mock_session):
                 await mcp_connection.connect()
@@ -178,9 +188,11 @@ class TestMCPConnectionConnect:
     @pytest.mark.asyncio
     async def test_connect_handles_resources_error(self, mcp_connection):
         """Test that connect handles resources list error gracefully."""
+
         class MockTransportContext:
             async def __aenter__(self):
                 return (Mock(), Mock())
+
             async def __aexit__(self, *args):
                 pass
 
@@ -189,7 +201,9 @@ class TestMCPConnectionConnect:
         mock_session.list_resources = AsyncMock(side_effect=Exception("Not supported"))
         mock_session.list_prompts = AsyncMock(return_value=Mock(prompts=[]))
 
-        with patch("activecontext.mcp.client.create_transport", new_callable=AsyncMock) as mock_create:
+        with patch(
+            "activecontext.mcp.client.create_transport", new_callable=AsyncMock
+        ) as mock_create:
             mock_create.return_value = MockTransportContext()
             with patch("activecontext.mcp.client.ClientSession", return_value=mock_session):
                 await mcp_connection.connect()
@@ -201,9 +215,11 @@ class TestMCPConnectionConnect:
     @pytest.mark.asyncio
     async def test_connect_handles_prompts_error(self, mcp_connection):
         """Test that connect handles prompts list error gracefully."""
+
         class MockTransportContext:
             async def __aenter__(self):
                 return (Mock(), Mock())
+
             async def __aexit__(self, *args):
                 pass
 
@@ -212,7 +228,9 @@ class TestMCPConnectionConnect:
         mock_session.list_resources = AsyncMock(return_value=Mock(resources=[]))
         mock_session.list_prompts = AsyncMock(side_effect=Exception("Not supported"))
 
-        with patch("activecontext.mcp.client.create_transport", new_callable=AsyncMock) as mock_create:
+        with patch(
+            "activecontext.mcp.client.create_transport", new_callable=AsyncMock
+        ) as mock_create:
             mock_create.return_value = MockTransportContext()
             with patch("activecontext.mcp.client.ClientSession", return_value=mock_session):
                 await mcp_connection.connect()
@@ -224,9 +242,10 @@ class TestMCPConnectionConnect:
     @pytest.mark.asyncio
     async def test_connect_error_sets_error_status(self, mcp_connection):
         """Test that connect error sets ERROR status."""
-        with patch("activecontext.mcp.client.create_transport", side_effect=Exception("Connection failed")):
-            with pytest.raises(Exception, match="Connection failed"):
-                await mcp_connection.connect()
+        with patch(
+            "activecontext.mcp.client.create_transport", side_effect=Exception("Connection failed")
+        ), pytest.raises(Exception, match="Connection failed"):
+            await mcp_connection.connect()
 
         assert mcp_connection.status == MCPConnectionStatus.ERROR
         assert mcp_connection.error_message == "Connection failed"
@@ -252,9 +271,7 @@ class TestMCPConnectionDisconnect:
     @pytest.mark.asyncio
     async def test_disconnect_handles_session_error(self, connected_mcp_connection):
         """Test disconnect handles session close error."""
-        connected_mcp_connection.session.__aexit__ = AsyncMock(
-            side_effect=Exception("Close error")
-        )
+        connected_mcp_connection.session.__aexit__ = AsyncMock(side_effect=Exception("Close error"))
 
         await connected_mcp_connection.disconnect()
 
@@ -344,9 +361,7 @@ class TestMCPConnectionCallTool:
     @pytest.mark.asyncio
     async def test_call_tool_handles_exception(self, connected_mcp_connection):
         """Test call_tool handles exception."""
-        connected_mcp_connection.session.call_tool = AsyncMock(
-            side_effect=Exception("Tool error")
-        )
+        connected_mcp_connection.session.call_tool = AsyncMock(side_effect=Exception("Tool error"))
 
         result = await connected_mcp_connection.call_tool("failing_tool", {})
 
@@ -403,6 +418,7 @@ class TestMCPClientManagerPermissions:
 
     def test_set_permission_callback(self, mcp_manager):
         """Test setting permission callback."""
+
         async def callback(server, tool, args):
             return True
 
@@ -585,11 +601,15 @@ class TestMCPClientManagerGetAllTools:
         """Test get_all_tools only includes connected servers."""
         conn1 = MCPConnection(name="server1", config=server_config)
         conn1.status = MCPConnectionStatus.CONNECTED
-        conn1.tools = [MCPToolInfo(name="tool1", description="", input_schema={}, server_name="server1")]
+        conn1.tools = [
+            MCPToolInfo(name="tool1", description="", input_schema={}, server_name="server1")
+        ]
 
         conn2 = MCPConnection(name="server2", config=server_config)
         conn2.status = MCPConnectionStatus.DISCONNECTED
-        conn2.tools = [MCPToolInfo(name="tool2", description="", input_schema={}, server_name="server2")]
+        conn2.tools = [
+            MCPToolInfo(name="tool2", description="", input_schema={}, server_name="server2")
+        ]
 
         mcp_manager.connections["server1"] = conn1
         mcp_manager.connections["server2"] = conn2
@@ -689,6 +709,7 @@ class TestServerProxyToolCalls:
     @pytest.mark.asyncio
     async def test_tool_call_with_permission_allowed(self, connected_mcp_connection):
         """Test tool call with permission callback that allows."""
+
         async def allow_callback(server, tool, args):
             return True
 
@@ -726,9 +747,11 @@ class TestMCPConnectionReconnection:
     @pytest.mark.asyncio
     async def test_reconnect_after_disconnect(self, mcp_connection):
         """Test reconnecting after a normal disconnect."""
+
         class MockTransportContext:
             async def __aenter__(self):
                 return (Mock(), Mock())
+
             async def __aexit__(self, *args):
                 pass
 
@@ -738,7 +761,9 @@ class TestMCPConnectionReconnection:
         mock_session.list_prompts = AsyncMock(return_value=Mock(prompts=[]))
         mock_session.__aexit__ = AsyncMock()
 
-        with patch("activecontext.mcp.client.create_transport", new_callable=AsyncMock) as mock_create:
+        with patch(
+            "activecontext.mcp.client.create_transport", new_callable=AsyncMock
+        ) as mock_create:
             mock_create.return_value = MockTransportContext()
             with patch("activecontext.mcp.client.ClientSession", return_value=mock_session):
                 # First connect
@@ -756,9 +781,11 @@ class TestMCPConnectionReconnection:
     @pytest.mark.asyncio
     async def test_reconnect_after_error(self, mcp_connection):
         """Test reconnecting after a connection error."""
+
         class MockTransportContext:
             async def __aenter__(self):
                 return (Mock(), Mock())
+
             async def __aexit__(self, *args):
                 pass
 
@@ -790,9 +817,11 @@ class TestMCPConnectionReconnection:
     @pytest.mark.asyncio
     async def test_connection_clears_error_message_on_success(self, mcp_connection):
         """Test that error_message is cleared on successful reconnect."""
+
         class MockTransportContext:
             async def __aenter__(self):
                 return (Mock(), Mock())
+
             async def __aexit__(self, *args):
                 pass
 
@@ -805,7 +834,9 @@ class TestMCPConnectionReconnection:
         mcp_connection.status = MCPConnectionStatus.ERROR
         mcp_connection.error_message = "Previous error"
 
-        with patch("activecontext.mcp.client.create_transport", new_callable=AsyncMock) as mock_create:
+        with patch(
+            "activecontext.mcp.client.create_transport", new_callable=AsyncMock
+        ) as mock_create:
             mock_create.return_value = MockTransportContext()
             with patch("activecontext.mcp.client.ClientSession", return_value=mock_session):
                 await mcp_connection.connect()
@@ -827,6 +858,7 @@ class TestMCPConnectionStateTransitions:
             async def __aenter__(self_inner):
                 statuses.append(mcp_connection.status)
                 return (Mock(), Mock())
+
             async def __aexit__(self_inner, *args):
                 pass
 
@@ -838,7 +870,9 @@ class TestMCPConnectionStateTransitions:
         assert mcp_connection.status == MCPConnectionStatus.DISCONNECTED
         statuses.append(mcp_connection.status)
 
-        with patch("activecontext.mcp.client.create_transport", new_callable=AsyncMock) as mock_create:
+        with patch(
+            "activecontext.mcp.client.create_transport", new_callable=AsyncMock
+        ) as mock_create:
             mock_create.return_value = MockTransportContext()
             with patch("activecontext.mcp.client.ClientSession", return_value=mock_session):
                 await mcp_connection.connect()
@@ -866,16 +900,20 @@ class TestMCPConnectionErrorHandling:
     @pytest.mark.asyncio
     async def test_tool_discovery_error_sets_status(self, mcp_connection):
         """Test that tool discovery error sets error status."""
+
         class MockTransportContext:
             async def __aenter__(self):
                 return (Mock(), Mock())
+
             async def __aexit__(self, *args):
                 pass
 
         mock_session = AsyncMock()
         mock_session.list_tools = AsyncMock(side_effect=Exception("Tool list failed"))
 
-        with patch("activecontext.mcp.client.create_transport", new_callable=AsyncMock) as mock_create:
+        with patch(
+            "activecontext.mcp.client.create_transport", new_callable=AsyncMock
+        ) as mock_create:
             mock_create.return_value = MockTransportContext()
             with patch("activecontext.mcp.client.ClientSession", return_value=mock_session):
                 with pytest.raises(Exception, match="Tool list failed"):

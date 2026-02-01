@@ -11,15 +11,13 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-import time
 from pathlib import Path
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import Mock, patch
 
 import pytest
 
 from activecontext.config.watcher import ConfigWatcher, start_watching, stop_watching
 from activecontext.logging import get_logger, setup_logging
-
 
 # =============================================================================
 # Fixtures
@@ -82,9 +80,7 @@ class TestConfigWatcher:
         assert watcher._running is False
 
     @pytest.mark.asyncio
-    async def test_watcher_detect_file_modification(
-        self, temp_config_file, temp_config_dir
-    ):
+    async def test_watcher_detect_file_modification(self, temp_config_file, temp_config_dir):
         """Test detection of file modification."""
         with patch(
             "activecontext.config.watcher.get_config_paths",
@@ -138,9 +134,7 @@ class TestConfigWatcher:
             watcher.stop()
 
     @pytest.mark.asyncio
-    async def test_watcher_detect_file_deletion(
-        self, temp_config_file, temp_config_dir
-    ):
+    async def test_watcher_detect_file_deletion(self, temp_config_file, temp_config_dir):
         """Test detection of config file deletion."""
         with patch(
             "activecontext.config.watcher.get_config_paths",
@@ -165,10 +159,13 @@ class TestConfigWatcher:
     @pytest.mark.asyncio
     async def test_watcher_calls_reload_on_change(self, temp_config_file):
         """Test that reload_config is called when changes detected."""
-        with patch(
-            "activecontext.config.watcher.get_config_paths",
-            return_value=[temp_config_file],
-        ), patch("activecontext.config.watcher.reload_config") as mock_reload:
+        with (
+            patch(
+                "activecontext.config.watcher.get_config_paths",
+                return_value=[temp_config_file],
+            ),
+            patch("activecontext.config.watcher.reload_config") as mock_reload,
+        ):
             watcher = ConfigWatcher(poll_interval=0.05)
             watcher.start()
 
@@ -188,12 +185,15 @@ class TestConfigWatcher:
     @pytest.mark.asyncio
     async def test_watcher_handles_reload_errors(self, temp_config_file):
         """Test that watcher continues on reload errors."""
-        with patch(
-            "activecontext.config.watcher.get_config_paths",
-            return_value=[temp_config_file],
-        ), patch(
-            "activecontext.config.watcher.reload_config",
-            side_effect=Exception("Reload error"),
+        with (
+            patch(
+                "activecontext.config.watcher.get_config_paths",
+                return_value=[temp_config_file],
+            ),
+            patch(
+                "activecontext.config.watcher.reload_config",
+                side_effect=Exception("Reload error"),
+            ),
         ):
             watcher = ConfigWatcher(poll_interval=0.05)
             watcher.start()
@@ -277,10 +277,9 @@ class TestLogging:
 
     def test_setup_logging_creates_file_handler(self, temp_log_file):
         """Test setup_logging with file configuration."""
-        from activecontext.config.schema import LoggingConfig
-
         # Reset initialization flag for testing
         import activecontext.logging as logging_module
+        from activecontext.config.schema import LoggingConfig
 
         logging_module._initialized = False
 
@@ -296,10 +295,9 @@ class TestLogging:
 
     def test_setup_logging_stderr_fallback(self):
         """Test setup_logging falls back to stderr."""
-        from activecontext.config.schema import LoggingConfig
-
         # Reset initialization flag
         import activecontext.logging as logging_module
+        from activecontext.config.schema import LoggingConfig
 
         logging_module._initialized = False
 
@@ -324,8 +322,8 @@ class TestLogging:
 
     def test_setup_logging_level_mapping(self):
         """Test log level string to constant mapping."""
-        from activecontext.config.schema import LoggingConfig
         import activecontext.logging as logging_module
+        from activecontext.config.schema import LoggingConfig
 
         test_levels = [
             ("DEBUG", logging.DEBUG),
@@ -360,8 +358,8 @@ class TestLogging:
         """Test log message format: 'HH:MM:SS level: message'."""
         import re
 
-        from activecontext.config.schema import LoggingConfig
         import activecontext.logging as logging_module
+        from activecontext.config.schema import LoggingConfig
 
         logging_module._initialized = False
 
@@ -435,7 +433,6 @@ class TestMainEntryPoint:
     ):
         """Test main() startup sequence."""
         from activecontext.__main__ import main
-
         from activecontext.config.schema import LoggingConfig
 
         # Mock stdin.isatty() to return True, preventing devnull file from being opened
@@ -444,6 +441,7 @@ class TestMainEntryPoint:
         # Make mock_asyncio_run properly close the coroutine to avoid warning
         def close_coro(coro):
             coro.close()
+
         mock_asyncio_run.side_effect = close_coro
 
         mock_config = Mock()
@@ -481,8 +479,8 @@ class TestInfrastructureIntegration:
     @pytest.mark.asyncio
     async def test_watcher_and_logging_together(self, temp_log_file, temp_config_file):
         """Test config watcher and logging working together."""
-        from activecontext.config.schema import LoggingConfig
         import activecontext.logging as logging_module
+        from activecontext.config.schema import LoggingConfig
 
         # Setup logging
         logging_module._initialized = False

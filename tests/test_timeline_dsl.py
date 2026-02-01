@@ -5,12 +5,13 @@ by other test modules.
 """
 
 import asyncio
+import contextlib
 from pathlib import Path
 
 import pytest
 
-from activecontext.session.timeline import Timeline
 from activecontext.context.graph import ContextGraph
+from activecontext.session.timeline import Timeline
 
 
 class TestLsHandles:
@@ -432,7 +433,7 @@ class TestReplayFrom:
             assert original_statements == 3
 
             # replay_from is an async generator, consume all results
-            async for result in timeline.replay_from(1):
+            async for _result in timeline.replay_from(1):
                 pass  # Just consume the results
 
             # Should still have same number of statements
@@ -529,7 +530,6 @@ class TestHideUnhide:
     @pytest.mark.asyncio
     async def test_hide_multiple_nodes(self, temp_cwd: Path) -> None:
         """Test hide() with multiple nodes."""
-        from activecontext.context.state import Expansion
 
         timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
 
@@ -550,7 +550,6 @@ class TestHideUnhide:
     @pytest.mark.asyncio
     async def test_hide_by_id(self, temp_cwd: Path) -> None:
         """Test hide() with node ID string."""
-        from activecontext.context.state import Expansion
 
         timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
 
@@ -594,7 +593,6 @@ class TestHideUnhide:
     @pytest.mark.asyncio
     async def test_hide_skips_already_hidden(self, temp_cwd: Path) -> None:
         """Test that hide() skips nodes already hidden."""
-        from activecontext.context.state import Expansion
 
         timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
 
@@ -740,7 +738,6 @@ class TestHideUnhide:
             assert v.expand == Expansion.HEADER
         finally:
             await timeline.close()
-
 
 
 class TestMultiLineExpressionResult:
@@ -1022,6 +1019,7 @@ async def my_async_func():
         timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
 
         try:
+
             async def failing_func():
                 raise ValueError("intentional failure")
 
@@ -1052,9 +1050,11 @@ z = 'after_await'
         timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
 
         try:
+
             async def outer():
                 async def inner():
                     return 42
+
                 return inner()  # Returns coroutine, not result
 
             timeline._namespace["outer"] = outer
@@ -1073,6 +1073,7 @@ z = 'after_await'
         timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
 
         try:
+
             async def async_gen():
                 for i in range(5):
                     yield i * 2
@@ -1097,6 +1098,7 @@ async for x in async_gen():
         timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
 
         try:
+
             class AsyncCM:
                 def __init__(self):
                     self.entered = False
@@ -1163,6 +1165,7 @@ async with AsyncCM():
         timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
 
         try:
+
             def sync_func():
                 return 42
 
@@ -1173,7 +1176,10 @@ async with AsyncCM():
             assert result.status.value == "error"
             assert result.exception["type"] == "TypeError"
             # Should mention can't await or not awaitable
-            assert "await" in result.exception["message"].lower() or "awaitable" in result.exception["message"].lower()
+            assert (
+                "await" in result.exception["message"].lower()
+                or "awaitable" in result.exception["message"].lower()
+            )
         finally:
             await timeline.close()
 
@@ -1246,6 +1252,7 @@ e = c + 1
         timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
 
         try:
+
             async def async_double(x):
                 return x * 2
 
@@ -1307,6 +1314,7 @@ e = c + 1
         timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
 
         try:
+
             async def async_range(n):
                 for i in range(n):
                     yield i
@@ -1331,6 +1339,7 @@ async for x in (i * 2 async for i in async_range(5)):
         timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
 
         try:
+
             async def might_fail(should_fail: bool):
                 if should_fail:
                     raise ValueError("failed")
@@ -1362,6 +1371,7 @@ finally:
         timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
 
         try:
+
             async def get_value():
                 return 42
 
@@ -1387,6 +1397,7 @@ else:
         timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
 
         try:
+
             async def async_true():
                 return "yes"
 
@@ -1464,6 +1475,7 @@ async def factorial(n):
         timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
 
         try:
+
             async def bad_gen():
                 yield 1
                 yield 2
@@ -1493,6 +1505,7 @@ except ValueError as e:
         timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
 
         try:
+
             async def step1():
                 return "a"
 
@@ -1520,6 +1533,7 @@ except ValueError as e:
         timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
 
         try:
+
             async def async_key(i):
                 return f"key_{i}"
 
@@ -1547,6 +1561,7 @@ except ValueError as e:
         timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
 
         try:
+
             async def inner():
                 raise ValueError("inner error")
 
@@ -1629,6 +1644,7 @@ c = await increment()
         timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
 
         try:
+
             async def inner():
                 return "final"
 
@@ -1666,9 +1682,7 @@ c = await increment()
             timeline._namespace["asyncio"] = asyncio
 
             # Start the statement execution
-            task = asyncio.create_task(
-                timeline.execute_statement("await slow_with_cleanup()")
-            )
+            task = asyncio.create_task(timeline.execute_statement("await slow_with_cleanup()"))
 
             # Give it a moment to start
             await asyncio.sleep(0.01)
@@ -1677,10 +1691,8 @@ c = await increment()
             task.cancel()
 
             # Wait for cancellation to complete
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await task
-            except asyncio.CancelledError:
-                pass
 
             # Cleanup should have been called
             assert cleanup_called["value"] is True
@@ -1704,15 +1716,9 @@ class TestChoiceDSL:
 
         try:
             # Create child nodes using markdown with content parameter
-            await timeline.execute_statement(
-                'v1 = markdown("option_a.md", content="# Option A")'
-            )
-            await timeline.execute_statement(
-                'v2 = markdown("option_b.md", content="# Option B")'
-            )
-            await timeline.execute_statement(
-                'v3 = markdown("option_c.md", content="# Option C")'
-            )
+            await timeline.execute_statement('v1 = markdown("option_a.md", content="# Option A")')
+            await timeline.execute_statement('v2 = markdown("option_b.md", content="# Option B")')
+            await timeline.execute_statement('v3 = markdown("option_c.md", content="# Option C")')
 
             # Create choice view
             result = await timeline.execute_statement("c = choice(v1, v2, v3)")
@@ -1739,17 +1745,11 @@ class TestChoiceDSL:
 
         try:
             # Create child nodes
-            await timeline.execute_statement(
-                'v1 = markdown("opt_a.md", content="# Option A")'
-            )
-            await timeline.execute_statement(
-                'v2 = markdown("opt_b.md", content="# Option B")'
-            )
+            await timeline.execute_statement('v1 = markdown("opt_a.md", content="# Option A")')
+            await timeline.execute_statement('v2 = markdown("opt_b.md", content="# Option B")')
 
             # Create choice with explicit selection
-            result = await timeline.execute_statement(
-                "c = choice(v1, v2, selected=v2.node_id)"
-            )
+            result = await timeline.execute_statement("c = choice(v1, v2, selected=v2.node_id)")
             assert result.status.value == "ok"
 
             ns = timeline.get_namespace()
@@ -1765,18 +1765,13 @@ class TestChoiceDSL:
     @pytest.mark.asyncio
     async def test_choice_select_method(self, temp_cwd: Path) -> None:
         """Test that ChoiceView.select() switches selection."""
-        from activecontext.context.view import ChoiceView
 
         timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
 
         try:
             # Create child nodes
-            await timeline.execute_statement(
-                'v1 = markdown("a.md", content="# Option A")'
-            )
-            await timeline.execute_statement(
-                'v2 = markdown("b.md", content="# Option B")'
-            )
+            await timeline.execute_statement('v1 = markdown("a.md", content="# Option A")')
+            await timeline.execute_statement('v2 = markdown("b.md", content="# Option B")')
 
             # Create choice
             result = await timeline.execute_statement("c = choice(v1, v2)")
@@ -1906,8 +1901,7 @@ class TestImportScript:
         """import_script parses markdown and executes python/acrepl blocks."""
         script = temp_cwd / "test_script.md"
         script.write_text(
-            '# Test Script\n\nSome prose.\n\n```python/acrepl\n'
-            't = topic("From Script")\n```\n',
+            '# Test Script\n\nSome prose.\n\n```python/acrepl\nt = topic("From Script")\n```\n',
             encoding="utf-8",
         )
 
@@ -1966,7 +1960,7 @@ class TestImportScript:
         """import_script only executes python/acrepl blocks, not other code blocks."""
         script = temp_cwd / "mixed.md"
         script.write_text(
-            '```python\n# This is regular python, not acrepl\nx = 1\n```\n\n'
+            "```python\n# This is regular python, not acrepl\nx = 1\n```\n\n"
             '```python/acrepl\nt = topic("Only This")\n```\n',
             encoding="utf-8",
         )

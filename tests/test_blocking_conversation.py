@@ -109,6 +109,7 @@ class TestBlockingConversationTaskInteraction:
     @pytest.mark.asyncio
     async def test_confirm_yes(self) -> None:
         """Test confirm returns True for 'yes'."""
+
         async def callback(question: dict) -> str:
             return "Yes"
 
@@ -121,6 +122,7 @@ class TestBlockingConversationTaskInteraction:
     @pytest.mark.asyncio
     async def test_confirm_no(self) -> None:
         """Test confirm returns False for 'No'."""
+
         async def callback(question: dict) -> str:
             return "No"
 
@@ -133,6 +135,7 @@ class TestBlockingConversationTaskInteraction:
     @pytest.mark.asyncio
     async def test_text_input(self) -> None:
         """Test text input with response."""
+
         async def callback(question: dict) -> str:
             return "user input"
 
@@ -147,6 +150,7 @@ class TestBlockingConversationTaskInteraction:
     @pytest.mark.asyncio
     async def test_text_input_empty_uses_default(self) -> None:
         """Test that empty text input uses default."""
+
         async def callback(question: dict) -> str:
             return ""
 
@@ -159,6 +163,7 @@ class TestBlockingConversationTaskInteraction:
     @pytest.mark.asyncio
     async def test_ask_requires_running(self) -> None:
         """Test that ask raises if task not running."""
+
         async def callback(question: dict) -> str:
             return "test"
 
@@ -219,7 +224,6 @@ class TestBlockingConversationTaskInjection:
     @pytest.mark.asyncio
     async def test_inject_response_empty(self) -> None:
         """Test waiting with no injection returns empty string."""
-        import asyncio
 
         task = BlockingConversationTask()
         await task.start()

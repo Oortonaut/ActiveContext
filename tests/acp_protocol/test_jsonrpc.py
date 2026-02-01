@@ -42,7 +42,9 @@ class TestJsonRpcFormat:
             {},
             request_id=custom_id,
         )
-        assert response.get("id") == custom_id, f"ID mismatch: expected {custom_id}, got {response.get('id')}"
+        assert response.get("id") == custom_id, (
+            f"ID mismatch: expected {custom_id}, got {response.get('id')}"
+        )
 
     async def test_response_string_id_matches(self, initialized_client: ACPTestClient) -> None:
         """String request IDs should be echoed exactly."""

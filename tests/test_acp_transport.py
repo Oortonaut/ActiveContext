@@ -15,7 +15,6 @@ import pytest
 from activecontext.terminal.acp_executor import ACPTerminalExecutor
 from activecontext.terminal.result import ShellResult
 
-
 # =============================================================================
 # Fixtures
 # =============================================================================
@@ -168,8 +167,8 @@ class TestNagleBatching:
     @patch("activecontext.transport.acp.agent.SessionManager")
     async def test_flush_chunks_sends_update(self, mock_sm, mock_model):
         """Test that _flush_chunks sends session update."""
+
         from activecontext.transport.acp.agent import ActiveContextAgent
-        import acp
 
         agent = ActiveContextAgent()
         agent._conn = Mock()
@@ -214,12 +213,8 @@ class TestACPTerminalExecutor:
         """Test successful command execution."""
         # Mock successful execution
         mock_acp_client.create_terminal.return_value = Mock(terminal_id="term-1")
-        mock_acp_client.wait_for_terminal_exit.return_value = Mock(
-            exit_code=0, signal=None
-        )
-        mock_acp_client.terminal_output.return_value = Mock(
-            output="Command output"
-        )
+        mock_acp_client.wait_for_terminal_exit.return_value = Mock(exit_code=0, signal=None)
+        mock_acp_client.terminal_output.return_value = Mock(output="Command output")
 
         result = await terminal_executor.execute("echo", args=["hello"])
 
@@ -237,9 +232,7 @@ class TestACPTerminalExecutor:
     async def test_execute_with_cwd(self, terminal_executor, mock_acp_client):
         """Test command execution with custom cwd."""
         mock_acp_client.create_terminal.return_value = Mock(terminal_id="term-1")
-        mock_acp_client.wait_for_terminal_exit.return_value = Mock(
-            exit_code=0, signal=None
-        )
+        mock_acp_client.wait_for_terminal_exit.return_value = Mock(exit_code=0, signal=None)
         mock_acp_client.terminal_output.return_value = Mock(output="")
 
         await terminal_executor.execute("ls", cwd="/custom/dir")
@@ -252,9 +245,7 @@ class TestACPTerminalExecutor:
     async def test_execute_uses_default_cwd(self, terminal_executor, mock_acp_client):
         """Test that default cwd is used when not specified."""
         mock_acp_client.create_terminal.return_value = Mock(terminal_id="term-1")
-        mock_acp_client.wait_for_terminal_exit.return_value = Mock(
-            exit_code=0, signal=None
-        )
+        mock_acp_client.wait_for_terminal_exit.return_value = Mock(exit_code=0, signal=None)
         mock_acp_client.terminal_output.return_value = Mock(output="")
 
         await terminal_executor.execute("pwd")
@@ -266,9 +257,7 @@ class TestACPTerminalExecutor:
     async def test_execute_with_env_vars(self, terminal_executor, mock_acp_client):
         """Test command execution with environment variables."""
         mock_acp_client.create_terminal.return_value = Mock(terminal_id="term-1")
-        mock_acp_client.wait_for_terminal_exit.return_value = Mock(
-            exit_code=0, signal=None
-        )
+        mock_acp_client.wait_for_terminal_exit.return_value = Mock(exit_code=0, signal=None)
         mock_acp_client.terminal_output.return_value = Mock(output="")
 
         env = {"TEST_VAR": "value"}
@@ -281,12 +270,8 @@ class TestACPTerminalExecutor:
     async def test_execute_non_zero_exit_code(self, terminal_executor, mock_acp_client):
         """Test handling of non-zero exit codes."""
         mock_acp_client.create_terminal.return_value = Mock(terminal_id="term-1")
-        mock_acp_client.wait_for_terminal_exit.return_value = Mock(
-            exit_code=1, signal=None
-        )
-        mock_acp_client.terminal_output.return_value = Mock(
-            output="Error occurred"
-        )
+        mock_acp_client.wait_for_terminal_exit.return_value = Mock(exit_code=1, signal=None)
+        mock_acp_client.terminal_output.return_value = Mock(output="Error occurred")
 
         result = await terminal_executor.execute("false")
 
@@ -298,12 +283,8 @@ class TestACPTerminalExecutor:
     async def test_execute_with_signal(self, terminal_executor, mock_acp_client):
         """Test handling of signaled termination."""
         mock_acp_client.create_terminal.return_value = Mock(terminal_id="term-1")
-        mock_acp_client.wait_for_terminal_exit.return_value = Mock(
-            exit_code=143, signal="SIGTERM"
-        )
-        mock_acp_client.terminal_output.return_value = Mock(
-            output="Terminated"
-        )
+        mock_acp_client.wait_for_terminal_exit.return_value = Mock(exit_code=143, signal="SIGTERM")
+        mock_acp_client.terminal_output.return_value = Mock(output="Terminated")
 
         result = await terminal_executor.execute("sleep", args=["100"])
 
@@ -331,9 +312,7 @@ class TestACPTerminalExecutor:
     async def test_execute_output_truncation(self, terminal_executor, mock_acp_client):
         """Test that long output is truncated."""
         mock_acp_client.create_terminal.return_value = Mock(terminal_id="term-1")
-        mock_acp_client.wait_for_terminal_exit.return_value = Mock(
-            exit_code=0, signal=None
-        )
+        mock_acp_client.wait_for_terminal_exit.return_value = Mock(exit_code=0, signal=None)
         # Create output longer than limit
         long_output = "x" * 60000
         mock_acp_client.terminal_output.return_value = Mock(output=long_output)
@@ -345,9 +324,7 @@ class TestACPTerminalExecutor:
         assert "(output truncated)" in result.output
 
     @pytest.mark.asyncio
-    async def test_execute_error_handling_not_found(
-        self, terminal_executor, mock_acp_client
-    ):
+    async def test_execute_error_handling_not_found(self, terminal_executor, mock_acp_client):
         """Test error handling for command not found."""
         mock_acp_client.create_terminal.side_effect = Exception("Command not found")
 
@@ -358,13 +335,9 @@ class TestACPTerminalExecutor:
         assert "Terminal error" in result.output
 
     @pytest.mark.asyncio
-    async def test_execute_error_handling_permission(
-        self, terminal_executor, mock_acp_client
-    ):
+    async def test_execute_error_handling_permission(self, terminal_executor, mock_acp_client):
         """Test error handling for permission denied."""
-        mock_acp_client.create_terminal.side_effect = Exception(
-            "Permission denied"
-        )
+        mock_acp_client.create_terminal.side_effect = Exception("Permission denied")
 
         result = await terminal_executor.execute("restricted-command")
 
@@ -387,9 +360,7 @@ class TestACPTerminalExecutor:
     async def test_execute_cleanup_on_success(self, terminal_executor, mock_acp_client):
         """Test that terminal is released after successful execution."""
         mock_acp_client.create_terminal.return_value = Mock(terminal_id="term-1")
-        mock_acp_client.wait_for_terminal_exit.return_value = Mock(
-            exit_code=0, signal=None
-        )
+        mock_acp_client.wait_for_terminal_exit.return_value = Mock(exit_code=0, signal=None)
         mock_acp_client.terminal_output.return_value = Mock(output="")
 
         await terminal_executor.execute("echo", args=["test"])
@@ -411,9 +382,7 @@ class TestACPTerminalExecutor:
     async def test_execute_duration_tracking(self, terminal_executor, mock_acp_client):
         """Test that execution duration is tracked."""
         mock_acp_client.create_terminal.return_value = Mock(terminal_id="term-1")
-        mock_acp_client.wait_for_terminal_exit.return_value = Mock(
-            exit_code=0, signal=None
-        )
+        mock_acp_client.wait_for_terminal_exit.return_value = Mock(exit_code=0, signal=None)
         mock_acp_client.terminal_output.return_value = Mock(output="")
 
         # Add small delay to ensure measurable duration
@@ -431,9 +400,7 @@ class TestACPTerminalExecutor:
     async def test_execute_no_timeout(self, terminal_executor, mock_acp_client):
         """Test command execution without timeout."""
         mock_acp_client.create_terminal.return_value = Mock(terminal_id="term-1")
-        mock_acp_client.wait_for_terminal_exit.return_value = Mock(
-            exit_code=0, signal=None
-        )
+        mock_acp_client.wait_for_terminal_exit.return_value = Mock(exit_code=0, signal=None)
         mock_acp_client.terminal_output.return_value = Mock(output="")
 
         # No timeout should use wait_for_terminal_exit without asyncio.wait_for
@@ -490,18 +457,12 @@ class TestACPIntegration:
     """Integration tests for ACP transport."""
 
     @pytest.mark.asyncio
-    async def test_terminal_executor_full_lifecycle(
-        self, terminal_executor, mock_acp_client
-    ):
+    async def test_terminal_executor_full_lifecycle(self, terminal_executor, mock_acp_client):
         """Test complete terminal execution lifecycle."""
         # Setup mocks
         mock_acp_client.create_terminal.return_value = Mock(terminal_id="term-123")
-        mock_acp_client.wait_for_terminal_exit.return_value = Mock(
-            exit_code=0, signal=None
-        )
-        mock_acp_client.terminal_output.return_value = Mock(
-            output="Hello, World!\n"
-        )
+        mock_acp_client.wait_for_terminal_exit.return_value = Mock(exit_code=0, signal=None)
+        mock_acp_client.terminal_output.return_value = Mock(output="Hello, World!\n")
 
         # Execute command
         result = await terminal_executor.execute(
@@ -539,7 +500,10 @@ class TestACPIntegration:
 class TestAgentMethods:
     """Tests for ActiveContextAgent methods."""
 
-    @patch("activecontext.transport.acp.agent.get_default_model", return_value="claude-sonnet-4-20250514")
+    @patch(
+        "activecontext.transport.acp.agent.get_default_model",
+        return_value="claude-sonnet-4-20250514",
+    )
     @patch("activecontext.transport.acp.agent.SessionManager")
     def test_get_available_commands(self, mock_sm, mock_model):
         """Test _get_available_commands returns slash commands."""
@@ -559,7 +523,10 @@ class TestAgentMethods:
         assert "title" in command_names
         assert "dashboard" in command_names
 
-    @patch("activecontext.transport.acp.agent.get_default_model", return_value="claude-sonnet-4-20250514")
+    @patch(
+        "activecontext.transport.acp.agent.get_default_model",
+        return_value="claude-sonnet-4-20250514",
+    )
     @patch("activecontext.transport.acp.agent.SessionManager")
     def test_get_client_info_before_init(self, mock_sm, mock_model):
         """Test get_client_info returns None before initialize."""
@@ -571,18 +538,22 @@ class TestAgentMethods:
         assert client_info is None
         assert protocol_version is None
 
-    @patch("activecontext.transport.acp.agent.get_default_model", return_value="claude-sonnet-4-20250514")
+    @patch(
+        "activecontext.transport.acp.agent.get_default_model",
+        return_value="claude-sonnet-4-20250514",
+    )
     @patch("activecontext.transport.acp.agent.SessionManager")
     @pytest.mark.asyncio
     async def test_initialize_stores_client_info(self, mock_sm, mock_model):
         """Test that initialize stores client info."""
-        from activecontext.transport.acp.agent import ActiveContextAgent
         from acp.schema import Implementation
+
+        from activecontext.transport.acp.agent import ActiveContextAgent
 
         agent = ActiveContextAgent()
 
         client_info = Implementation(name="test-client", version="1.0.0")
-        response = await agent.initialize(
+        await agent.initialize(
             protocol_version=1,
             client_info=client_info,
         )
@@ -594,13 +565,17 @@ class TestAgentMethods:
         assert stored_info["name"] == "test-client"
         assert stored_info["version"] == "1.0.0"
 
-    @patch("activecontext.transport.acp.agent.get_default_model", return_value="claude-sonnet-4-20250514")
+    @patch(
+        "activecontext.transport.acp.agent.get_default_model",
+        return_value="claude-sonnet-4-20250514",
+    )
     @patch("activecontext.transport.acp.agent.SessionManager")
     @pytest.mark.asyncio
     async def test_initialize_response_format(self, mock_sm, mock_model):
         """Test that initialize returns proper response."""
-        from activecontext.transport.acp.agent import ActiveContextAgent
         import acp
+
+        from activecontext.transport.acp.agent import ActiveContextAgent
 
         agent = ActiveContextAgent()
 
@@ -611,13 +586,17 @@ class TestAgentMethods:
         assert response.agent_info.version == "0.1.0"
         assert response.agent_capabilities is not None
 
-    @patch("activecontext.transport.acp.agent.get_default_model", return_value="claude-sonnet-4-20250514")
+    @patch(
+        "activecontext.transport.acp.agent.get_default_model",
+        return_value="claude-sonnet-4-20250514",
+    )
     @patch("activecontext.transport.acp.agent.SessionManager")
     @pytest.mark.asyncio
     async def test_initialize_with_capabilities(self, mock_sm, mock_model):
         """Test that initialize handles client capabilities."""
-        from activecontext.transport.acp.agent import ActiveContextAgent
         from acp.schema import ClientCapabilities, FileSystemCapability
+
+        from activecontext.transport.acp.agent import ActiveContextAgent
 
         agent = ActiveContextAgent()
 
@@ -650,7 +629,10 @@ class TestAgentMethods:
         assert write_cap is not None
         assert write_cap["enabled"] is False
 
-    @patch("activecontext.transport.acp.agent.get_default_model", return_value="claude-sonnet-4-20250514")
+    @patch(
+        "activecontext.transport.acp.agent.get_default_model",
+        return_value="claude-sonnet-4-20250514",
+    )
     @patch("activecontext.transport.acp.agent.SessionManager")
     def test_session_modes_loaded(self, mock_sm, mock_model):
         """Test that session modes are loaded."""
@@ -665,7 +647,10 @@ class TestAgentMethods:
 class TestAgentConfigLoading:
     """Tests for agent configuration loading."""
 
-    @patch("activecontext.transport.acp.agent.get_default_model", return_value="claude-sonnet-4-20250514")
+    @patch(
+        "activecontext.transport.acp.agent.get_default_model",
+        return_value="claude-sonnet-4-20250514",
+    )
     @patch("activecontext.transport.acp.agent.SessionManager")
     def test_batch_config_defaults(self, mock_sm, mock_model):
         """Test batch config defaults are set."""
@@ -701,7 +686,10 @@ class TestAgentConfigLoading:
 class TestAgentSessionModes:
     """Tests for session mode functionality."""
 
-    @patch("activecontext.transport.acp.agent.get_default_model", return_value="claude-sonnet-4-20250514")
+    @patch(
+        "activecontext.transport.acp.agent.get_default_model",
+        return_value="claude-sonnet-4-20250514",
+    )
     @patch("activecontext.transport.acp.agent.SessionManager")
     def test_default_session_modes_content(self, mock_sm, mock_model):
         """Test default session modes have expected structure."""
@@ -715,13 +703,16 @@ class TestAgentSessionModes:
             assert mode.id is not None
             assert mode.name is not None
 
-    @patch("activecontext.transport.acp.agent.get_default_model", return_value="claude-sonnet-4-20250514")
+    @patch(
+        "activecontext.transport.acp.agent.get_default_model",
+        return_value="claude-sonnet-4-20250514",
+    )
     @patch("activecontext.transport.acp.agent.SessionManager")
     def test_default_mode_id_exists(self, mock_sm, mock_model):
         """Test default mode ID is valid."""
         from activecontext.transport.acp.agent import (
-            ActiveContextAgent,
             DEFAULT_SESSION_MODES,
+            ActiveContextAgent,
         )
 
         agent = ActiveContextAgent()
@@ -733,7 +724,10 @@ class TestAgentSessionModes:
 class TestAgentChunkBuffering:
     """Tests for Nagle-style chunk buffering."""
 
-    @patch("activecontext.transport.acp.agent.get_default_model", return_value="claude-sonnet-4-20250514")
+    @patch(
+        "activecontext.transport.acp.agent.get_default_model",
+        return_value="claude-sonnet-4-20250514",
+    )
     @patch("activecontext.transport.acp.agent.SessionManager")
     def test_chunk_buffer_initialized(self, mock_sm, mock_model):
         """Test chunk buffer is initialized as empty dict."""
@@ -744,7 +738,10 @@ class TestAgentChunkBuffering:
         assert isinstance(agent._chunk_buffers, dict)
         assert len(agent._chunk_buffers) == 0
 
-    @patch("activecontext.transport.acp.agent.get_default_model", return_value="claude-sonnet-4-20250514")
+    @patch(
+        "activecontext.transport.acp.agent.get_default_model",
+        return_value="claude-sonnet-4-20250514",
+    )
     @patch("activecontext.transport.acp.agent.SessionManager")
     def test_flush_tasks_initialized(self, mock_sm, mock_model):
         """Test flush tasks dict is initialized."""
@@ -755,7 +752,10 @@ class TestAgentChunkBuffering:
         assert isinstance(agent._flush_tasks, dict)
         assert len(agent._flush_tasks) == 0
 
-    @patch("activecontext.transport.acp.agent.get_default_model", return_value="claude-sonnet-4-20250514")
+    @patch(
+        "activecontext.transport.acp.agent.get_default_model",
+        return_value="claude-sonnet-4-20250514",
+    )
     @patch("activecontext.transport.acp.agent.SessionManager")
     def test_closed_sessions_tracking(self, mock_sm, mock_model):
         """Test closed sessions set is initialized."""
@@ -766,7 +766,10 @@ class TestAgentChunkBuffering:
         assert isinstance(agent._closed_sessions, set)
         assert len(agent._closed_sessions) == 0
 
-    @patch("activecontext.transport.acp.agent.get_default_model", return_value="claude-sonnet-4-20250514")
+    @patch(
+        "activecontext.transport.acp.agent.get_default_model",
+        return_value="claude-sonnet-4-20250514",
+    )
     @patch("activecontext.transport.acp.agent.SessionManager")
     def test_active_prompts_tracking(self, mock_sm, mock_model):
         """Test active prompts dict is initialized."""
@@ -783,10 +786,12 @@ class TestCreateAgentFunction:
 
     def test_create_agent_returns_agent(self):
         """Test create_agent returns an ActiveContextAgent."""
-        from activecontext.transport.acp.agent import create_agent, ActiveContextAgent
+        from activecontext.transport.acp.agent import ActiveContextAgent, create_agent
 
-        with patch("activecontext.transport.acp.agent.get_default_model", return_value="claude-sonnet-4-20250514"):
-            with patch("activecontext.transport.acp.agent.SessionManager"):
-                agent = create_agent()
+        with patch(
+            "activecontext.transport.acp.agent.get_default_model",
+            return_value="claude-sonnet-4-20250514",
+        ), patch("activecontext.transport.acp.agent.SessionManager"):
+            agent = create_agent()
 
         assert isinstance(agent, ActiveContextAgent)

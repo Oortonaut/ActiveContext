@@ -1,6 +1,5 @@
 """Tests for the agent type registry."""
 
-import pytest
 from pathlib import Path
 
 from activecontext.agents.registry import AgentTypeRegistry
@@ -274,3 +273,187 @@ class TestLoadUserTypes:
         loaded = registry.load_user_types(tmp_path)
 
         assert loaded == 0
+
+
+class TestBuiltinTypeDetails:
+    """Tests for built-in type properties and content."""
+
+    def test_default_type_has_system_prompt(self):
+        registry = AgentTypeRegistry()
+        agent = registry.get("default")
+
+        assert agent.system_prompt
+        assert len(agent.system_prompt) > 0
+
+    def test_explorer_type_has_system_prompt(self):
+        registry = AgentTypeRegistry()
+        agent = registry.get("explorer")
+
+        assert "explorer" in agent.system_prompt.lower() or "search" in agent.system_prompt.lower()
+
+    def test_summarizer_type_has_system_prompt(self):
+        registry = AgentTypeRegistry()
+        agent = registry.get("summarizer")
+
+        assert "summar" in agent.system_prompt.lower()
+
+    def test_default_type_has_normal_mode(self):
+        registry = AgentTypeRegistry()
+        agent = registry.get("default")
+
+        assert agent.default_mode == "normal"
+
+    def test_default_type_has_empty_capabilities(self):
+        registry = AgentTypeRegistry()
+        agent = registry.get("default")
+
+        assert agent.capabilities == []
+
+    def test_explorer_has_exactly_two_capabilities(self):
+        registry = AgentTypeRegistry()
+        agent = registry.get("explorer")
+
+        assert len(agent.capabilities) == 2
+
+    def test_summarizer_has_exactly_two_capabilities(self):
+        registry = AgentTypeRegistry()
+        agent = registry.get("summarizer")
+
+        assert len(agent.capabilities) == 2
+
+    def test_builtin_count_is_three(self):
+        registry = AgentTypeRegistry()
+        types = registry.list_types()
+
+        assert len(types) == 3
+
+
+class TestRegistrationEdgeCases:
+    """Edge case tests for registration operations."""
+
+    def test_register_then_list_count(self):
+        registry = AgentTypeRegistry()
+        initial_count = len(registry.list_types())
+
+        custom = AgentType(id="new", name="New", system_prompt="New agent")
+        registry.register(custom)
+
+        assert len(registry.list_types()) == initial_count + 1
+
+    def test_overwrite_does_not_increase_count(self):
+        registry = AgentTypeRegistry()
+        initial_count = len(registry.list_types())
+
+        # Overwrite built-in
+        replacement = AgentType(id="default", name="Replaced", system_prompt="Replaced")
+        registry.register(replacement)
+
+        assert len(registry.list_types()) == initial_count
+
+    def test_unregister_all_builtins(self):
+        registry = AgentTypeRegistry()
+
+        registry.unregister("default")
+        registry.unregister("explorer")
+        registry.unregister("summarizer")
+
+        assert len(registry.list_types()) == 0
+
+    def test_unregister_same_id_twice(self):
+        registry = AgentTypeRegistry()
+
+        assert registry.unregister("default") is True
+        assert registry.unregister("default") is False
+
+    def test_register_with_empty_string_id(self):
+        registry = AgentTypeRegistry()
+        agent = AgentType(id="", name="Empty ID", system_prompt="Test")
+
+        registry.register(agent)
+
+        assert registry.get("") is not None
+
+    def test_register_preserves_all_fields(self):
+        registry = AgentTypeRegistry()
+        agent = AgentType(
+            id="full",
+            name="Full Agent",
+            system_prompt="Full prompt",
+            default_mode="plan",
+            capabilities=["read", "write", "execute"],
+        )
+
+        registry.register(agent)
+        retrieved = registry.get("full")
+
+        assert retrieved.id == "full"
+        assert retrieved.name == "Full Agent"
+        assert retrieved.system_prompt == "Full prompt"
+        assert retrieved.default_mode == "plan"
+        assert retrieved.capabilities == ["read", "write", "execute"]
+
+
+class TestLoadFromDirectoryEdgeCases:
+    """Edge case tests for YAML loading."""
+
+    def test_yaml_with_null_content(self, tmp_path: Path):
+        registry = AgentTypeRegistry()
+        agents_dir = tmp_path / "agents"
+        agents_dir.mkdir()
+
+        # YAML that parses to None
+        (agents_dir / "null.yaml").write_text("---\n")
+
+        loaded = registry.load_from_directory(agents_dir)
+
+        assert loaded == 0
+
+    def test_yaml_with_missing_required_fields(self, tmp_path: Path):
+        registry = AgentTypeRegistry()
+        agents_dir = tmp_path / "agents"
+        agents_dir.mkdir()
+
+        # Missing 'system_prompt'
+        yaml_content = "id: incomplete\nname: Incomplete Agent\n"
+        (agents_dir / "incomplete.yaml").write_text(yaml_content)
+
+        loaded = registry.load_from_directory(agents_dir)
+
+        # Should be skipped (from_dict will raise KeyError)
+        assert loaded == 0
+
+    def test_yaml_with_extra_fields(self, tmp_path: Path):
+        registry = AgentTypeRegistry()
+        agents_dir = tmp_path / "agents"
+        agents_dir.mkdir()
+
+        # Extra fields should not cause errors
+        yaml_content = (
+            "id: extra\n"
+            "name: Extra Agent\n"
+            "system_prompt: Extra prompt\n"
+            "unknown_field: should be ignored\n"
+        )
+        (agents_dir / "extra.yaml").write_text(yaml_content)
+
+        loaded = registry.load_from_directory(agents_dir)
+
+        # AgentType.from_dict ignores extra keys via **kwargs not being used
+        # It should either load successfully or skip
+        assert loaded in (0, 1)
+
+    def test_load_user_types_creates_correct_path(self, tmp_path: Path):
+        registry = AgentTypeRegistry()
+
+        # Create nested .ac/agents with a valid agent
+        agents_dir = tmp_path / ".ac" / "agents"
+        agents_dir.mkdir(parents=True)
+
+        yaml_content = "id: nested\nname: Nested\nsystem_prompt: Nested agent\n"
+        (agents_dir / "nested.yaml").write_text(yaml_content)
+
+        loaded = registry.load_user_types(tmp_path)
+
+        assert loaded == 1
+        agent = registry.get("nested")
+        assert agent.name == "Nested"

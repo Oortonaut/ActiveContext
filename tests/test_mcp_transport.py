@@ -136,9 +136,7 @@ class TestCreateTransport:
         )
 
         mock_client = MagicMock()
-        with patch(
-            "mcp.client.stdio.stdio_client", return_value=mock_client
-        ) as mock_stdio:
+        with patch("mcp.client.stdio.stdio_client", return_value=mock_client) as mock_stdio:
             result = await create_transport(config)
 
             mock_stdio.assert_called_once()
@@ -203,9 +201,7 @@ class TestCreateTransport:
         )
 
         mock_client = MagicMock()
-        with patch(
-            "mcp.client.sse.sse_client", return_value=mock_client
-        ) as mock_sse:
+        with patch("mcp.client.sse.sse_client", return_value=mock_client) as mock_sse:
             result = await create_transport(config)
 
             mock_sse.assert_called_once()
@@ -271,3 +267,170 @@ class TestCreateTransport:
 
             call_kwargs = mock_sse.call_args[1]
             assert call_kwargs["headers"] is None
+
+    @pytest.mark.asyncio
+    async def test_stdio_empty_extra_args(self):
+        from activecontext.mcp.transport import create_transport
+
+        config = MCPServerConfig(
+            name="test",
+            transport="stdio",
+            command=["node", "server.js"],
+            extra_args=[],
+        )
+
+        with patch("mcp.client.stdio.stdio_client") as mock_stdio:
+            await create_transport(config)
+
+            params = mock_stdio.call_args[0][0]
+            assert params.command == "node"
+            assert params.args == ["server.js"]
+
+    @pytest.mark.asyncio
+    async def test_stdio_single_command_no_args(self):
+        from activecontext.mcp.transport import create_transport
+
+        config = MCPServerConfig(
+            name="test",
+            transport="stdio",
+            command=["python"],
+        )
+
+        with patch("mcp.client.stdio.stdio_client") as mock_stdio:
+            await create_transport(config)
+
+            params = mock_stdio.call_args[0][0]
+            assert params.command == "python"
+            assert params.args == []
+
+    @pytest.mark.asyncio
+    async def test_stdio_empty_command_list(self):
+        """Empty command list should raise ValueError."""
+        from activecontext.mcp.transport import create_transport
+
+        config = MCPServerConfig(
+            name="test",
+            transport="stdio",
+            command=[],
+        )
+
+        # Empty list is falsy, should raise
+        with pytest.raises(ValueError, match="requires 'command'"):
+            await create_transport(config)
+
+    @pytest.mark.asyncio
+    async def test_stdio_env_overrides_base(self, monkeypatch):
+        from activecontext.mcp.transport import create_transport
+
+        monkeypatch.setenv("SHARED_KEY", "base_value")
+
+        config = MCPServerConfig(
+            name="test",
+            transport="stdio",
+            command=["test"],
+            env={"SHARED_KEY": "override_value"},
+        )
+
+        with patch("mcp.client.stdio.stdio_client") as mock_stdio:
+            await create_transport(config)
+
+            params = mock_stdio.call_args[0][0]
+            # Config env should override base environment
+            assert params.env["SHARED_KEY"] == "override_value"
+
+    @pytest.mark.asyncio
+    async def test_error_message_includes_server_name(self):
+        """Error messages should include the server name for debugging."""
+        from activecontext.mcp.transport import create_transport
+
+        config = MCPServerConfig(
+            name="my-server",
+            transport="stdio",
+            command=None,
+        )
+
+        with pytest.raises(ValueError, match="my-server"):
+            await create_transport(config)
+
+    @pytest.mark.asyncio
+    async def test_streamable_http_error_includes_server_name(self):
+        from activecontext.mcp.transport import create_transport
+
+        config = MCPServerConfig(
+            name="http-server",
+            transport="streamable-http",
+            url=None,
+        )
+
+        with pytest.raises(ValueError, match="http-server"):
+            await create_transport(config)
+
+    @pytest.mark.asyncio
+    async def test_sse_error_includes_server_name(self):
+        from activecontext.mcp.transport import create_transport
+
+        config = MCPServerConfig(
+            name="sse-server",
+            transport="sse",
+            url=None,
+        )
+
+        with pytest.raises(ValueError, match="sse-server"):
+            await create_transport(config)
+
+
+class TestExpandEnvVarsEdgeCases:
+    """Edge case tests for _expand_env_vars."""
+
+    def test_value_with_dollar_brace_but_no_close(self):
+        from activecontext.mcp.transport import _expand_env_vars
+
+        # ${VAR without closing brace should be kept as-is
+        env = {"KEY": "${UNCLOSED"}
+
+        result = _expand_env_vars(env)
+
+        assert result["KEY"] == "${UNCLOSED"
+
+    def test_value_with_nested_braces(self):
+        from activecontext.mcp.transport import _expand_env_vars
+
+        # Nested ${} is not a valid pattern
+        env = {"KEY": "${${INNER}}"}
+
+        result = _expand_env_vars(env)
+
+        # Starts with ${ and ends with } so it will try to expand ${INNER}
+        # The var name is "${INNER}" which won't be found
+        assert result["KEY"] == ""
+
+    def test_value_with_empty_var_reference(self, monkeypatch):
+        from activecontext.mcp.transport import _expand_env_vars
+
+        # ${} with empty var name
+        env = {"KEY": "${}"}
+
+        result = _expand_env_vars(env)
+
+        # Empty string var name won't be in env
+        assert result["KEY"] == ""
+
+    def test_value_with_spaces_in_var_name(self, monkeypatch):
+        from activecontext.mcp.transport import _expand_env_vars
+
+        env = {"KEY": "${VAR WITH SPACES}"}
+
+        result = _expand_env_vars(env)
+
+        # Spaces in var name - won't match any env var
+        assert result["KEY"] == ""
+
+    def test_preserves_key_names(self):
+        from activecontext.mcp.transport import _expand_env_vars
+
+        env = {"MY_KEY": "my_value", "ANOTHER-KEY": "another"}
+
+        result = _expand_env_vars(env)
+
+        assert "MY_KEY" in result
+        assert "ANOTHER-KEY" in result

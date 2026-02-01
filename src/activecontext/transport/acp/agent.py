@@ -14,10 +14,12 @@ import acp
 from acp import helpers
 from acp.schema import (
     AgentCapabilities,
+    AudioContentBlock,
     AvailableCommand,
     AvailableCommandInput,
     AvailableCommandsUpdate,
     ClientCapabilities,
+    ImageContentBlock,
     Implementation,
     ModelInfo,
     PermissionOption,
@@ -118,6 +120,46 @@ DEFAULT_SESSION_MODES = [
     SessionMode(id="brave", name="Brave", description="Autonomous with fewer confirmations"),
 ]
 DEFAULT_MODE_ID = "normal"
+
+
+def extract_content_from_blocks(blocks: list[Any]) -> tuple[str, str, str | None]:
+    """Extract content from ACP content blocks with MIME type awareness.
+
+    Args:
+        blocks: List of content blocks (TextContentBlock, ImageContentBlock, etc.)
+
+    Returns:
+        Tuple of (content_str, content_type, mime_type)
+        - content_str: The text content or base64-encoded data
+        - content_type: "text", "image", "audio", etc.
+        - mime_type: MIME type string (e.g., "image/png") or None for text
+    """
+    content = ""
+    content_type = "text"
+    mime_type = None
+
+    for block in blocks:
+        if isinstance(block, AudioContentBlock):
+            # Audio content - check this first before ImageContentBlock
+            content += block.data if hasattr(block, "data") else ""
+            content_type = "audio"
+            # AudioContentBlock uses mimeType attribute (camelCase)
+            mime_type = block.mimeType if hasattr(block, "mimeType") else "audio/wav"
+        elif isinstance(block, ImageContentBlock):
+            # Image content - store as base64 data
+            content += block.data if hasattr(block, "data") else ""
+            content_type = "image"
+            # ImageContentBlock uses mimeType attribute (camelCase)
+            mime_type = block.mimeType if hasattr(block, "mimeType") else "image/png"
+        elif isinstance(block, TextContentBlock) or hasattr(block, "text"):
+            content += block.text
+            content_type = "text"
+        else:
+            # Unknown block type - try to extract text
+            if hasattr(block, "text"):
+                content += block.text
+
+    return content, content_type, mime_type
 
 
 class ActiveContextAgent:
@@ -697,8 +739,15 @@ class ActiveContextAgent:
             agent_capabilities=AgentCapabilities(
                 load_session=True,  # Session persistence enabled
                 prompt_capabilities=PromptCapabilities(
+                    # ActiveContext supports text content (basic capability)
+                    # Text is the primary content type for prompts
+                    # Image support: future feature (multimodal LLM integration)
                     image=False,
+                    # Audio support: future feature (voice input)
                     audio=False,
+                    # Embedded context: allows ContentBlock::Resource in prompts
+                    # This enables clients to pass referenced context inline
+                    embedded_context=False,  # Future: resource inclusion
                 ),
                 session_capabilities=SessionCapabilities(),
             ),
@@ -843,7 +892,7 @@ class ActiveContextAgent:
                 code=-32603,  # Internal error
                 message="Failed to initialize ACP session",
                 data={"details": str(e)},
-            )
+            ) from e
 
     async def load_session(
         self,
@@ -963,6 +1012,7 @@ class ActiveContextAgent:
         # Run synchronous disk I/O in thread pool to avoid blocking event loop.
         # This is important when there are many session files to load.
         import asyncio
+
         persisted = await asyncio.to_thread(list_sessions_from_disk, target_cwd)
 
         # Build session info list
@@ -1077,11 +1127,8 @@ class ActiveContextAgent:
             # Flush any queued updates from between prompts
             await self._flush_queued_updates(session_id)
 
-            # Extract text from prompt blocks
-            content = ""
-            for block in prompt:
-                if isinstance(block, TextContentBlock) or hasattr(block, "text"):
-                    content += block.text
+            # Extract content from prompt blocks with MIME type awareness
+            content, content_type, mime_type = extract_content_from_blocks(prompt)
 
             # NEW: Check for active conversation transport FIRST
             # If a conversation handler is waiting for input, route to it instead of agent loop
@@ -1105,9 +1152,14 @@ class ActiveContextAgent:
             # Generate message ID
             message_id = f"msg_{uuid.uuid4().hex[:8]}"
 
-            # Queue the message (wakes agent loop)
-            session.queue_user_message(content, message_id)
-            log.info("Queued message %s for session %s", message_id, session_id)
+            # Queue the message (wakes agent loop) with MIME type metadata
+            message_metadata = {"content_type": content_type}
+            if mime_type:
+                message_metadata["mime_type"] = mime_type
+            session.queue_user_message(content, message_id, metadata=message_metadata)
+            log.info(
+                "Queued message %s for session %s (type=%s)", message_id, session_id, content_type
+            )
 
             # Behavior depends on out_of_band_update mode
             if self._out_of_band_update:
@@ -1488,7 +1540,8 @@ class ActiveContextAgent:
                 "  /title     - Set session title\n"
                 "  /dashboard - Open monitoring dashboard (start/stop/status/open)\n"
                 "  /shell     - Start interactive shell session\n"
-                "  /mcp       - MCP server management menu"
+                "  /mcp       - MCP server management menu\n"
+                "  /skill     - Load and inject a skill into context"
             )
 
         elif command == "/title":
@@ -1680,6 +1733,88 @@ class ActiveContextAgent:
                 log.exception("Error in MCP menu")
                 return True, f"MCP menu error: {e}"
 
+        elif command == "/skill":
+            # Load and inject a skill into context
+            args = parts[1] if len(parts) > 1 else ""
+
+            if not args.strip():
+                # Show available skills
+                from activecontext.skills import discover_skills
+
+                try:
+                    skills = discover_skills()
+                    if not skills:
+                        return True, (
+                            "No skills available. Skills should be placed in ~/.claude/skills/"
+                        )
+
+                    lines = ["Available skills:"]
+                    for skill in skills:
+                        lines.append(f"  {skill.name} - {skill.description}")
+                    lines.append("\nUsage: /skill <name> [args]")
+                    return True, "\n".join(lines)
+                except Exception as e:
+                    log.exception("Error discovering skills")
+                    return True, f"Error discovering skills: {e}"
+
+            # Parse skill name and optional arguments
+            skill_parts = args.split(maxsplit=1)
+            skill_name = skill_parts[0]
+            skill_args = skill_parts[1] if len(skill_parts) > 1 else ""
+
+            # Load the skill
+            from activecontext.skills import load_skill
+
+            try:
+                manifest = load_skill(skill_name)
+                if not manifest:
+                    return True, (
+                        f"Skill '{skill_name}' not found. Use /skill to list available skills."
+                    )
+
+                # Get session to inject skill content
+                session = await self._manager.get_session(session_id)
+                if not session:
+                    return True, "Session not found."
+
+                # Build skill content message
+                skill_content = f"# Skill: {manifest.name}\n\n"
+                if manifest.description:
+                    skill_content += f"{manifest.description}\n\n"
+                if skill_args:
+                    skill_content += f"**Arguments:** {skill_args}\n\n"
+                skill_content += "---\n\n"
+                skill_content += manifest.content
+
+                # Inject skill content into session context as a MessageNode
+                from activecontext.context.nodes import MessageNode
+
+                skill_node = MessageNode(
+                    role="user",
+                    content=skill_content,
+                    originator=f"skill:{manifest.name}",
+                )
+
+                # Add to context graph
+                node_id = session.add_node(skill_node)
+
+                # Send acknowledgement to user
+                await self._send_session_update(
+                    session_id,
+                    acp.update_agent_message_text(
+                        f"Loaded skill '{manifest.name}' into context.\n\n{manifest.description}"
+                    ),
+                )
+
+                log.info(
+                    "Loaded skill %s for session %s (node: %s)", skill_name, session_id, node_id
+                )
+                return True, ""
+
+            except Exception as e:
+                log.exception("Error loading skill %s", skill_name)
+                return True, f"Error loading skill '{skill_name}': {e}"
+
         # Unknown command - let it pass through to LLM
         return False, ""
 
@@ -1801,6 +1936,13 @@ class ActiveContextAgent:
                     root=UnstructuredCommandInput(hint="start|stop|status|open")
                 ),
             ),
+            AvailableCommand(
+                name="skill",
+                description="Load and inject a skill into context",
+                input=AvailableCommandInput(
+                    root=UnstructuredCommandInput(hint="<skill-name> [args]")
+                ),
+            ),
         ]
 
     async def _flush_queued_updates(self, session_id: str) -> None:
@@ -1863,6 +2005,24 @@ class ActiveContextAgent:
             await self._flush_chunks(session_id)
 
         match update.kind:
+            case UpdateKind.NODE_CHANGED:
+                # Check if this is a mode change
+                mode_changed = update.payload.get("mode_changed")
+                if mode_changed:
+                    from acp.schema import CurrentModeUpdate
+
+                    # Emit ACP mode change notification
+                    await self._send_session_update(
+                        session_id,
+                        CurrentModeUpdate(
+                            currentModeId=mode_changed,
+                            sessionUpdate="current_mode_update",
+                        ),
+                    )
+                    # Also update tracked mode for this session
+                    self._sessions_mode[session_id] = mode_changed
+                    log.info(f"Mode changed to {mode_changed} for session {session_id}")
+
             case UpdateKind.STATEMENT_EXECUTING:
                 # Emit as agent thought (shows as "thinking")
                 source = update.payload.get("source", "")
@@ -1905,13 +2065,8 @@ class ActiveContextAgent:
                         )
 
             case UpdateKind.PROJECTION_READY:
-                # Could emit as agent thought
                 handles = update.payload.get("handles", {})
-                if handles:
-                    await self._send_session_update(
-                        session_id,
-                        acp.update_agent_thought_text(f"Context: {len(handles)} handles"),
-                    )
+                log.debug("Projection ready: %d handles", len(handles))
 
             # Conversation delegation updates (Phase 2: ACP Integration)
             case UpdateKind.CONVERSATION_PROGRESS:

@@ -17,7 +17,6 @@ from activecontext.context.view import ChoiceView, NodeView
 from activecontext.core.projection_engine import ProjectionConfig, ProjectionEngine
 from tests.utils import create_mock_context_node
 
-
 # =============================================================================
 # Fixtures
 # =============================================================================
@@ -156,15 +155,9 @@ class TestApplySelection:
 
         views = {
             "parent": choice,
-            "child-a": NodeView(
-                mock_graph_with_children.get_node("child-a"), expand=Expansion.ALL
-            ),
-            "child-b": NodeView(
-                mock_graph_with_children.get_node("child-b"), expand=Expansion.ALL
-            ),
-            "child-c": NodeView(
-                mock_graph_with_children.get_node("child-c"), expand=Expansion.ALL
-            ),
+            "child-a": NodeView(mock_graph_with_children.get_node("child-a"), expand=Expansion.ALL),
+            "child-b": NodeView(mock_graph_with_children.get_node("child-b"), expand=Expansion.ALL),
+            "child-c": NodeView(mock_graph_with_children.get_node("child-c"), expand=Expansion.ALL),
         }
 
         choice.apply_selection(views)
@@ -345,9 +338,7 @@ class TestRenderBrief:
 class TestProjectionEngineIntegration:
     """Tests for ChoiceView integration with ProjectionEngine."""
 
-    def test_choice_view_filters_in_projection(
-        self, mock_graph_with_children, projection_engine
-    ):
+    def test_choice_view_filters_in_projection(self, mock_graph_with_children, projection_engine):
         """Test that ChoiceView filtering works through projection engine."""
         parent = mock_graph_with_children.get_node("parent")
 
@@ -355,15 +346,9 @@ class TestProjectionEngineIntegration:
         choice = ChoiceView(parent, selected_id="child-b", expand=Expansion.ALL)
         views = {
             "parent": choice,
-            "child-a": NodeView(
-                mock_graph_with_children.get_node("child-a"), expand=Expansion.ALL
-            ),
-            "child-b": NodeView(
-                mock_graph_with_children.get_node("child-b"), expand=Expansion.ALL
-            ),
-            "child-c": NodeView(
-                mock_graph_with_children.get_node("child-c"), expand=Expansion.ALL
-            ),
+            "child-a": NodeView(mock_graph_with_children.get_node("child-a"), expand=Expansion.ALL),
+            "child-b": NodeView(mock_graph_with_children.get_node("child-b"), expand=Expansion.ALL),
+            "child-c": NodeView(mock_graph_with_children.get_node("child-c"), expand=Expansion.ALL),
         }
 
         # Build projection
@@ -420,22 +405,12 @@ class TestProjectionEngineIntegration:
 
         views = {
             "parent": choice1,
-            "child-a": NodeView(
-                mock_graph_with_children.get_node("child-a"), expand=Expansion.ALL
-            ),
-            "child-b": NodeView(
-                mock_graph_with_children.get_node("child-b"), expand=Expansion.ALL
-            ),
-            "child-c": NodeView(
-                mock_graph_with_children.get_node("child-c"), expand=Expansion.ALL
-            ),
+            "child-a": NodeView(mock_graph_with_children.get_node("child-a"), expand=Expansion.ALL),
+            "child-b": NodeView(mock_graph_with_children.get_node("child-b"), expand=Expansion.ALL),
+            "child-c": NodeView(mock_graph_with_children.get_node("child-c"), expand=Expansion.ALL),
             "parent2": choice2,
-            "child-x": NodeView(
-                mock_graph_with_children.get_node("child-x"), expand=Expansion.ALL
-            ),
-            "child-y": NodeView(
-                mock_graph_with_children.get_node("child-y"), expand=Expansion.ALL
-            ),
+            "child-x": NodeView(mock_graph_with_children.get_node("child-x"), expand=Expansion.ALL),
+            "child-y": NodeView(mock_graph_with_children.get_node("child-y"), expand=Expansion.ALL),
         }
 
         # Build projection

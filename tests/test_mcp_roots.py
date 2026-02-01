@@ -331,7 +331,6 @@ class TestMCPClientManagerRoots:
     async def test_broadcast_roots_changed(self) -> None:
         """_broadcast_roots_changed notifies all connections."""
         from activecontext.mcp.client import MCPClientManager, MCPConnection
-        from activecontext.mcp.types import MCPConnectionStatus
 
         client_mgr = MCPClientManager()
 
@@ -366,9 +365,7 @@ class TestMCPClientManagerRoots:
 
         client_mgr = MCPClientManager()
 
-        with patch(
-            "asyncio.get_running_loop", side_effect=RuntimeError("no loop")
-        ):
+        with patch("asyncio.get_running_loop", side_effect=RuntimeError("no loop")):
             # Should not raise
             client_mgr._on_roots_changed()
 
@@ -381,7 +378,6 @@ class TestMCPClientManagerRoots:
         client_mgr.set_roots_manager(roots_mgr)
 
         calls: list[bool] = []
-        original_on_changed = client_mgr._on_roots_changed
 
         def tracking_on_changed() -> None:
             calls.append(True)
@@ -433,9 +429,7 @@ class TestMCPIntegrationRoots:
 
         sub_a = tmp_path / "lib-a"
         sub_a.mkdir()
-        config = MCPConfig(
-            roots=[MCPRootConfig(name="lib-a", path=str(sub_a))]
-        )
+        config = MCPConfig(roots=[MCPRootConfig(name="lib-a", path=str(sub_a))])
 
         graph = MagicMock()
         integration = MCPIntegration(
@@ -454,9 +448,7 @@ class TestMCPIntegrationRoots:
         from activecontext.config.schema import MCPConfig, MCPRootConfig
         from activecontext.session.mcp_integration import MCPIntegration
 
-        config = MCPConfig(
-            roots=[MCPRootConfig(name="rel", path="subdir")]
-        )
+        config = MCPConfig(roots=[MCPRootConfig(name="rel", path="subdir")])
         graph = MagicMock()
         integration = MCPIntegration(
             mcp_config=config,

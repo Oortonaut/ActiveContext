@@ -332,9 +332,14 @@ class TestGetDashboardStatus:
         mock_connection_manager = MagicMock()
         mock_connection_manager.get_connection_count.side_effect = RuntimeError("Connection error")
 
-        with patch("activecontext.dashboard.server.connection_manager", mock_connection_manager, create=True):
+        with patch(
+            "activecontext.dashboard.server.connection_manager",
+            mock_connection_manager,
+            create=True,
+        ):
             # Force re-import by patching the module directly
             import sys
+
             mock_routes = MagicMock(connection_manager=mock_connection_manager)
             with patch.dict(sys.modules, {"activecontext.dashboard.routes": mock_routes}):
                 status = server.get_dashboard_status()
@@ -632,6 +637,7 @@ class TestStopDashboard:
     @pytest.mark.asyncio
     async def test_cancels_task_and_clears_state(self):
         """Should cancel task and clear module state."""
+
         # Create a real asyncio task that we can cancel
         async def dummy_serve():
             await asyncio.sleep(100)
@@ -666,6 +672,7 @@ class TestStopDashboard:
     @pytest.mark.asyncio
     async def test_handles_connection_manager_import_error(self):
         """Should handle case where routes import fails."""
+
         async def dummy_serve():
             await asyncio.sleep(100)
 
@@ -685,6 +692,7 @@ class TestStopDashboard:
     @pytest.mark.asyncio
     async def test_handles_close_all_exception(self):
         """Should handle exception from close_all."""
+
         async def dummy_serve():
             await asyncio.sleep(100)
 

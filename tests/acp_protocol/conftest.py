@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import sys
+from collections.abc import AsyncIterator
 from pathlib import Path
-from typing import AsyncIterator
 
 import pytest
 import pytest_asyncio
@@ -40,10 +41,8 @@ def event_loop(event_loop_policy):
     loop = asyncio.new_event_loop()
     yield loop
     # Close all async generators and shutdown asyncgens
-    try:
+    with contextlib.suppress(RuntimeError):
         loop.run_until_complete(loop.shutdown_asyncgens())
-    except RuntimeError:
-        pass
     loop.close()
 
 

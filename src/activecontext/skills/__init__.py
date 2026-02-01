@@ -25,11 +25,14 @@ from activecontext.skills.loader import (
     load_skill,
     load_skill_from_path,
 )
+from activecontext.skills.manager import SkillManager
 from activecontext.skills.schema import SkillManifest
 
 __all__ = [
     # Schema
     "SkillManifest",
+    # Manager
+    "SkillManager",
     # Loader functions
     "discover_skills",
     "load_skill",

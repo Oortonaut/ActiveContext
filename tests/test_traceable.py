@@ -10,12 +10,10 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
-import pytest
-
 from activecontext.context.traceable import (
-    TRACEABLE_KEY,
-    TRACEABLE_FORMATTER_KEY,
     _EXCLUDED_FIELDS,
+    TRACEABLE_FORMATTER_KEY,
+    TRACEABLE_KEY,
     format_value,
     get_field_formatter,
     get_traceable_fields,
@@ -24,7 +22,6 @@ from activecontext.context.traceable import (
     trace_all_fields,
     traceable,
 )
-
 
 # =============================================================================
 # Test Fixtures
@@ -191,7 +188,8 @@ class TestTraceableFunction:
         """Test that traceable() sets formatter in metadata."""
         from dataclasses import fields as dc_fields
 
-        fmt = lambda x: f"v={x}"
+        def fmt(x):
+            return f"v={x}"
 
         @dataclass
         class TestNode:
@@ -243,7 +241,9 @@ class TestTraceableRegistry:
 
     def test_get_field_formatter(self):
         """Test get_field_formatter returns the formatter."""
-        fmt = lambda x: f"custom({x})"
+
+        def fmt(x):
+            return f"custom({x})"
 
         @dataclass
         class TestNode:
@@ -336,9 +336,7 @@ class TestTraceAllFieldsDecorator:
         node._internal = "changed"
 
         # Only status would create trace, _internal should not
-        assert all(
-            "_internal" not in call["description"] for call in node._mark_changed_calls
-        )
+        assert all("_internal" not in call["description"] for call in node._mark_changed_calls)
 
     def test_excludes_excluded_fields(self):
         """Test that _EXCLUDED_FIELDS are not traced."""

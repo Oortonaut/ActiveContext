@@ -13,7 +13,6 @@ import pytest
 from activecontext.core.llm.litellm_provider import LiteLLMProvider
 from activecontext.session.session_manager import Session, SessionManager
 
-
 # =============================================================================
 # Fixtures
 # =============================================================================
@@ -71,9 +70,7 @@ class TestSessionLifecycle:
         assert session.cwd == "/workspace/project"
 
     @pytest.mark.asyncio
-    async def test_create_session_uses_default_llm(
-        self, session_manager, mock_llm_provider
-    ):
+    async def test_create_session_uses_default_llm(self, session_manager, mock_llm_provider):
         """Test that new sessions use default LLM provider."""
         session = await session_manager.create_session(cwd="/test")
 
@@ -85,9 +82,7 @@ class TestSessionLifecycle:
         custom_llm = Mock(spec=LiteLLMProvider)
         custom_llm.model = "custom-model"
 
-        session = await session_manager.create_session(
-            cwd="/test", llm=custom_llm
-        )
+        session = await session_manager.create_session(cwd="/test", llm=custom_llm)
 
         assert session.llm is custom_llm
 
@@ -253,7 +248,6 @@ class TestSessionPermissions:
     @pytest.mark.asyncio
     async def test_permission_requester_types(self):
         """Test that permission requester types are defined in TYPE_CHECKING block."""
-        import typing
         # These types are defined in TYPE_CHECKING block for type hints
         # They're not importable at runtime, but we verify the module structure
         from activecontext.session import session_manager
@@ -296,9 +290,7 @@ class TestSessionAPI:
     async def test_clear_message_history(self, test_session):
         """Test clearing message history."""
         # Add some messages first
-        test_session._message_history.append(
-            Mock(role=Mock(value="user"), content="Test")
-        )
+        test_session._message_history.append(Mock(role=Mock(value="user"), content="Test"))
 
         initial_count = len(test_session._message_history)
         assert initial_count > 0
@@ -362,6 +354,7 @@ class TestSessionPrompt:
     @pytest.mark.asyncio
     async def test_prompt_with_llm(self, test_session, mock_llm_provider):
         """Test prompt execution with LLM."""
+
         # Mock stream response
         async def mock_stream(*args, **kwargs):
             yield Mock(text="Response", is_final=False)
@@ -415,7 +408,7 @@ class TestSessionConfiguration:
         mock_load_config.return_value = mock_config
 
         manager = SessionManager(default_llm=None)
-        session = await manager.create_session(cwd="/project/path")
+        await manager.create_session(cwd="/project/path")
 
         # Config should be loaded with session_root
         mock_load_config.assert_called_with(session_root="/project/path")
@@ -568,7 +561,6 @@ class TestSessionManagerIntegration:
     @pytest.mark.asyncio
     async def test_session_with_context_graph(self, session_manager):
         """Test session with context graph operations."""
-        from activecontext.context.graph import ContextGraph
         from tests.utils import create_mock_context_node
 
         session = await session_manager.create_session(cwd="/test")
@@ -592,7 +584,7 @@ class TestSessionManagerIntegration:
 
         # Get initial projection
         projection1 = session.get_projection()
-        initial_sections = len(projection1.sections)
+        len(projection1.sections)
 
         # Execute code that creates objects (async generator)
         async for _ in session._execute_code("# Test code"):
@@ -739,6 +731,7 @@ class TestJetBrainsUUIDDetection:
     def test_find_jetbrains_chat_uuid_warns_if_not_found(self):
         """Test _find_jetbrains_chat_uuid returns None gracefully when no JetBrains IDE installed."""
         import warnings
+
         from activecontext.transport.acp.agent import _find_jetbrains_chat_uuid
 
         result = _find_jetbrains_chat_uuid()
@@ -749,6 +742,7 @@ class TestJetBrainsUUIDDetection:
                 "JetBrains chat UUID detection unavailable - "
                 "no JetBrains IDE installed or aia-task-history not found",
                 UserWarning,
+                stacklevel=2,
             )
         else:
             # If we got a result, it should look like a UUID
@@ -821,7 +815,7 @@ class TestMultiTaskOrchestration:
     @pytest.mark.asyncio
     async def test_remove_task(self, test_session):
         """Test removing a task."""
-        task = test_session.create_task("script", task_id="to-remove")
+        test_session.create_task("script", task_id="to-remove")
         assert "to-remove" in test_session.list_tasks()
 
         removed = await test_session.remove_task("to-remove")

@@ -8,8 +8,9 @@ Tests coverage for:
 
 from __future__ import annotations
 
-import pytest
 from unittest.mock import AsyncMock, Mock, patch
+
+import pytest
 
 from activecontext.core.llm.discovery import (
     ModelInfo,
@@ -21,12 +22,6 @@ from activecontext.core.llm.discovery import (
     get_model_for_role,
     get_role_models,
 )
-from activecontext.core.llm.providers import (
-    DEFAULT_ROLES,
-    PROVIDER_CONFIGS,
-    ROLE_DESCRIPTIONS,
-    ROLE_MODEL_DEFAULTS,
-)
 from activecontext.core.llm.litellm_provider import LiteLLMProvider, create_provider
 from activecontext.core.llm.provider import (
     CompletionResult,
@@ -34,8 +29,12 @@ from activecontext.core.llm.provider import (
     Role,
     StreamChunk,
 )
+from activecontext.core.llm.providers import (
+    DEFAULT_ROLES,
+    ROLE_DESCRIPTIONS,
+    ROLE_MODEL_DEFAULTS,
+)
 from tests.utils import create_mock_llm_response, create_mock_llm_stream_chunk
-
 
 # =============================================================================
 # Provider Discovery Tests
@@ -60,6 +59,7 @@ class TestProviderDiscovery:
 
     def test_anthropic_only(self):
         """Test discovery with only Anthropic API key."""
+
         def mock_fetch_secret(key, default=None, env_path=None):
             if key == "ANTHROPIC_API_KEY":
                 return "sk-test-123"
@@ -82,6 +82,7 @@ class TestProviderDiscovery:
 
     def test_openai_only(self):
         """Test discovery with only OpenAI API key."""
+
         def mock_fetch_secret(key, default=None, env_path=None):
             if key == "OPENAI_API_KEY":
                 return "sk-test-456"
@@ -101,6 +102,7 @@ class TestProviderDiscovery:
 
     def test_multiple_providers(self):
         """Test discovery with multiple API keys."""
+
         def mock_fetch_secret(key, default=None, env_path=None):
             keys = {
                 "ANTHROPIC_API_KEY": "sk-ant-123",
@@ -123,6 +125,7 @@ class TestProviderDiscovery:
 
     def test_context_length_ordering(self):
         """Test models are sorted by context_length descending."""
+
         # Test 1: Only Groq
         def mock_groq_only(key, default=None, env_path=None):
             if key == "GROQ_API_KEY":
@@ -154,6 +157,7 @@ class TestProviderDiscovery:
 
     def test_config_override_default_model(self):
         """Test that config.llm.role overrides default 'coding' role."""
+
         def mock_fetch_secret(key, default=None, env_path=None):
             if key == "ANTHROPIC_API_KEY":
                 return "sk-ant-123"
@@ -174,6 +178,7 @@ class TestProviderDiscovery:
 
     def test_model_info_attributes(self):
         """Test ModelInfo dataclass attributes."""
+
         def mock_fetch_secret(key, default=None, env_path=None):
             if key == "ANTHROPIC_API_KEY":
                 return "sk-test"
@@ -223,6 +228,7 @@ class TestRoleBasedSelection:
 
     def test_get_role_models(self):
         """Test get_role_models returns correct entries."""
+
         def mock_fetch_secret(key, default=None, env_path=None):
             keys = {"ANTHROPIC_API_KEY": "sk-ant", "OPENAI_API_KEY": "sk-oai"}
             return keys.get(key)
@@ -245,6 +251,7 @@ class TestRoleBasedSelection:
 
     def test_get_role_models_ordering(self):
         """Test get_role_models sorts by context_length descending."""
+
         def mock_fetch_secret(key, default=None, env_path=None):
             keys = {"ANTHROPIC_API_KEY": "sk-ant", "OPENAI_API_KEY": "sk-oai"}
             return keys.get(key)
@@ -261,6 +268,7 @@ class TestRoleBasedSelection:
 
     def test_get_all_role_models(self):
         """Test get_all_role_models returns all roles."""
+
         def mock_fetch_secret(key, default=None, env_path=None):
             if key == "ANTHROPIC_API_KEY":
                 return "sk-ant"
@@ -276,6 +284,7 @@ class TestRoleBasedSelection:
 
     def test_get_model_for_role(self):
         """Test get_model_for_role returns correct model."""
+
         def mock_fetch_secret(key, default=None, env_path=None):
             if key == "ANTHROPIC_API_KEY":
                 return "sk-ant"
@@ -293,6 +302,7 @@ class TestRoleBasedSelection:
 
     def test_get_model_for_role_with_provider(self):
         """Test get_model_for_role with explicit provider."""
+
         def mock_fetch_secret(key, default=None, env_path=None):
             keys = {"ANTHROPIC_API_KEY": "sk-ant", "OPENAI_API_KEY": "sk-oai"}
             return keys.get(key)
@@ -307,6 +317,7 @@ class TestRoleBasedSelection:
 
     def test_get_model_for_role_unavailable_provider(self):
         """Test get_model_for_role with unavailable provider returns None."""
+
         def mock_fetch_secret(key, default=None, env_path=None):
             if key == "ANTHROPIC_API_KEY":
                 return "sk-ant"
@@ -319,6 +330,7 @@ class TestRoleBasedSelection:
 
     def test_get_model_for_role_uses_config_preference(self):
         """Test get_model_for_role uses saved config preferences."""
+
         def mock_fetch_secret(key, default=None, env_path=None):
             keys = {"ANTHROPIC_API_KEY": "sk-ant", "OPENAI_API_KEY": "sk-oai"}
             return keys.get(key)
@@ -343,6 +355,7 @@ class TestRoleBasedSelection:
 
     def test_get_model_for_role_uses_model_override(self):
         """Test get_model_for_role uses model override when specified."""
+
         def mock_fetch_secret(key, default=None, env_path=None):
             keys = {"ANTHROPIC_API_KEY": "sk-ant", "OPENAI_API_KEY": "sk-oai"}
             return keys.get(key)
@@ -367,6 +380,7 @@ class TestRoleBasedSelection:
 
     def test_get_default_model_uses_role_from_config(self):
         """Test get_default_model uses role from config."""
+
         def mock_fetch_secret(key, default=None, env_path=None):
             if key == "ANTHROPIC_API_KEY":
                 return "sk-ant"
@@ -386,6 +400,7 @@ class TestRoleBasedSelection:
 
     def test_role_model_entry_display_name(self):
         """Test RoleModelEntry display_name format."""
+
         def mock_fetch_secret(key, default=None, env_path=None):
             if key == "ANTHROPIC_API_KEY":
                 return "sk-ant"
@@ -420,15 +435,11 @@ class TestLiteLLMProvider:
         assert provider._api_key == "sk-custom-key"
 
         # With custom API base
-        provider = LiteLLMProvider(
-            "gpt-4", api_base="http://localhost:8000/v1"
-        )
+        provider = LiteLLMProvider("gpt-4", api_base="http://localhost:8000/v1")
         assert provider._api_base == "http://localhost:8000/v1"
 
         # With additional kwargs
-        provider = LiteLLMProvider(
-            "claude-sonnet-4-20250514", timeout=120, custom_param="value"
-        )
+        provider = LiteLLMProvider("claude-sonnet-4-20250514", timeout=120, custom_param="value")
         assert provider._kwargs["timeout"] == 120
         assert provider._kwargs["custom_param"] == "value"
 
