@@ -188,6 +188,8 @@ def get_message_history_data(session: Session) -> dict[str, Any]:
                         "originator": msg.get("originator"),
                         "tool_name": msg.get("tool_name"),
                         "tool_args": msg.get("tool_args"),
+                        "content_type": msg.get("content_type", "text"),
+                        "mime_type": msg.get("mime_type"),
                     }
                 else:
                     # Message object from activecontext.core.llm.provider
@@ -202,6 +204,8 @@ def get_message_history_data(session: Session) -> dict[str, Any]:
                         "originator": getattr(msg, "originator", None),
                         "tool_name": getattr(msg, "tool_name", None),
                         "tool_args": getattr(msg, "tool_args", None),
+                        "content_type": getattr(msg, "content_type", "text"),
+                        "mime_type": getattr(msg, "mime_type", None),
                     }
                 messages.append(msg_data)
             except Exception:
@@ -242,12 +246,20 @@ def get_rendered_projection_data(session: Session) -> dict[str, Any]:
                 continue
 
         # Count total tokens
+        from activecontext.context.dump import frame_context
         from activecontext.core.tokens import count_tokens
 
         total_tokens = count_tokens(rendered)
 
+        try:
+            framed = frame_context(projection)
+        except Exception:
+            _log.debug("Failed to generate framed projection", exc_info=True)
+            framed = rendered
+
         return {
             "rendered": rendered,
+            "framed": framed,
             "total_tokens": total_tokens,
             "sections": sections,
             "section_count": len(sections),

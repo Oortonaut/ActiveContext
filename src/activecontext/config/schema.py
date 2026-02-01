@@ -173,6 +173,8 @@ class LoggingConfig:
     level: str | None = None  # TRACE, DEBUG, VERBOSE, INFO, WARNING, ERROR
     verbose: int | None = None  # 0-4 verbosity shorthand
     file: str | None = None  # Log file path
+    context_dir: str | None = None  # Directory for context dump files
+    context_n: int | None = None  # Max dump files to keep (None = unlimited)
 
 
 @dataclass
@@ -336,6 +338,79 @@ class MCPConfig:
     allow_dynamic_servers: bool = True  # Allow mcp_connect() with inline config
 
 
+class PluginConnectMode(Enum):
+    """Connection mode for plugin servers.
+
+    Mirrors MCPConnectMode for consistency across transport types.
+
+    - CRITICAL: Must connect successfully on startup, fail session if cannot
+    - AUTO: Auto-connect on startup, warn but continue if fails
+    - MANUAL: Only connect when explicitly called
+    - NEVER: Disabled, cannot be connected
+    """
+
+    CRITICAL = "critical"
+    AUTO = "auto"
+    MANUAL = "manual"
+    NEVER = "never"
+
+
+@dataclass
+class PluginServerConfig:
+    """Configuration for a plugin server.
+
+    Defines how to connect to a plugin server, including transport type
+    and transport-specific parameters (command for stdio, url for remote).
+
+    Supports two transport types:
+        - stdio: Spawns a subprocess (requires command)
+        - stdio:// URL: Connects to a shared server process (requires url)
+
+    Example config.yaml:
+        plugins:
+          allow_dynamic_servers: true
+          servers:
+            - name: shell-extended
+              command: ["path/to/shell-plugin"]
+              transport: stdio
+              connect: auto
+              timeout: 30.0
+              env:
+                PATH: "${PATH}"
+            - name: remote-tools
+              url: "stdio://shared-server:8080"
+              connect: manual
+              redirect: true
+    """
+
+    name: str  # Unique identifier for the plugin server
+    command: list[str] | None = None  # For stdio: ["python", "-m", "plugin"]
+    transport: str = "stdio"  # Transport type (e.g., "stdio")
+    connect: PluginConnectMode = PluginConnectMode.MANUAL  # Connection mode
+    timeout: float = 30.0  # Connection timeout in seconds
+    env: dict[str, str] = field(default_factory=dict)  # Environment vars (supports ${VAR})
+    url: str | None = None  # For remote connections (e.g., "stdio://host:port")
+    redirect: bool = False  # Whether to redirect stdio streams
+
+
+@dataclass
+class PluginsConfig:
+    """Plugin system configuration.
+
+    Example config.yaml:
+        plugins:
+          allow_dynamic_servers: true
+          servers:
+            - name: shell-extended
+              command: ["path/to/shell-plugin"]
+              transport: stdio
+              connect: auto
+    """
+
+    servers: list[PluginServerConfig] = field(default_factory=list)
+    allow_dynamic_servers: bool = True  # Allow dynamic plugin connections
+
+
 @dataclass
 class ACPConfig:
     """ACP transport configuration.
@@ -354,6 +429,28 @@ class ACPConfig:
 
 
 @dataclass
+class LSPConfig:
+    """LSP transport configuration.
+
+    Controls behavior of the Language Server Protocol transport layer.
+
+    Attributes:
+        enabled: Whether LSP transport is enabled. Default False.
+        mode: Transport mode - "lsp" for LSP-only, "multiplexed" for ACP+LSP.
+            Default "lsp".
+        sync_kind: Text document sync kind: 1 for Full, 2 for Incremental.
+            Default 1 (Full sync).
+        auto_create_nodes: Whether to automatically create TextNodes for
+            opened documents. Default True.
+    """
+
+    enabled: bool = False
+    mode: str = "lsp"  # "lsp" | "multiplexed"
+    sync_kind: int = 1  # 1 = Full, 2 = Incremental
+    auto_create_nodes: bool = True
+
+
+@dataclass
 class Config:
     """Root configuration object.
 
@@ -368,7 +465,9 @@ class Config:
     sandbox: SandboxConfig = field(default_factory=SandboxConfig)
     user: UserConfig = field(default_factory=UserConfig)
     mcp: MCPConfig = field(default_factory=MCPConfig)
+    plugins: PluginsConfig = field(default_factory=PluginsConfig)
     acp: ACPConfig = field(default_factory=ACPConfig)
+    lsp: LSPConfig = field(default_factory=LSPConfig)
 
     # Extension point for future config sections
     extra: dict[str, Any] = field(default_factory=dict)

@@ -20,14 +20,19 @@ import yaml
 from activecontext.config.merge import merge_configs
 from activecontext.config.paths import get_config_paths
 from activecontext.config.schema import (
+    ACPConfig,
     Config,
     FilePermissionConfig,
     ImportConfig,
     LLMConfig,
     LoggingConfig,
+    LSPConfig,
     MCPConfig,
     MCPConnectMode,
     MCPServerConfig,
+    PluginConnectMode,
+    PluginsConfig,
+    PluginServerConfig,
     ProjectionConfig,
     RoleProviderConfig,
     SandboxConfig,
@@ -90,9 +95,15 @@ def env_overrides() -> dict[str, Any]:
     # Logging from AC_LOG
     log_path = os.environ.get("AC_LOG")
     if log_path:
-        if "logging" not in overrides:
-            overrides["logging"] = {}
-        overrides["logging"]["file"] = log_path
+        overrides.setdefault("logging", {})["file"] = log_path
+
+    # Context dump from AC_LOG_CONTEXT / AC_LOG_CONTEXT_N
+    context_dir = os.environ.get("AC_LOG_CONTEXT")
+    if context_dir:
+        overrides.setdefault("logging", {})["context_dir"] = context_dir
+    context_n = os.environ.get("AC_LOG_CONTEXT_N")
+    if context_n:
+        overrides.setdefault("logging", {})["context_n"] = int(context_n)
 
     return overrides
 
@@ -163,6 +174,8 @@ def dict_to_config(data: dict[str, Any]) -> Config:
     logging_config = LoggingConfig(
         level=log_data.get("level"),
         file=log_data.get("file"),
+        context_dir=log_data.get("context_dir"),
+        context_n=log_data.get("context_n"),
     )
 
     # Sandbox config
@@ -252,14 +265,69 @@ def dict_to_config(data: dict[str, Any]) -> Config:
         allow_dynamic_servers=mcp_data.get("allow_dynamic_servers", True),
     )
 
+    # Plugins config
+    plugins_data = data.get("plugins", {})
+    plugins_servers_data = plugins_data.get("servers", [])
+    plugin_servers = []
+    for s in plugins_servers_data:
+        if not isinstance(s, dict) or not s.get("name"):
+            continue
+
+        # Parse connect mode (mirror MCP pattern)
+        connect_str = s.get("connect", "manual")
+        plugin_connect = PluginConnectMode(connect_str)
+
+        plugin_servers.append(
+            PluginServerConfig(
+                name=s.get("name", ""),
+                command=s.get("command"),
+                transport=s.get("transport", "stdio"),
+                connect=plugin_connect,
+                timeout=s.get("timeout", 30.0),
+                env=s.get("env", {}),
+                url=s.get("url"),
+                redirect=s.get("redirect", False),
+            )
+        )
+    plugins = PluginsConfig(
+        servers=plugin_servers,
+        allow_dynamic_servers=plugins_data.get("allow_dynamic_servers", True),
+    )
+
     # User config
     user_data = data.get("user", {})
     user = UserConfig(
         display_name=user_data.get("display_name"),
     )
 
+    # ACP config
+    acp_data = data.get("acp", {})
+    acp = ACPConfig(
+        out_of_band_update=acp_data.get("out_of_band_update", False),
+    )
+
+    # LSP config
+    lsp_data = data.get("lsp", {})
+    lsp = LSPConfig(
+        enabled=lsp_data.get("enabled", False),
+        mode=lsp_data.get("mode", "lsp"),
+        sync_kind=lsp_data.get("sync_kind", 1),
+        auto_create_nodes=lsp_data.get("auto_create_nodes", True),
+    )
+
     # Extra fields for extensibility
-    known_keys = {"llm", "session", "projection", "logging", "sandbox", "mcp", "user"}
+    known_keys = {
+        "llm",
+        "session",
+        "projection",
+        "logging",
+        "sandbox",
+        "mcp",
+        "plugins",
+        "user",
+        "lsp",
+        "acp",
+    }
     extra = {k: v for k, v in data.items() if k not in known_keys}
 
     return Config(
@@ -270,6 +338,9 @@ def dict_to_config(data: dict[str, Any]) -> Config:
         sandbox=sandbox,
         user=user,
         mcp=mcp,
+        plugins=plugins,
+        acp=acp,
+        lsp=lsp,
         extra=extra,
     )
 

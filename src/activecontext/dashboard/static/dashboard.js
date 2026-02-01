@@ -817,8 +817,9 @@ class DashboardClient {
         if (contentEl) {
             try {
             // Check for actual content (not just truthy - empty string is valid but shows as empty)
-            if (data.rendered !== undefined && data.rendered !== null && data.rendered.length > 0) {
-                contentEl.innerHTML = `<pre class="rendered-pre">${this.escapeHtml(data.rendered)}</pre>`;
+            const rawContent = data.framed || data.rendered;
+            if (rawContent !== undefined && rawContent !== null && rawContent.length > 0) {
+                contentEl.innerHTML = `<pre class="rendered-pre">${this.escapeHtml(rawContent)}</pre>`;
             } else if (data.sections && data.sections.length > 0) {
                 // If we have sections but no rendered content, show that
                 contentEl.innerHTML = '<div class="rendered-empty">Projection has sections but no rendered text</div>';
