@@ -1,0 +1,520 @@
+// Context Application Protocol (CAP) -- Canonical Protobuf Schema
+//
+// This is the gRPC/protobuf binding for CAP v1.0. It defines all 12
+// message types from cap-protocol-semantics.md as protobuf messages,
+// plus service definitions for both typed RPCs and bidirectional streaming.
+//
+// Reference implementation: src/activecontext/plugins/wire.py
+// Serialization spec: docs/cap-serialization-bindings.md (Section 3)
+//
+// Field numbering convention (per Section 3.1.2 of serialization spec):
+//   Fields 1-5:  Identifiers and keys (node_id, node_type, method)
+//   Fields 6-15: Primary payload (state, renders, tokens, calls, args, kwargs)
+//   Fields 16+:  Metadata, descriptions, rarely-accessed fields
+
+syntax = "proto3";
+
+package cap.v1;
+
+option java_package = "com.activecontext.cap.v1";
+option go_package = "activecontext/cap/v1;capv1";
+
+import "google/protobuf/struct.proto";
+import "google/protobuf/empty.proto";
+
+// =========================================================================
+// Service Definitions
+// =========================================================================
+
+// CAPPlugin -- Host calls plugin server (typed RPCs).
+//
+// Standard request/response pairs for node lifecycle and synchronization.
+// The host drives these calls; the plugin server responds.
+service CAPPlugin {
+  // Lifecycle
+  rpc Initialize(InitializeRequest) returns (InitializeResponse);
+
+  // Node management
+  rpc NodeCreate(NodeCreateRequest) returns (NodeCreateResponse);
+  rpc NodeSync(NodeSyncRequest) returns (NodeSyncResponse);
+  rpc NodeCall(NodeCallRequest) returns (NodeCallResponse);
+  rpc NodeDestroy(NodeDestroyRequest) returns (google.protobuf.Empty);
+  rpc NodeSerialize(NodeSerializeRequest) returns (NodeSerializeResponse);
+
+  // Server push -- host subscribes, server streams events
+  rpc Subscribe(SubscribeRequest) returns (stream ServerEvent);
+}
+
+// CAPHost -- Plugin server calls host (reverse direction).
+//
+// These RPCs enable plugin servers to interact with the host's context
+// graph: creating child nodes, invoking methods, querying filesystem roots.
+service CAPHost {
+  rpc CreateNode(HostCreateNodeRequest) returns (HostCreateNodeResponse);
+  rpc Invoke(HostInvokeRequest) returns (HostInvokeResponse);
+  rpc QueryRoots(QueryRootsRequest) returns (QueryRootsResponse);
+  rpc ResolveRoot(ResolveRootRequest) returns (ResolveRootResponse);
+}
+
+// CAPBidirectional -- Single bidirectional stream (stdio-equivalent).
+//
+// For deployments migrating from stdio to gRPC, this preserves the
+// interleaved request/notification pattern. Both sides send CapEnvelope
+// messages; application-level correlation uses the id field.
+service CAPBidirectional {
+  rpc Channel(stream CapEnvelope) returns (stream CapEnvelope);
+}
+
+// =========================================================================
+// Bidirectional Envelope (for CAPBidirectional service)
+// =========================================================================
+
+// CapEnvelope wraps any CAP message in a single union for bidirectional
+// streaming. The method field identifies the message type; the id field
+// provides request/response correlation.
+message CapEnvelope {
+  string jsonrpc = 1;       // Always "2.0" (interop verification)
+
+  oneof id_value {
+    int64 id_int = 2;
+    string id_str = 3;
+  }
+
+  string method = 4;
+
+  oneof payload {
+    // Lifecycle
+    InitializeRequest initialize_request = 10;
+    InitializeResponse initialize_response = 11;
+
+    // Node management
+    NodeCreateRequest node_create_request = 12;
+    NodeCreateResponse node_create_response = 13;
+    NodeSyncRequest node_sync_request = 14;
+    NodeSyncResponse node_sync_response = 15;
+    NodeCallRequest node_call_request = 16;
+    NodeCallResponse node_call_response = 17;
+    NodeDestroyRequest node_destroy_request = 18;
+    NodeSerializeRequest node_serialize_request = 19;
+    NodeSerializeResponse node_serialize_response = 20;
+
+    // Push notifications (server -> host)
+    NodeDirtyNotification node_dirty = 21;
+    NodeNotification node_notification = 22;
+
+    // Host API (server -> host)
+    HostCreateNodeRequest host_create_node_request = 23;
+    HostCreateNodeResponse host_create_node_response = 24;
+    HostInvokeRequest host_invoke_request = 25;
+    HostInvokeResponse host_invoke_response = 26;
+    QueryRootsRequest query_roots_request = 27;
+    QueryRootsResponse query_roots_response = 28;
+    ResolveRootRequest resolve_root_request = 29;
+    ResolveRootResponse resolve_root_response = 30;
+
+    // Error
+    ErrorDetail error = 31;
+  }
+}
+
+// =========================================================================
+// Server Push Events (for Subscribe RPC)
+// =========================================================================
+
+// SubscribeRequest initiates the push notification stream.
+// Empty for now; reserved for future filter options.
+message SubscribeRequest {}
+
+// ServerEvent wraps push notifications from plugin server to host.
+message ServerEvent {
+  oneof event {
+    NodeDirtyNotification node_dirty = 1;
+    NodeNotification node_notification = 2;
+  }
+}
+
+// =========================================================================
+// Lifecycle Messages
+// =========================================================================
+
+// InitializeRequest -- Host -> Server handshake.
+// Maps to wire.py: InitializeParams
+message InitializeRequest {
+  string protocol_version = 1;                // Default: "1.0"
+  HostCapabilities host_capabilities = 2;
+  repeated RootInfo roots = 3;
+  string session_id = 4;
+  string cwd = 5;
+}
+
+// InitializeResponse -- Server -> Host handshake reply.
+// Maps to wire.py: InitializeResult
+message InitializeResponse {
+  string server_name = 1;                     // REQUIRED
+  string server_version = 2;
+  string protocol_version = 3;               // Default: "1.0"
+  repeated NodeTypeSchema node_types = 4;
+  ServerCapabilities server_capabilities = 5;
+}
+
+// HostCapabilities -- Feature flags the host offers.
+// Maps to wire.py: HostCapabilities
+message HostCapabilities {
+  bool create_node = 1;                       // Default: true
+  bool invoke = 2;                            // Default: true
+  bool roots = 3;                             // Default: true
+  bool notifications = 4;                     // Default: true
+}
+
+// ServerCapabilities -- Feature flags the server declares.
+// Maps to wire.py: ServerCapabilities
+message ServerCapabilities {
+  bool sync = 1;                              // Default: true
+  bool immediate_call = 2;                    // Default: false
+  bool push_dirty = 3;                        // Default: true
+  bool push_notifications = 4;               // Default: true
+}
+
+// =========================================================================
+// Node Management Messages (Host -> Server)
+// =========================================================================
+
+// --- node/create ---
+
+// NodeCreateRequest -- Create a new node instance.
+// Maps to wire.py: NodeCreateParams
+message NodeCreateRequest {
+  // Fields 1-5: identifiers (hot path, single-byte encoding)
+  string node_type = 1;                       // REQUIRED
+  string node_id = 2;                         // Host-assigned ID; empty = server generates
+
+  // Fields 6-15: primary payload
+  repeated google.protobuf.Value args = 6;    // Positional constructor arguments
+  google.protobuf.Struct kwargs = 7;          // Keyword constructor arguments
+}
+
+// NodeCreateResponse -- Result of node creation.
+// Maps to wire.py: NodeCreateResult
+message NodeCreateResponse {
+  // Fields 1-5: identifiers
+  string node_id = 1;                         // REQUIRED
+
+  // Fields 6-15: primary payload
+  //   Use optional for MISSING sentinel semantics: receivers can distinguish
+  //   "server returned empty state" from "server omitted state field".
+  optional google.protobuf.Struct state = 6;
+  optional RenderSnapshot renders = 7;
+  optional TokenEstimate tokens = 8;
+  optional google.protobuf.Struct digest = 9;
+}
+
+// --- node/sync ---
+
+// NodeSyncRequest -- Synchronize a dirty node (the hot path).
+// Maps to wire.py: NodeSyncParams
+//
+// Called once per tick per dirty node. Delivers batched method calls
+// and retrieves the complete node state.
+message NodeSyncRequest {
+  // Fields 1-5: identifiers
+  string node_id = 1;                         // REQUIRED
+
+  // Fields 6-15: primary payload
+  repeated MethodCall calls = 6;              // Pending method calls (execute in order)
+  string cwd = 7;                             // Working directory for renders
+}
+
+// NodeSyncResponse -- Complete state after sync.
+// Maps to wire.py: NodeSyncResult
+message NodeSyncResponse {
+  // Fields 1-15: primary payload (hot path -- keep in single-byte range)
+  google.protobuf.Struct state = 1;           // Full serialized node state
+  RenderSnapshot renders = 2;                 // header, content, detail
+  TokenEstimate tokens = 3;                   // collapsed, summary, detail
+  google.protobuf.Struct digest = 4;          // Compact digest metadata
+
+  // Field 15: still in single-byte range but less frequent
+  repeated Notification notifications = 15;   // Since last sync
+}
+
+// --- node/call ---
+
+// NodeCallRequest -- Immediate method call outside tick.
+// Maps to wire.py: NodeCallParams
+//
+// Requires server capability: immediate_call = true.
+message NodeCallRequest {
+  // Fields 1-5: identifiers
+  string node_id = 1;                         // REQUIRED
+  string method = 2;                          // REQUIRED
+
+  // Fields 6-15: primary payload
+  repeated google.protobuf.Value args = 6;    // Positional arguments
+  google.protobuf.Struct kwargs = 7;          // Keyword arguments
+}
+
+// NodeCallResponse -- Result of immediate method call.
+// Maps to wire.py: NodeCallResult
+message NodeCallResponse {
+  google.protobuf.Value result = 1;           // Return value (Any)
+  bool state_changed = 2;                     // If true, node needs sync next tick
+}
+
+// --- node/destroy ---
+
+// NodeDestroyRequest -- Destroy a node instance.
+// Maps to wire.py: NodeDestroyParams
+//
+// Response is google.protobuf.Empty (no fields).
+message NodeDestroyRequest {
+  string node_id = 1;                         // REQUIRED
+}
+
+// --- node/serialize ---
+
+// NodeSerializeRequest -- Serialize node for checkpoint/persistence.
+// Maps to wire.py: NodeSerializeParams
+message NodeSerializeRequest {
+  string node_id = 1;                         // REQUIRED
+}
+
+// NodeSerializeResponse -- Full serialized state for reconstruction.
+// Maps to wire.py: NodeSerializeResult
+//
+// The data field MUST include a "node_type" key for deserialization dispatch.
+message NodeSerializeResponse {
+  google.protobuf.Struct data = 1;            // Full state for from_dict()
+}
+
+// =========================================================================
+// Push Notifications (Server -> Host)
+// =========================================================================
+
+// NodeDirtyNotification -- One-bit signal: node state changed.
+// Maps to wire.py: NodeDirtyParams
+//
+// Requires server capability: push_dirty = true.
+// The host marks the node dirty and syncs on the next tick.
+message NodeDirtyNotification {
+  string node_id = 1;                         // REQUIRED
+}
+
+// NodeNotification -- General notification from a node.
+// Maps to wire.py: NodeNotificationParams
+//
+// Requires server capability: push_notifications = true.
+message NodeNotification {
+  string node_id = 1;                         // REQUIRED
+  string description = 2;                     // REQUIRED: human-readable
+  string level = 3;                           // "ignore", "hold" (default), "wake"
+}
+
+// =========================================================================
+// Host API Messages (Server -> Host)
+// =========================================================================
+
+// --- host/create_node ---
+
+// HostCreateNodeRequest -- Server requests child node creation in host graph.
+// Maps to wire.py: HostCreateNodeParams
+//
+// Requires host capability: create_node = true.
+message HostCreateNodeRequest {
+  // Fields 1-5: identifiers
+  string node_type = 1;                       // REQUIRED
+  string parent_id = 2;                       // Parent to link to (optional)
+
+  // Fields 6-15: primary payload
+  repeated google.protobuf.Value args = 6;    // Positional constructor args
+  google.protobuf.Struct kwargs = 7;          // Keyword constructor args
+}
+
+// HostCreateNodeResponse -- ID of the created node.
+// Maps to wire.py: HostCreateNodeResult
+message HostCreateNodeResponse {
+  string node_id = 1;                         // REQUIRED
+}
+
+// --- host/invoke ---
+
+// HostInvokeRequest -- Server invokes method on existing host node.
+// Maps to wire.py: HostInvokeParams
+//
+// Requires host capability: invoke = true.
+message HostInvokeRequest {
+  // Fields 1-5: identifiers
+  string node_id = 1;                         // REQUIRED
+  string method = 2;                          // REQUIRED
+
+  // Fields 6-15: primary payload
+  repeated google.protobuf.Value args = 6;    // Positional arguments
+  google.protobuf.Struct kwargs = 7;          // Keyword arguments
+}
+
+// HostInvokeResponse -- Return value from host method invocation.
+// Maps to wire.py: HostInvokeResult
+message HostInvokeResponse {
+  google.protobuf.Value result = 1;           // Return value (Any)
+}
+
+// --- host/query_roots ---
+
+// QueryRootsRequest -- Server queries available filesystem roots.
+// Maps to protocol semantics: HostQueryRootsParams (empty)
+//
+// Requires host capability: roots = true.
+message QueryRootsRequest {}
+
+// QueryRootsResponse -- Available filesystem roots.
+// Maps to wire.py: HostQueryRootsResult
+message QueryRootsResponse {
+  repeated RootInfo roots = 1;
+}
+
+// --- host/resolve_root ---
+
+// ResolveRootRequest -- Server maps normalized path through a root.
+// Maps to wire.py: HostResolveRootParams
+//
+// Requires host capability: roots = true.
+message ResolveRootRequest {
+  string root_uri = 1;                        // REQUIRED
+  string normalized_path = 2;                 // REQUIRED
+}
+
+// ResolveRootResponse -- Resolved absolute path.
+// Maps to wire.py: HostResolveRootResult
+message ResolveRootResponse {
+  string real_path = 1;                       // REQUIRED
+  bool exists = 2;                            // Default: false
+}
+
+// =========================================================================
+// Shared Types
+// =========================================================================
+
+// RootInfo -- A filesystem root exposed to plugin servers.
+// Maps to wire.py: RootInfo
+message RootInfo {
+  string uri = 1;                             // REQUIRED: e.g. "file:///project"
+  string name = 2;                            // REQUIRED: e.g. "cwd", "home"
+  string description = 3;                     // Optional
+}
+
+// MethodCall -- A queued method call for batch execution during sync.
+// Maps to wire.py: PendingCall
+message MethodCall {
+  string method = 1;                          // REQUIRED: method name
+  repeated google.protobuf.Value args = 2;    // Positional arguments
+  google.protobuf.Struct kwargs = 3;          // Keyword arguments
+}
+
+// Notification -- A notification generated during sync.
+// Used inside NodeSyncResponse.notifications.
+message Notification {
+  string description = 1;                     // REQUIRED: human-readable
+  string level = 2;                           // "ignore", "hold" (default), "wake"
+}
+
+// RenderSnapshot -- Rendered text at three granularity levels.
+// The three keys mirror the protocol semantics spec: header, content, detail.
+message RenderSnapshot {
+  string header = 1;                          // Collapsed/title render
+  string content = 2;                         // Summary-level render
+  string detail = 3;                          // Full detail render
+}
+
+// TokenEstimate -- Token budget estimates at three granularity levels.
+message TokenEstimate {
+  int32 collapsed = 1;                        // Tokens at collapsed level
+  int32 summary = 2;                          // Tokens at summary level
+  int32 detail = 3;                           // Tokens at detail level
+}
+
+// ErrorDetail -- Structured error information.
+// Maps to JSON-RPC error object and wire.py: ErrorCodes
+//
+// Error codes (from cap-protocol-semantics.md Section 8.2):
+//   Standard JSON-RPC:
+//     -32700  PARSE_ERROR
+//     -32600  INVALID_REQUEST
+//     -32601  METHOD_NOT_FOUND
+//     -32602  INVALID_PARAMS
+//     -32603  INTERNAL_ERROR
+//   CAP-specific (-32000 to -32099):
+//     -32000  NODE_NOT_FOUND
+//     -32001  NODE_TYPE_UNKNOWN
+//     -32002  METHOD_NOT_AVAILABLE
+//     -32003  ROOT_NOT_FOUND
+//     -32004  PERMISSION_DENIED
+//     -32005  NODE_CREATE_FAILED
+message ErrorDetail {
+  int32 code = 1;                             // REQUIRED: numeric error code
+  string message = 2;                         // REQUIRED: human-readable description
+  google.protobuf.Value data = 3;             // Optional: additional structured data
+}
+
+// =========================================================================
+// Schema Discovery Types
+// =========================================================================
+
+// NodeTypeSchema -- Complete schema for a plugin node type.
+// Maps to wire.py: NodeTypeSchema
+//
+// Advertised by the server during initialization. Used for:
+//   - Generating DSL constructor functions
+//   - Type validation at call sites
+//   - LLM prompt documentation
+//   - Autocompletion
+message NodeTypeSchema {
+  string node_type = 1;                       // REQUIRED: type identifier
+  string description = 2;                     // Human-readable for LLM prompts
+  ConstructorSchema constructor = 3;
+  repeated PropertySchema properties = 4;
+  repeated MethodSchema methods = 5;
+}
+
+// ConstructorSchema -- Schema for the DSL constructor function.
+// Maps to wire.py: ConstructorSchema
+//
+// Models Python calling convention:
+//   node_type(pos1, pos2, *variadic, named1=default1, named2=default2)
+message ConstructorSchema {
+  repeated ParamSchema positional = 1;        // Positional parameters (in order)
+  optional ParamSchema variadic = 2;          // Variadic parameter (*args), if any
+  repeated ParamSchema named = 3;             // Keyword-only parameters (with defaults)
+}
+
+// ParamSchema -- Schema for a single parameter.
+// Maps to wire.py: ParamSchema
+//
+// The `default` field uses `optional` for MISSING sentinel semantics:
+//   - has_default() == false: parameter is REQUIRED (no default, MISSING)
+//   - has_default() == true, value is null_value: default is None
+//   - has_default() == true, value is non-null: default is the value
+message ParamSchema {
+  string name = 1;                            // REQUIRED: parameter name
+  string type = 2;                            // Type hint string; default: "str"
+  optional google.protobuf.Value default = 3; // MISSING = not set (required param)
+  string description = 4;                     // Human-readable description
+}
+
+// PropertySchema -- Schema for a DSL-visible property.
+// Maps to wire.py: PropertySchema
+message PropertySchema {
+  string name = 1;                            // REQUIRED: property name
+  string type = 2;                            // Type hint string; default: "Any"
+  bool readable = 3;                          // Default: true
+  bool writable = 4;                          // Default: false
+  string description = 5;                     // Human-readable description
+}
+
+// MethodSchema -- Schema for a DSL-callable method.
+// Maps to wire.py: MethodSchema
+message MethodSchema {
+  string name = 1;                            // REQUIRED: method name
+  repeated ParamSchema params = 2;            // Parameters (excluding self)
+  string returns = 3;                         // Return type hint; default: "None"
+  string description = 4;                     // Human-readable description
+  bool chainable = 5;                         // If true, returns self for chaining
+}

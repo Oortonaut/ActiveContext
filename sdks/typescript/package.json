@@ -1,0 +1,32 @@
+{
+  "name": "@activecontext/cap-plugin",
+  "version": "0.1.0",
+  "description": "CAP Plugin SDK for TypeScript — build custom context node types for ActiveContext",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist/**/*"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "activecontext",
+    "cap",
+    "plugin",
+    "context",
+    "llm",
+    "agent"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "typescript": "^5.0.0",
+    "@types/node": "^20.0.0"
+  }
+}
