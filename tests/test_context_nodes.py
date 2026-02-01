@@ -18,13 +18,13 @@ from activecontext.context.nodes import (
     LockNode,
     MCPManagerNode,
     MCPServerNode,
+    PluginManagerNode,
     SessionNode,
     ShellNode,
-    TopicNode,
     TextNode,
+    TopicNode,
 )
 from activecontext.context.state import Expansion
-
 
 # =============================================================================
 # TextNode Serialization Tests
@@ -604,6 +604,227 @@ class TestMCPManagerNodeSerialization:
 
 
 # =============================================================================
+# PluginManagerNode Tests
+# =============================================================================
+
+
+class TestPluginManagerNodeSerialization:
+    """Tests for PluginManagerNode to_dict/from_dict."""
+
+    def test_to_dict_basic(self):
+        """Test PluginManagerNode serialization to dict."""
+        node = PluginManagerNode(
+            node_id="plugin_manager",
+            expansion=Expansion.HEADER,
+            builtin_count=16,
+            loaded_count=2,
+        )
+
+        data = node.to_dict()
+
+        assert data["node_type"] == "plugin_manager"
+        assert data["node_id"] == "plugin_manager"
+        assert data["builtin_count"] == 16
+        assert data["loaded_count"] == 2
+
+    def test_roundtrip(self):
+        """Test PluginManagerNode serialization round-trip."""
+
+        original = PluginManagerNode(
+            node_id="plugin_manager",
+            expansion=Expansion.ALL,
+            builtin_count=16,
+            loaded_count=2,
+            plugin_states={"test_plugin": "connected"},
+            plugin_types={"test_plugin": ["custom_type_a", "custom_type_b"]},
+        )
+
+        data = original.to_dict()
+        restored = PluginManagerNode._from_dict(data)
+
+        assert restored.node_id == original.node_id
+        assert restored.expansion == original.expansion
+        assert restored.builtin_count == original.builtin_count
+        assert restored.loaded_count == original.loaded_count
+        assert restored.plugin_states == original.plugin_states
+        assert restored.plugin_types == original.plugin_types
+
+    def test_factory_dispatch(self):
+        """Test that ContextNode.from_dict dispatches to PluginManagerNode."""
+        data = {
+            "node_type": "plugin_manager",
+            "node_id": "plugin_manager",
+            "expansion": "header",
+            "builtin_count": 16,
+            "loaded_count": 0,
+        }
+
+        node = ContextNode.from_dict(data)
+
+        assert isinstance(node, PluginManagerNode)
+
+
+class TestPluginManagerNodeRendering:
+    """Tests for PluginManagerNode rendering methods."""
+
+    def test_render_summary_no_plugins(self):
+        """Test summary rendering with no loaded plugins."""
+
+        node = PluginManagerNode(
+            node_id="plugin_manager",
+            builtin_count=16,
+            loaded_count=0,
+        )
+
+        result = node.RenderSummary()
+
+        assert "No plugin servers loaded" in result
+
+    def test_render_summary_with_plugins(self):
+        """Test summary rendering with loaded plugins."""
+
+        node = PluginManagerNode(
+            node_id="plugin_manager",
+            builtin_count=16,
+            loaded_count=2,
+            plugin_states={"serena": "connected", "test_plugin": "error"},
+            plugin_types={
+                "serena": ["semantic_search", "memory"],
+                "test_plugin": ["custom_lint"],
+            },
+        )
+
+        result = node.RenderSummary()
+
+        assert "Loaded Plugins" in result
+        assert "serena" in result
+        assert "test_plugin" in result
+        assert "[OK]" in result  # connected status
+        assert "[ERR]" in result  # error status
+
+    def test_render_detail_shows_overview(self):
+        """Test detail rendering includes builtin and loaded counts."""
+
+        node = PluginManagerNode(
+            node_id="plugin_manager",
+            builtin_count=16,
+            loaded_count=2,
+            plugin_states={"serena": "connected"},
+            plugin_types={"serena": ["semantic_search", "memory"]},
+        )
+
+        result = node.RenderDetail()
+
+        assert "Builtin types: 16" in result
+        assert "Loaded plugin servers: 2" in result
+
+    def test_render_detail_with_events(self):
+        """Test detail rendering includes events when include_summary=True."""
+
+        node = PluginManagerNode(
+            node_id="plugin_manager",
+            builtin_count=16,
+            loaded_count=1,
+        )
+        node.connection_events = [{"time": "10:30:00", "message": "serena: new -> connected"}]
+
+        result = node.RenderDetail(include_summary=True)
+
+        assert "Recent Events" in result
+        assert "serena: new -> connected" in result
+
+    def test_get_display_name(self):
+        """Test display name formatting."""
+
+        node = PluginManagerNode(
+            node_id="plugin_manager",
+            builtin_count=16,
+            loaded_count=2,
+        )
+
+        name = node.get_display_name()
+
+        assert "Plugin Manager" in name
+        assert "16 builtin" in name
+        assert "2 loaded" in name
+
+
+class TestPluginManagerNodeStateUpdates:
+    """Tests for PluginManagerNode state update methods."""
+
+    def test_update_plugin_state_new(self):
+        """Test updating state for a new plugin."""
+
+        node = PluginManagerNode(node_id="plugin_manager", builtin_count=16)
+
+        node.update_plugin_state("serena", "connected", ["semantic_search", "memory"])
+
+        assert node.plugin_states["serena"] == "connected"
+        assert node.plugin_types["serena"] == ["semantic_search", "memory"]
+        assert node.loaded_count == 1
+
+    def test_update_plugin_state_change(self):
+        """Test updating state of existing plugin."""
+
+        node = PluginManagerNode(
+            node_id="plugin_manager",
+            builtin_count=16,
+            plugin_states={"serena": "connecting"},
+        )
+
+        node.update_plugin_state("serena", "connected")
+
+        assert node.plugin_states["serena"] == "connected"
+        assert len(node.connection_events) == 1
+        assert "connecting -> connected" in node.connection_events[0]["message"]
+
+    def test_update_plugin_state_disconnected_updates_count(self):
+        """Test that disconnected status decreases loaded count."""
+
+        node = PluginManagerNode(
+            node_id="plugin_manager",
+            builtin_count=16,
+            loaded_count=2,
+            plugin_states={"serena": "connected", "test": "connected"},
+        )
+
+        node.update_plugin_state("serena", "disconnected")
+
+        assert node.loaded_count == 1
+
+    def test_unregister_plugin(self):
+        """Test unregistering a plugin removes it from tracking."""
+
+        node = PluginManagerNode(
+            node_id="plugin_manager",
+            builtin_count=16,
+            loaded_count=2,
+            plugin_states={"serena": "connected", "test": "connected"},
+            plugin_types={"serena": ["memory"], "test": ["lint"]},
+        )
+
+        node.unregister_plugin("serena")
+
+        assert "serena" not in node.plugin_states
+        assert "serena" not in node.plugin_types
+        assert node.loaded_count == 1
+
+    def test_connection_events_limited(self):
+        """Test that connection events are limited to max_events."""
+
+        node = PluginManagerNode(node_id="plugin_manager", builtin_count=16, max_events=3)
+
+        # Add more events than max_events
+        for i in range(5):
+            node.update_plugin_state(f"plugin_{i}", "connected")
+
+        # Should only keep the last 3
+        assert len(node.connection_events) == 3
+        assert "plugin_2" in node.connection_events[0]["message"]
+        assert "plugin_4" in node.connection_events[2]["message"]
+
+
+# =============================================================================
 # AgentNode Serialization Tests
 # =============================================================================
 
@@ -684,7 +905,9 @@ class TestContextGraphSerialization:
         view = TextNode(node_id="view1", path="main.py", expansion=Expansion.ALL)
         graph.add_node(view)
 
-        group = GroupNode(node_id="group1", expansion=Expansion.CONTENT, cached_summary="Code files")
+        group = GroupNode(
+            node_id="group1", expansion=Expansion.CONTENT, cached_summary="Code files"
+        )
         graph.add_node(group)
 
         topic = TopicNode(node_id="topic1", title="Discussion", expansion=Expansion.HEADER)

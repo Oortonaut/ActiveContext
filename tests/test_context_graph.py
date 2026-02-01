@@ -18,7 +18,6 @@ from activecontext.context.graph import ContextGraph
 from activecontext.context.state import Expansion, TickFrequency
 from tests.utils import create_mock_context_node
 
-
 # =============================================================================
 # Fixtures
 # =============================================================================
@@ -147,7 +146,7 @@ class TestGraphOperations:
     def test_remove_node_recursive(self, populated_graph):
         """Test removing a node and all its descendants."""
         # Remove root1 recursively should remove child1, child2, grandchild1
-        initial_count = len(populated_graph)
+        len(populated_graph)
         populated_graph.remove_node("root1", recursive=True)
 
         assert "root1" not in populated_graph
@@ -454,7 +453,7 @@ class TestCheckpoints:
     def test_restore_checkpoint_rebuilds_structure(self, populated_graph):
         """Test restoring a checkpoint rebuilds edge structure."""
         # Capture initial state
-        cp = populated_graph.checkpoint("initial")
+        populated_graph.checkpoint("initial")
 
         # Modify graph
         populated_graph.unlink("child1", "root1")
@@ -475,7 +474,7 @@ class TestCheckpoints:
 
     def test_restore_checkpoint_by_object(self, populated_graph):
         """Test restoring checkpoint by passing Checkpoint object."""
-        cp = populated_graph.checkpoint("test")
+        populated_graph.checkpoint("test")
 
         # Modify graph
         populated_graph.clear()
@@ -528,9 +527,9 @@ class TestCheckpoints:
 
     def test_multiple_checkpoints(self, populated_graph):
         """Test creating multiple checkpoints with unique names."""
-        cp1 = populated_graph.checkpoint("checkpoint1")
+        populated_graph.checkpoint("checkpoint1")
         time.sleep(0.01)  # Ensure different timestamps
-        cp2 = populated_graph.checkpoint("checkpoint2")
+        populated_graph.checkpoint("checkpoint2")
 
         checkpoints = populated_graph.get_checkpoints()
         assert len(checkpoints) == 2

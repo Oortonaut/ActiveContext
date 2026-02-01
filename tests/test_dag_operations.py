@@ -12,17 +12,12 @@ Tests are organized per task-002 requirements.
 
 from __future__ import annotations
 
-import time
-from unittest.mock import Mock
-
 import pytest
 
-from activecontext.context.checkpoint import Checkpoint, GroupState
 from activecontext.context.graph import ContextGraph
-from activecontext.context.nodes import GroupNode, TextNode, TopicNode
-from activecontext.context.state import Expansion, TickFrequency, Visibility
+from activecontext.context.nodes import GroupNode, TextNode
+from activecontext.context.state import Expansion, Visibility
 from tests.utils import create_mock_context_node
-
 
 # =============================================================================
 # DAG Link/Unlink Complex Operations Tests
@@ -129,7 +124,7 @@ class TestDAGLinkUnlinkOperations:
 
     def test_unlink_nonexistent_edge_is_noop(self, graph):
         """Test unlinking a non-existent edge is a no-op.
-        
+
         Note: unlink() returns True as long as nodes exist, even if no edge exists.
         This is by design - discard is idempotent.
         """
@@ -145,7 +140,7 @@ class TestDAGLinkUnlinkOperations:
 
         # Verify state unchanged - node1 still has no parents
         assert len(graph.get_parents("node1")) == 0
-        
+
     def test_unlink_nonexistent_nodes_returns_false(self, graph):
         """Test unlinking with nonexistent nodes returns False."""
         node1 = create_mock_context_node("node1", "text")
@@ -153,7 +148,7 @@ class TestDAGLinkUnlinkOperations:
 
         # Nonexistent parent
         assert graph.unlink("node1", "nonexistent") is False
-        
+
         # Nonexistent child
         assert graph.unlink("nonexistent", "node1") is False
 
@@ -311,7 +306,7 @@ class TestCheckpointRestoreBranchCycles:
     def test_checkpoint_restore_preserves_structure(self, populated_graph):
         """Test checkpoint-restore cycle preserves DAG structure."""
         # Capture checkpoint
-        cp = populated_graph.checkpoint("initial")
+        populated_graph.checkpoint("initial")
 
         # Modify structure
         populated_graph.unlink("child1", "root")
@@ -565,7 +560,7 @@ class TestStateTransitions:
         ]
 
         values = ["header", "content", "index", "all"]
-        for state, expected_value in zip(states, values):
+        for state, expected_value in zip(states, values, strict=False):
             assert state.value == expected_value
 
     def test_expansion_group_node_default(self):
@@ -869,7 +864,7 @@ class TestDAGEdgeCases:
 
     def test_clear_preserves_checkpoints(self, graph):
         """Test that clear() preserves checkpoints (nodes only cleared).
-        
+
         Checkpoints are intentionally preserved so users can restore
         to previous states after clearing.
         """
@@ -884,6 +879,6 @@ class TestDAGEdgeCases:
 
         # Nodes should be cleared
         assert len(graph) == 0
-        
+
         # Checkpoints are preserved
         assert len(graph.get_checkpoints()) == 2

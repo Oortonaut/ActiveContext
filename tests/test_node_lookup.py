@@ -4,14 +4,13 @@ These tests cover the get() DSL function and nodes accessor for looking up
 nodes by name with fuzzy matching support.
 """
 
-import asyncio
 from pathlib import Path
 
 import pytest
 
-from activecontext.session.timeline import Timeline, NodeLookup
 from activecontext.context.graph import ContextGraph
 from activecontext.context.view import NodeView
+from activecontext.session.timeline import NodeLookup, Timeline
 
 
 class TestGetFunction:
@@ -213,7 +212,7 @@ class TestNodesAccessor:
         timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
 
         try:
-            result = await timeline.execute_statement('count = len(nodes)')
+            result = await timeline.execute_statement("count = len(nodes)")
             assert result.status.value == "ok"
 
             ns = timeline.get_namespace()
@@ -222,7 +221,7 @@ class TestNodesAccessor:
             await timeline.execute_statement('v = text("main.py")')
             await timeline.execute_statement('t = topic("Test")')
 
-            result = await timeline.execute_statement('count = len(nodes)')
+            result = await timeline.execute_statement("count = len(nodes)")
             ns = timeline.get_namespace()
             assert ns["count"] == initial_count + 2
         finally:
@@ -237,7 +236,7 @@ class TestNodesAccessor:
             await timeline.execute_statement('v = text("main.py")')
             await timeline.execute_statement('t = topic("Test")')
 
-            result = await timeline.execute_statement('k = nodes.keys()')
+            result = await timeline.execute_statement("k = nodes.keys()")
             assert result.status.value == "ok"
 
             ns = timeline.get_namespace()
@@ -343,9 +342,11 @@ class TestNodeLookupUserMistakes:
         timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
 
         try:
-            result = await timeline.execute_statement('found = get(None)')
+            result = await timeline.execute_statement("found = get(None)")
             assert result.status.value == "error"
             # Should get a type error since None is not a string
-            assert "TypeError" in str(result.exception) or "attribute" in str(result.exception).lower()
+            assert (
+                "TypeError" in str(result.exception) or "attribute" in str(result.exception).lower()
+            )
         finally:
             await timeline.close()

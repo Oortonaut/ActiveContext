@@ -21,6 +21,7 @@ from activecontext.context.content import (
     content_from_markdown,
     content_from_shell,
 )
+from activecontext.context.exposed import exposed, get_exposed, is_exposed
 from activecontext.context.graph import ContextGraph
 from activecontext.context.headers import TokenInfo, format_token_info, render_header
 from activecontext.context.markdown_parser import (
@@ -34,11 +35,14 @@ from activecontext.context.nodes import (
     ArtifactNode,
     ContextNode,
     GroupNode,
+    HelpNode,
+    LineChange,
     LockNode,
     LockStatus,
     MCPServerNode,
     MessageNode,
     OnChildChangedHook,
+    PluginManagerNode,
     SessionNode,
     ShellNode,
     ShellStatus,
@@ -47,6 +51,10 @@ from activecontext.context.nodes import (
     TopicNode,
     TraceNode,
     WorkNode,
+    get_watchers,
+    on_file_change,
+    register_file_watcher,
+    unregister_file_watcher,
 )
 from activecontext.context.registry import NodeTypeRegistry, get_node_registry
 from activecontext.context.traceable import (
@@ -96,9 +104,14 @@ __all__ = [
     # View
     "ChoiceView",
     "NodeView",
+    # Exposed
+    "exposed",
+    "is_exposed",
+    "get_exposed",
     # Nodes
     "ContextNode",
     "TraceNode",
+    "HelpNode",
     "OnChildChangedHook",
     "TextNode",
     "GroupNode",
@@ -109,9 +122,16 @@ __all__ = [
     "LockNode",
     "LockStatus",
     "MCPServerNode",
+    "PluginManagerNode",
     "MessageNode",
     "SessionNode",
     "WorkNode",
     "AgentNode",
     "TaskNode",
+    # File change tracking
+    "LineChange",
+    "register_file_watcher",
+    "unregister_file_watcher",
+    "get_watchers",
+    "on_file_change",
 ]

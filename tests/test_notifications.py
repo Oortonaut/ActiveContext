@@ -8,7 +8,6 @@ Tests cover:
 - notify() DSL function
 """
 
-import asyncio
 import time
 from pathlib import Path
 
@@ -17,13 +16,9 @@ import pytest
 from activecontext.context.graph import ContextGraph
 from activecontext.context.nodes import (
     ArtifactNode,
-    ContextNode,
-    GroupNode,
     TextNode,
-    TraceNode,
 )
 from activecontext.context.state import Notification, NotificationLevel
-
 
 # =============================================================================
 # NotificationLevel and Notification Tests
@@ -456,7 +451,9 @@ class TestNotifyDSLFunction:
         timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
 
         try:
-            result = await timeline.execute_statement('notify("nonexistent", NotificationLevel.WAKE)')
+            result = await timeline.execute_statement(
+                'notify("nonexistent", NotificationLevel.WAKE)'
+            )
             assert result.status.value == "error"
             assert result.exception is not None
             # Check exception message contains "not found"

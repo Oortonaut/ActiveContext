@@ -8,6 +8,11 @@ This module defines the typed node hierarchy:
 - ArtifactNode: Code/output artifact
 - ShellNode: Async shell command execution
 - MessageNode: Conversation message with ID for referencing
+- MarkdownNode: Structured markdown with list parsing
+- MarkdownListItemNode: Individual list items with nesting support
+- FileSystemNode: Directory tree view with filtering
+- ClockNode: Timer/countdown with tick-driven updates
+- FunctionDocNode: Function signature and docstring extraction
 """
 
 from __future__ import annotations
@@ -19,6 +24,7 @@ from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from activecontext.context.state import Expansion, NotificationLevel, TickFrequency
@@ -27,8 +33,148 @@ from activecontext.context.traceable import trace_all_fields
 if TYPE_CHECKING:
     pass  # Moved to runtime import below
 
+import contextlib
+
 from activecontext.context.graph import LinkedChildOrder
 from activecontext.core.tokens import MediaType, detect_media_type
+
+# ---------------------------------------------------------------------------
+# LineChange dataclass for file-level change propagation
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class LineChange:
+    """Represents a line-level change within a file.
+
+    Attributes:
+        line_no: 1-based line number where the change starts.
+        num_removed: Number of lines removed starting at line_no.
+        new_lines: Lines inserted at line_no (may be empty for pure deletions).
+    """
+
+    line_no: int
+    num_removed: int
+    new_lines: list[str] = field(default_factory=list)
+
+
+# ---------------------------------------------------------------------------
+# Module-level file watcher registry
+# ---------------------------------------------------------------------------
+# Maps file path (str) -> set of TextNode IDs currently viewing that file.
+# This provides a lightweight lookup for propagating external file changes
+# to the correct TextNode instances without requiring a graph traversal.
+
+_file_watchers: dict[str, set[str]] = {}
+
+
+def register_file_watcher(file_path: str, node_id: str) -> None:
+    """Register a node as watching a file.
+
+    Args:
+        file_path: The file path being watched.
+        node_id: The TextNode ID to associate.
+    """
+    if file_path not in _file_watchers:
+        _file_watchers[file_path] = set()
+    _file_watchers[file_path].add(node_id)
+
+
+def unregister_file_watcher(file_path: str, node_id: str) -> None:
+    """Unregister a node from watching a file.
+
+    If no nodes remain for a path, the path entry is removed.
+
+    Args:
+        file_path: The file path to stop watching.
+        node_id: The TextNode ID to remove.
+    """
+    watchers = _file_watchers.get(file_path)
+    if watchers is not None:
+        watchers.discard(node_id)
+        if not watchers:
+            del _file_watchers[file_path]
+
+
+def get_watchers(file_path: str) -> set[str]:
+    """Get node IDs watching a file.
+
+    Args:
+        file_path: The file path to query.
+
+    Returns:
+        A *copy* of the set of node IDs (empty set if none).
+    """
+    return _file_watchers.get(file_path, set()).copy()
+
+
+def on_file_change(
+    file_path: str,
+    changes: list[LineChange],
+    *,
+    graph: ContextGraph | None = None,
+) -> list[str]:
+    """Propagate line-level changes to all TextNodes watching a file.
+
+    For each watching TextNode whose displayed range overlaps a change,
+    ``replace_lines`` is called with coordinates adjusted to the node's
+    local line space.
+
+    Args:
+        file_path: Path of the changed file.
+        changes: Ordered list of ``LineChange`` descriptions.
+        graph: Optional ``ContextGraph`` used to look up nodes by ID.
+               When ``None``, only node IDs are returned without
+               applying changes.
+
+    Returns:
+        List of node IDs that were notified / updated.
+    """
+    watcher_ids = get_watchers(file_path)
+    notified: list[str] = []
+
+    for node_id in watcher_ids:
+        if graph is None:
+            notified.append(node_id)
+            continue
+
+        node = graph.get_node(node_id)
+        if not isinstance(node, TextNode):
+            continue
+
+        # Determine the node's displayed line range (1-based)
+        try:
+            node_start = int(node.pos.split(":")[0])
+        except (ValueError, IndexError):
+            node_start = 1
+
+        if node.end_pos:
+            try:
+                node_end: int | None = int(node.end_pos.split(":")[0])
+            except (ValueError, IndexError):
+                node_end = None
+        else:
+            node_end = None
+
+        for change in changes:
+            change_end = (
+                change.line_no + change.num_removed - 1 if change.num_removed else change.line_no
+            )
+
+            # Skip if change is entirely before the node's range
+            if node_end is not None and change.line_no > node_end:
+                continue
+            # Skip if change is entirely after the node's range
+            if change_end < node_start:
+                continue
+
+            # Map to node-local coordinates
+            local_line = max(change.line_no - node_start + 1, 1)
+            node.replace_lines(local_line, change.num_removed, list(change.new_lines))
+
+        notified.append(node_id)
+
+    return notified
 
 
 class ShellStatus(Enum):
@@ -151,8 +297,6 @@ class ContextNode(ABC):
         """Return the node type identifier."""
         ...
 
-
-
     @property
     def header_tokens(self) -> int:
         """Tokens for the header line, including token counts overhead.
@@ -184,7 +328,7 @@ class ContextNode(ABC):
         if not self._graph:
             return 0
         total = 0
-        for child_id in (self.child_order or self.children_ids):
+        for child_id in self.child_order or self.children_ids:
             child = self._graph.get_node(child_id)
             if child:
                 total += child.header_tokens
@@ -408,7 +552,7 @@ class ContextNode(ABC):
         header = self.render_header(cwd=cwd)
         # Strip the header prefix — content is everything after it
         if summary.startswith(header):
-            return summary[len(header):]
+            return summary[len(header) :]
         return summary
 
     def render_detail(
@@ -423,13 +567,15 @@ class ContextNode(ABC):
         Subclasses may override this directly for composable rendering.
         """
         detail = self.RenderDetail(
-            include_summary=True, cwd=cwd, text_buffers=text_buffers,
+            include_summary=True,
+            cwd=cwd,
+            text_buffers=text_buffers,
         )
         header = self.render_header(cwd=cwd)
         content = self.render_content(cwd=cwd, text_buffers=text_buffers)
         prefix = header + content
         if detail.startswith(prefix):
-            return detail[len(prefix):]
+            return detail[len(prefix) :]
         return detail
 
     def tick(self) -> None:
@@ -762,6 +908,45 @@ class ContextNode(ABC):
         if self._graph:
             self._graph._running_nodes.discard(self.node_id)
 
+    def help(self) -> HelpNode:
+        """Get or create a documentation node for this node type.
+
+        Returns the existing HelpNode child if one has already been created,
+        otherwise creates a new HelpNode, links it as a child, and returns it.
+
+        The HelpNode extracts documentation from this node's class: docstrings,
+        method signatures, @exposed members, and properties.
+
+        Returns:
+            HelpNode documenting this node type's API.
+
+        Raises:
+            RuntimeError: If this node is not attached to a graph.
+        """
+        if self._graph is None:
+            raise RuntimeError(f"Cannot create help: node {self.node_id} is not in a graph")
+
+        # Check if a HelpNode child already exists
+        for child_id in self.children_ids:
+            child = self._graph.get_node(child_id)
+            if isinstance(child, HelpNode) and child.parent_node_type == self.node_type:
+                # Unhide if hidden
+                if child.expansion == Expansion.HEADER:
+                    child.expansion = Expansion.CONTENT
+                return child
+
+        # Create new HelpNode
+        help_content = _extract_help_content(type(self))
+        help_node = HelpNode(
+            parent_node_type=self.node_type,
+            _help_content=help_content,
+            expansion=Expansion.CONTENT,
+            tracing=False,
+        )
+        self._graph.add_node(help_node)
+        self._graph.link(help_node.node_id, self.node_id)
+        return help_node
+
 
 @dataclass
 class TextNode(ContextNode):
@@ -791,6 +976,11 @@ class TextNode(ContextNode):
     # Indentation for markdown list processing
     indent: int = 0
 
+    # Summary caching (for LLM-generated summaries)
+    cached_summary: str | None = None
+    summary_stale: bool = True
+    content_hash: str | None = None  # Hash of content for staleness detection
+
     def __post_init__(self) -> None:
         """Auto-detect media type from file extension and set originator."""
         if self.path and self.media_type == MediaType.TEXT:
@@ -798,6 +988,8 @@ class TextNode(ContextNode):
         # Auto-populate originator from path if not explicitly set
         if self.originator is None and self.path:
             self.originator = self.path
+        # Auto-register with file watcher registry
+        self.register_watcher()
 
     @property
     def node_type(self) -> str:
@@ -887,10 +1079,8 @@ class TextNode(ContextNode):
             # Parse end position
             end_line: int | None = None
             if self.end_pos:
-                try:
+                with contextlib.suppress(ValueError, IndexError):
                     end_line = int(self.end_pos.split(":")[0])
-                except (ValueError, IndexError):
-                    pass
 
             # Read file
             file_path = os.path.join(cwd, self.path)
@@ -905,7 +1095,7 @@ class TextNode(ContextNode):
             # Apply line range
             start_idx = max(0, start_line - 1)
             end_idx = end_line if end_line else len(file_lines)
-            lines = [l.rstrip("\n\r") for l in file_lines[start_idx:end_idx]]
+            lines = [line.rstrip("\n\r") for line in file_lines[start_idx:end_idx]]
 
         # Check if this is a markdown heading section
         is_markdown_heading = (
@@ -954,6 +1144,28 @@ class TextNode(ContextNode):
 
         return "".join(output_parts)
 
+    def RenderSummary(
+        self,
+        cwd: str = ".",
+        text_buffers: dict[str, Any] | None = None,
+    ) -> str:
+        """Render summary view: cached LLM summary if available, otherwise header.
+
+        Args:
+            cwd: Working directory for file access
+            text_buffers: Optional dict of buffer_id -> TextBuffer
+
+        Returns:
+            Cached summary string or header
+        """
+        # If we have a valid cached summary, use it
+        if self.cached_summary and not self.summary_stale:
+            header = self.render_header(cwd=cwd)
+            return f"{header}\n{self.cached_summary}\n"
+
+        # Otherwise, just show the header
+        return self.render_header(cwd=cwd)
+
     def SetPos(self, pos: str) -> TextNode:
         """Set start position.
 
@@ -979,6 +1191,106 @@ class TextNode(ContextNode):
             new_str = end_pos or "end"
             self._mark_changed(description=f"EndPos: {old_str} → {new_str}")
         return self
+
+    def replace_lines(
+        self,
+        line_no: int,
+        num_removed: int,
+        new_lines: list[str],
+    ) -> None:
+        """Replace lines in the node's buffered content.
+
+        Operates on the node's in-memory line content (via ``buffer_id`` or the
+        internal ``_lines`` cache).  If the node has no in-memory lines yet, they
+        are loaded from the associated file via ``RenderDetail``'s file-reading
+        path and cached in ``_lines``.
+
+        Args:
+            line_no: 1-based line number where replacement starts.
+            num_removed: Number of lines to remove starting at *line_no*.
+                         Use 0 for a pure insertion.
+            new_lines: Lines to insert at *line_no*.  Pass an empty list for
+                       a pure deletion.
+
+        Raises:
+            ValueError: If *line_no* is less than 1.
+            IndexError: If *line_no* exceeds the current line count + 1
+                        (i.e. you cannot skip past the end).
+        """
+        if line_no < 1:
+            raise ValueError(f"line_no must be >= 1, got {line_no}")
+
+        lines = self._get_lines_mut()
+        # line_no is 1-based; convert to 0-based index
+        idx = line_no - 1
+
+        if idx > len(lines):
+            raise IndexError(f"line_no {line_no} is beyond the end of content ({len(lines)} lines)")
+
+        # Remove old lines and splice in new ones
+        removed = lines[idx : idx + num_removed]
+        lines[idx : idx + num_removed] = new_lines
+
+        # Write back to the backing store
+        self._set_lines(lines)
+
+        # Build a human-readable change description
+        n_ins = len(new_lines)
+        n_del = len(removed)
+        parts: list[str] = []
+        if n_del:
+            parts.append(f"-{n_del}")
+        if n_ins:
+            parts.append(f"+{n_ins}")
+        desc = f"Lines {line_no}: {', '.join(parts)}" if parts else f"Lines {line_no}: no-op"
+
+        self._mark_changed(description=desc)
+
+    # -- internal helpers for replace_lines ----------------------------------
+
+    def _get_lines_mut(self) -> list[str]:
+        """Return a mutable list of lines for the node's current content.
+
+        If the node uses a ``TextBuffer`` (``buffer_id`` is set) the buffer's
+        line list is returned directly.  Otherwise the internal ``_lines``
+        cache is returned (populated lazily from the file on disk).
+        """
+        # Fast path: use internal cache if already populated
+        if hasattr(self, "_lines") and self._lines is not None:
+            return self._lines
+
+        # Buffer-backed path
+        if self.buffer_id:
+            # Caller is expected to pass text_buffers through the session;
+            # for replace_lines we only operate on _lines.
+            pass
+
+        # Lazy init from nothing (no file read here — callers provide content
+        # or a buffer supplies it).
+        self._lines: list[str] = []
+        return self._lines
+
+    def _set_lines(self, lines: list[str]) -> None:
+        """Persist the mutated lines back to the backing store."""
+        self._lines = lines
+
+    # -- file watcher integration -------------------------------------------
+
+    def register_watcher(self) -> None:
+        """Register this node as watching its file path.
+
+        Called automatically from ``__post_init__`` when ``path`` is set.
+        """
+        if self.path:
+            register_file_watcher(self.path, self.node_id)
+
+    def unregister_watcher(self) -> None:
+        """Unregister this node from the file watcher registry.
+
+        Should be called during node cleanup / removal.
+        """
+        if self.path:
+            unregister_file_watcher(self.path, self.node_id)
 
     def _format_notification_header(self, description: str) -> str:
         """Format header with line position info for text nodes."""
@@ -1010,6 +1322,11 @@ class TextNode(ContextNode):
         collapsed_text = f"[{self.path}: lines, pending traces]\n"
         collapsed_tokens = count_tokens(collapsed_text)
 
+        # Summary: cached summary if present
+        summary_tokens = 0
+        if self.cached_summary:
+            summary_tokens = count_tokens(self.cached_summary)
+
         # Detail: estimate from line count (~10 tokens/line with line numbers)
         detail_tokens = 0
         if self.end_line and self.start_line:
@@ -1018,7 +1335,7 @@ class TextNode(ContextNode):
 
         return TokenInfo(
             collapsed=collapsed_tokens,
-            summary=0,  # TextNode has no summary state distinct from detail
+            summary=summary_tokens,
             detail=detail_tokens,
         )
 
@@ -1032,6 +1349,11 @@ class TextNode(ContextNode):
                 "end_pos": self.end_pos,
                 "media_type": self.media_type.value,
                 "indent": self.indent,
+                "cached_summary": self.cached_summary,
+                "summary_stale": self.summary_stale,
+                "content_hash": self.content_hash,
+                "start_line": self.start_line,
+                "end_line": self.end_line,
             }
         )
         return data
@@ -1079,6 +1401,11 @@ class TextNode(ContextNode):
             end_pos=data.get("end_pos"),
             media_type=media_type,
             indent=data.get("indent", 0),
+            cached_summary=data.get("cached_summary"),
+            summary_stale=data.get("summary_stale", True),
+            content_hash=data.get("content_hash"),
+            start_line=data.get("start_line", 1),
+            end_line=data.get("end_line"),
         )
         return node
 
@@ -2363,12 +2690,16 @@ class MessageNode(ContextNode):
         originator: (inherited) Who produced this message (e.g., "user", "agent", "tool:grep")
         tool_name: Tool name for tool_call/tool_result messages
         tool_args: Tool arguments (for tool_call messages)
+        content_type: Content type ("text", "image", "audio", etc.)
+        mime_type: MIME type (e.g., "image/png", "audio/wav") or None for text
     """
 
     role: str = "user"  # "user", "assistant", "tool_call", "tool_result"
     content: str = ""
     tool_name: str | None = None
     tool_args: dict[str, Any] = field(default_factory=dict)
+    content_type: str = "text"  # "text", "image", "audio", etc.
+    mime_type: str | None = None  # MIME type (e.g., "image/png")
 
     @property
     def node_type(self) -> str:
@@ -2429,6 +2760,8 @@ class MessageNode(ContextNode):
             "expansion": self.expansion.value,
             "mode": self.mode,
             "version": self.version,
+            "content_type": self.content_type,
+            "mime_type": self.mime_type,
         }
 
     def _get_formatted_content(self) -> str:
@@ -3154,6 +3487,7 @@ class MCPServerNode(ContextNode):
             schema = t.get("inputSchema") or t.get("input_schema")
             if schema:
                 import json
+
                 detail_parts.append(f"    {json.dumps(schema)}")
         detail_tokens = count_tokens("\n".join(detail_parts)) if detail_parts else 0
 
@@ -3354,6 +3688,7 @@ class MCPToolNode(ContextNode):
         detail_parts: list[str] = [self.description]
         if self.input_schema:
             import json
+
             detail_parts.append(json.dumps(self.input_schema))
         detail_tokens = count_tokens("\n".join(detail_parts))
 
@@ -3644,6 +3979,244 @@ class MCPManagerNode(ContextNode):
             server_states=d.get("server_states", {}),
             tool_counts=d.get("tool_counts", {}),
             resource_counts=d.get("resource_counts", {}),
+            connection_events=d.get("connection_events", []),
+            max_events=d.get("max_events", 10),
+        )
+        return node
+
+
+@dataclass
+class PluginManagerNode(ContextNode):
+    """Singleton manager that tracks plugin server connections and available plugins.
+
+    This node aggregates state from the PluginManager and provides visibility
+    into loaded vs. available plugins, connection status, and plugin metadata.
+
+    The manager is created automatically and has a fixed node_id="plugin_manager".
+    Multiple observer nodes can reference it via the context graph.
+
+    Attributes:
+        plugin_states: Dict mapping plugin server name to connection status
+        plugin_types: Dict mapping plugin server to list of provided node types
+        builtin_count: Number of builtin node types
+        loaded_count: Number of currently loaded plugin servers
+
+    Rendering states:
+        - HIDDEN: Not shown in projection
+        - COLLAPSED: "Plugins: X builtin, Y loaded"
+        - SUMMARY: List of loaded plugin types with descriptions
+        - DETAILS: Full plugin info including paths, versions
+        - ALL: Full details + connection events
+    """
+
+    # Track plugin connection state
+    plugin_states: dict[str, str] = field(default_factory=dict)  # name -> status
+    plugin_types: dict[str, list[str]] = field(default_factory=dict)  # name -> node_types
+
+    # Metadata
+    builtin_count: int = 0
+    loaded_count: int = 0
+
+    # Recent events for rendering
+    connection_events: list[dict[str, Any]] = field(default_factory=list)
+    max_events: int = 10
+
+    @property
+    def node_type(self) -> str:
+        return "plugin_manager"
+
+    def GetDigest(self) -> dict[str, Any]:
+        """Return metadata digest for this node."""
+        return {
+            "id": self.node_id,
+            "type": self.node_type,
+            "builtin_count": self.builtin_count,
+            "loaded_count": self.loaded_count,
+            "plugin_states": dict(self.plugin_states),
+        }
+
+    def RenderSummary(
+        self,
+        cwd: str = ".",
+        text_buffers: dict[str, Any] | None = None,
+    ) -> str:
+        """Render summary: header + plugin status list."""
+        lines = [self.render_header(cwd=cwd).rstrip()]
+
+        # Plugin status list
+        if self.plugin_states:
+            lines.append("### Loaded Plugins")
+            for name, status in sorted(self.plugin_states.items()):
+                emoji = {
+                    "connected": "[OK]",
+                    "connecting": "[...]",
+                    "error": "[ERR]",
+                    "disconnected": "[--]",
+                }.get(status, "[?]")
+                types = ", ".join(self.plugin_types.get(name, []))
+                lines.append(f"- {name} {emoji}: {types}")
+        else:
+            lines.append("No plugin servers loaded.")
+
+        return "\n".join(lines)
+
+    def RenderDetail(
+        self,
+        include_summary: bool = False,
+        cwd: str = ".",
+        text_buffers: dict[str, Any] | None = None,
+    ) -> str:
+        """Render detail: summary + full plugin info + events.
+
+        Args:
+            include_summary: If True, include recent events (for ALL state).
+            cwd: Working directory for file access.
+            text_buffers: Not used but required for interface.
+        """
+        lines = [self.render_header(cwd=cwd).rstrip()]
+
+        # Builtin vs loaded summary
+        lines.append("### Overview")
+        lines.append(f"- Builtin types: {self.builtin_count}")
+        lines.append(f"- Loaded plugin servers: {self.loaded_count}")
+
+        # Plugin status list with details
+        if self.plugin_states:
+            lines.append("")
+            lines.append("### Loaded Plugins")
+            for name, status in sorted(self.plugin_states.items()):
+                emoji = {
+                    "connected": "[OK]",
+                    "connecting": "[...]",
+                    "error": "[ERR]",
+                    "disconnected": "[--]",
+                }.get(status, "[?]")
+                types = self.plugin_types.get(name, [])
+                lines.append(f"- **{name}** {emoji}")
+                lines.append(f"  - Status: {status}")
+                lines.append(f"  - Node types ({len(types)}): {', '.join(types)}")
+        else:
+            lines.append("")
+            lines.append("No plugin servers loaded.")
+
+        # Recent events (ALL only via include_summary)
+        if include_summary and self.connection_events:
+            lines.append("")
+            lines.append("### Recent Events")
+            for event in self.connection_events[-5:]:
+                lines.append(f"- {event.get('time', '?')}: {event.get('message', '?')}")
+
+        return "\n".join(lines)
+
+    def update_plugin_state(
+        self, name: str, status: str, node_types: list[str] | None = None
+    ) -> None:
+        """Update the state of a plugin connection.
+
+        Args:
+            name: Plugin server name
+            status: Connection status (connected, connecting, error, disconnected)
+            node_types: Optional list of node types provided by this plugin
+        """
+        old_status = self.plugin_states.get(name)
+        self.plugin_states[name] = status
+
+        if node_types is not None:
+            self.plugin_types[name] = node_types
+
+        # Update loaded count
+        self.loaded_count = sum(1 for s in self.plugin_states.values() if s == "connected")
+
+        # Record event if status changed
+        if old_status != status:
+            import time as time_module
+
+            self.connection_events.append(
+                {
+                    "time": time_module.strftime("%H:%M:%S"),
+                    "plugin": name,
+                    "message": f"{name}: {old_status or 'new'} -> {status}",
+                }
+            )
+            if len(self.connection_events) > self.max_events:
+                self.connection_events.pop(0)
+
+            self._mark_changed(description=f"Plugin '{name}': {old_status or 'new'} -> {status}")
+
+    def unregister_plugin(self, name: str) -> None:
+        """Remove a plugin from tracking."""
+        self.plugin_states.pop(name, None)
+        self.plugin_types.pop(name, None)
+        self.loaded_count = sum(1 for s in self.plugin_states.values() if s == "connected")
+        self._mark_changed(description=f"Plugin '{name}' unregistered")
+
+    def get_display_name(self) -> str:
+        """Return 'Plugin Manager' format."""
+        return f"Plugin Manager ({self.builtin_count} builtin, {self.loaded_count} loaded)"
+
+    def get_token_breakdown(self, cwd: str = ".") -> TokenInfo:
+        """Return token counts for collapsed/summary/detail."""
+        from activecontext.core.tokens import count_tokens
+
+        from .headers import TokenInfo
+
+        # Collapsed: counts
+        collapsed_text = (
+            f"[Plugin Manager: {self.builtin_count} builtin, {self.loaded_count} loaded]\n"
+        )
+        collapsed_tokens = count_tokens(collapsed_text)
+
+        # Summary: plugin names and types
+        summary_lines = [f"{name}: {', '.join(types)}" for name, types in self.plugin_types.items()]
+        summary_tokens = count_tokens(" ".join(summary_lines)) if summary_lines else 0
+
+        return TokenInfo(
+            collapsed=collapsed_tokens,
+            summary=summary_tokens,
+            detail=0,
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize for persistence."""
+        d = super().to_dict()
+        d.update(
+            {
+                "plugin_states": dict(self.plugin_states),
+                "plugin_types": {k: list(v) for k, v in self.plugin_types.items()},
+                "builtin_count": self.builtin_count,
+                "loaded_count": self.loaded_count,
+                "connection_events": list(self.connection_events),
+                "max_events": self.max_events,
+            }
+        )
+        return d
+
+    @classmethod
+    def _from_dict(cls, d: dict[str, Any]) -> PluginManagerNode:
+        """Deserialize from dict."""
+        # Parse tick_frequency if present
+        tick_freq = None
+        if d.get("tick_frequency"):
+            tick_freq = TickFrequency.from_dict(d["tick_frequency"])
+
+        node = cls(
+            node_id=d.get("node_id", "plugin_manager"),
+            parent_ids=set(d.get("parent_ids", [])),
+            children_ids=set(d.get("children_ids", [])),
+            expansion=Expansion(d.get("expansion", "content")),
+            mode=d.get("mode", "paused"),
+            tick_frequency=tick_freq,
+            version=d.get("version", 0),
+            created_at=d.get("created_at", 0.0),
+            updated_at=d.get("updated_at", 0.0),
+            tags=d.get("tags", {}),
+            display_sequence=d.get("display_sequence"),
+            originator=d.get("originator"),
+            title=d.get("title", ""),
+            plugin_states=d.get("plugin_states", {}),
+            plugin_types=d.get("plugin_types", {}),
+            builtin_count=d.get("builtin_count", 0),
+            loaded_count=d.get("loaded_count", 0),
             connection_events=d.get("connection_events", []),
             max_events=d.get("max_events", 10),
         )
@@ -4177,16 +4750,18 @@ class TaskNode(ContextNode):
     def to_dict(self) -> dict[str, Any]:
         """Serialize to dictionary."""
         base = super().to_dict()
-        base.update({
-            "task_id": self.task_id,
-            "task_type": self.task_type,
-            "io_mode": self.io_mode,
-            "status": self.status,
-            "created_at": self.created_at,
-            "started_at": self.started_at,
-            "completed_at": self.completed_at,
-            "metadata": self.metadata,
-        })
+        base.update(
+            {
+                "task_id": self.task_id,
+                "task_type": self.task_type,
+                "io_mode": self.io_mode,
+                "status": self.status,
+                "created_at": self.created_at,
+                "started_at": self.started_at,
+                "completed_at": self.completed_at,
+                "metadata": self.metadata,
+            }
+        )
         return base
 
     @classmethod
@@ -4208,4 +4783,1386 @@ class TaskNode(ContextNode):
             started_at=data.get("started_at"),
             completed_at=data.get("completed_at"),
             metadata=data.get("metadata", {}),
+        )
+
+
+# ---------------------------------------------------------------------------
+# Help system
+# ---------------------------------------------------------------------------
+
+
+def _extract_help_content(cls: type) -> str:
+    """Extract documentation from a ContextNode subclass.
+
+    Parses class docstrings, method signatures, @exposed members, and
+    properties to produce structured help content.
+
+    For plugin node types, documentation is extracted in priority order:
+    1. Explicit plugin_info dict in the module
+    2. Class docstring
+    3. Method docstrings for Render*, GetDigest, etc.
+
+    Args:
+        cls: The ContextNode subclass to document.
+
+    Returns:
+        Formatted help text string.
+    """
+    import inspect
+    import sys
+
+    from activecontext.context.exposed import get_exposed
+
+    lines: list[str] = []
+
+    # Try to get plugin_info dict from the class's module (for plugin nodes)
+    plugin_info: dict[str, str] | None = None
+    try:
+        module = sys.modules.get(cls.__module__)
+        if module is not None:
+            plugin_info_dict = getattr(module, "plugin_info", None)
+            if isinstance(plugin_info_dict, dict):
+                plugin_info = plugin_info_dict
+    except Exception:
+        pass
+
+    # Type name and description from plugin_info or docstring
+    if plugin_info:
+        # Use plugin_info as priority source
+        plugin_name = plugin_info.get("name", cls.__name__)
+        description = plugin_info.get("description")
+
+        # If description is missing from plugin_info, fall back to docstring
+        if not description:
+            cls_doc = inspect.getdoc(cls) or ""
+            description = cls_doc.split("\n")[0] if cls_doc else "(no description)"
+
+        lines.append(f"# {plugin_name}")
+        lines.append(f"{description}")
+        lines.append("")
+
+        # Add plugin metadata if available
+        version = plugin_info.get("version")
+        author = plugin_info.get("author")
+        if version or author:
+            lines.append("## Plugin Information")
+            if version:
+                lines.append(f"- **Version**: {version}")
+            if author:
+                lines.append(f"- **Author**: {author}")
+            lines.append("")
+    else:
+        # Fallback to class docstring
+        cls_doc = inspect.getdoc(cls) or ""
+        first_line = cls_doc.split("\n")[0] if cls_doc else "(no description)"
+        lines.append(f"# {cls.__name__}")
+        lines.append(f"{first_line}")
+        lines.append("")
+
+    # Constructor parameters (from dataclass fields)
+    try:
+        from dataclasses import MISSING
+        from dataclasses import fields as dc_fields
+
+        cls_fields = dc_fields(cls)
+        if cls_fields:
+            lines.append("## Constructor Parameters")
+            for f in cls_fields:
+                if f.name.startswith("_"):
+                    continue
+                # Skip inherited ContextNode base fields for brevity
+                if f.name in {
+                    "node_id",
+                    "parent_ids",
+                    "children_ids",
+                    "child_order",
+                    "expansion",
+                    "mode",
+                    "tick_frequency",
+                    "version",
+                    "created_at",
+                    "updated_at",
+                    "tags",
+                    "originator",
+                    "title",
+                    "display_sequence",
+                    "content_id",
+                    "notification_level",
+                    "is_subscription_point",
+                    "tracing",
+                    "trace_sink",
+                }:
+                    continue
+                type_str = str(f.type) if f.type else "Any"
+                default_str = ""
+                if f.default is not MISSING:
+                    default_str = f" = {f.default!r}"
+                elif f.default_factory is not MISSING:
+                    default_str = " = ..."
+                lines.append(f"- **{f.name}**: `{type_str}`{default_str}")
+            lines.append("")
+    except TypeError:
+        pass
+
+    # Exposed members
+    exposed_names = get_exposed(cls)
+
+    # Public methods (including exposed)
+    methods: list[tuple[str, str, str]] = []  # (name, signature, docstring)
+    properties: list[tuple[str, str, bool]] = []  # (name, docstring, writable)
+
+    for name in sorted(dir(cls)):
+        if name.startswith("_"):
+            continue
+
+        # Check via class __dict__ to find descriptors properly
+        member = None
+        for klass in cls.__mro__:
+            if name in klass.__dict__:
+                member = klass.__dict__[name]
+                break
+        if member is None:
+            member = getattr(cls, name, None)
+        if member is None:
+            continue
+
+        # Properties
+        if isinstance(member, property):
+            doc = inspect.getdoc(member.fget) if member.fget else ""
+            first_doc = (doc or "").split("\n")[0]
+            writable = member.fset is not None
+            properties.append((name, first_doc, writable))
+            continue
+
+        # Regular methods
+        if callable(member) and not isinstance(member, type):
+            try:
+                sig = inspect.signature(member)
+                sig_str = str(sig)
+            except (ValueError, TypeError):
+                sig_str = "(...)"
+            doc = inspect.getdoc(member) or ""
+            first_doc = doc.split("\n")[0]
+            is_exp = name in exposed_names
+            marker = " *" if is_exp else ""
+            methods.append((name, sig_str, first_doc + marker))
+
+    if methods:
+        lines.append("## Methods")
+        for name, sig_str_display, doc in methods:
+            lines.append(f"- `{name}{sig_str_display}` -- {doc}")
+        lines.append("")
+
+    if properties:
+        lines.append("## Properties")
+        for name, doc, writable in properties:
+            rw = "read/write" if writable else "read-only"
+            lines.append(f"- `{name}` ({rw}) -- {doc}")
+        lines.append("")
+
+    if exposed_names:
+        lines.append("## Agent-Facing API (@exposed)")
+        for name in sorted(exposed_names):
+            lines.append(f"- {name}")
+        lines.append("")
+
+    return "\n".join(lines)
+
+
+@dataclass
+class HelpNode(ContextNode):
+    """Documentation node generated by .help().
+
+    HelpNode renders API documentation for a specific node type. It is
+    created as a child of the node being documented and provides three
+    rendering levels: collapsed (brief header), summary (overview +
+    method list), and detail (full documentation with signatures).
+
+    Attributes:
+        parent_node_type: The node_type string of the documented node type.
+    """
+
+    parent_node_type: str = ""
+    _help_content: str = field(default="", repr=False)
+
+    @property
+    def node_type(self) -> str:
+        return "help"
+
+    def _count_methods(self) -> int:
+        """Count documented methods from help content.
+
+        Matches lines in the Methods section that look like function signatures:
+        ``- `name(`` pattern (backtick-name-open-paren).
+        """
+        import re
+
+        count = 0
+        in_methods = False
+        for line in self._help_content.split("\n"):
+            if line.startswith("## Methods"):
+                in_methods = True
+                continue
+            if line.startswith("## ") and in_methods:
+                in_methods = False
+                continue
+            if in_methods and re.match(r"^- `\w+\(", line):
+                count += 1
+        return count
+
+    def GetDigest(self) -> dict[str, Any]:
+        return {
+            "id": self.node_id,
+            "type": self.node_type,
+            "parent_node_type": self.parent_node_type,
+            "methods": self._count_methods(),
+            "expansion": self.expansion.value,
+        }
+
+    def get_display_name(self) -> str:
+        """Return display name with method count."""
+        methods = self._count_methods()
+        return f"{self.parent_node_type} Help -- {methods} methods"
+
+    def RenderCollapsed(
+        self,
+        cwd: str = ".",
+        text_buffers: dict[str, Any] | None = None,
+    ) -> str:
+        """Render collapsed: just the header."""
+        return self.render_header(cwd=cwd)
+
+    def RenderSummary(
+        self,
+        cwd: str = ".",
+        text_buffers: dict[str, Any] | None = None,
+    ) -> str:
+        """Render summary: type overview + key method names."""
+        parts = [self.render_header(cwd=cwd)]
+
+        # Extract first section (type name + description) and method names
+        in_methods = False
+        method_names: list[str] = []
+        for line in self._help_content.split("\n"):
+            if line.startswith("# "):
+                # Type name
+                parts.append(f"  {line[2:]}\n")
+            elif line and not line.startswith("#") and not line.startswith("-"):
+                # Description line (not a heading or list)
+                if not in_methods:
+                    parts.append(f"  {line}\n")
+            elif line.startswith("## Methods"):
+                in_methods = True
+            elif in_methods and line.startswith("- `"):
+                # Extract just the method name
+                name = line[3:].split("(")[0].split("`")[0]
+                method_names.append(name)
+            elif line.startswith("## ") and in_methods:
+                in_methods = False
+
+        if method_names:
+            parts.append(f"  Methods: {', '.join(method_names)}\n")
+
+        return "".join(parts)
+
+    def RenderDetail(
+        self,
+        include_summary: bool = False,
+        cwd: str = ".",
+        text_buffers: dict[str, Any] | None = None,
+    ) -> str:
+        """Render full documentation with signatures and descriptions."""
+        parts = [self.render_header(cwd=cwd)]
+        for line in self._help_content.split("\n"):
+            parts.append(f"  {line}\n")
+        return "".join(parts)
+
+    def _build_summary_text(self) -> str:
+        """Build summary text from help content without calling Render methods.
+
+        Avoids the recursion: get_token_breakdown -> RenderSummary -> render_header
+        -> get_token_breakdown.
+        """
+        parts: list[str] = []
+        in_methods = False
+        method_names: list[str] = []
+        for line in self._help_content.split("\n"):
+            if line.startswith("# "):
+                parts.append(line[2:])
+            elif line and not line.startswith("#") and not line.startswith("-"):
+                if not in_methods:
+                    parts.append(line)
+            elif line.startswith("## Methods"):
+                in_methods = True
+            elif in_methods and line.startswith("- `"):
+                name = line[3:].split("(")[0].split("`")[0]
+                method_names.append(name)
+            elif line.startswith("## ") and in_methods:
+                in_methods = False
+        if method_names:
+            parts.append(f"Methods: {', '.join(method_names)}")
+        return "\n".join(parts)
+
+    def get_token_breakdown(self, cwd: str = ".") -> TokenInfo:
+        """Return token counts for collapsed/summary/detail."""
+        from activecontext.core.tokens import count_tokens
+
+        from .headers import TokenInfo
+
+        collapsed_text = f"[{self.parent_node_type} Help]\n"
+        collapsed_tokens = count_tokens(collapsed_text)
+
+        # Use _build_summary_text to avoid recursion
+        summary_tokens = count_tokens(self._build_summary_text())
+        detail_tokens = count_tokens(self._help_content)
+
+        return TokenInfo(
+            collapsed=collapsed_tokens,
+            summary=summary_tokens,
+            detail=detail_tokens,
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize HelpNode to dict."""
+        data = super().to_dict()
+        data.update(
+            {
+                "parent_node_type": self.parent_node_type,
+                "_help_content": self._help_content,
+            }
+        )
+        return data
+
+    @classmethod
+    def _from_dict(cls, data: dict[str, Any]) -> HelpNode:
+        """Deserialize HelpNode from dict."""
+        tick_freq = None
+        if data.get("tick_frequency"):
+            tick_freq = TickFrequency.from_dict(data["tick_frequency"])
+
+        child_order_data = data.get("child_order")
+        child_order = None
+        if child_order_data:
+            if isinstance(child_order_data, list):
+                child_order = LinkedChildOrder.from_list(child_order_data)
+            else:
+                child_order = child_order_data
+
+        return cls(
+            node_id=data["node_id"],
+            parent_ids=set(data.get("parent_ids", [])),
+            children_ids=set(data.get("children_ids", [])),
+            child_order=child_order,
+            expansion=Expansion(data.get("expansion", "content")),
+            mode=data.get("mode", "paused"),
+            tick_frequency=tick_freq,
+            version=data.get("version", 0),
+            created_at=data.get("created_at", time.time()),
+            updated_at=data.get("updated_at", time.time()),
+            tags=data.get("tags", {}),
+            display_sequence=data.get("display_sequence"),
+            originator=data.get("originator"),
+            title=data.get("title", ""),
+            parent_node_type=data.get("parent_node_type", ""),
+            _help_content=data.get("_help_content", ""),
+        )
+
+
+@dataclass
+class MarkdownListItemNode(ContextNode):
+    """A single markdown list item that can contain nested items.
+
+    Attributes:
+        content: The text content of this list item (without list marker)
+        is_ordered: True for numbered lists (1. 2. 3.), False for bullets (- *)
+        indent_level: Indentation level (0 = root, 1 = nested once, etc.)
+        marker: The original list marker (e.g., "-", "*", "1.", "2.")
+    """
+
+    content: str = ""
+    is_ordered: bool = False
+    indent_level: int = 0
+    marker: str = "-"
+
+    @property
+    def node_type(self) -> str:
+        return "markdown_list_item"
+
+    def GetDigest(self) -> dict[str, Any]:
+        preview = self.content[:50] + "..." if len(self.content) > 50 else self.content
+        return {
+            "id": self.node_id,
+            "type": self.node_type,
+            "content_preview": preview,
+            "is_ordered": self.is_ordered,
+            "indent_level": self.indent_level,
+            "expansion": self.expansion.value,
+            "children_count": len(self.children_ids),
+        }
+
+    def RenderCollapsed(
+        self,
+        cwd: str = ".",
+        text_buffers: dict[str, Any] | None = None,
+    ) -> str:
+        """Render collapsed: just the header."""
+        return self.render_header(cwd=cwd)
+
+    def RenderSummary(
+        self,
+        cwd: str = ".",
+        text_buffers: dict[str, Any] | None = None,
+    ) -> str:
+        """Render summary: header + abbreviated content."""
+        header = self.render_header(cwd=cwd)
+        indent = "  " * self.indent_level
+        preview = self.content[:80]
+        if len(self.content) > 80:
+            preview += "..."
+        return f"{header}{indent}{self.marker} {preview}\n"
+
+    def RenderDetail(
+        self,
+        include_summary: bool = False,
+        cwd: str = ".",
+        text_buffers: dict[str, Any] | None = None,
+    ) -> str:
+        """Render detail: full list item with proper indentation."""
+        header = self.render_header(cwd=cwd)
+        indent = "  " * self.indent_level
+        return f"{header}{indent}{self.marker} {self.content}\n"
+
+    def get_display_name(self) -> str:
+        """Return list item type indicator."""
+        return f"{'OL' if self.is_ordered else 'UL'}-{self.indent_level}"
+
+    def get_token_breakdown(self, cwd: str = ".") -> TokenInfo:
+        """Return token counts for collapsed/summary/detail."""
+        from activecontext.core.tokens import count_tokens
+
+        from .headers import TokenInfo
+
+        # Collapsed: just metadata
+        collapsed_text = f"[List item: {len(self.content)} chars]\n"
+        collapsed_tokens = count_tokens(collapsed_text)
+
+        # Detail: full content with marker
+        indent = "  " * self.indent_level
+        detail_text = f"{indent}{self.marker} {self.content}\n"
+        detail_tokens = count_tokens(detail_text)
+
+        return TokenInfo(
+            collapsed=collapsed_tokens,
+            summary=0,
+            detail=detail_tokens,
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize MarkdownListItemNode to dict."""
+        data = super().to_dict()
+        data.update(
+            {
+                "content": self.content,
+                "is_ordered": self.is_ordered,
+                "indent_level": self.indent_level,
+                "marker": self.marker,
+            }
+        )
+        return data
+
+    @classmethod
+    def _from_dict(cls, data: dict[str, Any]) -> MarkdownListItemNode:
+        """Deserialize MarkdownListItemNode from dict."""
+        tick_freq = None
+        if data.get("tick_frequency"):
+            tick_freq = TickFrequency.from_dict(data["tick_frequency"])
+
+        child_order_data = data.get("child_order")
+        child_order = None
+        if child_order_data:
+            if isinstance(child_order_data, list):
+                child_order = LinkedChildOrder.from_list(child_order_data)
+            else:
+                child_order = child_order_data
+
+        return cls(
+            node_id=data["node_id"],
+            parent_ids=set(data.get("parent_ids", [])),
+            children_ids=set(data.get("children_ids", [])),
+            child_order=child_order,
+            expansion=Expansion(data.get("expansion", "all")),
+            mode=data.get("mode", "paused"),
+            tick_frequency=tick_freq,
+            version=data.get("version", 0),
+            created_at=data.get("created_at", time.time()),
+            updated_at=data.get("updated_at", time.time()),
+            tags=data.get("tags", {}),
+            display_sequence=data.get("display_sequence"),
+            originator=data.get("originator"),
+            title=data.get("title", ""),
+            content=data.get("content", ""),
+            is_ordered=data.get("is_ordered", False),
+            indent_level=data.get("indent_level", 0),
+            marker=data.get("marker", "-"),
+        )
+
+
+@dataclass
+class MarkdownNode(ContextNode):
+    """Structured markdown with automatic list parsing.
+
+    MarkdownNode parses markdown content and creates child MarkdownListItemNode
+    instances for each list item. Nested lists become nested child nodes.
+
+    Attributes:
+        content: The full markdown content
+        buffer_id: Optional reference to a text buffer for live editing
+        auto_parse: If True, automatically parse lists on content changes
+    """
+
+    content: str = ""
+    buffer_id: str | None = None
+    auto_parse: bool = True
+
+    @property
+    def node_type(self) -> str:
+        return "markdown"
+
+    def GetDigest(self) -> dict[str, Any]:
+        return {
+            "id": self.node_id,
+            "type": self.node_type,
+            "content_length": len(self.content),
+            "buffer_id": self.buffer_id,
+            "expansion": self.expansion.value,
+            "children_count": len(self.children_ids),
+        }
+
+    def _parse_lists(self) -> list[tuple[str, bool, int, str]]:
+        """Parse markdown content for list items.
+
+        Returns:
+            List of tuples: (content, is_ordered, indent_level, marker)
+        """
+        import re
+
+        items: list[tuple[str, bool, int, str]] = []
+        lines = self.content.split("\n")
+
+        # Regex patterns for list items
+        unordered_pattern = re.compile(r"^(\s*)([*+-])\s+(.*)$")
+        ordered_pattern = re.compile(r"^(\s*)(\d+\.)\s+(.*)$")
+
+        for line in lines:
+            # Try unordered list
+            match = unordered_pattern.match(line)
+            if match:
+                indent = len(match.group(1))
+                marker = match.group(2)
+                content = match.group(3)
+                indent_level = indent // 2  # 2 spaces per indent level
+                items.append((content, False, indent_level, marker))
+                continue
+
+            # Try ordered list
+            match = ordered_pattern.match(line)
+            if match:
+                indent = len(match.group(1))
+                marker = match.group(2)
+                content = match.group(3)
+                indent_level = indent // 2
+                items.append((content, True, indent_level, marker))
+                continue
+
+        return items
+
+    def parse_and_create_children(self) -> MarkdownNode:
+        """Parse lists and create child nodes for each item.
+
+        This method parses the markdown content, creates MarkdownListItemNode
+        children, and establishes parent-child relationships based on indentation.
+
+        Returns:
+            Self for chaining
+        """
+        if not self._graph:
+            # Can't create children without graph reference
+            return self
+
+        # Parse list items
+        items = self._parse_lists()
+        if not items:
+            return self
+
+        # Remove existing list item children (recursively)
+        def remove_list_items(parent_id: str) -> None:
+            """Recursively remove all MarkdownListItemNode children."""
+            if self._graph is None:
+                return
+            parent = self._graph.get_node(parent_id)
+            if not parent:
+                return
+            children_to_remove = [
+                child_id
+                for child_id in parent.children_ids
+                if isinstance(self._graph.get_node(child_id), MarkdownListItemNode)
+            ]
+            for child_id in children_to_remove:
+                # Recursively remove nested items first
+                remove_list_items(child_id)
+                # Then unlink from parent
+                self._graph.unlink(child_id, parent_id)
+
+        remove_list_items(self.node_id)
+
+        # Create new list item nodes
+        stack: list[tuple[int, MarkdownListItemNode]] = []  # (indent_level, node)
+
+        for content, is_ordered, indent_level, marker in items:
+            item_node = MarkdownListItemNode(
+                content=content,
+                is_ordered=is_ordered,
+                indent_level=indent_level,
+                marker=marker,
+                originator=self.node_id,
+            )
+            self._graph.add_node(item_node)
+
+            # Find parent based on indent level
+            parent_node: ContextNode = self
+
+            # Pop stack until we find the right parent level
+            while stack and stack[-1][0] >= indent_level:
+                stack.pop()
+
+            if stack:
+                # Parent is the last item with lower indent
+                parent_node = stack[-1][1]
+
+            # Link to parent
+            self._graph.link(item_node.node_id, parent_node.node_id)
+
+            # Add to stack for potential children
+            stack.append((indent_level, item_node))
+
+        self._mark_changed(description=f"Parsed {len(items)} list items")
+        return self
+
+    def set_content(self, content: str) -> MarkdownNode:
+        """Update markdown content and re-parse if auto_parse is enabled.
+
+        Args:
+            content: New markdown content
+
+        Returns:
+            Self for chaining
+        """
+        old_content = self.content
+        self.content = content
+
+        if self.auto_parse:
+            self.parse_and_create_children()
+
+        self._mark_changed(
+            description=f"Content updated ({len(old_content)} → {len(content)} chars)"
+        )
+        return self
+
+    def RenderCollapsed(
+        self,
+        cwd: str = ".",
+        text_buffers: dict[str, Any] | None = None,
+    ) -> str:
+        """Render collapsed: just the header."""
+        return self.render_header(cwd=cwd)
+
+    def RenderSummary(
+        self,
+        cwd: str = ".",
+        text_buffers: dict[str, Any] | None = None,
+    ) -> str:
+        """Render summary: header + first 200 chars."""
+        header = self.render_header(cwd=cwd)
+        preview = self.content[:200]
+        if len(self.content) > 200:
+            preview += "..."
+        return f"{header}{preview}\n"
+
+    def RenderDetail(
+        self,
+        include_summary: bool = False,
+        cwd: str = ".",
+        text_buffers: dict[str, Any] | None = None,
+    ) -> str:
+        """Render detail: full markdown content."""
+        header = self.render_header(cwd=cwd)
+        return f"{header}{self.content}"
+
+    def get_display_name(self) -> str:
+        """Return markdown document indicator."""
+        if self.buffer_id:
+            return f"MD:{self.buffer_id}"
+        return "MARKDOWN"
+
+    def get_token_breakdown(self, cwd: str = ".") -> TokenInfo:
+        """Return token counts for collapsed/summary/detail."""
+        from activecontext.core.tokens import count_tokens
+
+        from .headers import TokenInfo
+
+        # Collapsed: metadata only
+        collapsed_text = f"[Markdown: {len(self.content)} chars, {len(self.children_ids)} items]\n"
+        collapsed_tokens = count_tokens(collapsed_text)
+
+        # Detail: full content
+        detail_tokens = count_tokens(self.content)
+
+        return TokenInfo(
+            collapsed=collapsed_tokens,
+            summary=0,
+            detail=detail_tokens,
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize MarkdownNode to dict."""
+        data = super().to_dict()
+        data.update(
+            {
+                "content": self.content,
+                "buffer_id": self.buffer_id,
+                "auto_parse": self.auto_parse,
+            }
+        )
+        return data
+
+    @classmethod
+    def _from_dict(cls, data: dict[str, Any]) -> MarkdownNode:
+        """Deserialize MarkdownNode from dict."""
+        tick_freq = None
+        if data.get("tick_frequency"):
+            tick_freq = TickFrequency.from_dict(data["tick_frequency"])
+
+        child_order_data = data.get("child_order")
+        child_order = None
+        if child_order_data:
+            if isinstance(child_order_data, list):
+                child_order = LinkedChildOrder.from_list(child_order_data)
+            else:
+                child_order = child_order_data
+
+        return cls(
+            node_id=data["node_id"],
+            parent_ids=set(data.get("parent_ids", [])),
+            children_ids=set(data.get("children_ids", [])),
+            child_order=child_order,
+            expansion=Expansion(data.get("expansion", "all")),
+            mode=data.get("mode", "paused"),
+            tick_frequency=tick_freq,
+            version=data.get("version", 0),
+            created_at=data.get("created_at", time.time()),
+            updated_at=data.get("updated_at", time.time()),
+            tags=data.get("tags", {}),
+            display_sequence=data.get("display_sequence"),
+            originator=data.get("originator"),
+            title=data.get("title", ""),
+            content=data.get("content", ""),
+            buffer_id=data.get("buffer_id"),
+            auto_parse=data.get("auto_parse", True),
+        )
+
+
+@dataclass
+class FileSystemNode(ContextNode):
+    """Directory tree view with filtering and expand/collapse support.
+
+    Attributes:
+        root_path: Root directory path to display
+        pattern: Glob pattern for filtering (e.g., "*.py", "**/*.md")
+        max_depth: Maximum directory depth to display (None = unlimited)
+        show_hidden: Whether to show hidden files/directories
+        expanded_paths: Set of expanded directory paths
+    """
+
+    root_path: str = "."
+    pattern: str | None = None
+    max_depth: int | None = None
+    show_hidden: bool = False
+    expanded_paths: set[str] = field(default_factory=set)
+    _cached_tree: str = field(default="", repr=False)
+    _last_scan: float = field(default=0.0, repr=False)
+
+    @property
+    def node_type(self) -> str:
+        return "filesystem"
+
+    def GetDigest(self) -> dict[str, Any]:
+        return {
+            "id": self.node_id,
+            "type": self.node_type,
+            "root_path": self.root_path,
+            "pattern": self.pattern,
+            "max_depth": self.max_depth,
+            "expansion": self.expansion.value,
+        }
+
+    def _scan_directory(self) -> str:
+        """Scan directory and build tree representation."""
+        try:
+            root = Path(self.root_path).resolve()
+            if not root.exists():
+                return f"[Directory not found: {self.root_path}]\n"
+
+            lines: list[str] = []
+            self._build_tree(root, "", lines, 0)
+            return "\\n".join(lines)
+        except Exception as e:
+            return f"[Error scanning directory: {e}]\n"
+
+    def _build_tree(
+        self,
+        path: Path,
+        prefix: str,
+        lines: list[str],
+        depth: int,
+    ) -> None:
+        """Recursively build tree structure."""
+        if self.max_depth is not None and depth > self.max_depth:
+            return
+
+        # Filter hidden files
+        if not self.show_hidden and path.name.startswith("."):
+            return
+
+        # Apply pattern filter - skip non-matching files (but still recurse into dirs)
+        if self.pattern and not path.match(self.pattern) and not path.is_dir():
+            return
+
+        # Add current item
+        is_dir = path.is_dir()
+        marker = "📁" if is_dir else "📄"
+        is_expanded = str(path) in self.expanded_paths
+
+        if is_dir:
+            marker = "📂" if is_expanded else "📁"
+
+        lines.append(f"{prefix}{marker} {path.name}")
+
+        # Recurse into directories if expanded
+        if is_dir and (is_expanded or depth == 0):
+            try:
+                children = sorted(path.iterdir(), key=lambda p: (not p.is_dir(), p.name))
+                for i, child in enumerate(children):
+                    is_last = i == len(children) - 1
+                    new_prefix = prefix + ("    " if is_last else "│   ")
+                    self._build_tree(child, new_prefix, lines, depth + 1)
+            except PermissionError:
+                lines.append(f"{prefix}    [Permission denied]")
+
+    def toggle_path(self, path: str) -> FileSystemNode:
+        """Toggle expansion state of a directory path."""
+        if path in self.expanded_paths:
+            self.expanded_paths.remove(path)
+        else:
+            self.expanded_paths.add(path)
+        self._last_scan = 0  # Force rescan
+        self._mark_changed(description=f"Toggled {path}")
+        return self
+
+    def Recompute(self) -> None:
+        """Recompute directory tree on tick."""
+        current_time = time.time()
+        # Rescan every 5 seconds or on expansion change
+        if current_time - self._last_scan > 5.0:
+            self._cached_tree = self._scan_directory()
+            self._last_scan = current_time
+
+    def RenderCollapsed(
+        self,
+        cwd: str = ".",
+        text_buffers: dict[str, Any] | None = None,
+    ) -> str:
+        """Render collapsed: just the header."""
+        return self.render_header(cwd=cwd)
+
+    def RenderSummary(
+        self,
+        cwd: str = ".",
+        text_buffers: dict[str, Any] | None = None,
+    ) -> str:
+        """Render summary: header + root path."""
+        header = self.render_header(cwd=cwd)
+        return f"{header}Root: {self.root_path}\n"
+
+    def RenderDetail(
+        self,
+        include_summary: bool = False,
+        cwd: str = ".",
+        text_buffers: dict[str, Any] | None = None,
+    ) -> str:
+        """Render detail: full directory tree."""
+        if not self._cached_tree:
+            self._cached_tree = self._scan_directory()
+        header = self.render_header(cwd=cwd)
+        return f"{header}{self._cached_tree}"
+
+    def get_display_name(self) -> str:
+        """Return filesystem node indicator."""
+        return f"FS:{Path(self.root_path).name}"
+
+    def get_token_breakdown(self, cwd: str = ".") -> TokenInfo:
+        """Return token counts for collapsed/summary/detail."""
+        from activecontext.context.headers import TokenInfo
+        from activecontext.core.tokens import count_tokens
+
+        collapsed_text = f"[FileSystem: {self.root_path}]\n"
+        collapsed_tokens = count_tokens(collapsed_text)
+
+        if not self._cached_tree:
+            self._cached_tree = self._scan_directory()
+        detail_tokens = count_tokens(self._cached_tree)
+
+        return TokenInfo(
+            collapsed=collapsed_tokens,
+            summary=0,
+            detail=detail_tokens,
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize FileSystemNode to dict."""
+        data = super().to_dict()
+        data.update(
+            {
+                "root_path": self.root_path,
+                "pattern": self.pattern,
+                "max_depth": self.max_depth,
+                "show_hidden": self.show_hidden,
+                "expanded_paths": list(self.expanded_paths),
+            }
+        )
+        return data
+
+    @classmethod
+    def _from_dict(cls, data: dict[str, Any]) -> FileSystemNode:
+        """Deserialize FileSystemNode from dict."""
+        tick_freq = None
+        if data.get("tick_frequency"):
+            tick_freq = TickFrequency.from_dict(data["tick_frequency"])
+
+        child_order_data = data.get("child_order")
+        child_order = None
+        if child_order_data:
+            if isinstance(child_order_data, list):
+                child_order = LinkedChildOrder.from_list(child_order_data)
+            else:
+                child_order = child_order_data
+
+        return cls(
+            node_id=data["node_id"],
+            parent_ids=set(data.get("parent_ids", [])),
+            children_ids=set(data.get("children_ids", [])),
+            child_order=child_order,
+            expansion=Expansion(data.get("expansion", "all")),
+            mode=data.get("mode", "paused"),
+            tick_frequency=tick_freq,
+            version=data.get("version", 0),
+            created_at=data.get("created_at", time.time()),
+            updated_at=data.get("updated_at", time.time()),
+            tags=data.get("tags", {}),
+            display_sequence=data.get("display_sequence"),
+            originator=data.get("originator"),
+            title=data.get("title", ""),
+            root_path=data.get("root_path", "."),
+            pattern=data.get("pattern"),
+            max_depth=data.get("max_depth"),
+            show_hidden=data.get("show_hidden", False),
+            expanded_paths=set(data.get("expanded_paths", [])),
+        )
+
+
+@dataclass
+class ClockNode(ContextNode):
+    """Timer/countdown node with tick-driven updates.
+
+    Attributes:
+        start_time: Unix timestamp when timer started
+        duration_seconds: Duration for countdown (None = stopwatch mode)
+        is_running: Whether the timer is currently running
+        elapsed_seconds: Cached elapsed time
+    """
+
+    start_time: float = field(default_factory=time.time)
+    duration_seconds: float | None = None
+    is_running: bool = True
+    elapsed_seconds: float = 0.0
+
+    @property
+    def node_type(self) -> str:
+        return "clock"
+
+    def GetDigest(self) -> dict[str, Any]:
+        remaining = self.get_remaining()
+        return {
+            "id": self.node_id,
+            "type": self.node_type,
+            "mode": "countdown" if self.duration_seconds else "stopwatch",
+            "elapsed": f"{self.elapsed_seconds:.1f}s",
+            "remaining": f"{remaining:.1f}s" if remaining is not None else None,
+            "is_running": self.is_running,
+            "expansion": self.expansion.value,
+        }
+
+    def get_elapsed(self) -> float:
+        """Get elapsed time in seconds."""
+        if not self.is_running:
+            return self.elapsed_seconds
+        return time.time() - self.start_time + self.elapsed_seconds
+
+    def get_remaining(self) -> float | None:
+        """Get remaining time in countdown mode (None in stopwatch mode)."""
+        if self.duration_seconds is None:
+            return None
+        remaining = self.duration_seconds - self.get_elapsed()
+        return max(0.0, remaining)
+
+    def is_complete(self) -> bool:
+        """Check if countdown has completed."""
+        if self.duration_seconds is None:
+            return False
+        return self.get_elapsed() >= self.duration_seconds
+
+    def start(self) -> ClockNode:
+        """Start or resume the timer."""
+        if not self.is_running:
+            self.start_time = time.time()
+            self.is_running = True
+            self._mark_changed(description="Timer started")
+        return self
+
+    def pause(self) -> ClockNode:
+        """Pause the timer."""
+        if self.is_running:
+            self.elapsed_seconds = self.get_elapsed()
+            self.is_running = False
+            self._mark_changed(description="Timer paused")
+        return self
+
+    def reset(self) -> ClockNode:
+        """Reset the timer to zero."""
+        self.start_time = time.time()
+        self.elapsed_seconds = 0.0
+        self.is_running = False
+        self._mark_changed(description="Timer reset")
+        return self
+
+    def Recompute(self) -> None:
+        """Update elapsed time on tick."""
+        if self.is_running and self.is_complete():
+            self.pause()
+            self._mark_changed(description="Countdown completed")
+
+    def _format_time(self, seconds: float) -> str:
+        """Format seconds as HH:MM:SS."""
+        hours = int(seconds // 3600)
+        minutes = int((seconds % 3600) // 60)
+        secs = int(seconds % 60)
+        if hours > 0:
+            return f"{hours:02d}:{minutes:02d}:{secs:02d}"
+        return f"{minutes:02d}:{secs:02d}"
+
+    def RenderCollapsed(
+        self,
+        cwd: str = ".",
+        text_buffers: dict[str, Any] | None = None,
+    ) -> str:
+        """Render collapsed: just the header."""
+        return self.render_header(cwd=cwd)
+
+    def RenderSummary(
+        self,
+        cwd: str = ".",
+        text_buffers: dict[str, Any] | None = None,
+    ) -> str:
+        """Render summary: header + current time."""
+        header = self.render_header(cwd=cwd)
+        elapsed = self.get_elapsed()
+        status = "⏸" if not self.is_running else "▶"
+
+        if self.duration_seconds:
+            remaining = self.get_remaining()
+            elapsed_str = self._format_time(elapsed)
+            duration_str = self._format_time(self.duration_seconds)
+            remaining_str = self._format_time(remaining or 0)
+            return f"{header}{status} {elapsed_str} / {duration_str} (remaining: {remaining_str})\n"
+        else:
+            return f"{header}{status} {self._format_time(elapsed)}\n"
+
+    def RenderDetail(
+        self,
+        include_summary: bool = False,
+        cwd: str = ".",
+        text_buffers: dict[str, Any] | None = None,
+    ) -> str:
+        """Render detail: same as summary for clocks."""
+        return self.RenderSummary(cwd=cwd, text_buffers=text_buffers)
+
+    def get_display_name(self) -> str:
+        """Return clock type indicator."""
+        if self.duration_seconds:
+            return f"COUNTDOWN:{self._format_time(self.duration_seconds)}"
+        return "STOPWATCH"
+
+    def get_token_breakdown(self, cwd: str = ".") -> TokenInfo:
+        """Return token counts for collapsed/summary/detail."""
+        from activecontext.context.headers import TokenInfo
+        from activecontext.core.tokens import count_tokens
+
+        collapsed_text = f"[Clock: {self.get_elapsed():.1f}s]\n"
+        collapsed_tokens = count_tokens(collapsed_text)
+
+        # Build summary text without calling RenderSummary to avoid recursion
+        elapsed = self.get_elapsed()
+        elapsed_str = self._format_time(elapsed)
+        summary_tokens = count_tokens(elapsed_str)
+
+        return TokenInfo(
+            collapsed=collapsed_tokens,
+            summary=summary_tokens,
+            detail=0,
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize ClockNode to dict."""
+        data = super().to_dict()
+        data.update(
+            {
+                "start_time": self.start_time,
+                "duration_seconds": self.duration_seconds,
+                "is_running": self.is_running,
+                "elapsed_seconds": self.elapsed_seconds,
+            }
+        )
+        return data
+
+    @classmethod
+    def _from_dict(cls, data: dict[str, Any]) -> ClockNode:
+        """Deserialize ClockNode from dict."""
+        tick_freq = None
+        if data.get("tick_frequency"):
+            tick_freq = TickFrequency.from_dict(data["tick_frequency"])
+
+        child_order_data = data.get("child_order")
+        child_order = None
+        if child_order_data:
+            if isinstance(child_order_data, list):
+                child_order = LinkedChildOrder.from_list(child_order_data)
+            else:
+                child_order = child_order_data
+
+        return cls(
+            node_id=data["node_id"],
+            parent_ids=set(data.get("parent_ids", [])),
+            children_ids=set(data.get("children_ids", [])),
+            child_order=child_order,
+            expansion=Expansion(data.get("expansion", "all")),
+            mode=data.get("mode", "paused"),
+            tick_frequency=tick_freq,
+            version=data.get("version", 0),
+            created_at=data.get("created_at", time.time()),
+            updated_at=data.get("updated_at", time.time()),
+            tags=data.get("tags", {}),
+            display_sequence=data.get("display_sequence"),
+            originator=data.get("originator"),
+            title=data.get("title", ""),
+            start_time=data.get("start_time", time.time()),
+            duration_seconds=data.get("duration_seconds"),
+            is_running=data.get("is_running", True),
+            elapsed_seconds=data.get("elapsed_seconds", 0.0),
+        )
+
+
+@dataclass
+class FunctionDocNode(ContextNode):
+    """Extract and display function signatures and docstrings.
+
+    Attributes:
+        file_path: Path to Python file
+        function_name: Name of function to document
+        signature: Extracted function signature
+        docstring: Extracted docstring
+        source_lines: Optional full source code
+    """
+
+    file_path: str = ""
+    function_name: str = ""
+    signature: str = ""
+    docstring: str = ""
+    source_lines: str = ""
+
+    @property
+    def node_type(self) -> str:
+        return "function_doc"
+
+    def GetDigest(self) -> dict[str, Any]:
+        return {
+            "id": self.node_id,
+            "type": self.node_type,
+            "file_path": self.file_path,
+            "function_name": self.function_name,
+            "has_docstring": bool(self.docstring),
+            "expansion": self.expansion.value,
+        }
+
+    def extract_function_info(self) -> FunctionDocNode:
+        """Extract function signature and docstring from file."""
+        try:
+            import ast
+
+            with open(self.file_path, encoding="utf-8") as f:
+                source = f.read()
+
+            tree = ast.parse(source, filename=self.file_path)
+
+            # Find the function
+            for node in ast.walk(tree):
+                is_func = isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                if is_func and node.name == self.function_name:
+                    # Extract signature
+                    args = []
+                    for arg in node.args.args:
+                        arg_str = arg.arg
+                        if arg.annotation:
+                            arg_str += f": {ast.unparse(arg.annotation)}"
+                        args.append(arg_str)
+
+                    returns = ""
+                    if node.returns:
+                        returns = f" -> {ast.unparse(node.returns)}"
+
+                    async_prefix = "async " if isinstance(node, ast.AsyncFunctionDef) else ""
+                    arg_list = ", ".join(args)
+                    self.signature = f"{async_prefix}def {node.name}({arg_list}){returns}"
+
+                    # Extract docstring
+                    self.docstring = ast.get_docstring(node) or ""
+
+                    # Extract source
+                    self.source_lines = ast.unparse(node)
+
+                    self._mark_changed(description=f"Extracted {self.function_name}")
+                    return self
+
+            self.docstring = f"[Function {self.function_name} not found in {self.file_path}]"
+        except Exception as e:
+            self.docstring = f"[Error extracting function: {e}]"
+
+        return self
+
+    def RenderCollapsed(
+        self,
+        cwd: str = ".",
+        text_buffers: dict[str, Any] | None = None,
+    ) -> str:
+        """Render collapsed: just the header."""
+        return self.render_header(cwd=cwd)
+
+    def RenderSummary(
+        self,
+        cwd: str = ".",
+        text_buffers: dict[str, Any] | None = None,
+    ) -> str:
+        """Render summary: header + signature."""
+        header = self.render_header(cwd=cwd)
+        if not self.signature:
+            self.extract_function_info()
+        return f"{header}{self.signature}\n"
+
+    def RenderDetail(
+        self,
+        include_summary: bool = False,
+        cwd: str = ".",
+        text_buffers: dict[str, Any] | None = None,
+    ) -> str:
+        """Render detail: signature + docstring."""
+        header = self.render_header(cwd=cwd)
+        if not self.signature:
+            self.extract_function_info()
+
+        parts = [header, f"{self.signature}\n"]
+        if self.docstring:
+            parts.append(f'"""\n{self.docstring}\n"""\n')
+        return "".join(parts)
+
+    def get_display_name(self) -> str:
+        """Return function doc indicator."""
+        return f"DOC:{self.function_name}"
+
+    def get_token_breakdown(self, cwd: str = ".") -> TokenInfo:
+        """Return token counts for collapsed/summary/detail."""
+        from activecontext.context.headers import TokenInfo
+        from activecontext.core.tokens import count_tokens
+
+        collapsed_text = f"[FunctionDoc: {self.function_name}]\n"
+        collapsed_tokens = count_tokens(collapsed_text)
+
+        summary_text = f"{self.signature}\n"
+        summary_tokens = count_tokens(summary_text)
+
+        detail_text = f"{self.signature}\n{self.docstring}\n"
+        detail_tokens = count_tokens(detail_text)
+
+        return TokenInfo(
+            collapsed=collapsed_tokens,
+            summary=summary_tokens,
+            detail=detail_tokens,
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize FunctionDocNode to dict."""
+        data = super().to_dict()
+        data.update(
+            {
+                "file_path": self.file_path,
+                "function_name": self.function_name,
+                "signature": self.signature,
+                "docstring": self.docstring,
+                "source_lines": self.source_lines,
+            }
+        )
+        return data
+
+    @classmethod
+    def _from_dict(cls, data: dict[str, Any]) -> FunctionDocNode:
+        """Deserialize FunctionDocNode from dict."""
+        tick_freq = None
+        if data.get("tick_frequency"):
+            tick_freq = TickFrequency.from_dict(data["tick_frequency"])
+
+        child_order_data = data.get("child_order")
+        child_order = None
+        if child_order_data:
+            if isinstance(child_order_data, list):
+                child_order = LinkedChildOrder.from_list(child_order_data)
+            else:
+                child_order = child_order_data
+
+        return cls(
+            node_id=data["node_id"],
+            parent_ids=set(data.get("parent_ids", [])),
+            children_ids=set(data.get("children_ids", [])),
+            child_order=child_order,
+            expansion=Expansion(data.get("expansion", "all")),
+            mode=data.get("mode", "paused"),
+            tick_frequency=tick_freq,
+            version=data.get("version", 0),
+            created_at=data.get("created_at", time.time()),
+            updated_at=data.get("updated_at", time.time()),
+            tags=data.get("tags", {}),
+            display_sequence=data.get("display_sequence"),
+            originator=data.get("originator"),
+            title=data.get("title", ""),
+            file_path=data.get("file_path", ""),
+            function_name=data.get("function_name", ""),
+            signature=data.get("signature", ""),
+            docstring=data.get("docstring", ""),
+            source_lines=data.get("source_lines", ""),
         )
