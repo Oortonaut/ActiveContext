@@ -973,9 +973,7 @@ class TextNode(ContextNode):
             # Ensure line doesn't have trailing newline for consistent formatting
             line_content = line.rstrip("\n\r") if isinstance(line, str) else line
             if self.line_prefix == "numbers":
-                output_parts.append(
-                    f"{line_num:4d}{self.line_divider}{line_content}\n"
-                )
+                output_parts.append(f"{line_num:4d}{self.line_divider}{line_content}\n")
             else:
                 output_parts.append(f"{line_content}\n")
 

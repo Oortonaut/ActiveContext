@@ -127,8 +127,6 @@ def render_header(
         "main.py:1-50 | {#text_1} all (tokens: 340 / 18+74+120 of 340)\\n"
         "### Running Commands (lines 77-84) | {#text_8} all (tokens: 111 / 21+90 of 111)\\n"
     """
-    from .state import Expansion
-
     # Compute header and content from TokenInfo (node's own breakdown)
     header_toks = token_info.collapsed + TOKEN_COUNTS_OVERHEAD
     content_toks = token_info.summary + token_info.detail
