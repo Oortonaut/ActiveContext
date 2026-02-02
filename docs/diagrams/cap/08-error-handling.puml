@@ -1,0 +1,35 @@
+@startuml CAP_Error_Handling
+!theme plain
+
+title CAP Protocol - Error Codes and Recovery
+
+together {
+  rectangle "**Standard JSON-RPC 2.0**" as std {
+    card "-32700 PARSE_ERROR\nInvalid JSON" as e1
+    card "-32600 INVALID_REQUEST\nInvalid JSON-RPC request" as e2
+    card "-32601 METHOD_NOT_FOUND\nMethod does not exist" as e3
+    card "-32602 INVALID_PARAMS\nInvalid method parameters" as e4
+    card "-32603 INTERNAL_ERROR\nInternal server error" as e5
+  }
+}
+
+rectangle "**CAP-Specific (-32000 to -32099)**" as cap {
+  card "-32000 NODE_NOT_FOUND\nNo node with given ID" as c1
+  card "-32001 NODE_TYPE_UNKNOWN\nNode type not registered" as c2
+  card "-32002 METHOD_NOT_AVAILABLE\nMethod not defined or\ncapability undeclared" as c3
+  card "-32003 ROOT_NOT_FOUND\nFilesystem root URI\nnot found" as c4
+  card "-32004 PERMISSION_DENIED\nCapability not declared" as c5
+  card "-32005 NODE_CREATE_FAILED\nNode creation failed" as c6
+}
+
+rectangle "**Recovery Semantics**" as recovery {
+  card "**Transient**\nINTERNAL_ERROR\nNODE_CREATE_FAILED\n-> MAY retry" as r1
+  card "**Permanent**\nNODE_NOT_FOUND\nNODE_TYPE_UNKNOWN\n-> DO NOT retry" as r2
+  card "**Protocol**\nPARSE_ERROR\nINVALID_REQUEST\n-> Sender bug" as r3
+  card "**Permission**\nPERMISSION_DENIED\nROOT_NOT_FOUND\n-> Check caps" as r4
+}
+
+e5 -[hidden]-> c1
+c3 -[hidden]-> recovery
+
+@enduml

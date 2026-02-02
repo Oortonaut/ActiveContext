@@ -1,0 +1,54 @@
+@startuml CAP_Sync_On_Tick
+!theme plain
+
+title CAP Protocol - Sync-on-Tick Model
+
+participant "Agent (LLM)" as A
+participant "Host / Timeline" as H
+participant "RemoteNode Proxy" as P
+participant "Plugin Server" as S
+
+== Between Ticks: DSL Calls Accumulate ==
+
+A -> H : v.SetState(NodeState.ALL)
+activate H
+H -> P : queue PendingCall("SetState", ["ALL"])
+P --> H : (queued)
+deactivate H
+
+A -> H : v.SetTokens(500)
+activate H
+H -> P : queue PendingCall("SetTokens", [500])
+P --> H : (queued)
+deactivate H
+
+note over P : Node marked dirty\n2 calls pending
+
+== Meanwhile: Server Pushes Dirty ==
+
+S -> H : node/dirty(node_id)
+note over H : Also marked dirty\n(already was)
+
+== Tick Boundary: Single Round Trip ==
+
+H -> H : collect all dirty nodes
+
+H -> S : node/sync(node_id, calls=[\n  {method: "SetState", args: ["ALL"]},\n  {method: "SetTokens", args: [500]}\n])
+activate S
+
+S -> S : execute SetState("ALL")
+S -> S : execute SetTokens(500)
+S -> S : build renders, tokens, digest
+
+S --> H : NodeSyncResult(\n  state, renders, tokens,\n  digest, notifications\n)
+deactivate S
+
+H -> P : update cached state
+P -> P : clear dirty flag\nclear pending calls
+
+note over H, S
+  **Invariant**: At most one node/sync per node per tick.
+  N method calls = 1 round trip (not N).
+end note
+
+@enduml

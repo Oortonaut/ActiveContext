@@ -1,0 +1,112 @@
+@startuml CAP_Message_Flow
+
+title CAP Protocol - Complete Message Flow
+
+participant Host [
+  **Host**
+  ----
+  Host Process
+  ----
+  Agent scaffold (using Context
+  Application Nodes.)
+]
+
+participant Session [
+  **Application Session**
+  ----
+  Application Process
+  ----
+  Manages node lifetimes and storage
+]
+
+participant Node [
+  **Node**
+  ----
+  Application Process
+  ----
+  Renders a portion or view of a source data item.
+]
+
+participant Proxy [
+  **Node Proxy**
+  ----
+  Host Process
+  ----
+  Renders a portion or view of a source data item.
+]
+
+== Session Initialization ==
+hnote across: Transport Connected
+activate Host #FFC0C0
+Host -> Session : initialize(protocol_version, host_capabilities, roots)
+activate Session #C0FFC0
+Session --> Host : initialize_result
+note right: server_name\nnode_types\napplication capabilities
+alt Application is Compatible
+    hnote over Host: Session <Connected>
+else Application Incompatible
+    Host -> Session: shutdown
+    hnote over Host: End Session
+end
+
+== Node Creation ==
+alt Create Node
+    Host -> Session : open(node_type, args, kwargs, node_id)
+else Invalid Type
+    Session --> Host : error_result
+else Create Failed
+    Session --> Host : error_result
+else Success
+    create Node #E0FFE0
+    Session -> Node : node_id = <type factory>(...)
+    Session --> Host : open_result(node_id)
+    Host -> Node : connect(Host)
+    Node --> Host : connect_result
+
+    Host ->> Proxy : create_proxy(Node)
+    activate Proxy #FFE0E0
+    Proxy --> Host : proxy_result
+end
+
+== Sync-on-Tick (Hot Path) ==
+note over Host : DSL calls queue as PendingCalls
+
+Host -> Session : node/sync(node_id, calls[], cwd)
+Session --> Host : NodeSyncResult(state, renders, tokens, digest, notifications)
+
+== Push Notifications ==
+note over Session : Async state change
+
+Session -> Host : node/changed(node_id, field, description, curr?, prev?)
+note over Host : Propagate to parent node
+
+== Immediate Call (optional) ==
+Host -> Session : node/call(node_id, method, args, kwargs)
+Session --> Host : NodeCallResult(result, state_changed)
+
+== Host API (reverse direction) ==
+Session -> Host : host/create_node(node_type, args, parent_id)
+Host --> Session : HostCreateNodeResult(node_id)
+
+Session -> Host : host/invoke(node_id, method, args)
+Host --> Session : HostInvokeResult(result)
+
+Session -> Host : host/query_roots()
+Host --> Session : HostQueryRootsResult(roots[])
+
+Session -> Host : host/resolve_root(root_uri, normalized_path)
+Host --> Session : HostResolveRootResult(real_path, exists)
+
+== Serialization ==
+Host -> Session : node/serialize(node_id)
+Session --> Host : NodeSerializeResult(data)
+
+== Destruction ==
+Host -> Session : node/destroy(node_id)
+Host <-- Session : ~
+
+== Session Shutdown ==
+Host -> Session : shutdown (notification)
+note over Session : Complete in-flight\nresponses, then exit
+
+@enduml

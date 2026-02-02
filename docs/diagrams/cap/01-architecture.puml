@@ -1,0 +1,62 @@
+@startuml CAP_Architecture
+!theme plain
+skinparam backgroundColor #C0C0C040
+
+title Context Application Protocol - Architecture Overview
+
+package "Agent Scaffold" as Host {
+    [Session] as session
+    [ContextGraph] as graph
+    [ProjectionEngine] as projection
+    [Timeline] as timeline
+}
+
+' Host internals
+session --> graph : owns
+session --> timeline : orchestrates
+projection --> graph : reads
+
+package "Plugin Connection" as conn {
+    [PluginConnection] as plugin_conn
+    [RemoteNode Proxy] as proxy
+    [CAPTransport] as transport
+}
+
+timeline --> proxy : DSL calls
+proxy --> plugin_conn : pending calls
+plugin_conn --> transport : JSON-RPC 2.0
+
+
+package "Plugin Server" as Server {
+  [Message Handler] as handler
+  [Node Registry] as registry
+  [Node Instances] as instances
+}
+
+
+' Transport to server
+transport <--> handler : bidirectional\nmessages
+
+' Server internals
+handler --> registry : dispatch
+handler --> instances : create/sync/destroy
+registry --> instances : lookup
+
+note right of proxy
+  Caches node state
+  Queues method calls
+  One sync per tick
+end note
+
+note left of session
+  Drives tick cycle
+  Owns context graph
+  Manages projections
+end note
+
+note bottom of transport
+  Abstract protocol interface
+  Concrete: stdio, gRPC, WebSocket, TCP
+end note
+
+@enduml

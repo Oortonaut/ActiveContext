@@ -1,0 +1,57 @@
+@startuml CAP_Host_API
+!theme plain
+
+title CAP Protocol - Host API (Reverse Direction)
+
+participant "Host" as H
+participant "Plugin Server" as S
+
+note over H, S
+  The Host API allows the server to send
+  requests **to** the host. This is the
+  reverse of normal message flow.
+end note
+
+== Create Child Node ==
+note over S : Shell plugin wants to create\nartifact node for test output
+
+S -> H : host/create_node\n  node_type: "artifact"\n  args: ["test output"]\n  parent_id: "shell_a1b2c3d4"
+activate H
+H -> H : Create ArtifactNode\nin context graph
+H -> H : Link to parent node
+H --> S : { node_id: "artifact_x9y8z7w6" }
+deactivate H
+
+== Invoke Method on Host Node ==
+note over S : Plugin updates content\non an existing host node
+
+S -> H : host/invoke\n  node_id: "text_m1n2o3p4"\n  method: "set_content"\n  args: ["Updated content"]
+activate H
+H -> H : Execute method\non target node
+H --> S : { result: null }
+deactivate H
+
+== Query Filesystem Roots ==
+note over S : Plugin discovers\navailable filesystem paths
+
+S -> H : host/query_roots
+activate H
+H --> S : { roots: [\n  {uri: "file:///project", name: "cwd"},\n  {uri: "file:///home", name: "home"}\n]}
+deactivate H
+
+== Resolve Path Through Root ==
+note over S : Plugin resolves a\nnormalized path to real path
+
+S -> H : host/resolve_root\n  root_uri: "file:///project"\n  normalized_path: "src/main.py"
+activate H
+H -> H : Validate root\nResolve path
+H --> S : { real_path: "/project/src/main.py",\n  exists: true }
+deactivate H
+
+note over H, S
+  All Host API requests are gated by host capabilities
+  declared during initialize. If capability is false,
+  server MUST NOT send the corresponding request.
+end note
+
+@enduml

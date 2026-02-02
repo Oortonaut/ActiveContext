@@ -1,0 +1,58 @@
+@startuml CAP_Graceful_Degradation
+!theme plain
+
+title CAP Protocol - Graceful Degradation
+
+participant "Full Host" as FH
+participant "Minimal Server" as MS
+
+note over FH
+  Host declares all capabilities:
+  create_node: true
+  invoke: true
+  roots: true
+  notifications: true
+end note
+
+note over MS
+  Server declares minimal:
+  sync: true
+  immediate_call: false
+  push_dirty: false
+  push_notifications: false
+end note
+
+FH -> MS : initialize(host_capabilities: {all true})
+MS --> FH : InitializeResult(server_capabilities: {minimal})
+
+note over FH
+  Host adapts behavior:
+  - Does NOT send node/call
+  - Does NOT expect node/dirty
+  - Polls via node/sync on every tick
+  - Server never pushes
+end note
+
+== Polling Mode (no push notifications) ==
+
+FH -> MS : node/sync(node_id, calls=[])
+note right : Poll for state changes\nsince server can't push
+MS --> FH : NodeSyncResult(state, renders, ...)
+
+FH -> MS : node/sync(node_id, calls=[{method: "cancel"}])
+MS --> FH : NodeSyncResult(state, renders, ...)
+
+== What Host Must NOT Do ==
+
+FH -[#red]x MS : <color:red>node/call (BLOCKED)</color>
+note over FH, MS : immediate_call: false
+
+== Interoperability Guarantee ==
+
+note over FH, MS
+  Implementations at different conformance levels
+  MUST interoperate at the **intersection** of
+  their capabilities via capability negotiation.
+end note
+
+@enduml

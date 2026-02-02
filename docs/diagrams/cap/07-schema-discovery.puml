@@ -1,0 +1,72 @@
+@startuml CAP_Schema_Discovery
+!theme plain
+
+title CAP Protocol - Schema Discovery
+
+class NodeTypeSchema {
+  +node_type : string
+  +description : string
+  +constructor : ConstructorSchema
+  +properties : PropertySchema[]
+  +methods : MethodSchema[]
+}
+
+class ConstructorSchema {
+  +positional : ParamSchema[]
+  +variadic : ParamSchema?
+  +named : ParamSchema[]
+  ..
+  Models Python calling convention:
+  node_type(pos1, pos2, *variadic,
+            named1=default1)
+}
+
+class ParamSchema {
+  +name : string
+  +type : string = "str"
+  +default : Any = <<MISSING>>
+  +description : string
+  ..
+  MISSING = required parameter
+  null = optional (None default)
+}
+
+class PropertySchema {
+  +name : string
+  +type : string = "Any"
+  +readable : boolean = true
+  +writable : boolean = false
+  +description : string
+}
+
+class MethodSchema {
+  +name : string
+  +params : ParamSchema[]
+  +returns : string = "None"
+  +description : string
+  +chainable : boolean = false
+}
+
+NodeTypeSchema *-- "0..1" ConstructorSchema
+NodeTypeSchema *-- "0..*" PropertySchema
+NodeTypeSchema *-- "0..*" MethodSchema
+ConstructorSchema *-- "0..*" ParamSchema : positional
+ConstructorSchema *-- "0..1" ParamSchema : variadic
+ConstructorSchema *-- "0..*" ParamSchema : named
+MethodSchema *-- "0..*" ParamSchema
+
+note bottom of NodeTypeSchema
+  Advertised by server during
+  initialize response.
+  Enables LLM documentation,
+  code generation, and validation.
+end note
+
+note right of ParamSchema
+  **MISSING sentinel:**
+  - "default" field absent -> required
+  - "default": null -> optional (None)
+  - "default": 42 -> optional (42)
+end note
+
+@enduml

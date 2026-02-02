@@ -1,0 +1,52 @@
+@startuml CAP_Shutdown_Sequence
+!theme plain
+
+title CAP Protocol - Shutdown Sequences
+
+== Graceful Shutdown (Host-Managed Process) ==
+
+participant "Host" as H
+participant "Plugin Server" as S
+
+H -> S : shutdown (notification)
+note right of S : Begin cleanup
+
+H -> H : Close stdin pipe\n(signals EOF to server)
+
+activate S #LightGreen
+S -> S : Complete in-flight\nresponses
+S -> S : Close stdout
+S -> S : Exit (code 0)
+deactivate S
+
+H -> H : Wait for process exit\n(timeout: 5s recommended)
+
+alt Process exits within timeout
+  H -> H : Close stdout/stderr pipes
+  note over H : Clean shutdown complete
+else Process does not exit
+  H -> H : SIGTERM
+  H -> H : Wait briefly
+  alt Still running
+    H -> H : SIGKILL
+  end
+end
+
+== Graceful Shutdown (External Process) ==
+
+H -> S : shutdown (notification)
+H -> H : Close transport connection
+note over S : Release connection\nresources, continue\nserving other hosts
+
+== Unclean Shutdown (Connection Lost) ==
+
+H <-[#red]x S : <color:red>EOF / broken pipe / reset</color>
+H -> H : Fail all pending\nrequest futures
+H -> H : Clear pending request map
+H -> H : Transition to ERROR state
+
+opt Host-managed process
+  H -> H : Terminate orphaned process
+end
+
+@enduml

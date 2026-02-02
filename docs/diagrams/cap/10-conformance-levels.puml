@@ -1,0 +1,57 @@
+@startuml CAP_Conformance_Levels
+!theme plain
+
+title CAP Protocol - Conformance Levels
+
+rectangle "**Minimal Conformance**" as minimal #E8F5E9 {
+  card "JSON serialization" as m1
+  card "stdio transport" as m2
+  card "initialize / shutdown" as m3
+  card "node/create, sync, destroy, serialize" as m4
+  card "Schema discovery" as m5
+  card "Error handling (all codes)" as m6
+  card "Capability negotiation" as m7
+}
+
+rectangle "**Standard Conformance**" as standard #E3F2FD {
+  card "All Minimal features" as s0
+  card "node/dirty (push)" as s1
+  card "node/notification (push)" as s2
+  card "push_dirty: true" as s3
+  card "push_notifications: true" as s4
+}
+
+rectangle "**Full Conformance**" as full #FFF3E0 {
+  card "All Standard features" as f0
+  card "node/call (immediate)" as f1
+  card "host/create_node" as f2
+  card "host/invoke" as f3
+  card "host/query_roots" as f4
+  card "host/resolve_root" as f5
+  card "+1 serialization (Protobuf/MsgPack)" as f6
+  card "+1 transport (gRPC/WebSocket/TCP)" as f7
+}
+
+minimal -[hidden]right-> standard
+standard -[hidden]right-> full
+
+note bottom of minimal
+  **Use case**: Read-only plugins
+  with synchronous-only state.
+  Updates only via node/sync.
+end note
+
+note bottom of standard
+  **Use case**: Most production
+  plugins. Shell, file watcher,
+  async state changes.
+end note
+
+note bottom of full
+  **Use case**: Advanced plugins
+  with child node creation,
+  cross-node interaction,
+  network transports.
+end note
+
+@enduml

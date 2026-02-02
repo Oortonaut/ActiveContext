@@ -1,0 +1,69 @@
+@startuml CAP_Transport_Bindings
+!theme plain
+
+title CAP Protocol - Transport Bindings
+
+interface CAPTransport <<Protocol>> {
+  +is_running : bool
+  +start() : async
+  +stop() : async
+  +send_request(method, params) : async
+  +send_notification(method, params) : async
+  +send_response(result, request_id) : async
+  +send_error_response(code, msg, id) : async
+}
+
+class StdioTransport <<Required>> {
+  Framing: Newline-delimited JSON (NDJSON)
+  Channels: stdin/stdout/stderr
+  Connection: Host-managed process only
+  Multiplexing: No
+  ..
+  Each line = one JSON-RPC message + \\n
+  stderr for diagnostics only
+}
+
+class GrpcTransport <<Optional>> {
+  Framing: HTTP/2 + Protobuf
+  Connection: Both models
+  Multiplexing: Yes (HTTP/2)
+  TLS: Recommended
+  ..
+  Approach A: Bidirectional stream
+  Approach B: Typed RPCs per method
+}
+
+class WebSocketTransport <<Optional>> {
+  Framing: WS text frames
+  Connection: Both models
+  Multiplexing: No
+  TLS: WSS recommended
+  ..
+  Path: /cap (configurable)
+  Subprotocol: cap.v1
+  Keepalive: Ping/Pong
+}
+
+class TcpTransport <<Optional>> {
+  Framing: 4-byte length prefix + JSON
+  Connection: Both models
+  Multiplexing: No
+  TLS: Manual wrapper
+  ..
+  Max message: 16 MiB
+  Big-endian uint32 prefix
+}
+
+CAPTransport <|.. StdioTransport
+CAPTransport <|.. GrpcTransport
+CAPTransport <|.. WebSocketTransport
+CAPTransport <|.. TcpTransport
+
+note bottom of CAPTransport
+  All transports implement the
+  same abstract protocol interface.
+  PluginConnection programs against
+  CAPTransport — transport is transparent.
+end note
+
+@enduml

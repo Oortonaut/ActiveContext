@@ -1,0 +1,47 @@
+@startuml CAP_Node_Lifecycle
+!theme plain
+
+title CAP Protocol - Node Instance Lifecycle
+
+state "Not Created" as NC
+state "Active" as Active {
+  state "Clean" as Clean : State synced\nNo pending calls
+  state "Dirty" as Dirty : State changed\nor calls pending
+
+  [*] --> Clean
+
+  Clean --> Dirty : DSL method call\n(queued as PendingCall)
+  Clean --> Dirty : node/dirty\n(server push)
+  Clean --> Dirty : host marks dirty\n(checkpoint restore)
+
+  Dirty --> Clean : node/sync\n(tick boundary)
+}
+
+state "Serialized" as Ser
+
+NC --> Active : node/create\n(returns initial state)
+Active --> Ser : node/serialize\n(returns full state)
+Ser --> Active : (reconstruct\nfrom data)
+Active --> NC : node/destroy\n(resources released)
+
+note right of Clean
+  RemoteNode proxy cache
+  is up to date with server
+end note
+
+note right of Dirty
+  Pending calls or server
+  push awaiting next tick
+end note
+
+note right of Ser
+  data includes node_type
+  for deserialization dispatch
+end note
+
+note bottom of NC
+  node_id MUST NOT be
+  reused within same connection
+end note
+
+@enduml

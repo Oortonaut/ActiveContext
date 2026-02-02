@@ -1,0 +1,50 @@
+@startuml CAP_Connection_Lifecycle
+!theme plain
+
+title CAP Protocol - Connection Lifecycle
+
+[*] --> DISCONNECTED
+
+DISCONNECTED --> CONNECTING : start()
+CONNECTING --> CONNECTED : handshake success
+CONNECTING --> ERROR : handshake failure
+
+state CONNECTED {
+  [*] --> Handshake
+  Handshake --> Ready : initialize response received
+
+  state Ready {
+    [*] --> Idle
+    Idle --> Creating : node/create
+    Creating --> Idle : result
+    Idle --> Syncing : node/sync
+    Syncing --> Idle : result
+    Idle --> Calling : node/call
+    Calling --> Idle : result
+    Idle --> Destroying : node/destroy
+    Destroying --> Idle : result
+  }
+}
+
+CONNECTED --> DISCONNECTED : stop()\nshutdown notification
+CONNECTED --> ERROR : connection lost\n(EOF, broken pipe)
+
+ERROR --> DISCONNECTED : stop()
+
+note right of CONNECTING
+  Host sends initialize
+  as first message
+end note
+
+note right of ERROR
+  All pending requests
+  fail immediately
+end note
+
+note left of DISCONNECTED
+  Resources released
+  Process terminated
+  (if host-managed)
+end note
+
+@enduml

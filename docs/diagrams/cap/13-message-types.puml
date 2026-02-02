@@ -1,0 +1,31 @@
+@startuml CAP_Message_Types
+!theme plain
+
+title CAP Protocol - 13 Message Types Reference
+
+rectangle "**Lifecycle** (Host -> Server)" as lifecycle #E8F5E9 {
+  card "**initialize** (request)\nHandshake, version negotiation,\ncapability exchange, schema discovery" as init
+  card "**shutdown** (notification)\nGraceful shutdown signal,\nno response expected" as shut
+}
+
+rectangle "**Node Management** (Host -> Server)" as node_mgmt #E3F2FD {
+  card "**node/create** (request)\nCreate node instance\nReturns: id, state, renders, tokens, digest" as create
+  card "**node/sync** (request) ★HOT PATH★\nSync dirty node with batched calls\nReturns: state, renders, tokens, digest, notifications" as sync
+  card "**node/call** (request)\nImmediate method execution\nRequires: immediate_call capability" as call
+  card "**node/destroy** (request)\nRelease node resources\nNode ID invalidated" as destroy
+  card "**node/serialize** (request)\nFull state for checkpoint\nData includes node_type" as serialize
+}
+
+rectangle "**Push Notifications** (Server -> Host)" as push #FFF3E0 {
+  card "**node/dirty** (notification)\nOne-bit signal: state changed\nFull state on next node/sync" as dirty
+  card "**node/notification** (notification)\nDescription + level (ignore/hold/wake)\nPropagated to parent chain" as notif
+}
+
+rectangle "**Host API** (Server -> Host)" as host_api #FCE4EC {
+  card "**host/create_node** (request)\nServer creates child in host graph\nRequires: create_node capability" as hcreate
+  card "**host/invoke** (request)\nServer calls method on host node\nRequires: invoke capability" as hinvoke
+  card "**host/query_roots** (request)\nServer queries filesystem roots\nRequires: roots capability" as hroots
+  card "**host/resolve_root** (request)\nServer resolves path through root\nRequires: roots capability" as hresolve
+}
+
+@enduml

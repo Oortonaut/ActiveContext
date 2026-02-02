@@ -1,0 +1,61 @@
+@startuml CAP_Security_Model
+!theme plain
+
+title CAP Protocol - Security and Trust Model
+
+actor "Agent (LLM)" as agent
+participant "Host\n(Session + Timeline)" as host
+participant "Plugin Server\n(Separate Process)" as server
+database "Filesystem" as fs
+
+== Trust Levels ==
+
+note over agent : **Untrusted**\nDSL calls go through\nhost permission system
+note over host : **Trusted**\nOwns graph, controls\nprocess spawning
+note over server : **Semi-trusted**\nSeparate process,\ncapability-gated access
+
+== Permission Boundaries ==
+
+agent -> host : DSL: v = shell("pytest")
+activate host
+host -> host : Check shell\npermission
+host -> server : node/create("shell", ["pytest"])
+activate server
+server --> host : NodeCreateResult
+deactivate server
+host --> agent : Node created
+deactivate host
+
+== Filesystem Access via Roots ==
+
+server -> host : host/query_roots()
+activate host
+host --> server : roots: [{uri: "file:///project", name: "cwd"}]
+deactivate host
+
+server -> host : host/resolve_root("file:///project", "src/main.py")
+activate host
+host -> host : Validate root URI\nCheck path traversal
+host -> fs : Resolve real path
+fs --> host : /project/src/main.py
+host --> server : { real_path, exists: true }
+deactivate host
+
+== Capability Gating ==
+
+server -[#red]x host : <color:red>host/create_node (BLOCKED)\nif create_node: false</color>
+note over host : PERMISSION_DENIED (-32004)
+
+== Sandboxing ==
+
+note over server
+  **Process Isolation**
+  - Separate OS process
+  - Minimal privileges
+  - Resource limits (CPU, memory, I/O)
+  - No network unless declared
+  - No secrets via initialize
+  - Input validation on both sides
+end note
+
+@enduml

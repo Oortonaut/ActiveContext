@@ -1,0 +1,51 @@
+@startuml CAP_Capability_Negotiation
+!theme plain
+
+title CAP Protocol - Capability Negotiation
+
+participant "Host" as H
+participant "Plugin Server" as S
+
+H -> S : initialize\nhost_capabilities: {\n  create_node: true,\n  invoke: true,\n  roots: true,\n  notifications: true\n}
+activate S
+
+note right of S
+  Server reads host capabilities
+  to know which Host API
+  methods it can use
+end note
+
+S --> H : InitializeResult\nserver_capabilities: {\n  sync: true,\n  immediate_call: false,\n  push_dirty: true,\n  push_notifications: true\n}
+deactivate S
+
+note left of H
+  Host reads server capabilities
+  to know which node management
+  methods it can use
+end note
+
+== Capabilities Fixed for Connection Lifetime ==
+
+group Host → Server (gated by server_capabilities)
+  H -> S : node/sync (always allowed, sync: true)
+  H -[#red]x S : <color:red>node/call (BLOCKED, immediate_call: false)</color>
+end
+
+group Server → Host Push (gated by host_capabilities)
+  S -> H : node/dirty (allowed, notifications: true)
+  S -> H : node/notification (allowed, notifications: true)
+end
+
+group Server → Host API (gated by host_capabilities)
+  S -> H : host/create_node (allowed, create_node: true)
+  S -> H : host/invoke (allowed, invoke: true)
+  S -> H : host/query_roots (allowed, roots: true)
+  S -> H : host/resolve_root (allowed, roots: true)
+end
+
+note over H, S
+  If a message is sent requiring an undeclared capability,
+  the receiver MUST respond with PERMISSION_DENIED (-32004).
+end note
+
+@enduml
