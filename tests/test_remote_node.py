@@ -139,33 +139,26 @@ class TestCachedRenders:
         node = _make_node(_cached_renders=RenderSnapshot(content="body text\n"))
         assert node.render_content() == "body text\n"
 
-    def test_render_detail_from_cache(self) -> None:
-        """render_detail returns cached detail."""
-        node = _make_node(_cached_renders=RenderSnapshot(detail="detail text\n"))
-        assert node.render_detail() == "detail text\n"
-
-    def test_render_summary_combines_header_and_content(self) -> None:
-        """RenderSummary returns header + content."""
+    def test_render_content_merges_content_and_detail(self) -> None:
+        """render_content returns merged content + detail from cache."""
         node = _make_node(
             _cached_renders=RenderSnapshot(
-                header="### header\n",
-                content="content\n",
-            )
-        )
-        result = node.RenderSummary()
-        assert result == "### header\ncontent\n"
-
-    def test_render_detail_combines_all(self) -> None:
-        """RenderDetail returns header + content + detail."""
-        node = _make_node(
-            _cached_renders=RenderSnapshot(
-                header="### header\n",
                 content="content\n",
                 detail="detail\n",
             )
         )
-        result = node.RenderDetail()
-        assert result == "### header\ncontent\ndetail\n"
+        result = node.render_content()
+        assert result == "content\ndetail\n"
+
+    def test_render_content_only_content(self) -> None:
+        """render_content returns content when no detail in cache."""
+        node = _make_node(
+            _cached_renders=RenderSnapshot(
+                content="content\n",
+            )
+        )
+        result = node.render_content()
+        assert result == "content\n"
 
 
 # ---------------------------------------------------------------------------
@@ -190,27 +183,27 @@ class TestFallbackRenders:
         node = _make_node()
         assert node.render_content() == ""
 
-    def test_render_detail_empty_fallback(self) -> None:
-        """render_detail returns empty string when no cache."""
+    def test_render_content_empty_no_detail(self) -> None:
+        """render_content returns empty string when no cache at all."""
         node = _make_node()
-        assert node.render_detail() == ""
+        assert node.render_content() == ""
 
-    def test_display_name_fallback(self) -> None:
-        """get_display_name falls back to type + (remote)."""
+    def test_render_digest_fallback(self) -> None:
+        """render_digest falls back to type + (remote)."""
         node = _make_node()
-        name = node.get_display_name()
+        name = node.render_digest()
         assert "lint" in name
         assert "remote" in name
 
-    def test_display_name_from_title(self) -> None:
-        """get_display_name uses title if set."""
+    def test_render_digest_from_title(self) -> None:
+        """render_digest uses title if set."""
         node = _make_node(title="My Lint Node")
-        assert node.get_display_name() == "My Lint Node"
+        assert node.render_digest() == "My Lint Node"
 
-    def test_display_name_from_cached_state(self) -> None:
-        """get_display_name reads display_name from cached state."""
-        node = _make_node(_cached_state={"display_name": "Lint Results"})
-        assert node.get_display_name() == "Lint Results"
+    def test_render_digest_from_cached_digest(self) -> None:
+        """render_digest reads summary from cached digest."""
+        node = _make_node(_cached_digest={"summary": "Lint Results"})
+        assert node.render_digest() == "Lint Results"
 
 
 # ---------------------------------------------------------------------------

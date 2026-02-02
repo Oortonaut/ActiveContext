@@ -130,41 +130,29 @@ class TestMCPToolNodeRender:
         )
 
     def test_render_collapsed(self, tool_node):
-        """Test COLLAPSED state shows tool name + brief + ID + tokens."""
+        """Test HEADER state shows tool name via uniform header."""
         tool_node.expansion = Expansion.HEADER
         result = tool_node.Render()
-        # Format: ### `tool_name` description... | {#id} (X/Y tokens)
-        assert "### `read_file`" in result
-        assert "Read contents of a file" in result
+        # Uniform header includes display name and node_id
+        assert "read_file" in result
         assert f"{{#{tool_node.node_id}}}" in result
-        assert "tokens)" in result
+        assert "tokens" in result
 
-    def test_render_summary(self, tool_node):
-        """Test SUMMARY state shows name and truncated description."""
+    def test_render_content(self, tool_node):
+        """Test CONTENT state shows description and parameters."""
         tool_node.expansion = Expansion.CONTENT
         result = tool_node.Render()
-        assert "**read_file**:" in result
         assert "Read contents" in result
-
-    def test_render_summary_truncates_long_description(self):
-        """Test SUMMARY truncates descriptions over 80 chars."""
-        node = MCPToolNode(
-            tool_name="long_tool",
-            description="A" * 100,
-            expansion=Expansion.CONTENT,
-        )
-        result = node.Render()
-        assert "..." in result
-        assert len(result) < 150  # Should be truncated
+        assert "`path`" in result
 
     def test_render_details(self, tool_node):
         """Test DETAILS state shows name, description, and required params."""
         tool_node.expansion = Expansion.ALL
         result = tool_node.Render()
-        assert "### `read_file`" in result
         assert "Read contents of a file" in result
-        assert "`path`*" in result  # Required param marked with *
-        assert "`encoding`" in result  # Optional param without *
+        assert "`path`" in result  # Required param
+        assert "(required)" in result  # Required marker
+        assert "`encoding`" in result  # Optional param
 
 
 class TestMCPToolNodeDigest:
@@ -434,10 +422,10 @@ class TestMCPToolNodeIntegration:
         tool.expansion = Expansion.ALL
         assert tool.expansion == Expansion.ALL
 
-    def test_tool_node_display_name(self):
-        """Test MCPToolNode.get_display_name() format."""
+    def test_tool_node_render_digest(self):
+        """Test MCPToolNode.render_digest() format."""
         node = MCPToolNode(tool_name="read_file", server_name="filesystem")
-        assert node.get_display_name() == "filesystem.read_file"
+        assert node.render_digest() == "filesystem.read_file"
 
     def test_child_order_populated_on_link(self, context_graph, mcp_server_node, mock_connection):
         """Test that tool nodes are added to child_order for projection rendering."""

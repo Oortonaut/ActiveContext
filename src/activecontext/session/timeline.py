@@ -1827,15 +1827,19 @@ class Timeline:
         section_nodes: dict[int, TextNode] = {}  # section index -> node
 
         for i, section in enumerate(result.sections):
+            # Content starts after the heading line
+            content_start = section.start_line + 1
+
             node = TextNode(
                 path=path,
+                title=section.title,
                 expansion=expansion,
                 media_type=MediaType.MARKDOWN,
                 buffer_id=buffer.buffer_id,
-                start_line=section.start_line,
+                start_line=content_start,
                 end_line=section.end_line,
             )
-            # Store heading info in tags for rendering
+            # Store heading metadata in tags
             node.tags["heading"] = section.title
             node.tags["level"] = section.level
             all_nodes.append(node)
@@ -2009,7 +2013,7 @@ class Timeline:
                 return node.cached_summary
 
         # Get rendered content for LLM prompt
-        content = node.RenderDetail(cwd=self._cwd)
+        content = node.render_content(cwd=self._cwd)
 
         # Generate summary via LLM
         prompt = f"""Summarize the following file content in {max_tokens} tokens or less.

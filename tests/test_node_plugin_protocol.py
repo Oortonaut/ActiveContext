@@ -60,10 +60,9 @@ class TestProtocolConformance:
         [
             "node_type",
             "node_id",
-            "get_display_name",
             "render_header",
             "render_content",
-            "render_detail",
+            "render_digest",
             "get_token_breakdown",
             "get_digest",
             "tick",
@@ -114,38 +113,26 @@ class TestAdapterMethods:
         # Content should not include the header
         assert not content.startswith(header) or content == ""
         # But it should contain something from the summary
-        # (ArtifactNode.RenderSummary includes first line preview)
+        # (ArtifactNode.render_content includes content)
 
     def test_render_content_empty_for_header_only_nodes(self) -> None:
-        """Nodes whose RenderSummary equals RenderCollapsed return empty content."""
+        """Nodes with no content return empty string from render_content."""
         node = TopicNode(title="Test Topic")
-        # TopicNode with no messages: RenderSummary == RenderCollapsed == just header
+        # TopicNode with no messages: render_content returns minimal or empty
         content = node.render_content()
         # Content is the part after the header
         assert isinstance(content, str)
 
-    def test_render_detail_returns_detail_section(self) -> None:
-        """render_detail() returns extra content beyond content level."""
-        node = ShellNode(command="pytest")
-        node.shell_status = ShellStatus.COMPLETED
-        node.exit_code = 0
-        node.output = "PASSED\n"
-        node.duration_ms = 500.0
-
-        detail = node.render_detail()
-        assert isinstance(detail, str)
-
     def test_render_methods_are_composable(self) -> None:
-        """header + content + detail should approximate the full render."""
+        """header + content should approximate the full render."""
         node = ArtifactNode(
             artifact_type="output",
             content="line 1\nline 2\nline 3",
         )
         header = node.render_header()
         content = node.render_content()
-        detail = node.render_detail()
 
-        composed = header + content + detail
+        composed = header + content
         # The composed output should contain the header
         assert header in composed
         # And be non-empty

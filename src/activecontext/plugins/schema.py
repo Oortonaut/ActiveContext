@@ -281,10 +281,9 @@ def _extract_methods(cls: type) -> list[MethodSchema]:
     excluded = {
         "render_header",
         "render_content",
-        "render_detail",
+        "render_digest",
         "get_token_breakdown",
         "get_digest",
-        "get_display_name",
         "tick",
         "notify_parents",
         "to_dict",
@@ -292,9 +291,7 @@ def _extract_methods(cls: type) -> list[MethodSchema]:
         # PascalCase originals
         "Recompute",
         "GetDigest",
-        "RenderCollapsed",
-        "RenderSummary",
-        "RenderDetail",
+        "Render",
     }
 
     for name, method in inspect.getmembers(cls, predicate=inspect.isfunction):

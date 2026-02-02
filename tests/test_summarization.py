@@ -189,7 +189,7 @@ class TestTextNodeSummarization:
         context_graph: ContextGraph,
         tmp_path: Path,
     ) -> None:
-        """Test that TextNode.RenderSummary() uses cached summary."""
+        """Test that TextNode.render_content() uses cached summary."""
         # Create TextNode with cached summary
         test_file = tmp_path / "test.py"
         test_file.write_text("def foo():\n    return 42\n")
@@ -198,12 +198,11 @@ class TestTextNodeSummarization:
         node.summary_stale = False
         context_graph.add_node(node)
 
-        # Render summary
-        rendered = node.RenderSummary(cwd=str(tmp_path))
+        # Render content
+        rendered = node.render_content(cwd=str(tmp_path))
 
         # Should contain the cached summary
         assert "Test summary" in rendered
-        assert node.path in rendered
 
     @pytest.mark.asyncio
     async def test_textnode_render_summary_stale(
@@ -211,7 +210,7 @@ class TestTextNodeSummarization:
         context_graph: ContextGraph,
         tmp_path: Path,
     ) -> None:
-        """Test that TextNode.RenderSummary() shows header when summary is stale."""
+        """Test that TextNode.render_content() does not use stale summary."""
         # Create TextNode with stale summary
         test_file = tmp_path / "test.py"
         test_file.write_text("def foo():\n    return 42\n")
@@ -220,12 +219,11 @@ class TestTextNodeSummarization:
         node.summary_stale = True
         context_graph.add_node(node)
 
-        # Render summary
-        rendered = node.RenderSummary(cwd=str(tmp_path))
+        # Render content
+        rendered = node.render_content(cwd=str(tmp_path))
 
-        # Should only show header, not the stale summary
+        # Should not use the stale summary text
         assert "Old summary" not in rendered
-        assert node.path in rendered
 
     @pytest.mark.asyncio
     async def test_textnode_token_breakdown_includes_summary(

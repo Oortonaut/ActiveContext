@@ -223,7 +223,7 @@ class ChoiceView(NodeView):
 
     Rendering helpers:
     - render_index(): Header line for each child (for INDEX mode)
-    - render_brief(): "selected [A | B | C]" format
+    - render_digest(): "selected [A | B | C]" format
 
     Example:
         # Wrap any node in ChoiceView
@@ -391,7 +391,7 @@ class ChoiceView(NodeView):
                     lines.append(f"- {title}")
         return "\n".join(lines)
 
-    def render_brief(self) -> str:
+    def render_digest(self) -> str:
         """Render as 'selected [A | B | C]'.
 
         Returns:

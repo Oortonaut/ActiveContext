@@ -694,7 +694,7 @@ class TestGroupSummarizationTriggers:
         group.summary_stale = False
         group.cached_summary = "Cached test summary"
 
-        rendered = group.RenderSummary()
+        rendered = group.render_content()
 
         # Should return cached summary
         assert "Cached test summary" in rendered
@@ -706,7 +706,7 @@ class TestGroupSummarizationTriggers:
         group.summary_stale = True
         group.cached_summary = "Stale summary"
 
-        rendered = group.RenderSummary()
+        rendered = group.render_content()
 
         # Should not return the stale cached summary content directly
         # Instead returns header

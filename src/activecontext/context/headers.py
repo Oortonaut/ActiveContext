@@ -3,11 +3,12 @@
 This module provides consistent header formatting for all node types,
 making every node uniquely referenceable by the LLM.
 
-Header Format (using markdown heading ID syntax):
-- HEADER:  ### name {#id} header (tokens: 18 / 18+74+120 of 340)
-- CONTENT: ## name {#id} content (tokens: 92 / 18+74+120 of 340)
-- INDEX:   # name {#id} index (tokens: 212 / 18+74+120 of 340)
-- ALL:     # name {#id} all (tokens: 340 / 18+74+120 of 340)
+Header Format:
+  [heading_prefix] name [line_range] | {#display_id} state (tokens: ...)
+
+Examples:
+  system_prompt:1 | {#text_8} all (tokens: 111 / 21+90 of 111)
+  ### Running Commands (lines 77-84) | {#system_prompt_8} all (tokens: 111 / 21+90 of 111)
 
 Token Format:
 - visible / header+content+index of all
@@ -103,6 +104,8 @@ def render_header(
     *,
     index_tokens: int = 0,
     all_tokens: int | None = None,
+    heading_prefix: str = "",
+    line_range: str = "",
 ) -> str:
     """Render a uniform header for a context node.
 
@@ -114,17 +117,15 @@ def render_header(
         notification_level: Optional notification level (ignore/hold/wake)
         index_tokens: Sum of children's header tokens (from node.index_tokens)
         all_tokens: Total recursive tokens (from node.all_tokens), overrides computed
+        heading_prefix: Optional heading prefix (e.g. "### " for level-3 markdown heading)
+        line_range: Optional line range caption (e.g. "(lines 77-84)")
 
     Returns:
-        Formatted header string with appropriate heading level
-        Uses markdown heading ID syntax: {#type#N}
-        Includes state and notification level as brief descriptor
+        Formatted header string with pipe separator between identity and metadata.
 
     Examples:
-        HEADER:  "### main.py:1-50 {#text_1} header (tokens: 18 / 18+74+120 of 340)\n"
-        CONTENT: "## main.py:1-50 {#text_1} content (tokens: 92 / 18+74+120 of 340)\n"
-        INDEX:   "# main.py:1-50 {#text_1} index (tokens: 212 / 18+74+120 of 340)\n"
-        ALL:     "# main.py:1-50 {#text_1} all (tokens: 340 / 18+74+120 of 340)\n"
+        "main.py:1-50 | {#text_1} all (tokens: 340 / 18+74+120 of 340)\\n"
+        "### Running Commands (lines 77-84) | {#text_8} all (tokens: 111 / 21+90 of 111)\\n"
     """
     from .state import Expansion
 
@@ -148,13 +149,11 @@ def render_header(
     if notification_level and notification_level != "ignore":
         brief = f"{brief} {notification_level}"
 
-    if state == Expansion.HEADER:
-        # Level 3 heading for header-only nodes
-        return f"### {name} {{#{display_id}}} {brief} {token_str}\n"
-
-    if state == Expansion.CONTENT:
-        # Level 2 heading for content
-        return f"## {name} {{#{display_id}}} {brief} {token_str}\n"
-
-    # Level 1 heading for INDEX, ALL
-    return f"# {name} {{#{display_id}}} {brief} {token_str}\n"
+    parts: list[str] = []
+    if heading_prefix:
+        parts.append(heading_prefix)
+    parts.append(name)
+    if line_range:
+        parts.append(f" {line_range}")
+    parts.append(f" | {{#{display_id}}} {brief} {token_str}\n")
+    return "".join(parts)

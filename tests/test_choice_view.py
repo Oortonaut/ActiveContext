@@ -255,7 +255,7 @@ class TestGetOptions:
 
 
 # =============================================================================
-# render_brief Tests
+# render_digest Tests
 # =============================================================================
 
 
@@ -297,35 +297,35 @@ class TestRenderIndex:
         assert index == ""
 
 
-class TestRenderBrief:
-    """Tests for render_brief method."""
+class TestRenderDigest:
+    """Tests for render_digest method."""
 
-    def test_render_brief_with_selection(self, mock_graph_with_children):
-        """Test render_brief shows 'selected [A | B | C]' format."""
+    def test_render_digest_with_selection(self, mock_graph_with_children):
+        """Test render_digest shows 'selected [A | B | C]' format."""
         parent = mock_graph_with_children.get_node("parent")
         choice = ChoiceView(parent, selected_id="child-b")
 
-        brief = choice.render_brief()
+        brief = choice.render_digest()
 
         assert brief == "Option B [Option A | Option B | Option C]"
 
-    def test_render_brief_no_selection_uses_first(self, mock_graph_with_children):
-        """Test render_brief uses first option when none selected."""
+    def test_render_digest_no_selection_uses_first(self, mock_graph_with_children):
+        """Test render_digest uses first option when none selected."""
         parent = mock_graph_with_children.get_node("parent")
         choice = ChoiceView(parent, selected_id=None)
 
-        brief = choice.render_brief()
+        brief = choice.render_digest()
 
         assert brief == "Option A [Option A | Option B | Option C]"
 
-    def test_render_brief_no_options(self, mock_graph_with_children):
-        """Test render_brief with empty child list."""
+    def test_render_digest_no_options(self, mock_graph_with_children):
+        """Test render_digest with empty child list."""
         parent = mock_graph_with_children.get_node("parent")
         parent.child_order = []
         parent.children_ids = set()
         choice = ChoiceView(parent)
 
-        brief = choice.render_brief()
+        brief = choice.render_digest()
 
         assert brief == "[No options]"
 

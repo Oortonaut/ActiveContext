@@ -225,7 +225,7 @@ class ContextNode(ABC):
         updated_at: Unix timestamp of last update
         tags: Arbitrary metadata
         originator: Source of this node (node ID, filename, or arbitrary string)
-        title: Human-readable title for display (empty = use default from get_display_name)
+        title: Human-readable title for display (empty = use default from render_digest)
         tracing: When True, state changes create TraceNode children
     """
 
@@ -254,7 +254,7 @@ class ContextNode(ABC):
     originator: str | None = None
 
     # Human-readable title for this node (used in headers and display)
-    # If empty, get_display_name() provides a default based on node type
+    # If empty, render_digest() provides a default based on node type
     title: str = ""
 
     # Display sequence for uniform headers (e.g., text_1, message_13)
@@ -369,8 +369,9 @@ class ContextNode(ABC):
     ) -> str:
         """Render this node's content based on expansion state.
 
-        Dispatches to RenderCollapsed, RenderSummary, or RenderDetail based
-        on the expansion state. Subclasses should override those methods instead.
+        Composes render_header() + render_content() based on expansion:
+          HEADER  → render_header() only
+          CONTENT / INDEX / ALL → render_header() + render_content()
 
         Args:
             cwd: Working directory for file access
@@ -379,62 +380,11 @@ class ContextNode(ABC):
         """
         effective_expand = expand if expand is not None else self.expansion
         if effective_expand == Expansion.HEADER:
-            return self.RenderCollapsed(cwd=cwd, text_buffers=text_buffers)
-        elif effective_expand == Expansion.CONTENT:
-            return self.RenderSummary(cwd=cwd, text_buffers=text_buffers)
-        else:  # INDEX or ALL
-            return self.RenderDetail(include_summary=False, cwd=cwd, text_buffers=text_buffers)
-
-    def RenderCollapsed(
-        self,
-        cwd: str = ".",
-        text_buffers: dict[str, Any] | None = None,
-    ) -> str:
-        """Render minimal collapsed view.
-
-        Default: just the header. Subclasses override for node-specific content.
-        """
-        return self.render_header(cwd=cwd)
-
-    def RenderSummary(
-        self,
-        cwd: str = ".",
-        text_buffers: dict[str, Any] | None = None,
-    ) -> str:
-        """Render summary view with key information.
-
-        Default: same as collapsed. Subclasses override to add summary content.
-        """
-        return self.RenderCollapsed(cwd=cwd, text_buffers=text_buffers)
-
-    def RenderDetail(
-        self,
-        include_summary: bool = False,
-        cwd: str = ".",
-        text_buffers: dict[str, Any] | None = None,
-    ) -> str:
-        """Render detailed view.
-
-        Args:
-            include_summary: If True, include summary content (for ALL state).
-            cwd: Working directory for file access.
-            text_buffers: Optional dict of buffer_id -> TextBuffer.
-
-        Default: same as summary. Subclasses override for detailed content.
-        Child nodes are rendered by the projection engine, not here.
-        """
-        return self.RenderSummary(cwd=cwd, text_buffers=text_buffers)
-
-    @abstractmethod
-    def get_display_name(self) -> str:
-        """Return human-readable name for uniform header.
-
-        Examples:
-            TextNode: "main.py:1-50"
-            MessageNode: "User #13"
-            ShellNode: "Shell: pytest [COMPLETED]"
-        """
-        ...
+            return self.render_header(cwd=cwd)
+        else:  # CONTENT, INDEX, or ALL
+            header = self.render_header(cwd=cwd)
+            content = self.render_content(cwd=cwd, text_buffers=text_buffers)
+            return header + content
 
     @abstractmethod
     def get_token_breakdown(self, cwd: str = ".") -> TokenInfo:
@@ -448,54 +398,16 @@ class ContextNode(ABC):
         """
         ...
 
-    def render_brief(self) -> str:
-        """Render brief identifier: title + node-specific data.
+    @abstractmethod
+    def render_digest(self) -> str:
+        """Render node metadata — the framework prepends the title line.
 
         Examples:
             TextNode: "main.py:1-50"
             ShellNode: "Shell: pytest [COMPLETED]"
             MessageNode: "User"
-
-        Default uses get_display_name() for backward compatibility.
-        Subclasses can override for custom formatting.
         """
-        return self.get_display_name()
-
-    def render_tail(self) -> str:
-        """Render tail: | {#display_id}[: location] [alerts]
-
-        Examples:
-            "| {#text_1}"
-            "| {#text_1}: line 50..100"
-            "| {#shell_3} [WAKE]"
-        """
-        parts = [f"| {{#{self.node_id}}}"]
-
-        # Add notification alert if not IGNORE
-        if self.notification_level.value != "ignore":
-            parts.append(f"[{self.notification_level.value.upper()}]")
-
-        return " ".join(parts)
-
-    def render_size(self) -> str:
-        """Render size indicator based on node type and state.
-
-        Format varies by node type:
-            - Brief node: ", nnn tokens"
-            - Content node: ", nnn/mmm tokens" (header/total)
-            - Branch node: ", nnn/mmm/ooo tokens" (header/content/children)
-
-        Default shows header/total format.
-        """
-        if self.children_tokens > 0:
-            # Branch node: show header/content/children
-            return f", {self.header_tokens}/{self.content_tokens}/{self.children_tokens} tokens"
-        elif self.content_tokens > self.header_tokens:
-            # Content node: show header/total
-            return f", {self.header_tokens}/{self.total_tokens} tokens"
-        else:
-            # Brief node: just total
-            return f", {self.total_tokens} tokens"
+        ...
 
     def render_header(self, cwd: str = ".") -> str:
         """Render uniform header for this node based on current state.
@@ -513,7 +425,7 @@ class ContextNode(ABC):
         token_info = self.get_token_breakdown(cwd)
         return render_header(
             self.node_id,
-            self.get_display_name(),
+            self.render_digest(),
             self.expansion,
             token_info,
             notification_level=self.notification_level.value,
@@ -532,51 +444,18 @@ class ContextNode(ABC):
         """
         pass
 
-    # --- NodePlugin protocol adapters ---
-    # These bridge the existing PascalCase methods to the snake_case
-    # NodePlugin protocol. Existing subclasses override the PascalCase
-    # originals; these adapters forward to them.
-
     def render_content(
         self,
         cwd: str = ".",
         text_buffers: dict[str, Any] | None = None,
     ) -> str:
-        """Render the content section (main body).
+        """Render the content section — the actual content of this node.
 
-        Adapter for NodePlugin protocol. Delegates to RenderSummary
-        and strips the header (which render_header provides separately).
-        Subclasses may override this directly for composable rendering.
+        Primary content method. Render() composes render_header() + render_content().
+        Subclasses override this to provide node-specific content.
+        Base returns empty string (header-only nodes).
         """
-        summary = self.RenderSummary(cwd=cwd, text_buffers=text_buffers)
-        header = self.render_header(cwd=cwd)
-        # Strip the header prefix — content is everything after it
-        if summary.startswith(header):
-            return summary[len(header) :]
-        return summary
-
-    def render_detail(
-        self,
-        cwd: str = ".",
-        text_buffers: dict[str, Any] | None = None,
-    ) -> str:
-        """Render the detail section (extra content beyond content level).
-
-        Adapter for NodePlugin protocol. Delegates to RenderDetail
-        and strips header + content (which the other methods provide).
-        Subclasses may override this directly for composable rendering.
-        """
-        detail = self.RenderDetail(
-            include_summary=True,
-            cwd=cwd,
-            text_buffers=text_buffers,
-        )
-        header = self.render_header(cwd=cwd)
-        content = self.render_content(cwd=cwd, text_buffers=text_buffers)
-        prefix = header + content
-        if detail.startswith(prefix):
-            return detail[len(prefix) :]
-        return detail
+        return ""
 
     def tick(self) -> None:
         """Synchronous state materialization point.
@@ -976,6 +855,10 @@ class TextNode(ContextNode):
     # Indentation for markdown list processing
     indent: int = 0
 
+    # Line rendering configuration
+    line_prefix: str | None = "numbers"  # None = no line numbers, "numbers" = show
+    line_divider: str = " | "  # Separator between line number and content
+
     # Summary caching (for LLM-generated summaries)
     cached_summary: str | None = None
     summary_stale: bool = True
@@ -995,36 +878,6 @@ class TextNode(ContextNode):
     def node_type(self) -> str:
         return "text"
 
-    @property
-    def markdown_heading_id(self) -> str:
-        """Return ID for markdown heading annotations based on filename.
-
-        Format: "{filename_stem}_{sequence}" e.g., "dsl_reference_1", "system_prompt_3"
-        Falls back to display_id if path is empty.
-        """
-        import re
-        from pathlib import Path
-
-        if not self.path:
-            return self.node_id
-
-        # Extract filename stem (without extension)
-        stem = Path(self.path).stem
-
-        # Handle @prompts/ prefix - extract just the filename
-        if stem.startswith("@"):
-            stem = stem.lstrip("@")
-
-        # Sanitize to valid identifier (replace non-alphanumeric with underscore)
-        stem = re.sub(r"[^a-zA-Z0-9]", "_", stem)
-        stem = re.sub(r"_+", "_", stem).strip("_")
-
-        # Use lowercase for consistency
-        stem = stem.lower()
-
-        seq = self.display_sequence or 0
-        return f"{stem}_{seq}"
-
     def GetDigest(self) -> dict[str, Any]:
         return {
             "id": self.node_id,
@@ -1039,23 +892,29 @@ class TextNode(ContextNode):
             "indent": self.indent,
         }
 
-    def RenderDetail(
+    def render_content(
         self,
-        include_summary: bool = False,
         cwd: str = ".",
         text_buffers: dict[str, Any] | None = None,
     ) -> str:
         """Render file content with line numbers.
 
+        If a cached LLM summary exists, it is prepended before the file lines.
+
         Args:
-            include_summary: If True, include full content (for ALL state).
             cwd: Working directory for resolving paths
             text_buffers: Optional dict of buffer_id -> TextBuffer for markdown nodes
 
         Returns:
-            Rendered content string
+            Rendered content string (without header — Render() prepends it)
         """
         import os
+
+        output_parts: list[str] = []
+
+        # Prepend cached summary if available
+        if self.cached_summary and not self.summary_stale:
+            output_parts.append(f"\n{self.cached_summary}\n")
 
         # Get lines either from buffer or from file
         lines: list[str] = []
@@ -1088,83 +947,39 @@ class TextNode(ContextNode):
                 with open(file_path, encoding="utf-8", errors="replace") as f:
                     file_lines = f.readlines()
             except FileNotFoundError:
-                return f"[File not found: {self.path}]"
+                prefix = "".join(output_parts)
+                return f"{prefix}[File not found: {self.path}]"
             except OSError as e:
-                return f"[Error reading {self.path}: {e}]"
+                prefix = "".join(output_parts)
+                return f"{prefix}[Error reading {self.path}: {e}]"
 
             # Apply line range
             start_idx = max(0, start_line - 1)
             end_idx = end_line if end_line else len(file_lines)
             lines = [line.rstrip("\n\r") for line in file_lines[start_idx:end_idx]]
 
-        # Check if this is a markdown heading section
-        is_markdown_heading = (
-            self.media_type == MediaType.MARKDOWN
-            and "heading" in self.tags
-            and "level" in self.tags
-        )
-
-        # Build output
-        output_parts: list[str] = []
-
-        if is_markdown_heading:
-            # Render markdown with heading annotation
-            heading = self.tags["heading"]
-            level = self.tags["level"]
-            prefix = "#" * level
-
-            # Format: ## Heading {#dsl_reference_1}
-            # Use markdown_heading_id which is based on the filename
-            output_parts.append(f"{prefix} {heading} {{#{self.markdown_heading_id}}}\n")
-
-            # Render remaining lines (skip the heading line itself)
-            for i, line in enumerate(lines):
-                # Skip the first line if it's the heading
-                if i == 0 and line.strip().startswith("#"):
-                    continue
-                output_parts.append(f"{line}\n")
+        # Regular text rendering with line numbers
+        # Calculate base line number
+        if self.buffer_id:
+            base_line = self.start_line
         else:
-            # Regular text rendering with line numbers
-            output_parts.append(self.render_header(cwd=cwd))
+            try:
+                base_line = int(self.pos.split(":")[0])
+            except (ValueError, IndexError):
+                base_line = 1
 
-            # Calculate base line number
-            if self.buffer_id:
-                base_line = self.start_line
+        for i, line in enumerate(lines):
+            line_num = base_line + i
+            # Ensure line doesn't have trailing newline for consistent formatting
+            line_content = line.rstrip("\n\r") if isinstance(line, str) else line
+            if self.line_prefix == "numbers":
+                output_parts.append(
+                    f"{line_num:4d}{self.line_divider}{line_content}\n"
+                )
             else:
-                try:
-                    base_line = int(self.pos.split(":")[0])
-                except (ValueError, IndexError):
-                    base_line = 1
-
-            for i, line in enumerate(lines):
-                line_num = base_line + i
-                # Ensure line doesn't have trailing newline for consistent formatting
-                line_content = line.rstrip("\n\r") if isinstance(line, str) else line
-                output_parts.append(f"{line_num:4d} | {line_content}\n")
+                output_parts.append(f"{line_content}\n")
 
         return "".join(output_parts)
-
-    def RenderSummary(
-        self,
-        cwd: str = ".",
-        text_buffers: dict[str, Any] | None = None,
-    ) -> str:
-        """Render summary view: cached LLM summary if available, otherwise header.
-
-        Args:
-            cwd: Working directory for file access
-            text_buffers: Optional dict of buffer_id -> TextBuffer
-
-        Returns:
-            Cached summary string or header
-        """
-        # If we have a valid cached summary, use it
-        if self.cached_summary and not self.summary_stale:
-            header = self.render_header(cwd=cwd)
-            return f"{header}\n{self.cached_summary}\n"
-
-        # Otherwise, just show the header
-        return self.render_header(cwd=cwd)
 
     def SetPos(self, pos: str) -> TextNode:
         """Set start position.
@@ -1202,7 +1017,7 @@ class TextNode(ContextNode):
 
         Operates on the node's in-memory line content (via ``buffer_id`` or the
         internal ``_lines`` cache).  If the node has no in-memory lines yet, they
-        are loaded from the associated file via ``RenderDetail``'s file-reading
+        are loaded from the associated file via ``render_content``'s file-reading
         path and cached in ``_lines``.
 
         Args:
@@ -1296,21 +1111,68 @@ class TextNode(ContextNode):
         """Format header with line position info for text nodes."""
         return f"{self.node_id}: {description} (at {self.pos})"
 
-    def get_display_name(self) -> str:
-        """Return 'path:start-end' format."""
+    def _parse_start_line(self) -> int:
+        """Extract start line number from pos string."""
         try:
-            start_line = int(self.pos.split(":")[0])
+            return int(self.pos.split(":")[0])
         except (ValueError, IndexError):
-            start_line = 1
+            return 1
 
+    def _parse_end_line(self) -> int | None:
+        """Extract end line number from end_pos string."""
         if self.end_pos:
             try:
-                end_line = int(self.end_pos.split(":")[0])
-                return f"{self.path}:{start_line}-{end_line}"
+                return int(self.end_pos.split(":")[0])
             except (ValueError, IndexError):
                 pass
+        return None
+
+    def render_digest(self) -> str:
+        """Return title if set, otherwise 'path:start-end' format."""
+        if self.title:
+            return self.title
+
+        start_line = self._parse_start_line()
+
+        if self.end_pos:
+            end_line = self._parse_end_line()
+            if end_line is not None:
+                return f"{self.path}:{start_line}-{end_line}"
 
         return f"{self.path}:{start_line}"
+
+    def render_header(self, cwd: str = ".") -> str:
+        """Render header with optional heading prefix and line range."""
+        from .headers import render_header
+
+        token_info = self.get_token_breakdown(cwd)
+
+        # Build heading prefix from markdown heading level tag
+        heading_prefix = ""
+        level = self.tags.get("level")
+        if level and isinstance(level, int):
+            heading_prefix = "#" * level + " "
+
+        # Build line range caption
+        line_range = ""
+        start = self.start_line if self.buffer_id else self._parse_start_line()
+        end = self.end_line if self.buffer_id else self._parse_end_line()
+        if start and end:
+            line_range = f"(lines {start}-{end})"
+        elif start and start > 1:
+            line_range = f"(line {start})"
+
+        return render_header(
+            self.node_id,
+            self.render_digest(),
+            self.expansion,
+            token_info,
+            notification_level=self.notification_level.value,
+            index_tokens=self.index_tokens,
+            all_tokens=self.all_tokens,
+            heading_prefix=heading_prefix,
+            line_range=line_range,
+        )
 
     def get_token_breakdown(self, cwd: str = ".") -> TokenInfo:
         """Return token counts for collapsed/summary/detail."""
@@ -1451,48 +1313,18 @@ class GroupNode(ContextNode):
             "summary_stale": self.summary_stale,
         }
 
-    def RenderSummary(
+    def render_content(
         self,
         cwd: str = ".",
         text_buffers: dict[str, Any] | None = None,
     ) -> str:
-        """Render summary: cached summary if available, otherwise header.
+        """Render cached summary or empty string.
 
-        Args:
-            cwd: Working directory for file access
-            text_buffers: Not used by GroupNode but required for interface
+        Children are rendered by the projection engine, not here.
         """
-        # Check for valid child order
-        ordered_children = self.child_order if self.child_order else list(self.children_ids)
-        if not ordered_children:
-            return "[Empty group]"
-
         if self.cached_summary and not self.summary_stale:
             return self.cached_summary
-
-        # Summary is stale or missing - just show header
-        return self.render_header(cwd=cwd)
-
-    def RenderDetail(
-        self,
-        include_summary: bool = False,
-        cwd: str = ".",
-        text_buffers: dict[str, Any] | None = None,
-    ) -> str:
-        """Render detail: header only (children rendered by projection engine).
-
-        Args:
-            include_summary: If True, include summary content (for ALL state).
-            cwd: Working directory for file access
-            text_buffers: Not used by GroupNode but required for interface
-        """
-        # Check for valid child order
-        ordered_children = self.child_order if self.child_order else list(self.children_ids)
-        if not ordered_children:
-            return "[Empty group]"
-
-        # Group itself just renders header - children are rendered by projection engine
-        return self.render_header(cwd=cwd)
+        return ""
 
     def on_child_changed(self, child: ContextNode, description: str = "") -> None:
         """Handle child change: track version, mark summary stale, propagate."""
@@ -1514,7 +1346,7 @@ class GroupNode(ContextNode):
         """Mark summary as needing regeneration."""
         self.summary_stale = True
 
-    def get_display_name(self) -> str:
+    def render_digest(self) -> str:
         """Return 'Group (N members)' format."""
         return f"Group ({len(self.children_ids)} members)"
 
@@ -1634,39 +1466,16 @@ class TopicNode(ContextNode):
             "version": self.version,
         }
 
-    def RenderCollapsed(
+    def render_content(
         self,
         cwd: str = ".",
         text_buffers: dict[str, Any] | None = None,
     ) -> str:
-        """Render collapsed: just the header."""
-        return self.render_header(cwd=cwd)
-
-    def RenderSummary(
-        self,
-        cwd: str = ".",
-        text_buffers: dict[str, Any] | None = None,
-    ) -> str:
-        """Render summary: header + message range."""
-        parts: list[str] = [self.render_header(cwd=cwd)]
+        """Render message range and artifact count."""
+        parts: list[str] = []
         if self.message_indices:
             parts.append(f"Messages: {self.message_indices[0]}-{self.message_indices[-1]}\n")
-        return "".join(parts)
-
-    def RenderDetail(
-        self,
-        include_summary: bool = False,
-        cwd: str = ".",
-        text_buffers: dict[str, Any] | None = None,
-    ) -> str:
-        """Render detail: header + message info.
-
-        Child nodes (artifacts) are rendered by the projection engine.
-        """
-        parts: list[str] = [self.render_header(cwd=cwd)]
-        if self.message_indices:
-            parts.append(f"Messages: {self.message_indices[0]}-{self.message_indices[-1]}\n")
-        if include_summary and self.children_ids:
+        if self.children_ids:
             parts.append(f"Contains {len(self.children_ids)} artifacts\n")
         return "".join(parts)
 
@@ -1682,7 +1491,7 @@ class TopicNode(ContextNode):
             self._mark_changed(description=f"Topic status: {old_status} → {status}")
         return self
 
-    def get_display_name(self) -> str:
+    def render_digest(self) -> str:
         """Return 'Topic: title' format."""
         return f"Topic: {self.title}"
 
@@ -1774,34 +1583,13 @@ class ArtifactNode(ContextNode):
             "version": self.version,
         }
 
-    def RenderCollapsed(
+    def render_content(
         self,
         cwd: str = ".",
         text_buffers: dict[str, Any] | None = None,
     ) -> str:
-        """Render collapsed: just the header."""
-        return self.render_header(cwd=cwd)
-
-    def RenderSummary(
-        self,
-        cwd: str = ".",
-        text_buffers: dict[str, Any] | None = None,
-    ) -> str:
-        """Render summary: header + first line of content."""
-        header = self.render_header(cwd=cwd)
-        first_line = self.content.split("\n")[0][:80]
-        if len(self.content) > len(first_line):
-            first_line += "..."
-        return header + first_line + "\n"
-
-    def RenderDetail(
-        self,
-        include_summary: bool = False,
-        cwd: str = ".",
-        text_buffers: dict[str, Any] | None = None,
-    ) -> str:
-        """Render detail: header + full content."""
-        return self.render_header(cwd=cwd) + self.content
+        """Render full artifact content."""
+        return self.content
 
     def set_content(self, content: str) -> ArtifactNode:
         """Update artifact content.
@@ -1816,7 +1604,7 @@ class ArtifactNode(ContextNode):
         )
         return self
 
-    def get_display_name(self) -> str:
+    def render_digest(self) -> str:
         """Return 'TYPE:language' format."""
         lang_suffix = f":{self.language}" if self.language else ""
         return f"{self.artifact_type.upper()}{lang_suffix}"
@@ -1952,50 +1740,22 @@ class ShellNode(ContextNode):
             "version": self.version,
         }
 
-    def RenderCollapsed(
+    def render_content(
         self,
         cwd: str = ".",
         text_buffers: dict[str, Any] | None = None,
     ) -> str:
-        """Render collapsed: just the header."""
-        return self.render_header(cwd=cwd)
-
-    def RenderSummary(
-        self,
-        cwd: str = ".",
-        text_buffers: dict[str, Any] | None = None,
-    ) -> str:
-        """Render summary: header + truncated output."""
-        header = self.render_header(cwd=cwd)
-        output_preview = self.output[:500]
-        if len(self.output) > 500:
-            output_preview += f"\n... [{len(self.output) - 500} more chars]"
-        return header + output_preview + "\n"
-
-    def RenderDetail(
-        self,
-        include_summary: bool = False,
-        cwd: str = ".",
-        text_buffers: dict[str, Any] | None = None,
-    ) -> str:
-        """Render detail: header + full output.
-
-        When include_summary=True (ALL state), includes timing details.
-        """
-        header = self.render_header(cwd=cwd)
-
-        result = header + self.output
-        if not result.endswith("\n"):
+        """Render full output with timing details."""
+        result = self.output
+        if result and not result.endswith("\n"):
             result += "\n"
 
-        # ALL state: include timing details
-        if include_summary:
-            result += f"--- Duration: {self.duration_ms:.0f}ms"
-            if self.truncated:
-                result += " (output was truncated)"
-            if self.signal:
-                result += f", killed by {self.signal}"
-            result += " ---\n"
+        result += f"--- Duration: {self.duration_ms:.0f}ms"
+        if self.truncated:
+            result += " (output was truncated)"
+        if self.signal:
+            result += f", killed by {self.signal}"
+        result += " ---\n"
 
         return result
 
@@ -2067,7 +1827,7 @@ class ShellNode(ContextNode):
         )
         return self
 
-    def get_display_name(self) -> str:
+    def render_digest(self) -> str:
         """Return 'Shell: command [STATUS]' format."""
         cmd_display = (
             self.full_command[:40] + "..." if len(self.full_command) > 40 else self.full_command
@@ -2200,31 +1960,13 @@ class LockNode(ContextNode):
             "version": self.version,
         }
 
-    def RenderSummary(
+    def render_content(
         self,
         cwd: str = ".",
         text_buffers: dict[str, Any] | None = None,
     ) -> str:
-        """Render summary: header + error message if present."""
-        header = self.render_header(cwd=cwd)
-        if self.error_message:
-            return header + f"Error: {self.error_message}\n"
-        return header
-
-    def RenderDetail(
-        self,
-        include_summary: bool = False,
-        cwd: str = ".",
-        text_buffers: dict[str, Any] | None = None,
-    ) -> str:
-        """Render detail: header + timeout + holder + error + acquired_at.
-
-        Args:
-            include_summary: If True, include acquired_at (for ALL state).
-            cwd: Working directory for file access.
-            text_buffers: Not used by LockNode but required for interface.
-        """
-        parts: list[str] = [self.render_header(cwd=cwd)]
+        """Render timeout, holder, error, and acquired_at."""
+        parts: list[str] = []
         parts.append(f"Timeout: {self.timeout}s\n")
 
         if self.holder_pid:
@@ -2233,7 +1975,7 @@ class LockNode(ContextNode):
         if self.error_message:
             parts.append(f"Error: {self.error_message}\n")
 
-        if include_summary and self.acquired_at:
+        if self.acquired_at:
             parts.append(f"Acquired at: {self.acquired_at:.3f}\n")
 
         return "".join(parts)
@@ -2274,7 +2016,7 @@ class LockNode(ContextNode):
         )
         return self
 
-    def get_display_name(self) -> str:
+    def render_digest(self) -> str:
         """Return 'Lock: file [STATUS]' format."""
         return f"Lock: {self.lockfile} [{self.lock_status.value.upper()}]"
 
@@ -2419,13 +2161,13 @@ class SessionNode(ContextNode):
             "version": self.version,
         }
 
-    def RenderSummary(
+    def render_content(
         self,
         cwd: str = ".",
         text_buffers: dict[str, Any] | None = None,
     ) -> str:
-        """Render summary: header + turn info + token info."""
-        parts: list[str] = [self.render_header(cwd=cwd)]
+        """Render turn info, token info, graph stats, and recent actions."""
+        parts: list[str] = []
 
         # Turn and timing info
         if self.turn_durations_ms:
@@ -2449,23 +2191,6 @@ class SessionNode(ContextNode):
             f"Total: {self.total_tokens_consumed:,} tokens across {self.turn_count} turns\n"
         )
 
-        return "".join(parts)
-
-    def RenderDetail(
-        self,
-        include_summary: bool = False,
-        cwd: str = ".",
-        text_buffers: dict[str, Any] | None = None,
-    ) -> str:
-        """Render detail: summary + context graph + recent actions.
-
-        Args:
-            include_summary: If True, include recent actions (for ALL state).
-            cwd: Working directory for file access.
-            text_buffers: Not used by SessionNode but required for interface.
-        """
-        parts: list[str] = [self.RenderSummary(cwd=cwd, text_buffers=text_buffers)]
-
         # Context graph summary
         if self.node_count_by_type:
             parts.append("\nContext Graph:\n")
@@ -2477,10 +2202,10 @@ class SessionNode(ContextNode):
             if self.graph_depth > 0:
                 parts.append(f"  depth: {self.graph_depth}\n")
 
-        # Recent actions (ALL only via include_summary)
-        if include_summary and self.recent_actions:
+        # Recent actions
+        if self.recent_actions:
             parts.append("\nRecent Actions:\n")
-            for i, action in enumerate(self.recent_actions[-5:]):  # Last 5 actions
+            for i, action in enumerate(self.recent_actions[-5:]):
                 turn_idx = self.turn_count - (len(self.recent_actions[-5:]) - i - 1)
                 parts.append(f"  [T{turn_idx}] {action}\n")
 
@@ -2585,7 +2310,7 @@ class SessionNode(ContextNode):
         self.update_graph_stats()
         super().Recompute()
 
-    def get_display_name(self) -> str:
+    def render_digest(self) -> str:
         """Return 'Session' format."""
         return "Session"
 
@@ -2772,43 +2497,14 @@ class MessageNode(ContextNode):
             return self._format_tool_result()
         return self.content
 
-    def RenderCollapsed(
+    def render_content(
         self,
         cwd: str = ".",
         text_buffers: dict[str, Any] | None = None,
     ) -> str:
-        """Render collapsed: just the header."""
-        return self.render_header(cwd=cwd)
-
-    def RenderSummary(
-        self,
-        cwd: str = ".",
-        text_buffers: dict[str, Any] | None = None,
-    ) -> str:
-        """Render summary: header + truncated content preview."""
-        header = self.render_header(cwd=cwd)
+        """Render full message content."""
         content = self._get_formatted_content()
-        preview_len = min(200, len(content))
-        preview = content[:preview_len]
-        if len(content) > preview_len:
-            preview += "..."
-        return header + preview + "\n"
-
-    def RenderDetail(
-        self,
-        include_summary: bool = False,
-        cwd: str = ".",
-        text_buffers: dict[str, Any] | None = None,
-    ) -> str:
-        """Render detail: header + full content.
-
-        Note: Block merging happens in ProjectionEngine._render_messages()
-        which groups adjacent same-role messages before rendering.
-        """
-        header = self.render_header(cwd=cwd)
-        content = self._get_formatted_content()
-
-        return header + content + "\n"
+        return content + "\n"
 
     def _format_tool_call(self) -> str:
         """Format a tool call message."""
@@ -2831,7 +2527,7 @@ class MessageNode(ContextNode):
         )
         return self
 
-    def get_display_name(self) -> str:
+    def render_digest(self) -> str:
         """Return 'Role #N' format using display_sequence."""
         seq = self.display_sequence or 0
         # Use actual role for display (user, assistant, tool_call, tool_result)
@@ -2945,13 +2641,13 @@ class WorkNode(ContextNode):
             "version": self.version,
         }
 
-    def RenderSummary(
+    def render_content(
         self,
         cwd: str = ".",
         text_buffers: dict[str, Any] | None = None,
     ) -> str:
-        """Render summary: header + agent + files + conflicts."""
-        parts: list[str] = [self.render_header(cwd=cwd)]
+        """Render agent, files, dependencies, and conflicts."""
+        parts: list[str] = []
         parts.append(f"Agent: {self.agent_id}\n")
 
         # Show files being worked on
@@ -2961,47 +2657,13 @@ class WorkNode(ContextNode):
                 mode_indicator = "[W]" if f.get("mode") == "write" else "[R]"
                 parts.append(f"  {mode_indicator} {f.get('path', '')}\n")
 
-        # Show conflicts (always important)
-        if self.conflicts:
-            parts.append("\n--- CONFLICTS ---\n")
-            for c in self.conflicts:
-                parts.append(
-                    f"  Agent {c.get('agent_id', '?')}: {c.get('file', '?')} "
-                    f"[{c.get('their_mode', '?')}] - {c.get('their_intent', '?')}\n"
-                )
-
-        return "".join(parts)
-
-    def RenderDetail(
-        self,
-        include_summary: bool = False,
-        cwd: str = ".",
-        text_buffers: dict[str, Any] | None = None,
-    ) -> str:
-        """Render detail: summary + dependencies.
-
-        Args:
-            include_summary: If True, include all detail (for ALL state).
-            cwd: Working directory for file access.
-            text_buffers: Not used by WorkNode but required for interface.
-        """
-        parts: list[str] = [self.render_header(cwd=cwd)]
-        parts.append(f"Agent: {self.agent_id}\n")
-
-        # Show files being worked on
-        if self.files:
-            parts.append("\nFiles:\n")
-            for f in self.files:
-                mode_indicator = "[W]" if f.get("mode") == "write" else "[R]"
-                parts.append(f"  {mode_indicator} {f.get('path', '')}\n")
-
-        # Show dependencies (DETAILS and ALL)
+        # Show dependencies
         if self.dependencies:
             parts.append("\nDependencies:\n")
             for dep in self.dependencies:
                 parts.append(f"  [R] {dep}\n")
 
-        # Show conflicts (always important)
+        # Show conflicts
         if self.conflicts:
             parts.append("\n--- CONFLICTS ---\n")
             for c in self.conflicts:
@@ -3038,7 +2700,7 @@ class WorkNode(ContextNode):
             )
         return self
 
-    def get_display_name(self) -> str:
+    def render_digest(self) -> str:
         """Return 'Work: intent [status]' format."""
         intent_display = self.intent[:30] + "..." if len(self.intent) > 30 else self.intent
         return f"Work: {intent_display} [{self.work_status}]"
@@ -3226,78 +2888,38 @@ class MCPServerNode(ContextNode):
             return f"Status: {self.status}\n"
         return None
 
-    def RenderCollapsed(
+    def render_content(
         self,
         cwd: str = ".",
         text_buffers: dict[str, Any] | None = None,
     ) -> str:
-        """Render collapsed view: header + status if not connected."""
-        header = self.render_header(cwd=cwd)
+        """Render tool names, usage hint, resources, and prompts."""
         status = self._render_status_message()
         if status:
-            return header + status
-        return header
+            return status
 
-    def RenderSummary(
-        self,
-        cwd: str = ".",
-        text_buffers: dict[str, Any] | None = None,
-    ) -> str:
-        """Render summary: header + tool names + resource names."""
-        header = self.render_header(cwd=cwd)
-        status = self._render_status_message()
-        if status:
-            return header + status
-
-        parts: list[str] = [header]
+        parts: list[str] = []
         tool_names = [t.get("name", "?") for t in self.tools]
         parts.append(f"Tools: {', '.join(tool_names)}\n")
-        if self.resources:
-            resource_names = [r.get("name", "?") for r in self.resources]
-            parts.append(f"Resources: {', '.join(resource_names)}\n")
-        return "".join(parts)
 
-    def RenderDetail(
-        self,
-        include_summary: bool = False,
-        cwd: str = ".",
-        text_buffers: dict[str, Any] | None = None,
-    ) -> str:
-        """Render detail view: header + resources/prompts.
-
-        Tool details come from child MCPToolNode nodes (rendered by projection).
-        When include_summary=True (ALL state), includes summary info.
-        """
-        header = self.render_header(cwd=cwd)
-        status = self._render_status_message()
-        if status:
-            return header + status
-
-        parts: list[str] = [header]
-
-        # Include summary info for ALL state
-        if include_summary:
-            tool_names = [t.get("name", "?") for t in self.tools]
-            parts.append(f"Tools: {', '.join(tool_names)}\n")
-
-        # Usage hint - show code block wrapper so agent knows how to call
+        # Usage hint
         parts.append("To call tools:\n")
         parts.append("```python/acrepl\n")
         parts.append(f"result = {self.server_name}.tool_name(arg=value)\n")
         parts.append("```\n\n")
 
-        # Resources (server-level, not per-tool)
+        # Resources
         if self.resources:
-            parts.append("### Resources\n\n")
+            parts.append("Resources:\n")
             for res in self.resources:
                 parts.append(f"- `{res.get('uri', '?')}`")
                 if res.get("description"):
                     parts.append(f": {res['description']}")
                 parts.append("\n")
 
-        # Prompts (server-level)
+        # Prompts
         if self.prompts:
-            parts.append("\n### Prompts\n\n")
+            parts.append("\nPrompts:\n")
             for prompt in self.prompts:
                 parts.append(f"- **{prompt.get('name', '?')}**")
                 if prompt.get("description"):
@@ -3460,7 +3082,7 @@ class MCPServerNode(ContextNode):
         """
         self._on_result_callback = callback
 
-    def get_display_name(self) -> str:
+    def render_digest(self) -> str:
         """Return 'MCP: name [status]' format."""
         return f"MCP: {self.server_name} [{self.status.upper()}]"
 
@@ -3596,80 +3218,31 @@ class MCPToolNode(ContextNode):
             "version": self.version,
         }
 
-    def RenderCollapsed(
+    def render_content(
         self,
         cwd: str = ".",
         text_buffers: dict[str, Any] | None = None,
     ) -> str:
-        """Render collapsed: tool name + brief description + ID + tokens."""
-        # Truncate description for header
-        desc = self.description
-        if len(desc) > 60:
-            desc = desc[:60] + "..."
+        """Render description and parameters (no headings — header via Render())."""
+        parts: list[str] = []
 
-        # Get token info
-        token_info = self.get_token_breakdown(cwd)
-        visible = token_info.collapsed
-        total = token_info.collapsed + token_info.summary + token_info.detail
-
-        return f"### `{self.tool_name}` {desc} | {{#{self.node_id}}} ({visible}/{total} tokens)\n"
-
-    def RenderSummary(
-        self,
-        cwd: str = ".",
-        text_buffers: dict[str, Any] | None = None,
-    ) -> str:
-        """Render summary: name + truncated description."""
-        desc = self.description
-        if len(desc) > 80:
-            desc = desc[:80] + "..."
-        return f"**{self.tool_name}**: {desc}\n"
-
-    def RenderDetail(
-        self,
-        include_summary: bool = False,
-        cwd: str = ".",
-        text_buffers: dict[str, Any] | None = None,
-    ) -> str:
-        """Render detailed tool documentation.
-
-        The description is treated as markdown and rendered as-is.
-        """
-        if include_summary:
-            # ALL: full schema with server prefix
-            parts = [f"### `{self.server_name}.{self.tool_name}()`\n\n"]
-        else:
-            # DETAILS: just tool name header
-            parts = [f"### `{self.tool_name}`\n\n"]
-
-        # Description treated as markdown
+        # Description
         parts.append(f"{self.description}\n\n")
 
         props = self.input_schema.get("properties", {})
         if props:
             required = set(self.input_schema.get("required", []))
-            if include_summary:
-                # ALL: full parameter details
-                parts.append("**Parameters:**\n")
-                for param, param_schema in props.items():
-                    param_type = param_schema.get("type", "any")
-                    param_desc = param_schema.get("description", "")
-                    req_marker = " (required)" if param in required else ""
-                    parts.append(f"- `{param}` ({param_type}){req_marker}: {param_desc}\n")
-                parts.append("\n")
-            else:
-                # DETAILS: compact parameter list
-                parts.append("**Parameters:** ")
-                param_strs = []
-                for param in props:
-                    req = "*" if param in required else ""
-                    param_strs.append(f"`{param}`{req}")
-                parts.append(", ".join(param_strs))
-                parts.append("\n")
+            parts.append("**Parameters:**\n")
+            for param, param_schema in props.items():
+                param_type = param_schema.get("type", "any")
+                param_desc = param_schema.get("description", "")
+                req_marker = " (required)" if param in required else ""
+                parts.append(f"- `{param}` ({param_type}){req_marker}: {param_desc}\n")
+            parts.append("\n")
 
         return "".join(parts)
 
-    def get_display_name(self) -> str:
+    def render_digest(self) -> str:
         """Return tool name for display."""
         return f"{self.server_name}.{self.tool_name}"
 
@@ -3788,17 +3361,17 @@ class MCPManagerNode(ContextNode):
             "server_states": dict(self.server_states),
         }
 
-    def RenderSummary(
+    def render_content(
         self,
         cwd: str = ".",
         text_buffers: dict[str, Any] | None = None,
     ) -> str:
-        """Render summary: header + server status list."""
-        lines = [self.render_header(cwd=cwd).rstrip()]
+        """Render server status, capabilities, and events."""
+        lines: list[str] = []
 
         # Server status list
         if self.server_states:
-            lines.append("### Server Status")
+            lines.append("Server Status:")
             for name, status in sorted(self.server_states.items()):
                 emoji = {
                     "connected": "[OK]",
@@ -3810,50 +3383,19 @@ class MCPManagerNode(ContextNode):
         else:
             lines.append("No MCP servers configured.")
 
-        return "\n".join(lines)
-
-    def RenderDetail(
-        self,
-        include_summary: bool = False,
-        cwd: str = ".",
-        text_buffers: dict[str, Any] | None = None,
-    ) -> str:
-        """Render detail: summary + capabilities + events.
-
-        Args:
-            include_summary: If True, include recent events (for ALL state).
-            cwd: Working directory for file access.
-            text_buffers: Not used but required for interface.
-        """
-        lines = [self.render_header(cwd=cwd).rstrip()]
-
-        # Server status list
-        if self.server_states:
-            lines.append("### Server Status")
-            for name, status in sorted(self.server_states.items()):
-                emoji = {
-                    "connected": "[OK]",
-                    "connecting": "[...]",
-                    "error": "[ERR]",
-                    "disconnected": "[--]",
-                }.get(status, "[?]")
-                lines.append(f"- {name} {emoji}")
-        else:
-            lines.append("No MCP servers configured.")
-
-        # Capabilities (DETAILS and ALL)
+        # Capabilities
         if self.tool_counts:
             lines.append("")
-            lines.append("### Capabilities")
+            lines.append("Capabilities:")
             for name in sorted(self.server_states.keys()):
                 tools = self.tool_counts.get(name, 0)
                 resources = self.resource_counts.get(name, 0)
                 lines.append(f"- {name}: {tools} tools, {resources} resources")
 
-        # Recent events (ALL only via include_summary)
-        if include_summary and self.connection_events:
+        # Recent events
+        if self.connection_events:
             lines.append("")
-            lines.append("### Recent Events")
+            lines.append("Recent Events:")
             for event in self.connection_events[-5:]:
                 lines.append(f"- {event.get('time', '?')}: {event.get('message', '?')}")
 
@@ -3915,7 +3457,7 @@ class MCPManagerNode(ContextNode):
         self.tool_counts.pop(server_name, None)
         self.resource_counts.pop(server_name, None)
 
-    def get_display_name(self) -> str:
+    def render_digest(self) -> str:
         """Return 'MCP Manager' format."""
         return f"MCP Manager ({len(self.server_states)} servers)"
 
@@ -4035,55 +3577,23 @@ class PluginManagerNode(ContextNode):
             "plugin_states": dict(self.plugin_states),
         }
 
-    def RenderSummary(
+    def render_content(
         self,
         cwd: str = ".",
         text_buffers: dict[str, Any] | None = None,
     ) -> str:
-        """Render summary: header + plugin status list."""
-        lines = [self.render_header(cwd=cwd).rstrip()]
+        """Render overview, plugin list, and events."""
+        lines: list[str] = []
 
-        # Plugin status list
-        if self.plugin_states:
-            lines.append("### Loaded Plugins")
-            for name, status in sorted(self.plugin_states.items()):
-                emoji = {
-                    "connected": "[OK]",
-                    "connecting": "[...]",
-                    "error": "[ERR]",
-                    "disconnected": "[--]",
-                }.get(status, "[?]")
-                types = ", ".join(self.plugin_types.get(name, []))
-                lines.append(f"- {name} {emoji}: {types}")
-        else:
-            lines.append("No plugin servers loaded.")
-
-        return "\n".join(lines)
-
-    def RenderDetail(
-        self,
-        include_summary: bool = False,
-        cwd: str = ".",
-        text_buffers: dict[str, Any] | None = None,
-    ) -> str:
-        """Render detail: summary + full plugin info + events.
-
-        Args:
-            include_summary: If True, include recent events (for ALL state).
-            cwd: Working directory for file access.
-            text_buffers: Not used but required for interface.
-        """
-        lines = [self.render_header(cwd=cwd).rstrip()]
-
-        # Builtin vs loaded summary
-        lines.append("### Overview")
+        # Overview
+        lines.append("Overview:")
         lines.append(f"- Builtin types: {self.builtin_count}")
         lines.append(f"- Loaded plugin servers: {self.loaded_count}")
 
         # Plugin status list with details
         if self.plugin_states:
             lines.append("")
-            lines.append("### Loaded Plugins")
+            lines.append("Loaded Plugins:")
             for name, status in sorted(self.plugin_states.items()):
                 emoji = {
                     "connected": "[OK]",
@@ -4099,10 +3609,10 @@ class PluginManagerNode(ContextNode):
             lines.append("")
             lines.append("No plugin servers loaded.")
 
-        # Recent events (ALL only via include_summary)
-        if include_summary and self.connection_events:
+        # Recent events
+        if self.connection_events:
             lines.append("")
-            lines.append("### Recent Events")
+            lines.append("Recent Events:")
             for event in self.connection_events[-5:]:
                 lines.append(f"- {event.get('time', '?')}: {event.get('message', '?')}")
 
@@ -4150,7 +3660,7 @@ class PluginManagerNode(ContextNode):
         self.loaded_count = sum(1 for s in self.plugin_states.values() if s == "connected")
         self._mark_changed(description=f"Plugin '{name}' unregistered")
 
-    def get_display_name(self) -> str:
+    def render_digest(self) -> str:
         """Return 'Plugin Manager' format."""
         return f"Plugin Manager ({self.builtin_count} builtin, {self.loaded_count} loaded)"
 
@@ -4267,31 +3777,13 @@ class AgentNode(ContextNode):
             "version": self.version,
         }
 
-    def RenderSummary(
+    def render_content(
         self,
         cwd: str = ".",
         text_buffers: dict[str, Any] | None = None,
     ) -> str:
-        """Render summary: header + type + state."""
-        parts = [self.render_header(cwd=cwd)]
-        parts.append(f"  Type: {self.agent_type}\n")
-        parts.append(f"  State: {self.agent_state}\n")
-        return "".join(parts)
-
-    def RenderDetail(
-        self,
-        include_summary: bool = False,
-        cwd: str = ".",
-        text_buffers: dict[str, Any] | None = None,
-    ) -> str:
-        """Render detail: summary + task + messages.
-
-        Args:
-            include_summary: If True, include all detail (for ALL state).
-            cwd: Working directory for file access.
-            text_buffers: Not used but required for interface.
-        """
-        parts = [self.render_header(cwd=cwd)]
+        """Render type, state, task, and messages."""
+        parts: list[str] = []
         parts.append(f"  Type: {self.agent_type}\n")
         parts.append(f"  State: {self.agent_state}\n")
 
@@ -4319,7 +3811,7 @@ class AgentNode(ContextNode):
             self._mark_changed(description=f"Messages: {old_count} → {count}")
         return self
 
-    def get_display_name(self) -> str:
+    def render_digest(self) -> str:
         """Return 'Agent: id [state]' format."""
         return f"Agent: {self.agent_id} [{self.agent_state.upper()}]"
 
@@ -4447,7 +3939,7 @@ class TraceNode(ContextNode):
     MAX_HEADER_LENGTH = 80
     MAX_VALUES_SHOWN = 5
 
-    def get_display_name(self) -> str:
+    def render_digest(self) -> str:
         """Return display name with smart formatting.
 
         Formats:
@@ -4503,21 +3995,13 @@ class TraceNode(ContextNode):
             detail=0,
         )
 
-    def RenderDetail(
+    def render_content(
         self,
-        include_summary: bool = False,
         cwd: str = ".",
         text_buffers: dict[str, Any] | None = None,
     ) -> str:
-        """Render detail: header + originator + content.
-
-        Args:
-            include_summary: If True, include all content (for ALL state).
-            cwd: Working directory for file access.
-            text_buffers: Not used by TraceNode but required for interface.
-        """
-        # Header includes display_id and description via get_display_name()
-        parts = [self.render_header(cwd=cwd)]
+        """Render originator and content."""
+        parts: list[str] = []
 
         if self.originator:
             parts.append(f"  Originator: {self.originator}\n")
@@ -4652,30 +4136,12 @@ class TaskNode(ContextNode):
             "mode": self.mode,
         }
 
-    def RenderSummary(
+    def render_content(
         self,
         cwd: str = ".",
         text_buffers: dict[str, Any] | None = None,
     ) -> str:
-        """Render task summary."""
-        lines = [f"Task: {self.task_id}"]
-        lines.append(f"  Type: {self.task_type}")
-        lines.append(f"  Status: {self.status}")
-        lines.append(f"  I/O Mode: {self.io_mode}")
-
-        if self.metadata:
-            for key, value in self.metadata.items():
-                lines.append(f"  {key}: {value}")
-
-        return "\n".join(lines)
-
-    def RenderDetail(
-        self,
-        include_summary: bool = False,
-        cwd: str = ".",
-        text_buffers: dict[str, Any] | None = None,
-    ) -> str:
-        """Render detailed task info."""
+        """Render full task info with timing and metadata."""
         lines = [f"Task: {self.task_id}"]
         lines.append(f"  Type: {self.task_type}")
         lines.append(f"  Status: {self.status}")
@@ -4723,7 +4189,7 @@ class TaskNode(ContextNode):
 
         self._mark_changed(f"status: {old_status} -> {status}")
 
-    def get_display_name(self) -> str:
+    def render_digest(self) -> str:
         """Display name for the task."""
         return f"Task[{self.task_type}:{self.task_id[:8]}]"
 
@@ -4737,8 +4203,8 @@ class TaskNode(ContextNode):
         collapsed_text = f"[Task: {self.task_type} | {self.status}]\n"
         collapsed_tokens = count_tokens(collapsed_text)
 
-        # Summary includes basic info
-        summary_text = self.RenderSummary(cwd=cwd)
+        # Content includes basic info
+        summary_text = self.render_content(cwd=cwd)
         summary_tokens = count_tokens(summary_text)
 
         return TokenInfo(
@@ -5019,60 +4485,18 @@ class HelpNode(ContextNode):
             "expansion": self.expansion.value,
         }
 
-    def get_display_name(self) -> str:
+    def render_digest(self) -> str:
         """Return display name with method count."""
         methods = self._count_methods()
         return f"{self.parent_node_type} Help -- {methods} methods"
 
-    def RenderCollapsed(
+    def render_content(
         self,
         cwd: str = ".",
         text_buffers: dict[str, Any] | None = None,
     ) -> str:
-        """Render collapsed: just the header."""
-        return self.render_header(cwd=cwd)
-
-    def RenderSummary(
-        self,
-        cwd: str = ".",
-        text_buffers: dict[str, Any] | None = None,
-    ) -> str:
-        """Render summary: type overview + key method names."""
-        parts = [self.render_header(cwd=cwd)]
-
-        # Extract first section (type name + description) and method names
-        in_methods = False
-        method_names: list[str] = []
-        for line in self._help_content.split("\n"):
-            if line.startswith("# "):
-                # Type name
-                parts.append(f"  {line[2:]}\n")
-            elif line and not line.startswith("#") and not line.startswith("-"):
-                # Description line (not a heading or list)
-                if not in_methods:
-                    parts.append(f"  {line}\n")
-            elif line.startswith("## Methods"):
-                in_methods = True
-            elif in_methods and line.startswith("- `"):
-                # Extract just the method name
-                name = line[3:].split("(")[0].split("`")[0]
-                method_names.append(name)
-            elif line.startswith("## ") and in_methods:
-                in_methods = False
-
-        if method_names:
-            parts.append(f"  Methods: {', '.join(method_names)}\n")
-
-        return "".join(parts)
-
-    def RenderDetail(
-        self,
-        include_summary: bool = False,
-        cwd: str = ".",
-        text_buffers: dict[str, Any] | None = None,
-    ) -> str:
-        """Render full documentation with signatures and descriptions."""
-        parts = [self.render_header(cwd=cwd)]
+        """Render full documentation."""
+        parts: list[str] = []
         for line in self._help_content.split("\n"):
             parts.append(f"  {line}\n")
         return "".join(parts)
@@ -5080,7 +4504,7 @@ class HelpNode(ContextNode):
     def _build_summary_text(self) -> str:
         """Build summary text from help content without calling Render methods.
 
-        Avoids the recursion: get_token_breakdown -> RenderSummary -> render_header
+        Avoids the recursion: get_token_breakdown -> render_content -> render_header
         -> get_token_breakdown.
         """
         parts: list[str] = []
@@ -5200,39 +4624,16 @@ class MarkdownListItemNode(ContextNode):
             "children_count": len(self.children_ids),
         }
 
-    def RenderCollapsed(
+    def render_content(
         self,
         cwd: str = ".",
         text_buffers: dict[str, Any] | None = None,
     ) -> str:
-        """Render collapsed: just the header."""
-        return self.render_header(cwd=cwd)
-
-    def RenderSummary(
-        self,
-        cwd: str = ".",
-        text_buffers: dict[str, Any] | None = None,
-    ) -> str:
-        """Render summary: header + abbreviated content."""
-        header = self.render_header(cwd=cwd)
+        """Render full list item with proper indentation."""
         indent = "  " * self.indent_level
-        preview = self.content[:80]
-        if len(self.content) > 80:
-            preview += "..."
-        return f"{header}{indent}{self.marker} {preview}\n"
+        return f"{indent}{self.marker} {self.content}\n"
 
-    def RenderDetail(
-        self,
-        include_summary: bool = False,
-        cwd: str = ".",
-        text_buffers: dict[str, Any] | None = None,
-    ) -> str:
-        """Render detail: full list item with proper indentation."""
-        header = self.render_header(cwd=cwd)
-        indent = "  " * self.indent_level
-        return f"{header}{indent}{self.marker} {self.content}\n"
-
-    def get_display_name(self) -> str:
+    def render_digest(self) -> str:
         """Return list item type indicator."""
         return f"{'OL' if self.is_ordered else 'UL'}-{self.indent_level}"
 
@@ -5468,37 +4869,15 @@ class MarkdownNode(ContextNode):
         )
         return self
 
-    def RenderCollapsed(
+    def render_content(
         self,
         cwd: str = ".",
         text_buffers: dict[str, Any] | None = None,
     ) -> str:
-        """Render collapsed: just the header."""
-        return self.render_header(cwd=cwd)
+        """Render full markdown content."""
+        return self.content
 
-    def RenderSummary(
-        self,
-        cwd: str = ".",
-        text_buffers: dict[str, Any] | None = None,
-    ) -> str:
-        """Render summary: header + first 200 chars."""
-        header = self.render_header(cwd=cwd)
-        preview = self.content[:200]
-        if len(self.content) > 200:
-            preview += "..."
-        return f"{header}{preview}\n"
-
-    def RenderDetail(
-        self,
-        include_summary: bool = False,
-        cwd: str = ".",
-        text_buffers: dict[str, Any] | None = None,
-    ) -> str:
-        """Render detail: full markdown content."""
-        header = self.render_header(cwd=cwd)
-        return f"{header}{self.content}"
-
-    def get_display_name(self) -> str:
+    def render_digest(self) -> str:
         """Return markdown document indicator."""
         if self.buffer_id:
             return f"MD:{self.buffer_id}"
@@ -5676,36 +5055,17 @@ class FileSystemNode(ContextNode):
             self._cached_tree = self._scan_directory()
             self._last_scan = current_time
 
-    def RenderCollapsed(
+    def render_content(
         self,
         cwd: str = ".",
         text_buffers: dict[str, Any] | None = None,
     ) -> str:
-        """Render collapsed: just the header."""
-        return self.render_header(cwd=cwd)
-
-    def RenderSummary(
-        self,
-        cwd: str = ".",
-        text_buffers: dict[str, Any] | None = None,
-    ) -> str:
-        """Render summary: header + root path."""
-        header = self.render_header(cwd=cwd)
-        return f"{header}Root: {self.root_path}\n"
-
-    def RenderDetail(
-        self,
-        include_summary: bool = False,
-        cwd: str = ".",
-        text_buffers: dict[str, Any] | None = None,
-    ) -> str:
-        """Render detail: full directory tree."""
+        """Render root path and directory tree."""
         if not self._cached_tree:
             self._cached_tree = self._scan_directory()
-        header = self.render_header(cwd=cwd)
-        return f"{header}{self._cached_tree}"
+        return f"Root: {self.root_path}\n{self._cached_tree}"
 
-    def get_display_name(self) -> str:
+    def render_digest(self) -> str:
         """Return filesystem node indicator."""
         return f"FS:{Path(self.root_path).name}"
 
@@ -5869,21 +5229,12 @@ class ClockNode(ContextNode):
             return f"{hours:02d}:{minutes:02d}:{secs:02d}"
         return f"{minutes:02d}:{secs:02d}"
 
-    def RenderCollapsed(
+    def render_content(
         self,
         cwd: str = ".",
         text_buffers: dict[str, Any] | None = None,
     ) -> str:
-        """Render collapsed: just the header."""
-        return self.render_header(cwd=cwd)
-
-    def RenderSummary(
-        self,
-        cwd: str = ".",
-        text_buffers: dict[str, Any] | None = None,
-    ) -> str:
-        """Render summary: header + current time."""
-        header = self.render_header(cwd=cwd)
+        """Render time and status."""
         elapsed = self.get_elapsed()
         status = "⏸" if not self.is_running else "▶"
 
@@ -5892,20 +5243,11 @@ class ClockNode(ContextNode):
             elapsed_str = self._format_time(elapsed)
             duration_str = self._format_time(self.duration_seconds)
             remaining_str = self._format_time(remaining or 0)
-            return f"{header}{status} {elapsed_str} / {duration_str} (remaining: {remaining_str})\n"
+            return f"{status} {elapsed_str} / {duration_str} (remaining: {remaining_str})\n"
         else:
-            return f"{header}{status} {self._format_time(elapsed)}\n"
+            return f"{status} {self._format_time(elapsed)}\n"
 
-    def RenderDetail(
-        self,
-        include_summary: bool = False,
-        cwd: str = ".",
-        text_buffers: dict[str, Any] | None = None,
-    ) -> str:
-        """Render detail: same as summary for clocks."""
-        return self.RenderSummary(cwd=cwd, text_buffers=text_buffers)
-
-    def get_display_name(self) -> str:
+    def render_digest(self) -> str:
         """Return clock type indicator."""
         if self.duration_seconds:
             return f"COUNTDOWN:{self._format_time(self.duration_seconds)}"
@@ -5919,7 +5261,7 @@ class ClockNode(ContextNode):
         collapsed_text = f"[Clock: {self.get_elapsed():.1f}s]\n"
         collapsed_tokens = count_tokens(collapsed_text)
 
-        # Build summary text without calling RenderSummary to avoid recursion
+        # Build summary text without calling render_content to avoid recursion
         elapsed = self.get_elapsed()
         elapsed_str = self._format_time(elapsed)
         summary_tokens = count_tokens(elapsed_str)
@@ -6057,42 +5399,21 @@ class FunctionDocNode(ContextNode):
 
         return self
 
-    def RenderCollapsed(
+    def render_content(
         self,
         cwd: str = ".",
         text_buffers: dict[str, Any] | None = None,
     ) -> str:
-        """Render collapsed: just the header."""
-        return self.render_header(cwd=cwd)
-
-    def RenderSummary(
-        self,
-        cwd: str = ".",
-        text_buffers: dict[str, Any] | None = None,
-    ) -> str:
-        """Render summary: header + signature."""
-        header = self.render_header(cwd=cwd)
-        if not self.signature:
-            self.extract_function_info()
-        return f"{header}{self.signature}\n"
-
-    def RenderDetail(
-        self,
-        include_summary: bool = False,
-        cwd: str = ".",
-        text_buffers: dict[str, Any] | None = None,
-    ) -> str:
-        """Render detail: signature + docstring."""
-        header = self.render_header(cwd=cwd)
+        """Render content: signature + docstring."""
         if not self.signature:
             self.extract_function_info()
 
-        parts = [header, f"{self.signature}\n"]
+        parts = [f"{self.signature}\n"]
         if self.docstring:
             parts.append(f'"""\n{self.docstring}\n"""\n')
         return "".join(parts)
 
-    def get_display_name(self) -> str:
+    def render_digest(self) -> str:
         """Return function doc indicator."""
         return f"DOC:{self.function_name}"
 

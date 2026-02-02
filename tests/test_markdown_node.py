@@ -51,7 +51,7 @@ class TestMarkdownListItemNode:
             indent_level=1,
             marker="-",
         )
-        result = item.RenderDetail()
+        result = item.render_content()
         assert "- Test item" in result
 
     def test_get_digest(self):

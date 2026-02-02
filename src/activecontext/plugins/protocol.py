@@ -12,7 +12,8 @@ Design principles:
   The projection engine composes them based on the view's expansion:
     HEADER  → render_header()
     CONTENT → render_header() + render_content()
-    ALL     → render_header() + render_content() + render_detail()
+    INDEX   → render_header() + render_content() + (children headers)
+    ALL     → render_header() + render_content() + (children content)
 - Token estimation is approximate — nodes estimate from their data,
   not by enumerating the full tree.
 - tick() is the synchronous state materialization point. Async work
@@ -76,18 +77,6 @@ class NodePlugin(Protocol):
         """
         ...
 
-    # --- Display ---
-
-    def get_display_name(self) -> str:
-        """Human-readable name for headers and handles.
-
-        Examples:
-            "main.py:1-50"
-            "Shell: pytest [COMPLETED]"
-            "Topic: Authentication"
-        """
-        ...
-
     # --- Rendering (composable sections, no view concepts) ---
     #
     # Each method returns ONE section of content. The projection engine
@@ -96,7 +85,7 @@ class NodePlugin(Protocol):
     #   HEADER  → render_header()
     #   CONTENT → render_header() + render_content()
     #   INDEX   → render_header() + render_content() + (children headers)
-    #   ALL     → render_header() + render_content() + render_detail()
+    #   ALL     → render_header() + render_content() + (children content)
     #
     # Nodes never see Expansion — that's a view concept. They just produce
     # content at each granularity level.
@@ -113,26 +102,22 @@ class NodePlugin(Protocol):
         """
         ...
 
+    def render_digest(self, cwd: str = ".") -> str:
+        """Render node metadata — the framework prepends the title line.
+
+        Returns a short metadata string (e.g., display name, status).
+        Used by the framework for compact representations.
+        """
+        ...
+
     def render_content(self, cwd: str = ".") -> str:
-        """Render the content section — the main body of the node.
+        """Render the content section — the actual content of this node.
 
         Shown at CONTENT expansion and above. Contains the primary
         information: summary text, output preview, message content, etc.
 
         Return empty string if the node has no content beyond its header
         (e.g., TopicNode has minimal content).
-        """
-        ...
-
-    def render_detail(self, cwd: str = ".") -> str:
-        """Render the detail section — full content including extras.
-
-        Shown at ALL expansion only. Contains everything not in the
-        content section: full output, timing details, complete file
-        content, trace history, etc.
-
-        Return empty string if content and detail are identical
-        (i.e., there's no additional detail beyond content).
         """
         ...
 
@@ -143,8 +128,8 @@ class NodePlugin(Protocol):
 
         Returns a TokenInfo with:
         - collapsed: tokens for render_header() output
-        - summary: additional tokens for render_content() output
-        - detail: additional tokens for render_detail() output
+        - summary: tokens for render_content() output
+        - detail: tokens for full content (kept for backward compat)
 
         These are estimates, not exact counts. Nodes should estimate
         from their data (line count, content length) rather than

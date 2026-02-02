@@ -101,14 +101,11 @@ class TestFileSystemNode:
         """Test different render modes."""
         fs = FileSystemNode(root_path=str(tmp_path))
 
-        collapsed = fs.RenderCollapsed()
-        assert collapsed  # Has header
+        header = fs.render_header()
+        assert header  # Has header
 
-        summary = fs.RenderSummary()
-        assert str(tmp_path) in summary or "Root:" in summary
-
-        detail = fs.RenderDetail()
-        assert detail  # Should have tree content
+        content = fs.render_content()
+        assert str(tmp_path) in content or "Root:" in content
 
     def test_serialization(self, tmp_path):
         """Test to_dict and from_dict."""
@@ -224,14 +221,14 @@ class TestClockNode:
     def test_render_stopwatch(self):
         """Test rendering stopwatch mode."""
         clock = ClockNode(elapsed_seconds=30.0, is_running=False)
-        summary = clock.RenderSummary()
+        summary = clock.render_content()
         assert "00:30" in summary
         assert "⏸" in summary  # Paused indicator
 
     def test_render_countdown(self):
         """Test rendering countdown mode."""
         clock = ClockNode(duration_seconds=60.0, elapsed_seconds=20.0, is_running=True)
-        summary = clock.RenderSummary()
+        summary = clock.render_content()
         assert "▶" in summary  # Running indicator
         assert "remaining" in summary.lower()
 
@@ -344,15 +341,12 @@ def test_func(x: int) -> str:
 
         doc = FunctionDocNode(file_path=str(test_file), function_name="test_func")
 
-        collapsed = doc.RenderCollapsed()
-        assert collapsed  # Has header
+        header = doc.render_header()
+        assert header  # Has header
 
-        summary = doc.RenderSummary()
-        assert "test_func" in summary
-
-        detail = doc.RenderDetail()
-        assert "Test function" in detail
-        assert "test_func" in detail
+        content = doc.render_content()
+        assert "test_func" in content
+        assert "Test function" in content
 
     def test_serialization(self):
         """Test to_dict and from_dict."""

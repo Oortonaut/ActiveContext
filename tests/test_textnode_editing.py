@@ -470,15 +470,15 @@ class TestTextNodeExpansionStates:
             assert "def foo():" not in header_output
             assert "Summary for" not in header_output
 
-            # CONTENT: Summary included
+            # CONTENT: Summary + full content (CAP2: no content/detail split)
             assert "Summary for content state" in content_output
-            assert "def foo():" not in content_output
+            assert "def foo():" in content_output
 
-            # INDEX: Shows detail content (same as ALL for TextNode)
+            # INDEX: Same content as CONTENT for leaf nodes
             assert "def foo():" in index_output
             assert "return 42" in index_output
 
-            # ALL: Full details (same as INDEX for TextNode)
+            # ALL: Same content as CONTENT for leaf nodes
             assert "def foo():" in all_output
             assert "return 42" in all_output
 

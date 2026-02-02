@@ -676,7 +676,7 @@ class TestPluginManagerNodeRendering:
             loaded_count=0,
         )
 
-        result = node.RenderSummary()
+        result = node.render_content()
 
         assert "No plugin servers loaded" in result
 
@@ -694,7 +694,7 @@ class TestPluginManagerNodeRendering:
             },
         )
 
-        result = node.RenderSummary()
+        result = node.render_content()
 
         assert "Loaded Plugins" in result
         assert "serena" in result
@@ -702,8 +702,8 @@ class TestPluginManagerNodeRendering:
         assert "[OK]" in result  # connected status
         assert "[ERR]" in result  # error status
 
-    def test_render_detail_shows_overview(self):
-        """Test detail rendering includes builtin and loaded counts."""
+    def test_render_content_shows_overview(self):
+        """Test content rendering includes builtin and loaded counts."""
 
         node = PluginManagerNode(
             node_id="plugin_manager",
@@ -713,13 +713,13 @@ class TestPluginManagerNodeRendering:
             plugin_types={"serena": ["semantic_search", "memory"]},
         )
 
-        result = node.RenderDetail()
+        result = node.render_content()
 
         assert "Builtin types: 16" in result
         assert "Loaded plugin servers: 2" in result
 
-    def test_render_detail_with_events(self):
-        """Test detail rendering includes events when include_summary=True."""
+    def test_render_content_with_events(self):
+        """Test content rendering includes events."""
 
         node = PluginManagerNode(
             node_id="plugin_manager",
@@ -728,13 +728,13 @@ class TestPluginManagerNodeRendering:
         )
         node.connection_events = [{"time": "10:30:00", "message": "serena: new -> connected"}]
 
-        result = node.RenderDetail(include_summary=True)
+        result = node.render_content()
 
         assert "Recent Events" in result
         assert "serena: new -> connected" in result
 
-    def test_get_display_name(self):
-        """Test display name formatting."""
+    def test_render_digest(self):
+        """Test digest formatting."""
 
         node = PluginManagerNode(
             node_id="plugin_manager",
@@ -742,7 +742,7 @@ class TestPluginManagerNodeRendering:
             loaded_count=2,
         )
 
-        name = node.get_display_name()
+        name = node.render_digest()
 
         assert "Plugin Manager" in name
         assert "16 builtin" in name

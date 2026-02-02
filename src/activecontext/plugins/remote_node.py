@@ -64,7 +64,7 @@ class RemoteNode(ContextNode):
     Behavior:
     - Property reads return from _cached_state
     - Method calls queue in _pending_calls
-    - render_header/content/detail return from _cached_renders
+    - render_header/content return from _cached_renders
     - get_token_breakdown returns cached token info
     - tick() syncs with remote: sends pending calls, receives updated state
     - to_dict/from_dict handle serialization for checkpointing
@@ -125,15 +125,6 @@ class RemoteNode(ContextNode):
     # Display
     # ------------------------------------------------------------------
 
-    def get_display_name(self) -> str:
-        """Human-readable name from cached state or fallback."""
-        name = self._cached_state.get("display_name", "")
-        if name:
-            return str(name)
-        if self.title:
-            return self.title
-        return f"{self._actual_node_type} (remote)"
-
     # ------------------------------------------------------------------
     # Rendering (composable sections from cache)
     # ------------------------------------------------------------------
@@ -145,51 +136,27 @@ class RemoteNode(ContextNode):
         # Fallback: use the parent class uniform header
         return super().render_header(cwd=cwd)
 
-    def RenderCollapsed(
-        self,
-        cwd: str = ".",
-        text_buffers: dict[str, Any] | None = None,
-    ) -> str:
-        """Collapsed view: just the header."""
-        return self.render_header(cwd=cwd)
-
-    def RenderSummary(
-        self,
-        cwd: str = ".",
-        text_buffers: dict[str, Any] | None = None,
-    ) -> str:
-        """Summary view: header + content."""
-        header = self.render_header(cwd=cwd)
-        content = self.render_content(cwd=cwd)
-        return header + content
-
-    def RenderDetail(
-        self,
-        include_summary: bool = False,
-        cwd: str = ".",
-        text_buffers: dict[str, Any] | None = None,
-    ) -> str:
-        """Detail view: header + content + detail."""
-        header = self.render_header(cwd=cwd)
-        content = self.render_content(cwd=cwd)
-        detail = self.render_detail(cwd=cwd)
-        return header + content + detail
+    def render_digest(self) -> str:
+        """Return cached digest summary, title, or type fallback."""
+        if self._cached_digest:
+            summary = self._cached_digest.get("summary", "")
+            if summary:
+                return str(summary)
+        if self.title:
+            return self.title
+        return f"{self._actual_node_type} (remote)"
 
     def render_content(
         self,
         cwd: str = ".",
         text_buffers: dict[str, Any] | None = None,
     ) -> str:
-        """Return cached content section or empty string."""
-        return self._cached_renders.content
-
-    def render_detail(
-        self,
-        cwd: str = ".",
-        text_buffers: dict[str, Any] | None = None,
-    ) -> str:
-        """Return cached detail section or empty string."""
-        return self._cached_renders.detail
+        """Return merged cached content + detail sections."""
+        content = self._cached_renders.content
+        detail = self._cached_renders.detail
+        if detail:
+            return content + detail
+        return content
 
     # ------------------------------------------------------------------
     # Token estimation

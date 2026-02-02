@@ -78,39 +78,39 @@ class TestHelpNodeConstruction:
         assert node.parent_node_type == "shell"
         assert "ShellNode" in node._help_content
 
-    def test_helpnode_render_collapsed(self, graph: ContextGraph) -> None:
-        """Collapsed rendering includes header with type info."""
+    def test_helpnode_render_header(self, graph: ContextGraph) -> None:
+        """Header rendering includes type info."""
         node = HelpNode(
             parent_node_type="text",
             _help_content="## Methods\n- `SetPos(self, pos)` -- Set position\n",
         )
         graph.add_node(node)
-        rendered = node.RenderCollapsed()
+        rendered = node.render_header()
         # Should contain the display name
         assert "text Help" in rendered
 
-    def test_helpnode_render_summary(self, graph: ContextGraph) -> None:
-        """Summary rendering includes overview and method names."""
+    def test_helpnode_render_content(self, graph: ContextGraph) -> None:
+        """Content rendering includes full help content."""
         content = "# TextNode\nFile view node.\n\n## Methods\n- `SetPos(self, pos)` -- Set position\n- `SetEndPos(self, end)` -- Set end position\n"
         node = HelpNode(
             parent_node_type="text",
             _help_content=content,
         )
         graph.add_node(node)
-        rendered = node.RenderSummary()
+        rendered = node.render_content()
         assert "TextNode" in rendered
         assert "SetPos" in rendered
         assert "SetEndPos" in rendered
 
-    def test_helpnode_render_detail(self, graph: ContextGraph) -> None:
-        """Detail rendering includes full content with signatures."""
+    def test_helpnode_render_content_full(self, graph: ContextGraph) -> None:
+        """Content rendering includes full content with signatures."""
         content = "# TextNode\nFile view.\n\n## Methods\n- `SetPos(self, pos: str)` -- Set start position\n"
         node = HelpNode(
             parent_node_type="text",
             _help_content=content,
         )
         graph.add_node(node)
-        rendered = node.RenderDetail()
+        rendered = node.render_content()
         assert "SetPos(self, pos: str)" in rendered
         assert "Set start position" in rendered
 
@@ -458,7 +458,7 @@ class TestHelpNoArgs:
         )
         graph.add_node(help_node)
         assert help_node.node_type == "help"
-        rendered = help_node.RenderSummary()
+        rendered = help_node.render_content()
         assert "DSL Reference" in rendered
 
 
@@ -540,27 +540,27 @@ class TestHelpNodeSerialization:
 
 
 # ---------------------------------------------------------------------------
-# Additional: HelpNode.get_display_name and GetDigest
+# Additional: HelpNode.render_digest and GetDigest
 # ---------------------------------------------------------------------------
 
 
 class TestHelpNodeMetadata:
     """Tests for HelpNode metadata methods."""
 
-    def test_get_display_name(self) -> None:
-        """get_display_name includes type name and method count."""
+    def test_render_digest(self) -> None:
+        """render_digest includes type name and method count."""
         node = HelpNode(
             parent_node_type="shell",
             _help_content="## Methods\n- `Run()` -- Start\n- `Pause()` -- Stop\n",
         )
-        name = node.get_display_name()
+        name = node.render_digest()
         assert "shell Help" in name
         assert "2 methods" in name
 
-    def test_get_display_name_zero_methods(self) -> None:
-        """get_display_name shows 0 methods when content has no method docs."""
+    def test_render_digest_zero_methods(self) -> None:
+        """render_digest shows 0 methods when content has no method docs."""
         node = HelpNode(parent_node_type="trace", _help_content="# TraceNode\nA trace.\n")
-        name = node.get_display_name()
+        name = node.render_digest()
         assert "0 methods" in name
 
     def test_get_digest(self) -> None:

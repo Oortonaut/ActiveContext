@@ -52,8 +52,8 @@ class CustomLintNode(ContextNode):
         """Check if linting is complete."""
         return True
 
-    def get_display_name(self) -> str:
-        """Get display name for the node."""
+    def render_digest(self) -> str:
+        """Render digest for the node."""
         return f"CustomLint: {self.file_path}"
 
     def get_token_breakdown(self) -> dict[str, int]:
@@ -68,21 +68,7 @@ class CustomLintNode(ContextNode):
             "severity": self.severity,
         }
 
-    def RenderCollapsed(
-        self,
-        cwd: str = ".",
-        text_buffers: dict[str, Any] | None = None,
-    ) -> str:
-        return f"CustomLint: {self.file_path}"
-
-    def RenderSummary(
-        self,
-        cwd: str = ".",
-        text_buffers: dict[str, Any] | None = None,
-    ) -> str:
-        return f"CustomLint: {self.file_path} (severity: {self.severity})"
-
-    def RenderDetail(
+    def render_content(
         self,
         cwd: str = ".",
         text_buffers: dict[str, Any] | None = None,
@@ -105,8 +91,8 @@ class NoPluginInfoNode(ContextNode):
     def node_type(self) -> str:
         return "no_plugin_info"
 
-    def get_display_name(self) -> str:
-        """Get display name for the node."""
+    def render_digest(self) -> str:
+        """Render digest for the node."""
         return f"NoPluginInfo: {self.value}"
 
     def get_token_breakdown(self) -> dict[str, int]:
@@ -116,21 +102,7 @@ class NoPluginInfoNode(ContextNode):
     def GetDigest(self) -> dict[str, Any]:
         return {"id": self.node_id, "type": self.node_type, "value": self.value}
 
-    def RenderCollapsed(
-        self,
-        cwd: str = ".",
-        text_buffers: dict[str, Any] | None = None,
-    ) -> str:
-        return f"NoPluginInfo: {self.value}"
-
-    def RenderSummary(
-        self,
-        cwd: str = ".",
-        text_buffers: dict[str, Any] | None = None,
-    ) -> str:
-        return f"NoPluginInfo: {self.value}"
-
-    def RenderDetail(
+    def render_content(
         self,
         cwd: str = ".",
         text_buffers: dict[str, Any] | None = None,
@@ -362,10 +334,10 @@ class TestHelpCaching:
     ) -> None:
         """Help rendering uses the cached content."""
         help_node = custom_lint_node.help()
-        summary = help_node.RenderSummary()
+        content = help_node.render_content()
 
         # Should contain plugin info from cached content
-        assert "Custom Linter" in summary or "custom_lint" in summary
+        assert "Custom Linter" in content or "custom_lint" in content
 
 
 # ---------------------------------------------------------------------------
@@ -436,7 +408,7 @@ class TestPluginHelpEdgeCases:
             def node_type(self) -> str:
                 return "orphan"
 
-            def get_display_name(self) -> str:
+            def render_digest(self) -> str:
                 return "Orphan"
 
             def get_token_breakdown(self) -> dict[str, int]:
@@ -445,17 +417,7 @@ class TestPluginHelpEdgeCases:
             def GetDigest(self) -> dict[str, Any]:
                 return {"id": self.node_id, "type": self.node_type}
 
-            def RenderCollapsed(
-                self, cwd: str = ".", text_buffers: dict[str, Any] | None = None
-            ) -> str:
-                return "Orphan"
-
-            def RenderSummary(
-                self, cwd: str = ".", text_buffers: dict[str, Any] | None = None
-            ) -> str:
-                return "Orphan"
-
-            def RenderDetail(
+            def render_content(
                 self, cwd: str = ".", text_buffers: dict[str, Any] | None = None
             ) -> str:
                 return "Orphan"
@@ -484,7 +446,7 @@ class TestPluginHelpEdgeCases:
             def node_type(self) -> str:
                 return "invalid_info"
 
-            def get_display_name(self) -> str:
+            def render_digest(self) -> str:
                 return "Invalid"
 
             def get_token_breakdown(self) -> dict[str, int]:
@@ -493,17 +455,7 @@ class TestPluginHelpEdgeCases:
             def GetDigest(self) -> dict[str, Any]:
                 return {"id": self.node_id, "type": self.node_type}
 
-            def RenderCollapsed(
-                self, cwd: str = ".", text_buffers: dict[str, Any] | None = None
-            ) -> str:
-                return "Invalid"
-
-            def RenderSummary(
-                self, cwd: str = ".", text_buffers: dict[str, Any] | None = None
-            ) -> str:
-                return "Invalid"
-
-            def RenderDetail(
+            def render_content(
                 self, cwd: str = ".", text_buffers: dict[str, Any] | None = None
             ) -> str:
                 return "Invalid"
@@ -539,7 +491,7 @@ class TestPluginHelpEdgeCases:
             def node_type(self) -> str:
                 return "partial_info"
 
-            def get_display_name(self) -> str:
+            def render_digest(self) -> str:
                 return "Partial"
 
             def get_token_breakdown(self) -> dict[str, int]:
@@ -548,17 +500,7 @@ class TestPluginHelpEdgeCases:
             def GetDigest(self) -> dict[str, Any]:
                 return {"id": self.node_id, "type": self.node_type}
 
-            def RenderCollapsed(
-                self, cwd: str = ".", text_buffers: dict[str, Any] | None = None
-            ) -> str:
-                return "Partial"
-
-            def RenderSummary(
-                self, cwd: str = ".", text_buffers: dict[str, Any] | None = None
-            ) -> str:
-                return "Partial"
-
-            def RenderDetail(
+            def render_content(
                 self, cwd: str = ".", text_buffers: dict[str, Any] | None = None
             ) -> str:
                 return "Partial"
