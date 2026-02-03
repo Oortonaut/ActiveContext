@@ -1,0 +1,14 @@
+# Project workflow customizations (merges with defaults)
+
+states:
+  backlog:
+    exits: [pending, cancelled]
+    timed: false
+    prompts:
+      enter: >
+        Item is in the backlog. Not ready for active work yet.
+        Move to pending when groomed and ready to be claimed.
+
+  # Extend pending to allow moving items to backlog
+  pending:
+    exits: [assigned, working, backlog, cancelled]

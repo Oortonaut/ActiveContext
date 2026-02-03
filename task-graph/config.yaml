@@ -1,0 +1,5 @@
+# ActiveContext project task-graph config
+# Overrides defaults from task-graph-mcp
+
+feedback:
+  enabled: true
