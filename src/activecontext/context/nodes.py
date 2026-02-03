@@ -47,6 +47,11 @@ import re as _re
 from activecontext.context.graph import LinkedChildOrder
 from activecontext.core.tokens import MediaType, detect_media_type
 
+# Overhead tokens for the token counts display itself.
+# The "(tokens: NNN / NN+NN+NN of NNN)" string occupies tokens in the header.
+# This constant is added to header_tokens to account for that self-referential cost.
+TOKEN_COUNTS_OVERHEAD = 12
+
 # ---------------------------------------------------------------------------
 # LineChange dataclass for file-level change propagation
 # ---------------------------------------------------------------------------
@@ -236,7 +241,7 @@ OnChildChangedHook = Callable[["ContextNode", "ContextNode", str], None]
 
 
 @trace_all_fields
-@dataclass
+@dataclass(kw_only=True)
 class ContextNode(ABC):
     """Base class for all context DAG nodes.
 
@@ -295,8 +300,8 @@ class ContextNode(ABC):
     notification_level: NotificationLevel = NotificationLevel.IGNORE
     is_subscription_point: bool = False  # If True, notifications stop here
     # Notification flags — set by _mark_changed on ancestors, cleared by view processing
-    _notified: bool = field(default=False, repr=False)
-    _wake_notified: bool = field(default=False, repr=False)
+    _notified: bool = field(default=False, init=False, repr=False)
+    _wake_notified: bool = field(default=False, init=False, repr=False)
 
     # Tracing configuration
     # When True, state changes create TraceNode children for history
@@ -307,10 +312,10 @@ class ContextNode(ABC):
     trace_sink: ContextNode | None = field(default=None, repr=False)
 
     # Graph reference (set by ContextGraph.add_node)
-    _graph: ContextGraph | None = field(default=None, repr=False)
+    _graph: ContextGraph | None = field(default=None, init=False, repr=False)
 
     # Optional hook for child change notifications
-    _on_child_changed_hook: OnChildChangedHook | None = field(default=None, repr=False)
+    _on_child_changed_hook: OnChildChangedHook | None = field(default=None, init=False, repr=False)
 
     # Trace merging state (for time-window based merging)
     _last_trace: TraceNode | None = field(default=None, init=False, repr=False)
@@ -334,7 +339,7 @@ class ContextNode(ABC):
         """
         from activecontext.context.headers import TOKEN_COUNTS_OVERHEAD
 
-        return self.get_token_breakdown().collapsed + TOKEN_COUNTS_OVERHEAD
+        return self.get_token_breakdown().title + TOKEN_COUNTS_OVERHEAD
 
     @property
     def content_tokens(self) -> int:
@@ -415,7 +420,7 @@ class ContextNode(ABC):
             return header + content
 
     @abstractmethod
-    def get_token_breakdown(self, cwd: str = ".") -> TokenInfo:
+    def get_token_breakdown(self) -> TokenInfo:
         """Return token counts for different visibility levels.
 
         Args:
@@ -437,29 +442,33 @@ class ContextNode(ABC):
         """
         ...
 
-    def render_header(self, cwd: str = ".") -> str:
+    def render_header(self) -> str:
         """Render uniform header for this node based on current state.
 
-        Args:
-            cwd: Working directory for relative path resolution.
-
-        Format varies by state:
-            COLLAPSED: #### [type.N] name collapsed (tokens: visible/hidden)
-            SUMMARY:   ### [type.N] name summary wake (tokens: collapsed+summary/hidden)
-            ALL:       ### [type.N] name all (tokens: collapsed+summary+detail)
         """
-        from .headers import render_header
+        token_info = self.get_token_breakdown()
 
-        token_info = self.get_token_breakdown(cwd)
-        return render_header(
-            self.node_id,
-            self.render_digest(),
-            self.default_expansion,
-            token_info,
-            notification_level=self.notification_level,
-            index_tokens=self.index_tokens,
-            all_tokens=self.all_tokens,
-        )
+        from .state import NotificationLevel
+
+        # Compute header and content from TokenInfo (node's own breakdown)
+        header_toks = token_info.title + TOKEN_COUNTS_OVERHEAD
+        content_toks = token_info.content + token_info.detail
+        index_toks = token_info.index
+        all_toks = token_info.total
+
+        token_str = token_info.format_token_info(expansion)
+
+        # Build brief: "summary wake" or just "summary" if notification is ignore/None
+        brief = state.value
+        if notification_level and notification_level != NotificationLevel.IGNORE:
+            brief = f"{brief} {notification_level.value}"
+
+        parts: list[str] = []
+        parts.append(name)
+        if line_range:
+            parts.append(f" {line_range}")
+        parts.append(f" | {{#{display_id}}} {brief} {token_str}\n")
+        return "".join(parts)
 
     def Recompute(self) -> None:
         """Recompute this node's content. Called during tick for running nodes.
@@ -860,7 +869,7 @@ class ContextNode(ABC):
         return help_node
 
 
-@dataclass
+@dataclass(kw_only=True)
 class TextNode(ContextNode):
     """View of a file or file region as text.
 
@@ -1170,14 +1179,6 @@ class TextNode(ContextNode):
             if end_line is not None:
                 return f"{self.path}:{start_line}-{end_line}"
 
-        return f"{self.path}:{start_line}"
-
-    def render_header(self, cwd: str = ".") -> str:
-        """Render header with optional line range."""
-        from .headers import render_header
-
-        token_info = self.get_token_breakdown(cwd)
-
         # Build line range caption
         line_range = ""
         start = self.start_line if self.buffer_id else self._parse_start_line()
@@ -1187,18 +1188,9 @@ class TextNode(ContextNode):
         elif start and start > 1:
             line_range = f"(line {start})"
 
-        return render_header(
-            self.node_id,
-            self.render_digest(),
-            self.default_expansion,
-            token_info,
-            notification_level=self.notification_level,
-            index_tokens=self.index_tokens,
-            all_tokens=self.all_tokens,
-            line_range=line_range,
-        )
+        return f"{line_range}"
 
-    def get_token_breakdown(self, cwd: str = ".") -> TokenInfo:
+    def get_token_breakdown(self) -> TokenInfo:
         """Return token counts for collapsed/summary/detail."""
         from activecontext.core.tokens import count_tokens
 
@@ -1220,7 +1212,7 @@ class TextNode(ContextNode):
             detail_tokens = line_count * 10
 
         return TokenInfo(
-            collapsed=collapsed_tokens,
+            title=collapsed_tokens,
             summary=summary_tokens,
             detail=detail_tokens,
         )
@@ -1295,7 +1287,7 @@ class TextNode(ContextNode):
         return node
 
 
-@dataclass
+@dataclass(kw_only=True)
 class GroupNode(ContextNode):
     """Summary facade over child nodes.
 
@@ -1373,7 +1365,7 @@ class GroupNode(ContextNode):
         """Return 'Group (N members)' format."""
         return f"Group ({len(self.children_ids)} members)"
 
-    def get_token_breakdown(self, cwd: str = ".") -> TokenInfo:
+    def get_token_breakdown(self) -> TokenInfo:
         """Return token counts for collapsed/summary/detail."""
         from activecontext.core.tokens import count_tokens
 
@@ -1397,11 +1389,11 @@ class GroupNode(ContextNode):
             for child_id in ordered_children:
                 child = self._graph.get_node(child_id)
                 if child:
-                    child_info = child.get_token_breakdown(cwd)
-                    child_total += child_info.collapsed + child_info.summary + child_info.detail
+                    child_info = child.get_token_breakdown()
+                    child_total += child_info.title + child_info.summary + child_info.detail
 
         return TokenInfo(
-            collapsed=collapsed_tokens,
+            title=collapsed_tokens,
             summary=summary_tokens,
             detail=0,  # Group has no detail of its own
             total=collapsed_tokens + summary_tokens + child_total if child_total else None,
@@ -1458,7 +1450,7 @@ class GroupNode(ContextNode):
         return node
 
 
-@dataclass
+@dataclass(kw_only=True)
 class TopicNode(ContextNode):
     """Represents a conversation topic/thread.
 
@@ -1517,7 +1509,7 @@ class TopicNode(ContextNode):
         """Return 'Topic: title' format."""
         return f"Topic: {self.title}"
 
-    def get_token_breakdown(self, cwd: str = ".") -> TokenInfo:
+    def get_token_breakdown(self) -> TokenInfo:
         """Return token counts for collapsed/summary/detail."""
         from activecontext.core.tokens import count_tokens
 
@@ -1529,7 +1521,7 @@ class TopicNode(ContextNode):
 
         # Topics don't have summary vs detail distinction
         return TokenInfo(
-            collapsed=collapsed_tokens,
+            title=collapsed_tokens,
             summary=0,
             detail=0,
         )
@@ -1572,7 +1564,7 @@ class TopicNode(ContextNode):
         return node
 
 
-@dataclass
+@dataclass(kw_only=True)
 class ArtifactNode(ContextNode):
     """Represents a generated artifact (code, output, error, file).
 
@@ -1630,7 +1622,7 @@ class ArtifactNode(ContextNode):
         lang_suffix = f":{self.language}" if self.language else ""
         return f"{self.artifact_type.upper()}{lang_suffix}"
 
-    def get_token_breakdown(self, cwd: str = ".") -> TokenInfo:
+    def get_token_breakdown(self) -> TokenInfo:
         """Return token counts for collapsed/summary/detail."""
         from activecontext.core.tokens import count_tokens
 
@@ -1645,7 +1637,7 @@ class ArtifactNode(ContextNode):
         detail_tokens = count_tokens(self.content)
 
         return TokenInfo(
-            collapsed=collapsed_tokens,
+            title=collapsed_tokens,
             summary=0,
             detail=detail_tokens,
         )
@@ -1691,7 +1683,7 @@ class ArtifactNode(ContextNode):
         return node
 
 
-@dataclass
+@dataclass(kw_only=True)
 class ShellNode(ContextNode):
     """Represents an async shell command execution.
 
@@ -1854,7 +1846,7 @@ class ShellNode(ContextNode):
         )
         return f"Shell: {cmd_display} [{self.shell_status.value.upper()}]"
 
-    def get_token_breakdown(self, cwd: str = ".") -> TokenInfo:
+    def get_token_breakdown(self) -> TokenInfo:
         """Return token counts for collapsed/summary/detail."""
         from activecontext.core.tokens import count_tokens
 
@@ -1868,7 +1860,7 @@ class ShellNode(ContextNode):
         detail_tokens = count_tokens(self.output) if self.output else 0
 
         return TokenInfo(
-            collapsed=collapsed_tokens,
+            title=collapsed_tokens,
             summary=0,
             detail=detail_tokens,
         )
@@ -1950,7 +1942,7 @@ def _strip_ansi(text: str) -> str:
 
 
 @trace_all_fields
-@dataclass
+@dataclass(kw_only=True)
 class PtyNode(ContextNode):
     """Represents a long-lived interactive PTY session.
 
@@ -1982,12 +1974,12 @@ class PtyNode(ContextNode):
     input_history: list[str] = field(default_factory=list)
 
     # Ring-buffer scrollback (not serialized; rebuilt from output on load)
-    _scrollback_lines: list[str] = field(default_factory=list, repr=False)
-    _scrollback_bytes: int = field(default=0, repr=False)
-    _total_line_count: int = field(default=0, repr=False)
+    _scrollback_lines: list[str] = field(default_factory=list, init=False, repr=False)
+    _scrollback_bytes: int = field(default=0, init=False, repr=False)
+    _total_line_count: int = field(default=0, init=False, repr=False)
 
     # Raw output accumulator (serialized for session persistence)
-    _raw_output: str = field(default="", repr=False)
+    _raw_output: str = field(default="", init=False, repr=False)
 
     def __post_init__(self) -> None:
         # PTY nodes default to CONTENT expansion (scrollback only, not ALL)
@@ -2137,7 +2129,7 @@ class PtyNode(ContextNode):
 
         return content
 
-    def get_token_breakdown(self, cwd: str = ".") -> TokenInfo:
+    def get_token_breakdown(self) -> TokenInfo:
         from activecontext.core.tokens import count_tokens
 
         from .headers import TokenInfo
@@ -2156,7 +2148,7 @@ class PtyNode(ContextNode):
         detail_tokens = count_tokens(detail_text) if detail_text else 0
 
         return TokenInfo(
-            collapsed=collapsed_tokens,
+            title=collapsed_tokens,
             summary=summary_tokens,
             detail=detail_tokens,
         )
@@ -2218,7 +2210,7 @@ class PtyNode(ContextNode):
         return node
 
 
-@dataclass
+@dataclass(kw_only=True)
 class LockNode(ContextNode):
     """Represents an async file lock acquisition.
 
@@ -2333,7 +2325,7 @@ class LockNode(ContextNode):
         """Return 'Lock: file [STATUS]' format."""
         return f"Lock: {self.lockfile} [{self.lock_status.value.upper()}]"
 
-    def get_token_breakdown(self, cwd: str = ".") -> TokenInfo:
+    def get_token_breakdown(self) -> TokenInfo:
         """Return token counts for collapsed/summary/detail."""
         from activecontext.core.tokens import count_tokens
 
@@ -2347,7 +2339,7 @@ class LockNode(ContextNode):
         detail_tokens = count_tokens(self.error_message) if self.error_message else 0
 
         return TokenInfo(
-            collapsed=collapsed_tokens,
+            title=collapsed_tokens,
             summary=0,
             detail=detail_tokens,
         )
@@ -2397,7 +2389,7 @@ class LockNode(ContextNode):
         return node
 
 
-@dataclass
+@dataclass(kw_only=True)
 class SessionNode(ContextNode):
     """Represents session-level metadata for agent situational awareness.
 
@@ -2626,7 +2618,7 @@ class SessionNode(ContextNode):
         """Return 'Session' format."""
         return "Session"
 
-    def get_token_breakdown(self, cwd: str = ".") -> TokenInfo:
+    def get_token_breakdown(self) -> TokenInfo:
         """Return token counts for collapsed/summary/detail."""
         from activecontext.core.tokens import count_tokens
 
@@ -2640,7 +2632,7 @@ class SessionNode(ContextNode):
 
         # Session node has statistics as detail
         return TokenInfo(
-            collapsed=collapsed_tokens,
+            title=collapsed_tokens,
             summary=0,
             detail=0,
         )
@@ -2710,7 +2702,7 @@ class SessionNode(ContextNode):
         return node
 
 
-@dataclass
+@dataclass(kw_only=True)
 class MessageNode(ContextNode):
     """Represents a message in the conversation history.
 
@@ -2846,7 +2838,7 @@ class MessageNode(ContextNode):
         role_display = self.role.value.replace("_", " ").title()
         return f"{role_display} #{seq}"
 
-    def get_token_breakdown(self, cwd: str = ".") -> TokenInfo:
+    def get_token_breakdown(self) -> TokenInfo:
         """Return token counts for collapsed/summary/detail."""
         from activecontext.core.tokens import count_tokens
 
@@ -2860,7 +2852,7 @@ class MessageNode(ContextNode):
         detail_tokens = count_tokens(self.content)
 
         return TokenInfo(
-            collapsed=collapsed_tokens,
+            title=collapsed_tokens,
             summary=0,
             detail=detail_tokens,
         )
@@ -2908,7 +2900,7 @@ class MessageNode(ContextNode):
         return node
 
 
-@dataclass
+@dataclass(kw_only=True)
 class WorkNode(ContextNode):
     """Represents this agent's work coordination entry.
 
@@ -3016,7 +3008,7 @@ class WorkNode(ContextNode):
         intent_display = self.intent[:30] + "..." if len(self.intent) > 30 else self.intent
         return f"Work: {intent_display} [{self.work_status.value}]"
 
-    def get_token_breakdown(self, cwd: str = ".") -> TokenInfo:
+    def get_token_breakdown(self) -> TokenInfo:
         """Return token counts for collapsed/summary/detail."""
         from activecontext.core.tokens import count_tokens
 
@@ -3036,7 +3028,7 @@ class WorkNode(ContextNode):
         detail_tokens = count_tokens("\n".join(detail_parts)) if detail_parts else 0
 
         return TokenInfo(
-            collapsed=collapsed_tokens,
+            title=collapsed_tokens,
             summary=0,
             detail=detail_tokens,
         )
@@ -3086,7 +3078,7 @@ class WorkNode(ContextNode):
         return node
 
 
-@dataclass
+@dataclass(kw_only=True)
 class MCPServerNode(ContextNode):
     """Represents an MCP server connection with its available tools.
 
@@ -3125,14 +3117,14 @@ class MCPServerNode(ContextNode):
     # Callback for firing events when calls complete
     # Set by Timeline: (event_name, data) -> None
     _on_result_callback: Callable[[str, dict[str, Any]], None] | None = field(
-        default=None, repr=False, compare=False
+        default=None, init=False, repr=False, compare=False
     )
 
     # Tool child nodes: tool_name -> node_id
     _tool_nodes: dict[str, str] = field(default_factory=dict, repr=False)
 
     # Runtime reference to server proxy for tool calls (not serialized)
-    _server_proxy: Any = field(default=None, repr=False, compare=False)
+    _server_proxy: Any = field(default=None, init=False, repr=False, compare=False)
 
     def __getattr__(self, name: str) -> Any:
         """Delegate tool method access to the server proxy."""
@@ -3392,7 +3384,7 @@ class MCPServerNode(ContextNode):
         """Return 'MCP: name [status]' format."""
         return f"MCP: {self.server_name} [{self.status.upper()}]"
 
-    def get_token_breakdown(self, cwd: str = ".") -> TokenInfo:
+    def get_token_breakdown(self) -> TokenInfo:
         """Return token counts for collapsed/summary/detail."""
         from activecontext.core.tokens import count_tokens
 
@@ -3420,7 +3412,7 @@ class MCPServerNode(ContextNode):
         detail_tokens = count_tokens("\n".join(detail_parts)) if detail_parts else 0
 
         return TokenInfo(
-            collapsed=collapsed_tokens,
+            title=collapsed_tokens,
             summary=summary_tokens,
             detail=detail_tokens,
         )
@@ -3482,7 +3474,7 @@ class MCPServerNode(ContextNode):
         return node
 
 
-@dataclass
+@dataclass(kw_only=True)
 class MCPToolNode(ContextNode):
     """Represents an individual tool from an MCP server.
 
@@ -3551,7 +3543,7 @@ class MCPToolNode(ContextNode):
         """Return tool name for display."""
         return f"{self.server_name}.{self.tool_name}"
 
-    def get_token_breakdown(self, cwd: str = ".") -> TokenInfo:
+    def get_token_breakdown(self) -> TokenInfo:
         """Return token counts for collapsed/summary/detail."""
         from activecontext.core.tokens import count_tokens
 
@@ -3571,7 +3563,7 @@ class MCPToolNode(ContextNode):
         detail_tokens = count_tokens("\n".join(detail_parts))
 
         return TokenInfo(
-            collapsed=collapsed_tokens,
+            title=collapsed_tokens,
             summary=summary_tokens,
             detail=detail_tokens,
         )
@@ -3616,7 +3608,7 @@ class MCPToolNode(ContextNode):
         )
 
 
-@dataclass
+@dataclass(kw_only=True)
 class MCPManagerNode(ContextNode):
     """Singleton manager that tracks all MCP server connections.
 
@@ -3765,7 +3757,7 @@ class MCPManagerNode(ContextNode):
         """Return 'MCP Manager' format."""
         return f"MCP Manager ({len(self.server_states)} servers)"
 
-    def get_token_breakdown(self, cwd: str = ".") -> TokenInfo:
+    def get_token_breakdown(self) -> TokenInfo:
         """Return token counts for collapsed/summary/detail."""
         from activecontext.core.tokens import count_tokens
 
@@ -3781,7 +3773,7 @@ class MCPManagerNode(ContextNode):
         summary_tokens = count_tokens(" ".join(summary_lines)) if summary_lines else 0
 
         return TokenInfo(
-            collapsed=collapsed_tokens,
+            title=collapsed_tokens,
             summary=summary_tokens,
             detail=0,
         )
@@ -3830,7 +3822,7 @@ class MCPManagerNode(ContextNode):
         return node
 
 
-@dataclass
+@dataclass(kw_only=True)
 class PluginManagerNode(ContextNode):
     """Singleton manager that tracks plugin server connections and available plugins.
 
@@ -3967,7 +3959,7 @@ class PluginManagerNode(ContextNode):
         """Return 'Plugin Manager' format."""
         return f"Plugin Manager ({self.builtin_count} builtin, {self.loaded_count} loaded)"
 
-    def get_token_breakdown(self, cwd: str = ".") -> TokenInfo:
+    def get_token_breakdown(self) -> TokenInfo:
         """Return token counts for collapsed/summary/detail."""
         from activecontext.core.tokens import count_tokens
 
@@ -3984,7 +3976,7 @@ class PluginManagerNode(ContextNode):
         summary_tokens = count_tokens(" ".join(summary_lines)) if summary_lines else 0
 
         return TokenInfo(
-            collapsed=collapsed_tokens,
+            title=collapsed_tokens,
             summary=summary_tokens,
             detail=0,
         )
@@ -4035,7 +4027,7 @@ class PluginManagerNode(ContextNode):
         return node
 
 
-@dataclass
+@dataclass(kw_only=True)
 class AgentNode(ContextNode):
     """Represents an agent in the context (self or another agent).
 
@@ -4117,7 +4109,7 @@ class AgentNode(ContextNode):
         """Return 'Agent: id [state]' format."""
         return f"Agent: {self.agent_id} [{self.agent_state.value.upper()}]"
 
-    def get_token_breakdown(self, cwd: str = ".") -> TokenInfo:
+    def get_token_breakdown(self) -> TokenInfo:
         """Return token counts for collapsed/summary/detail."""
         from activecontext.core.tokens import count_tokens
 
@@ -4132,7 +4124,7 @@ class AgentNode(ContextNode):
         detail_tokens = count_tokens(self.task) if self.task else 0
 
         return TokenInfo(
-            collapsed=collapsed_tokens,
+            title=collapsed_tokens,
             summary=0,
             detail=detail_tokens,
         )
@@ -4184,7 +4176,7 @@ class AgentNode(ContextNode):
         return node
 
 
-@dataclass
+@dataclass(kw_only=True)
 class TraceNode(ContextNode):
     """A change trace as a first-class DAG node.
 
@@ -4282,7 +4274,7 @@ class TraceNode(ContextNode):
         remaining = len(values) - self.MAX_VALUES_SHOWN
         return f"{{ {', '.join(shown)}, ({remaining} others) }}"
 
-    def get_token_breakdown(self, cwd: str = ".") -> TokenInfo:
+    def get_token_breakdown(self) -> TokenInfo:
         """Return token counts for collapsed/summary/detail."""
         from activecontext.core.tokens import count_tokens
 
@@ -4292,7 +4284,7 @@ class TraceNode(ContextNode):
         collapsed_tokens = count_tokens(self.description) + 5
 
         return TokenInfo(
-            collapsed=collapsed_tokens,
+            title=collapsed_tokens,
             summary=0,
             detail=0,
         )
@@ -4383,7 +4375,7 @@ class TraceNode(ContextNode):
         )
 
 
-@dataclass
+@dataclass(kw_only=True)
 class TaskNode(ContextNode):
     """Represents a task in the context graph.
 
@@ -4493,7 +4485,7 @@ class TaskNode(ContextNode):
         """Display name for the task."""
         return f"Task[{self.task_type}:{self.task_id[:8]}]"
 
-    def get_token_breakdown(self, cwd: str = ".") -> TokenInfo:
+    def get_token_breakdown(self) -> TokenInfo:
         """Return token counts for collapsed/summary/detail."""
         from activecontext.core.tokens import count_tokens
 
@@ -4508,7 +4500,7 @@ class TaskNode(ContextNode):
         summary_tokens = count_tokens(summary_text)
 
         return TokenInfo(
-            collapsed=collapsed_tokens,
+            title=collapsed_tokens,
             summary=summary_tokens,
             detail=0,
         )
@@ -4734,7 +4726,7 @@ def _extract_help_content(cls: type) -> str:
     return "\n".join(lines)
 
 
-@dataclass
+@dataclass(kw_only=True)
 class HelpNode(ContextNode):
     """Documentation node generated by .help().
 
@@ -4826,7 +4818,7 @@ class HelpNode(ContextNode):
             parts.append(f"Methods: {', '.join(method_names)}")
         return "\n".join(parts)
 
-    def get_token_breakdown(self, cwd: str = ".") -> TokenInfo:
+    def get_token_breakdown(self) -> TokenInfo:
         """Return token counts for collapsed/summary/detail."""
         from activecontext.core.tokens import count_tokens
 
@@ -4840,7 +4832,7 @@ class HelpNode(ContextNode):
         detail_tokens = count_tokens(self._help_content)
 
         return TokenInfo(
-            collapsed=collapsed_tokens,
+            title=collapsed_tokens,
             summary=summary_tokens,
             detail=detail_tokens,
         )
@@ -4890,7 +4882,7 @@ class HelpNode(ContextNode):
         )
 
 
-@dataclass
+@dataclass(kw_only=True)
 class MarkdownListItemNode(ContextNode):
     """A single markdown list item that can contain nested items.
 
@@ -4935,7 +4927,7 @@ class MarkdownListItemNode(ContextNode):
         """Return list item type indicator."""
         return f"{'OL' if self.is_ordered else 'UL'}-{self.indent_level}"
 
-    def get_token_breakdown(self, cwd: str = ".") -> TokenInfo:
+    def get_token_breakdown(self) -> TokenInfo:
         """Return token counts for collapsed/summary/detail."""
         from activecontext.core.tokens import count_tokens
 
@@ -4951,7 +4943,7 @@ class MarkdownListItemNode(ContextNode):
         detail_tokens = count_tokens(detail_text)
 
         return TokenInfo(
-            collapsed=collapsed_tokens,
+            title=collapsed_tokens,
             summary=0,
             detail=detail_tokens,
         )
@@ -5005,7 +4997,7 @@ class MarkdownListItemNode(ContextNode):
         )
 
 
-@dataclass
+@dataclass(kw_only=True)
 class MarkdownNode(ContextNode):
     """Structured markdown with automatic list parsing.
 
@@ -5178,7 +5170,7 @@ class MarkdownNode(ContextNode):
             return f"MD:{self.buffer_id}"
         return "MARKDOWN"
 
-    def get_token_breakdown(self, cwd: str = ".") -> TokenInfo:
+    def get_token_breakdown(self) -> TokenInfo:
         """Return token counts for collapsed/summary/detail."""
         from activecontext.core.tokens import count_tokens
 
@@ -5192,7 +5184,7 @@ class MarkdownNode(ContextNode):
         detail_tokens = count_tokens(self.content)
 
         return TokenInfo(
-            collapsed=collapsed_tokens,
+            title=collapsed_tokens,
             summary=0,
             detail=detail_tokens,
         )
@@ -5244,7 +5236,7 @@ class MarkdownNode(ContextNode):
         )
 
 
-@dataclass
+@dataclass(kw_only=True)
 class FileSystemNode(ContextNode):
     """Directory tree view with filtering and expand/collapse support.
 
@@ -5261,8 +5253,8 @@ class FileSystemNode(ContextNode):
     max_depth: int | None = None
     show_hidden: bool = False
     expanded_paths: set[str] = field(default_factory=set)
-    _cached_tree: str = field(default="", repr=False)
-    _last_scan: float = field(default=0.0, repr=False)
+    _cached_tree: str = field(default="", init=False, repr=False)
+    _last_scan: float = field(default=0.0, init=False, repr=False)
 
     @property
     def node_type(self) -> str:
@@ -5363,7 +5355,7 @@ class FileSystemNode(ContextNode):
         """Return filesystem node indicator."""
         return f"FS:{Path(self.root_path).name}"
 
-    def get_token_breakdown(self, cwd: str = ".") -> TokenInfo:
+    def get_token_breakdown(self) -> TokenInfo:
         """Return token counts for collapsed/summary/detail."""
         from activecontext.context.headers import TokenInfo
         from activecontext.core.tokens import count_tokens
@@ -5376,7 +5368,7 @@ class FileSystemNode(ContextNode):
         detail_tokens = count_tokens(self._cached_tree)
 
         return TokenInfo(
-            collapsed=collapsed_tokens,
+            title=collapsed_tokens,
             summary=0,
             detail=detail_tokens,
         )
@@ -5432,7 +5424,7 @@ class FileSystemNode(ContextNode):
         )
 
 
-@dataclass
+@dataclass(kw_only=True)
 class ClockNode(ContextNode):
     """Timer/countdown node with tick-driven updates.
 
@@ -5546,7 +5538,7 @@ class ClockNode(ContextNode):
             return f"COUNTDOWN:{self._format_time(self.duration_seconds)}"
         return "STOPWATCH"
 
-    def get_token_breakdown(self, cwd: str = ".") -> TokenInfo:
+    def get_token_breakdown(self) -> TokenInfo:
         """Return token counts for collapsed/summary/detail."""
         from activecontext.context.headers import TokenInfo
         from activecontext.core.tokens import count_tokens
@@ -5560,7 +5552,7 @@ class ClockNode(ContextNode):
         summary_tokens = count_tokens(elapsed_str)
 
         return TokenInfo(
-            collapsed=collapsed_tokens,
+            title=collapsed_tokens,
             summary=summary_tokens,
             detail=0,
         )
@@ -5614,7 +5606,7 @@ class ClockNode(ContextNode):
         )
 
 
-@dataclass
+@dataclass(kw_only=True)
 class FunctionDocNode(ContextNode):
     """Extract and display function signatures and docstrings.
 
@@ -5709,7 +5701,7 @@ class FunctionDocNode(ContextNode):
         """Return function doc indicator."""
         return f"DOC:{self.function_name}"
 
-    def get_token_breakdown(self, cwd: str = ".") -> TokenInfo:
+    def get_token_breakdown(self) -> TokenInfo:
         """Return token counts for collapsed/summary/detail."""
         from activecontext.context.headers import TokenInfo
         from activecontext.core.tokens import count_tokens
@@ -5724,7 +5716,7 @@ class FunctionDocNode(ContextNode):
         detail_tokens = count_tokens(detail_text)
 
         return TokenInfo(
-            collapsed=collapsed_tokens,
+            title=collapsed_tokens,
             summary=summary_tokens,
             detail=detail_tokens,
         )

@@ -100,7 +100,7 @@ class ShellManager:
         node = ShellNode(
             command=command,
             args=args or [],
-            expansion=expansion,
+            default_expansion=expansion,
         )
 
         # Add to context graph

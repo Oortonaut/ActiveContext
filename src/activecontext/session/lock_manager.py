@@ -90,7 +90,7 @@ class LockManager:
         node = LockNode(
             lockfile=lockfile,
             timeout=timeout,
-            expansion=expansion,
+            default_expansion=expansion,
         )
 
         # Add to context graph
