@@ -30,6 +30,7 @@ from activecontext.context.nodes import (
     GroupNode,
     LockNode,
     LockStatus,
+    PtyNode,
     ShellNode,
     ShellStatus,
     TextNode,
@@ -68,6 +69,7 @@ from activecontext.session.protocols import (
     WaitCondition,
     WaitMode,
 )
+from activecontext.session.pty_manager import PtyManager
 from activecontext.session.shell_manager import ShellManager
 from activecontext.session.work_coordinator import WorkCoordinator
 from activecontext.session.xml_parser import is_xml_command, parse_xml_to_python
@@ -554,6 +556,12 @@ class Timeline:
             cwd=cwd,
         )
 
+        # PTY session manager (must be set before _setup_namespace)
+        self._pty_manager = PtyManager(
+            context_graph=self._context_graph,
+            cwd=cwd,
+        )
+
         # File lock manager (must be set before _setup_namespace)
         self._lock_manager = LockManager(
             context_graph=self._context_graph,
@@ -758,6 +766,11 @@ class Timeline:
                 "ls_website_permissions": self._ls_website_permissions,
                 # Shell execution
                 "shell": self._shell_manager.execute,
+                # PTY sessions
+                "pty": self._pty_manager.spawn,
+                "pty_send": self._pty_send,
+                "pty_close": self._pty_close,
+                "wait_for_output": self._wait_for_output,
                 # HTTP/HTTPS requests
                 "fetch": self._fetch,
                 # Agent control
@@ -2255,6 +2268,82 @@ Provide a concise summary:"""
         return self._shell_manager.process_pending_results()
 
     # =========================================================================
+    # PTY DSL functions
+    # =========================================================================
+
+    def _pty_send(self, node: PtyNode | str, text: str) -> bool:
+        """DSL: pty_send(node, "break main\\n")
+
+        Write text to a running PTY's stdin.
+
+        Args:
+            node: PtyNode or node_id string.
+            text: Text to send to the PTY stdin.
+
+        Returns:
+            True if written, False if no such PTY or not alive.
+        """
+        node_id = node.node_id if isinstance(node, PtyNode) else node
+        return self._pty_manager.send_input(node_id, text)
+
+    def _pty_close(self, node: PtyNode | str) -> None:
+        """DSL: pty_close(node)
+
+        Terminate a PTY session.
+
+        Args:
+            node: PtyNode or node_id string.
+        """
+        node_id = node.node_id if isinstance(node, PtyNode) else node
+        self._pty_manager.close(node_id)
+
+    def _wait_for_output(
+        self,
+        node: PtyNode | str,
+        pattern: str,
+        *,
+        timeout: float = 30.0,
+        wake_prompt: str = "PTY output matched pattern '{pattern}'.",
+        timeout_prompt: str | None = None,
+    ) -> None:
+        """DSL: wait_for_output(node, "(gdb) ", timeout=10)
+
+        Wait until a PTY's recent scrollback contains *pattern*.
+        Ends the current turn. Ticks continue (processing PTY output).
+        When the pattern appears, the wake_prompt is injected.
+
+        Args:
+            node: PtyNode or node_id string.
+            pattern: Substring to match against recent scrollback lines.
+            timeout: Timeout in seconds (default 30).
+            wake_prompt: Prompt injected when pattern matches. Use {pattern}
+                for the matched pattern.
+            timeout_prompt: Prompt injected on timeout. Defaults to a
+                descriptive message.
+        """
+        node_id = node.node_id if isinstance(node, PtyNode) else node
+        self._wait_condition = WaitCondition(
+            node_ids=[node_id],
+            mode=WaitMode.SINGLE,
+            wake_prompt=wake_prompt.format(pattern=pattern),
+            timeout=timeout,
+            timeout_prompt=timeout_prompt
+            or f"Timed out waiting for PTY output matching '{pattern}' after {timeout}s.",
+            output_pattern=pattern,
+        )
+        self._done_called = True
+
+    def process_pending_pty_output(self) -> list[str]:
+        """Process pending PTY output and update nodes.
+
+        Delegates to PtyManager for processing batched PTY output.
+
+        Returns:
+            List of node IDs that were updated.
+        """
+        return self._pty_manager.process_pending_output()
+
+    # =========================================================================
     # Plugin DSL functions
     # =========================================================================
 
@@ -2615,6 +2704,9 @@ Provide a concise summary:"""
         # Cancel all pending shell tasks
         self._shell_manager.cancel_all()
 
+        # Close all PTY sessions
+        self._pty_manager.close_all()
+
         # Cancel all pending lock tasks and release held locks
         self._lock_manager.cancel_all()
         self._lock_manager.release_all()
@@ -2626,7 +2718,11 @@ Provide a concise summary:"""
         await self._plugin_manager.disconnect_all()
 
         # Give cancelled tasks a chance to complete
-        if self._shell_manager.has_pending_tasks() or self._lock_manager.has_pending_tasks():
+        if (
+            self._shell_manager.has_pending_tasks()
+            or self._lock_manager.has_pending_tasks()
+            or self._pty_manager.has_pending_tasks()
+        ):
             await asyncio.sleep(0)
 
     async def __aenter__(self) -> Timeline:
@@ -3172,11 +3268,28 @@ Provide a concise summary:"""
             prompt = condition.timeout_prompt or f"Wait timed out after {condition.timeout}s"
             return True, prompt
 
-        # Get nodes - support both ShellNode and LockNode
-        nodes: list[ShellNode | LockNode] = []
+        # Check output_pattern on PTY nodes (wait_for_output)
+        if condition.output_pattern:
+            for node_id in condition.node_ids:
+                node = self._context_graph.get_node(node_id)
+                if isinstance(node, PtyNode):
+                    # Check recent scrollback for pattern match
+                    recent = node._scrollback_lines[-20:]
+                    if condition.output_pattern in "\n".join(recent):
+                        return True, condition.wake_prompt
+                    # If PTY has exited without matching, report that
+                    if node.is_complete:
+                        return True, (
+                            condition.failure_prompt
+                            or f"PTY exited before output matched '{condition.output_pattern}'."
+                        )
+            return False, None
+
+        # Get nodes - support ShellNode, LockNode, and PtyNode
+        nodes: list[ShellNode | LockNode | PtyNode] = []
         for node_id in condition.node_ids:
             node = self._context_graph.get_node(node_id)
-            if node is not None and node.node_type in ("shell", "lock"):
+            if node is not None and node.node_type in ("shell", "lock", "pty"):
                 nodes.append(node)  # type: ignore[arg-type]
 
         if not nodes:
@@ -3303,7 +3416,9 @@ Provide a concise summary:"""
 
         return False, None
 
-    def _format_wake_prompt(self, template: str, node: ShellNode | LockNode) -> str:
+    def _format_wake_prompt(
+        self, template: str, node: ShellNode | LockNode | PtyNode
+    ) -> str:
         """Format a wake prompt template with node-specific attributes."""
         if node.node_type == "shell":
             return template.format(
@@ -3312,6 +3427,13 @@ Provide a concise summary:"""
                 command=node.full_command,
                 exit_code=node.exit_code,
                 output=node.output[:500] if node.output else "",
+            )
+        elif node.node_type == "pty":
+            return template.format(
+                node=node,
+                node_id=node.node_id,
+                command=node.full_command,  # type: ignore[union-attr]
+                exit_code=node.exit_code,  # type: ignore[union-attr]
             )
         else:  # LockNode
             return template.format(

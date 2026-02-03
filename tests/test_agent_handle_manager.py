@@ -9,7 +9,7 @@ import pytest
 from activecontext.agents.handle import AgentHandle
 from activecontext.agents.manager import AgentManager
 from activecontext.agents.registry import AgentTypeRegistry
-from activecontext.agents.schema import AgentEntry, AgentMessage, AgentState
+from activecontext.agents.schema import AgentEntry, AgentMessage, AgentState, MessageStatus
 
 # =============================================================================
 # Fixtures
@@ -461,21 +461,21 @@ class TestAgentManagerMessaging:
 
     def test_get_messages(self, agent_manager, mock_scratchpad_manager):
         """Test get_messages retrieves from scratchpad."""
-        agent_manager.get_messages("agent123", status="pending")
+        agent_manager.get_messages("agent123", status=MessageStatus.PENDING)
 
-        mock_scratchpad_manager.get_messages.assert_called_with("agent123", "pending")
+        mock_scratchpad_manager.get_messages.assert_called_with("agent123", MessageStatus.PENDING)
 
     def test_mark_message_delivered(self, agent_manager, mock_scratchpad_manager):
         """Test mark_message_delivered updates status."""
         agent_manager.mark_message_delivered("msg-123")
 
-        mock_scratchpad_manager.mark_message_status.assert_called_with("msg-123", "delivered")
+        mock_scratchpad_manager.mark_message_status.assert_called_with("msg-123", MessageStatus.DELIVERED)
 
     def test_mark_message_read(self, agent_manager, mock_scratchpad_manager):
         """Test mark_message_read updates status."""
         agent_manager.mark_message_read("msg-123")
 
-        mock_scratchpad_manager.mark_message_status.assert_called_with("msg-123", "read")
+        mock_scratchpad_manager.mark_message_status.assert_called_with("msg-123", MessageStatus.READ)
 
 
 class TestAgentManagerSharedNodes:

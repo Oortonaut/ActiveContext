@@ -13,6 +13,8 @@ from enum import Enum
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from activecontext.context.state import Expansion
+from activecontext.context.state import IOMode as IOMode
+from activecontext.context.state import TaskStatus as TaskStatus
 
 if TYPE_CHECKING:
     pass
@@ -66,22 +68,8 @@ class EventResponse(Enum):
     QUEUE = "queue"  # Queue event for processing on next wake
 
 
-class TaskStatus(Enum):
-    """Status of a task in the session."""
-
-    PENDING = "pending"  # Created but not started
-    RUNNING = "running"  # Currently executing
-    PAUSED = "paused"  # Temporarily stopped
-    DONE = "done"  # Completed successfully
-    FAILED = "failed"  # Completed with error
-
-
-class IOMode(Enum):
-    """I/O mode for tasks."""
-
-    SYNC = "sync"  # Request/Response (blocking)
-    ASYNC = "async"  # Message queue (non-blocking)
-    STREAMING = "streaming"  # Stream/Events
+# TaskStatus and IOMode are defined in context.state and re-exported here
+# for backward compatibility. See the import at the top of this file.
 
 
 @dataclass(slots=True)
@@ -200,6 +188,7 @@ class WaitCondition:
     started_at: float = field(default_factory=lambda: __import__("time").time())
     cancel_others: bool = False
     agent_id: str | None = None  # For MESSAGE/AGENT modes
+    output_pattern: str | None = None  # For PTY output matching (wait_for_output)
 
     def is_timed_out(self) -> bool:
         """Check if the wait condition has timed out."""

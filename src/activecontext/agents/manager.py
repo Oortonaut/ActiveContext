@@ -6,7 +6,7 @@ import uuid
 from typing import TYPE_CHECKING, Any
 
 from activecontext.agents.registry import AgentTypeRegistry
-from activecontext.agents.schema import AgentEntry, AgentMessage, AgentState
+from activecontext.agents.schema import AgentEntry, AgentMessage, AgentState, MessageStatus
 
 if TYPE_CHECKING:
     from activecontext.agents.handle import AgentHandle
@@ -231,7 +231,7 @@ class AgentManager:
     def get_messages(
         self,
         agent_id: str,
-        status: str | None = "pending",
+        status: MessageStatus | None = MessageStatus.PENDING,
     ) -> list[AgentMessage]:
         """Get messages for an agent.
 
@@ -250,7 +250,7 @@ class AgentManager:
         Args:
             message_id: Message ID
         """
-        self._scratchpad_manager.mark_message_status(message_id, "delivered")
+        self._scratchpad_manager.mark_message_status(message_id, MessageStatus.DELIVERED)
 
     def mark_message_read(self, message_id: str) -> None:
         """Mark a message as read.
@@ -258,7 +258,7 @@ class AgentManager:
         Args:
             message_id: Message ID
         """
-        self._scratchpad_manager.mark_message_status(message_id, "read")
+        self._scratchpad_manager.mark_message_status(message_id, MessageStatus.READ)
 
     def share_node(self, node: ContextNode) -> str:
         """Register a node in the shared registry.
@@ -346,5 +346,5 @@ class AgentManager:
         Returns:
             True if there are pending messages
         """
-        messages = self.get_messages(agent_id, status="pending")
+        messages = self.get_messages(agent_id, status=MessageStatus.PENDING)
         return len(messages) > 0

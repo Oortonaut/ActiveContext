@@ -32,6 +32,7 @@ from activecontext.context.markdown_parser import (
 )
 from activecontext.context.nodes import (
     AgentNode,
+    AgentRelation,
     ArtifactNode,
     ContextNode,
     GroupNode,
@@ -41,8 +42,11 @@ from activecontext.context.nodes import (
     LockStatus,
     MCPServerNode,
     MessageNode,
+    MessageRole,
     OnChildChangedHook,
     PluginManagerNode,
+    PtyNode,
+    PtyStatus,
     SessionNode,
     ShellNode,
     ShellStatus,
@@ -119,6 +123,8 @@ __all__ = [
     "ArtifactNode",
     "ShellNode",
     "ShellStatus",
+    "PtyNode",
+    "PtyStatus",
     "LockNode",
     "LockStatus",
     "MCPServerNode",
@@ -127,6 +133,8 @@ __all__ = [
     "SessionNode",
     "WorkNode",
     "AgentNode",
+    "AgentRelation",
+    "MessageRole",
     "TaskNode",
     # File change tracking
     "LineChange",

@@ -19,6 +19,14 @@ class AgentState(Enum):
     TERMINATED = "terminated"  # Forcibly stopped
 
 
+class MessageStatus(Enum):
+    """Status of an inter-agent message."""
+
+    PENDING = "pending"
+    DELIVERED = "delivered"
+    READ = "read"
+
+
 @dataclass
 class AgentMessage:
     """A message between agents."""
@@ -30,7 +38,7 @@ class AgentMessage:
     node_refs: list[str] = field(default_factory=list)  # Node IDs referenced
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     delivered_at: datetime | None = None
-    status: str = "pending"  # pending, delivered, read
+    status: MessageStatus = MessageStatus.PENDING
     reply_to: str | None = None  # For threading
     metadata: dict[str, Any] = field(default_factory=dict)
     content_type: str = "text"  # Content type: text, image, audio, etc.
@@ -45,7 +53,7 @@ class AgentMessage:
             "node_refs": self.node_refs,
             "created_at": self.created_at.isoformat(),
             "delivered_at": self.delivered_at.isoformat() if self.delivered_at else None,
-            "status": self.status,
+            "status": self.status.value,
             "reply_to": self.reply_to,
             "metadata": self.metadata,
             "content_type": self.content_type,
@@ -64,7 +72,7 @@ class AgentMessage:
             delivered_at=(
                 datetime.fromisoformat(data["delivered_at"]) if data.get("delivered_at") else None
             ),
-            status=data.get("status", "pending"),
+            status=MessageStatus(data.get("status", "pending")),
             reply_to=data.get("reply_to"),
             metadata=data.get("metadata", {}),
             content_type=data.get("content_type", "text"),

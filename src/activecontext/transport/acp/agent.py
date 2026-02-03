@@ -191,17 +191,23 @@ class ActiveContextAgent:
         self._current_cwd: str | None = None  # Track most recent cwd for list_sessions
 
         # Nagle-style batching for RESPONSE_CHUNK updates
-        self._chunk_buffers: dict[str, str] = {}  # session_id -> accumulated text
-        self._flush_tasks: dict[str, asyncio.Task[None]] = {}  # session_id -> flush task
-        self._chunk_lock = asyncio.Lock()  # Protects chunk buffer operations
         self._batch_enabled = True  # Can be disabled via config
         self._flush_interval = 0.05  # 50ms
         self._flush_threshold = 100  # characters
+        self._load_batch_config()
+
+        from activecontext.util.nagle import NagleBuffer
+
+        self._nagle = NagleBuffer(
+            self._on_nagle_flush,
+            flush_interval=self._flush_interval,
+            flush_threshold=self._flush_threshold,
+        )
+
         self._closed_sessions: set[str] = set()  # Sessions that have been cancelled/closed
         self._active_prompts: dict[str, asyncio.Task[Any]] = {}  # session_id -> prompt task
         self._sessions_initialized: set[str] = set()  # Sessions that received post-setup
         self._agent_loop_tasks: dict[str, asyncio.Task[Any]] = {}  # session_id -> loop task
-        self._load_batch_config()
 
         # Message completion tracking for prompt synchronization
         self._message_complete_events: dict[str, asyncio.Event] = {}
@@ -284,77 +290,26 @@ class ActiveContextAgent:
         except Exception as e:
             log.debug("Failed to load ACP config: %s", e)
 
-    # --- Nagle-style batching for RESPONSE_CHUNK ---
+    # --- Nagle-style batching for RESPONSE_CHUNK (delegates to NagleBuffer) ---
+
+    async def _on_nagle_flush(self, session_id: str, text: str) -> None:
+        """Callback invoked by NagleBuffer when a batch is ready to send."""
+        await self._send_session_update(
+            session_id,
+            acp.update_agent_message_text(text),
+        )
 
     async def _flush_chunks(self, session_id: str) -> None:
-        """Flush accumulated response chunks for a session.
-
-        Thread-safe: uses _chunk_lock to prevent races with cancel().
-        """
-        async with self._chunk_lock:
-            # Check if session was closed while waiting for lock
-            if session_id in self._closed_sessions:
-                self._chunk_buffers.pop(session_id, None)
-                self._flush_tasks.pop(session_id, None)
-                return
-
-            text = self._chunk_buffers.pop(session_id, "")
-            self._flush_tasks.pop(session_id, None)
-
-        # Send outside the lock to avoid holding it during I/O
-        if text:
-            await self._send_session_update(
-                session_id,
-                acp.update_agent_message_text(text),
-            )
+        """Flush accumulated response chunks for a session."""
+        await self._nagle.flush(session_id)
 
     async def _buffer_chunk(self, session_id: str, text: str) -> None:
-        """Buffer a response chunk, flushing if threshold reached.
-
-        Thread-safe: uses _chunk_lock to prevent races with cancel().
-        """
-        async with self._chunk_lock:
-            # Check if session was closed - discard chunk
-            if session_id in self._closed_sessions:
-                return
-
-            # Append to buffer
-            self._chunk_buffers[session_id] = self._chunk_buffers.get(session_id, "") + text
-            buffer_len = len(self._chunk_buffers[session_id])
-
-        # Check size threshold - flush immediately if exceeded
-        if buffer_len >= self._flush_threshold:
-            async with self._chunk_lock:
-                if session_id in self._flush_tasks:
-                    self._flush_tasks[session_id].cancel()
-                    self._flush_tasks.pop(session_id, None)
-            await self._flush_chunks(session_id)
-            return
-
-        # Schedule flush if not already scheduled
-        async with self._chunk_lock:
-            if session_id not in self._flush_tasks and session_id not in self._closed_sessions:
-                self._flush_tasks[session_id] = asyncio.create_task(self._delayed_flush(session_id))
-
-    async def _delayed_flush(self, session_id: str) -> None:
-        """Flush after delay (Nagle timer)."""
-        try:
-            await asyncio.sleep(self._flush_interval)
-            await self._flush_chunks(session_id)
-        except asyncio.CancelledError:
-            # Expected when session is cancelled or threshold flush happens
-            pass
+        """Buffer a response chunk, flushing if threshold reached."""
+        await self._nagle.write(session_id, text)
 
     async def _cleanup_session_buffers(self, session_id: str) -> None:
-        """Clean up batching state for a closed session.
-
-        Thread-safe: uses _chunk_lock to prevent races with buffer/flush.
-        """
-        async with self._chunk_lock:
-            self._chunk_buffers.pop(session_id, None)
-            task = self._flush_tasks.pop(session_id, None)
-            if task and not task.done():
-                task.cancel()
+        """Clean up batching state for a closed session."""
+        await self._nagle.close(session_id)
 
     # --- End batching ---
 
@@ -1394,11 +1349,6 @@ class ActiveContextAgent:
             log.debug("Cancel [%s]: chunk buffers cleaned", session_id)
         except asyncio.TimeoutError:
             log.warning("Cancel [%s]: chunk buffer cleanup timed out", session_id)
-            # Force cleanup without lock if timeout
-            self._chunk_buffers.pop(session_id, None)
-            task = self._flush_tasks.pop(session_id, None)
-            if task:
-                task.cancel()
 
         # Cancel the session in the manager
         log.debug("Cancel [%s]: getting session from manager", session_id)
@@ -1803,10 +1753,10 @@ class ActiveContextAgent:
                 skill_content += manifest.content
 
                 # Inject skill content into session context as a MessageNode
-                from activecontext.context.nodes import MessageNode
+                from activecontext.context.nodes import MessageNode, MessageRole
 
                 skill_node = MessageNode(
-                    role="user",
+                    role=MessageRole.USER,
                     content=skill_content,
                     originator=f"skill:{manifest.name}",
                 )
@@ -2048,10 +1998,8 @@ class ActiveContextAgent:
         if (
             self._batch_enabled
             and update.kind != UpdateKind.RESPONSE_CHUNK
-            and session_id in self._chunk_buffers
+            and self._nagle.has_buffered(session_id)
         ):
-            if session_id in self._flush_tasks:
-                self._flush_tasks[session_id].cancel()
             await self._flush_chunks(session_id)
 
         match update.kind:

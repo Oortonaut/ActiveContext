@@ -56,14 +56,13 @@ def is_pty_supported() -> bool:
         except ImportError:
             return False
 
-    # Windows 10+ has ConPTY, but requires special setup
+    # Windows: requires pywinpty (ConPTY wrapper)
     if sys.platform == "win32":
-        # Check for Windows 10 version 1809 or later
         try:
-            version = sys.getwindowsversion()  # type: ignore[attr-defined]
-            # ConPTY requires Windows 10 build 17763+
-            return version.major >= 10 and version.build >= 17763
-        except Exception:
+            from winpty import PtyProcess  # noqa: F401
+
+            return True
+        except ImportError:
             return False
 
     return False

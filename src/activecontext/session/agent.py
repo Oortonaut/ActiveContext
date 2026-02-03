@@ -13,7 +13,7 @@ import time
 from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, Any
 
-from activecontext.context.nodes import MessageNode
+from activecontext.context.nodes import MessageNode, MessageRole
 from activecontext.logging import get_logger
 from activecontext.session.protocols import (
     SessionUpdate,
@@ -218,7 +218,7 @@ class Agent(Script):
 
         # Create MessageNode
         msg_node = MessageNode(
-            role=message.role.value,  # Convert Role enum to string
+            role=MessageRole(message.role.value),  # Convert LLM Role enum to MessageRole
             content=message.content,
             originator=message.originator,
         )

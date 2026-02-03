@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from activecontext.agents.manager import AgentManager
-from activecontext.agents.schema import AgentState
+from activecontext.agents.schema import AgentState, MessageStatus
 from activecontext.coordination.scratchpad import ScratchpadManager
 from activecontext.session.session_manager import SessionManager
 
@@ -279,7 +279,7 @@ class TestAgentMessagePassing:
         assert msg_id is not None
 
         # Recipient should have pending message
-        messages = agent_manager.get_messages(recipient.agent_id, status="pending")
+        messages = agent_manager.get_messages(recipient.agent_id, status=MessageStatus.PENDING)
         assert len(messages) == 1
         assert messages[0].sender == sender.agent_id
         assert messages[0].content == "Test message"
@@ -323,9 +323,9 @@ class TestAgentMessagePassing:
         agent_manager.mark_message_delivered(msg_id)
 
         # Check status changed
-        messages = agent_manager.get_messages(recipient.agent_id, status="delivered")
+        messages = agent_manager.get_messages(recipient.agent_id, status=MessageStatus.DELIVERED)
         assert len(messages) == 1
-        assert messages[0].status == "delivered"
+        assert messages[0].status == MessageStatus.DELIVERED
 
     @pytest.mark.asyncio
     async def test_mark_message_read(self, real_managers):
@@ -345,9 +345,9 @@ class TestAgentMessagePassing:
         agent_manager.mark_message_read(msg_id)
 
         # Check status changed
-        messages = agent_manager.get_messages(recipient.agent_id, status="read")
+        messages = agent_manager.get_messages(recipient.agent_id, status=MessageStatus.READ)
         assert len(messages) == 1
-        assert messages[0].status == "read"
+        assert messages[0].status == MessageStatus.READ
 
     @pytest.mark.asyncio
     async def test_has_pending_messages(self, real_managers):

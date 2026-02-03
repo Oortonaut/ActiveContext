@@ -1,5 +1,4 @@
 @startuml ACP_Architecture
-!theme plain
 skinparam backgroundColor #FEFEFE
 
 title Agent Client Protocol - Architecture Overview

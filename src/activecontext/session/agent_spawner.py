@@ -9,6 +9,8 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING, Any
 
+from activecontext.agents.schema import MessageStatus
+
 if TYPE_CHECKING:
     from activecontext.agents.handle import AgentHandle
     from activecontext.agents.manager import AgentManager
@@ -249,7 +251,7 @@ class AgentSpawner:
         if not self._agent_id:
             return []
 
-        messages = self._agent_manager.get_messages(self._agent_id, status="pending")
+        messages = self._agent_manager.get_messages(self._agent_id, status=MessageStatus.PENDING)
 
         # Mark as read and convert to dicts
         result: list[dict[str, Any]] = []

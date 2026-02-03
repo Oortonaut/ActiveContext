@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from .state import Expansion
+    from .state import Expansion, NotificationLevel
 
 # Overhead tokens for the token counts display itself.
 # The "(tokens: NNN / NN+NN+NN of NNN)" string occupies tokens in the header.
@@ -100,7 +100,7 @@ def render_header(
     name: str,
     state: Expansion,
     token_info: TokenInfo,
-    notification_level: str | None = None,
+    notification_level: NotificationLevel | None = None,
     *,
     index_tokens: int = 0,
     all_tokens: int | None = None,
@@ -113,7 +113,7 @@ def render_header(
         name: Human-readable name like "main.py:1-50" or "### Running Commands"
         state: Current rendering state
         token_info: Token breakdown for the node's own content
-        notification_level: Optional notification level (ignore/hold/wake)
+        notification_level: Optional notification level (IGNORE/HOLD/WAKE)
         index_tokens: Sum of children's header tokens (from node.index_tokens)
         all_tokens: Total recursive tokens (from node.all_tokens), overrides computed
         line_range: Optional line range caption (e.g. "(lines 77-84)")
@@ -125,6 +125,8 @@ def render_header(
         "main.py:1-50 | {#text_1} all (tokens: 340 / 18+74+120 of 340)\\n"
         "### Running Commands (lines 77-84) | {#text_8} all (tokens: 111 / 21+90 of 111)\\n"
     """
+    from .state import NotificationLevel
+
     # Compute header and content from TokenInfo (node's own breakdown)
     header_toks = token_info.collapsed + TOKEN_COUNTS_OVERHEAD
     content_toks = token_info.summary + token_info.detail
@@ -142,8 +144,8 @@ def render_header(
 
     # Build brief: "summary wake" or just "summary" if notification is ignore/None
     brief = state.value
-    if notification_level and notification_level != "ignore":
-        brief = f"{brief} {notification_level}"
+    if notification_level and notification_level != NotificationLevel.IGNORE:
+        brief = f"{brief} {notification_level.value}"
 
     parts: list[str] = []
     parts.append(name)

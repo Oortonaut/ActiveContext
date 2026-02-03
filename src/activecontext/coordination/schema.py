@@ -6,6 +6,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
+from activecontext.context.state import WorkStatus
+
 if TYPE_CHECKING:
     from activecontext.agents.schema import AgentEntry, AgentMessage
 
@@ -32,7 +34,7 @@ class WorkEntry:
     id: str  # Agent ID (8-char UUID prefix)
     session_id: str
     intent: str
-    status: str = "active"  # active, paused, done
+    status: WorkStatus = WorkStatus.ACTIVE
     files: list[FileAccess] = field(default_factory=list)
     dependencies: list[str] = field(default_factory=list)
     started_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
@@ -44,7 +46,7 @@ class WorkEntry:
             "id": self.id,
             "session_id": self.session_id,
             "intent": self.intent,
-            "status": self.status,
+            "status": self.status.value,
             "files": [f.to_dict() for f in self.files],
             "dependencies": self.dependencies,
             "started_at": self.started_at.isoformat(),
@@ -58,7 +60,7 @@ class WorkEntry:
             id=data["id"],
             session_id=data["session_id"],
             intent=data["intent"],
-            status=data.get("status", "active"),
+            status=WorkStatus(data.get("status", "active")),
             files=[FileAccess.from_dict(f) for f in data.get("files", [])],
             dependencies=data.get("dependencies", []),
             started_at=datetime.fromisoformat(data["started_at"]),

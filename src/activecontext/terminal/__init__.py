@@ -34,6 +34,12 @@ from activecontext.terminal.hooks import (
     log_result_hook,
 )
 from activecontext.terminal.protocol import TerminalExecutor
+from activecontext.terminal.pty_backend import (
+    PtyBackend,
+    UnixPtyBackend,
+    WinPtyBackend,
+    create_pty_backend,
+)
 from activecontext.terminal.pty_support import (
     PTYConfig,
     execute_with_pty,
@@ -68,10 +74,15 @@ __all__ = [
     "get_hook_manager",
     "log_command_hook",
     "log_result_hook",
-    # PTY support
+    # PTY support (legacy one-shot)
     "PTYConfig",
     "is_pty_supported",
     "execute_with_pty",
+    # PTY backend (long-lived interactive)
+    "PtyBackend",
+    "UnixPtyBackend",
+    "WinPtyBackend",
+    "create_pty_backend",
 ]
 
 # ACPTerminalExecutor is imported separately to avoid requiring 'acp' package

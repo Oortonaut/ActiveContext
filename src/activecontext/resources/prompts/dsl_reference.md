@@ -387,6 +387,80 @@ s.output         # stdout/stderr
 s.full_command   # Command with args as string
 ```
 
+## Interactive PTY Sessions
+
+### `pty(command, args=None, cwd=None, env=None, columns=80, rows=24, *, expansion=Expansion.CONTENT)`
+Spawn an interactive PTY (pseudo-terminal) session. Returns a PtyNode.
+
+Use this for interactive CLI programs that need a real terminal: debuggers, REPLs,
+SSH sessions, or any program that expects a TTY.
+
+```python
+p = pty("gdb", args=["./a.out"])
+p = pty("python", args=["-i"])
+p = pty("ssh", args=["host"])
+p = pty("python", args=["-i"], columns=120, rows=40)
+
+# Check status
+p.pty_status     # PtyStatus: PENDING, RUNNING, EXITED, KILLED, ERROR
+p.is_complete    # True when EXITED, KILLED, or ERROR
+p.exit_code      # Exit code (None until exited)
+p.full_command   # Command with args as string
+p.input_history  # List of text sent via pty_send()
+```
+
+Output is Nagle-batched (50ms or 200 chars) and applied at tick boundaries,
+so the agent sees coherent output chunks rather than individual characters.
+
+### `pty_send(node, text)`
+Write text to a running PTY's stdin.
+
+```python
+pty_send(p, "break main\n")
+pty_send(p, "run\n")
+pty_send(p, "print(x)\n")
+
+# Also accepts a node_id string
+pty_send("pty_1", "quit\n")
+```
+
+Returns `True` if written, `False` if the PTY is not alive.
+
+### `pty_close(node)`
+Terminate a PTY session and mark the node as complete.
+
+```python
+pty_close(p)
+pty_close("pty_1")  # By node ID
+```
+
+### `wait_for_output(node, pattern, *, timeout=30.0, wake_prompt=..., timeout_prompt=...)`
+Wait until the PTY's recent output contains a substring match for *pattern*.
+Ends the current turn. Ticks continue processing PTY output while waiting.
+
+```python
+p = pty("gdb", args=["./a.out"])
+pty_send(p, "break main\n")
+pty_send(p, "run\n")
+wait_for_output(p, "(gdb) ", timeout=10)
+# Agent wakes when "(gdb) " appears in scrollback
+# Then can inspect output and send next command
+```
+
+**Example: Interactive debugging session**
+```python
+p = pty("gdb", args=["./a.out"])
+wait_for_output(p, "(gdb) ", timeout=10)
+# Wake: send commands
+pty_send(p, "break main\nrun\n")
+wait_for_output(p, "(gdb) ", timeout=10)
+# Wake: inspect state
+pty_send(p, "print x\n")
+wait_for_output(p, "(gdb) ", timeout=5)
+# Done debugging
+pty_close(p)
+```
+
 ## HTTP Requests
 
 ### `fetch(url, *, method="GET", headers=None, data=None, json=None, timeout=30.0)`
@@ -785,6 +859,12 @@ Note: Use `<view>` tag for both text and markdown files. The `<text>` and `<mark
 ```xml
 <shell command="pytest" args="tests/,-v" timeout="60"/>
 <shell command="git" args="status,--short"/>
+```
+
+### PTY Sessions
+
+```xml
+<pty name="p" command="gdb" args="./a.out"/>
 ```
 
 ### DAG Manipulation

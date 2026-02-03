@@ -116,8 +116,8 @@ class TestNagleBatching:
         await agent._buffer_chunk("session1", " ")
         await agent._buffer_chunk("session1", "world")
 
-        # Should be accumulated
-        assert agent._chunk_buffers["session1"] == "Hello world"
+        # Should be accumulated in the NagleBuffer
+        assert agent._nagle._buffers["session1"] == "Hello world"
 
     @pytest.mark.asyncio
     @patch("activecontext.transport.acp.agent.get_default_model", return_value=None)
@@ -129,13 +129,13 @@ class TestNagleBatching:
         agent = ActiveContextAgent()
         agent._conn = Mock()
         agent._conn.session_update = AsyncMock()
-        agent._flush_threshold = 10  # Small threshold for testing
+        agent._nagle.flush_threshold = 10  # Small threshold for testing
 
         # Send text that exceeds threshold
         await agent._buffer_chunk("session1", "x" * 15)
 
         # Should have flushed immediately
-        assert "session1" not in agent._chunk_buffers
+        assert not agent._nagle.has_buffered("session1")
         agent._conn.session_update.assert_called_once()
 
     @pytest.mark.asyncio
@@ -148,19 +148,19 @@ class TestNagleBatching:
         agent = ActiveContextAgent()
         agent._conn = Mock()
         agent._conn.session_update = AsyncMock()
-        agent._flush_interval = 0.01  # 10ms for testing
+        agent._nagle.flush_interval = 0.01  # 10ms for testing
 
         # Buffer small chunk
         await agent._buffer_chunk("session1", "Short")
 
         # Should be buffered, not flushed yet
-        assert "session1" in agent._chunk_buffers
+        assert agent._nagle.has_buffered("session1")
 
         # Wait for flush interval
         await asyncio.sleep(0.02)
 
         # Should have flushed
-        assert "session1" not in agent._chunk_buffers
+        assert not agent._nagle.has_buffered("session1")
 
     @pytest.mark.asyncio
     @patch("activecontext.transport.acp.agent.get_default_model", return_value=None)
@@ -173,12 +173,12 @@ class TestNagleBatching:
         agent = ActiveContextAgent()
         agent._conn = Mock()
         agent._conn.session_update = AsyncMock()
-        agent._chunk_buffers["session1"] = "Test text"
+        agent._nagle._buffers["session1"] = "Test text"
 
         await agent._flush_chunks("session1")
 
         # Should have cleared buffer
-        assert "session1" not in agent._chunk_buffers
+        assert not agent._nagle.has_buffered("session1")
 
         # Should have sent update
         agent._conn.session_update.assert_called_once()
@@ -729,28 +729,13 @@ class TestAgentChunkBuffering:
         return_value="claude-sonnet-4-20250514",
     )
     @patch("activecontext.transport.acp.agent.SessionManager")
-    def test_chunk_buffer_initialized(self, mock_sm, mock_model):
-        """Test chunk buffer is initialized as empty dict."""
+    def test_nagle_buffer_initialized(self, mock_sm, mock_model):
+        """Test NagleBuffer is initialized with no pending data."""
         from activecontext.transport.acp.agent import ActiveContextAgent
 
         agent = ActiveContextAgent()
 
-        assert isinstance(agent._chunk_buffers, dict)
-        assert len(agent._chunk_buffers) == 0
-
-    @patch(
-        "activecontext.transport.acp.agent.get_default_model",
-        return_value="claude-sonnet-4-20250514",
-    )
-    @patch("activecontext.transport.acp.agent.SessionManager")
-    def test_flush_tasks_initialized(self, mock_sm, mock_model):
-        """Test flush tasks dict is initialized."""
-        from activecontext.transport.acp.agent import ActiveContextAgent
-
-        agent = ActiveContextAgent()
-
-        assert isinstance(agent._flush_tasks, dict)
-        assert len(agent._flush_tasks) == 0
+        assert len(agent._nagle.buffered_keys) == 0
 
     @patch(
         "activecontext.transport.acp.agent.get_default_model",

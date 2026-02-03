@@ -12,6 +12,8 @@ from typing import TYPE_CHECKING, Any
 import yaml
 from filelock import FileLock
 
+from activecontext.agents.schema import MessageStatus
+from activecontext.context.state import WorkStatus
 from activecontext.coordination.schema import (
     Conflict,
     FileAccess,
@@ -106,7 +108,7 @@ class ScratchpadManager:
             id=self._agent_id,
             session_id=session_id,
             intent=intent,
-            status="active",
+            status=WorkStatus.ACTIVE,
             files=files or [],
             dependencies=dependencies or [],
             started_at=now,
@@ -132,7 +134,7 @@ class ScratchpadManager:
         intent: str | None = None,
         files: list[FileAccess] | None = None,
         dependencies: list[str] | None = None,
-        status: str | None = None,
+        status: WorkStatus | None = None,
     ) -> WorkEntry | None:
         """Update this agent's entry.
 
@@ -140,7 +142,7 @@ class ScratchpadManager:
             intent: New intent description
             files: New file list
             dependencies: New dependencies
-            status: New status (active/paused/done)
+            status: New status (ACTIVE/PAUSED/DONE)
 
         Returns:
             The updated entry, or None if not registered
@@ -229,7 +231,7 @@ class ScratchpadManager:
 
         for entry in scratchpad.entries:
             # Skip self and inactive entries
-            if entry.id == self._agent_id or entry.status != "active":
+            if entry.id == self._agent_id or entry.status != WorkStatus.ACTIVE:
                 continue
             for file_access in entry.files:
                 normalized = Path(file_access.path).as_posix()
@@ -478,7 +480,7 @@ class ScratchpadManager:
         Returns:
             The created message
         """
-        from activecontext.agents.schema import AgentMessage
+        from activecontext.agents.schema import AgentMessage, MessageStatus
 
         now = datetime.now(timezone.utc)
         message = AgentMessage(
@@ -488,7 +490,7 @@ class ScratchpadManager:
             content=content,
             node_refs=node_refs or [],
             created_at=now,
-            status="pending",
+            status=MessageStatus.PENDING,
             reply_to=reply_to,
             metadata=metadata or {},
         )
@@ -503,7 +505,7 @@ class ScratchpadManager:
     def get_messages(
         self,
         recipient: str,
-        status: str | None = "pending",
+        status: MessageStatus | None = MessageStatus.PENDING,
     ) -> list[AgentMessage]:
         """Get messages for an agent.
 
@@ -520,12 +522,12 @@ class ScratchpadManager:
             messages = [m for m in messages if m.status == status]
         return messages
 
-    def mark_message_status(self, message_id: str, status: str) -> None:
+    def mark_message_status(self, message_id: str, status: MessageStatus) -> None:
         """Update a message's status.
 
         Args:
             message_id: Message ID
-            status: New status (pending, delivered, read)
+            status: New status (PENDING, DELIVERED, READ)
         """
         now = datetime.now(timezone.utc)
 
@@ -533,7 +535,8 @@ class ScratchpadManager:
             for message in scratchpad.messages:
                 if message.id == message_id:
                     message.status = status
-                    if status in ("delivered", "read") and message.delivered_at is None:
+                    delivered_or_read = status in (MessageStatus.DELIVERED, MessageStatus.READ)
+                    if delivered_or_read and message.delivered_at is None:
                         message.delivered_at = now
                     break
             return scratchpad

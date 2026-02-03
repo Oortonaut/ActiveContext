@@ -1469,7 +1469,7 @@ class Session:
         updates: list[SessionUpdate] = []
         timestamp = time.time()
 
-        # 1. Process pending shell results from background tasks
+        # 1a. Process pending shell results from background tasks
         # This applies async results and triggers node change notifications
         updated_shell_nodes = self._timeline.process_pending_shell_results()
         for node_id in updated_shell_nodes:
@@ -1483,6 +1483,25 @@ class Session:
                             "node_id": node_id,
                             "node_type": node.node_type,
                             "change": "shell_completed",
+                            "digest": node.GetDigest(),
+                        },
+                        timestamp=timestamp,
+                    )
+                )
+
+        # 1b. Process pending PTY output from background read loops
+        updated_pty_nodes = self._timeline.process_pending_pty_output()
+        for node_id in updated_pty_nodes:
+            node = self._timeline.context_graph.get_node(node_id)
+            if node:
+                updates.append(
+                    SessionUpdate(
+                        kind=UpdateKind.NODE_CHANGED,
+                        session_id=self._session_id,
+                        payload={
+                            "node_id": node_id,
+                            "node_type": node.node_type,
+                            "change": "pty_output",
                             "digest": node.GetDigest(),
                         },
                         timestamp=timestamp,

@@ -64,6 +64,80 @@ class NotificationLevel(Enum):
         return self.value
 
 
+class TickMode(Enum):
+    """Tick frequency mode for node recomputation.
+
+    Modes:
+    - TURN: Execute every turn (replaces "Sync")
+    - ASYNC: Async execution
+    - NEVER: No execution
+    - PERIODIC: Execute at intervals
+    """
+
+    TURN = "turn"
+    ASYNC = "async"
+    NEVER = "never"
+    PERIODIC = "periodic"
+
+    def __str__(self) -> str:
+        return self.value
+
+
+class WorkStatus(Enum):
+    """Status of a work coordination entry.
+
+    Statuses:
+    - ACTIVE: Currently being worked on
+    - PAUSED: Temporarily paused
+    - DONE: Work completed
+    """
+
+    ACTIVE = "active"
+    PAUSED = "paused"
+    DONE = "done"
+
+    def __str__(self) -> str:
+        return self.value
+
+
+class TaskStatus(Enum):
+    """Status of a task in the session.
+
+    Statuses:
+    - PENDING: Created but not started
+    - RUNNING: Currently executing
+    - PAUSED: Temporarily stopped
+    - DONE: Completed successfully
+    - FAILED: Completed with error
+    """
+
+    PENDING = "pending"
+    RUNNING = "running"
+    PAUSED = "paused"
+    DONE = "done"
+    FAILED = "failed"
+
+    def __str__(self) -> str:
+        return self.value
+
+
+class IOMode(Enum):
+    """I/O mode for tasks.
+
+    Modes:
+    - SYNC: Request/Response (blocking)
+    - ASYNC: Message queue (non-blocking)
+    - STREAMING: Stream/Events
+    """
+
+    SYNC = "sync"
+    ASYNC = "async"
+    STREAMING = "streaming"
+
+    def __str__(self) -> str:
+        return self.value
+
+
 @dataclass(slots=True)
 class Notification:
     """A notification about a node change.
@@ -76,7 +150,7 @@ class Notification:
         node_id: Source node that changed
         trace_id: Unique ID for deduplication (node_id:version)
         header: Brief description (e.g., "text_3: (-5/+12 lines at 100)")
-        level: NotificationLevel value ("hold" or "wake")
+        level: Notification level (HOLD or WAKE)
         originator: Who/what caused the change (node ID, filename, or arbitrary string)
         timestamp: When the notification was generated
     """
@@ -84,7 +158,7 @@ class Notification:
     node_id: str
     trace_id: str
     header: str
-    level: str  # "hold" or "wake" - string to avoid issues with enum serialization
+    level: NotificationLevel
     originator: str | None = None
     timestamp: float = field(default_factory=time.time)
 
@@ -94,33 +168,33 @@ class TickFrequency:
     """Tick frequency specification for node recomputation.
 
     Modes:
-    - turn: Execute every turn (replaces "Sync")
-    - async: Async execution
-    - never: No execution
-    - periodic: Execute at intervals
+    - TURN: Execute every turn (replaces "Sync")
+    - ASYNC: Async execution
+    - NEVER: No execution
+    - PERIODIC: Execute at intervals
 
     Attributes:
         mode: Execution mode
         interval: Interval in seconds (for periodic mode)
     """
 
-    mode: str  # "turn", "async", "never", "periodic"
+    mode: TickMode
     interval: float | None = None  # For periodic mode
 
     @staticmethod
     def turn() -> TickFrequency:
         """Execute every turn (replaces "Sync")."""
-        return TickFrequency(mode="turn")
+        return TickFrequency(mode=TickMode.TURN)
 
     @staticmethod
     def async_() -> TickFrequency:
         """Async execution."""
-        return TickFrequency(mode="async")
+        return TickFrequency(mode=TickMode.ASYNC)
 
     @staticmethod
     def never() -> TickFrequency:
         """No execution."""
-        return TickFrequency(mode="never")
+        return TickFrequency(mode=TickMode.NEVER)
 
     @staticmethod
     def period(seconds: float) -> TickFrequency:
@@ -129,7 +203,7 @@ class TickFrequency:
         Args:
             seconds: Interval in seconds
         """
-        return TickFrequency(mode="periodic", interval=seconds)
+        return TickFrequency(mode=TickMode.PERIODIC, interval=seconds)
 
     @staticmethod
     def from_string(s: str) -> TickFrequency:
@@ -188,13 +262,13 @@ class TickFrequency:
         Returns:
             String format suitable for parsing with from_string()
         """
-        if self.mode == "turn":
+        if self.mode == TickMode.TURN:
             return "turn"
-        elif self.mode == "async":
+        elif self.mode == TickMode.ASYNC:
             return "async"
-        elif self.mode == "never":
+        elif self.mode == TickMode.NEVER:
             return "never"
-        elif self.mode == "periodic":
+        elif self.mode == TickMode.PERIODIC:
             if self.interval is None:
                 raise ValueError("Periodic mode requires interval")
             return f"period:{self.interval}"
@@ -206,7 +280,7 @@ class TickFrequency:
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to dict for YAML persistence."""
-        result: dict[str, Any] = {"mode": self.mode}
+        result: dict[str, Any] = {"mode": self.mode.value}
         if self.interval is not None:
             result["interval"] = self.interval
         return result
@@ -215,6 +289,6 @@ class TickFrequency:
     def from_dict(data: dict[str, Any]) -> TickFrequency:
         """Deserialize from dict."""
         return TickFrequency(
-            mode=data["mode"],
+            mode=TickMode(data["mode"]),
             interval=data.get("interval"),
         )

@@ -888,7 +888,9 @@ class TestACPSlashCommands:
             # Verify MessageNode was created with correct properties
             call_args = mock_session.add_node.call_args
             node = call_args[0][0]
-            assert node.role == "user"
+            from activecontext.context.nodes import MessageRole
+
+            assert node.role == MessageRole.USER
             assert "test-skill" in node.content
             assert node.originator == "skill:test-skill"
 
@@ -1168,11 +1170,11 @@ class TestACPCancel:
         agent = _make_agent()
         mock_session = _make_mock_session()
         agent._manager.get_session = AsyncMock(return_value=mock_session)
-        agent._chunk_buffers["s1"] = "pending text"
+        agent._nagle._buffers["s1"] = "pending text"
 
         await agent.cancel(session_id="s1")
 
-        assert "s1" not in agent._chunk_buffers
+        assert not agent._nagle.has_buffered("s1")
 
     @pytest.mark.asyncio
     async def test_cancel_keeps_session_in_closed_set(self):
@@ -1701,17 +1703,17 @@ class TestACPSendSessionUpdate:
 
 
 class TestACPNagleBatching:
-    """Test Nagle-style chunk buffering internals."""
+    """Test Nagle-style chunk buffering via NagleBuffer delegation."""
 
     @pytest.mark.asyncio
     async def test_buffer_discards_for_closed_session(self):
         """_buffer_chunk discards text when session is closed."""
         agent = _make_agent()
-        agent._closed_sessions.add("s1")
+        await agent._nagle.close("s1")
 
         await agent._buffer_chunk("s1", "should be dropped")
 
-        assert "s1" not in agent._chunk_buffers
+        assert not agent._nagle.has_buffered("s1")
 
     @pytest.mark.asyncio
     async def test_flush_clears_buffer(self):
@@ -1719,11 +1721,11 @@ class TestACPNagleBatching:
         agent = _make_agent()
         conn = _make_mock_conn()
         agent._conn = conn
-        agent._chunk_buffers["s1"] = "accumulated"
+        agent._nagle._buffers["s1"] = "accumulated"
 
         await agent._flush_chunks("s1")
 
-        assert "s1" not in agent._chunk_buffers
+        assert not agent._nagle.has_buffered("s1")
         conn.session_update.assert_called_once()
 
     @pytest.mark.asyncio
@@ -1732,8 +1734,8 @@ class TestACPNagleBatching:
         agent = _make_agent()
         conn = _make_mock_conn()
         agent._conn = conn
-        agent._chunk_buffers["s1"] = "text"
-        agent._closed_sessions.add("s1")
+        agent._nagle._buffers["s1"] = "text"
+        await agent._nagle.close("s1")
 
         await agent._flush_chunks("s1")
 
@@ -1752,62 +1754,56 @@ class TestACPNagleBatching:
 
     @pytest.mark.asyncio
     async def test_cleanup_session_buffers(self):
-        """_cleanup_session_buffers removes buffer and cancels flush task."""
+        """_cleanup_session_buffers closes the key in NagleBuffer."""
         agent = _make_agent()
-        agent._chunk_buffers["s1"] = "leftover"
-        mock_task = MagicMock()
-        mock_task.done.return_value = False
-        mock_task.cancel = MagicMock()
-        agent._flush_tasks["s1"] = mock_task
+        agent._nagle._buffers["s1"] = "leftover"
 
         await agent._cleanup_session_buffers("s1")
 
-        assert "s1" not in agent._chunk_buffers
-        assert "s1" not in agent._flush_tasks
-        mock_task.cancel.assert_called_once()
+        assert not agent._nagle.has_buffered("s1")
 
     @pytest.mark.asyncio
     async def test_delayed_flush_sleeps_then_flushes(self):
-        """_delayed_flush waits for interval then flushes."""
+        """NagleBuffer timer flush works end-to-end."""
         agent = _make_agent()
-        agent._flush_interval = 0.01
+        agent._nagle.flush_interval = 0.01
         conn = _make_mock_conn()
         agent._conn = conn
-        agent._chunk_buffers["s1"] = "delayed text"
+        agent._nagle._buffers["s1"] = "delayed text"
 
-        await agent._delayed_flush("s1")
+        await agent._nagle._delayed_flush("s1")
 
-        assert "s1" not in agent._chunk_buffers
+        assert not agent._nagle.has_buffered("s1")
 
     @pytest.mark.asyncio
     async def test_buffer_threshold_triggers_immediate_flush(self):
         """_buffer_chunk flushes immediately when threshold is exceeded."""
         agent = _make_agent()
-        agent._flush_threshold = 5
+        agent._nagle.flush_threshold = 5
         conn = _make_mock_conn()
         agent._conn = conn
 
         await agent._buffer_chunk("s1", "abcdef")  # 6 chars > threshold of 5
 
-        assert "s1" not in agent._chunk_buffers
+        assert not agent._nagle.has_buffered("s1")
         conn.session_update.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_buffer_schedules_delayed_flush(self):
         """_buffer_chunk schedules a delayed flush for small chunks."""
         agent = _make_agent()
-        agent._flush_threshold = 100
-        agent._flush_interval = 10  # Very long so it won't fire during test
+        agent._nagle.flush_threshold = 100
+        agent._nagle.flush_interval = 10  # Very long so it won't fire during test
         conn = _make_mock_conn()
         agent._conn = conn
 
         await agent._buffer_chunk("s1", "short")
 
-        assert "s1" in agent._chunk_buffers
-        assert "s1" in agent._flush_tasks
+        assert agent._nagle.has_buffered("s1")
+        assert agent._nagle.has_pending_flush("s1")
 
         # Clean up
-        agent._flush_tasks["s1"].cancel()
+        await agent._nagle.close("s1")
 
 
 # ============================================================================
@@ -2190,11 +2186,9 @@ class TestACPEmitUpdateInternal:
             await agent._emit_update_internal("s1", update)
 
         # Should be buffered, not sent directly
-        assert "s1" in agent._chunk_buffers or conn.session_update.called
+        assert agent._nagle.has_buffered("s1") or conn.session_update.called
         # Clean up any scheduled flush
-        task = agent._flush_tasks.get("s1")
-        if task:
-            task.cancel()
+        await agent._nagle.close("s1")
 
     @pytest.mark.asyncio
     async def test_response_chunk_unbuffered(self):
@@ -2282,7 +2276,7 @@ class TestACPEmitUpdateInternal:
         agent._batch_enabled = True
         conn = _make_mock_conn()
         agent._conn = conn
-        agent._chunk_buffers["s1"] = "pending text"
+        agent._nagle._buffers["s1"] = "pending text"
 
         update = MagicMock()
         update.kind = UpdateKind.STATEMENT_EXECUTING
@@ -2294,7 +2288,7 @@ class TestACPEmitUpdateInternal:
 
         # Buffer should have been flushed (2 calls: flush + statement)
         assert conn.session_update.call_count == 2
-        assert "s1" not in agent._chunk_buffers
+        assert not agent._nagle.has_buffered("s1")
 
     @pytest.mark.asyncio
     async def test_statement_executed_ok_no_stdout(self):
