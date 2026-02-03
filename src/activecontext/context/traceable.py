@@ -219,6 +219,7 @@ _EXCLUDED_FIELDS = frozenset(
         "trace_sink",
         "content_id",
         "display_sequence",
+        "node",
     }
 )
 

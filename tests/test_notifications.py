@@ -57,12 +57,12 @@ class TestNotification:
             node_id="test_node",
             trace_id="test_node:1",
             header="text_1: file changed",
-            level="wake",
+            level=NotificationLevel.WAKE,
         )
         assert notif.node_id == "test_node"
         assert notif.trace_id == "test_node:1"
         assert notif.header == "text_1: file changed"
-        assert notif.level == "wake"
+        assert notif.level == NotificationLevel.WAKE
 
     def test_timestamp_auto_set(self) -> None:
         """Test that timestamp is automatically set."""
@@ -71,7 +71,7 @@ class TestNotification:
             node_id="test",
             trace_id="test:1",
             header="test",
-            level="hold",
+            level=NotificationLevel.HOLD,
         )
         after = time.time()
         assert before <= notif.timestamp <= after

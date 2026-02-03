@@ -37,7 +37,7 @@ def mock_graph_with_steps():
     # Create parent node (group for sequence)
     parent = create_mock_context_node("parent", "group")
     parent.title = "Workflow"
-    parent.expansion = Expansion.ALL
+    parent.default_expansion = Expansion.ALL
     parent.children_ids = {"step-1", "step-2", "step-3"}
     parent.child_order = ["step-1", "step-2", "step-3"]
     parent.Render = Mock(return_value="# Workflow")
@@ -46,19 +46,19 @@ def mock_graph_with_steps():
     step1 = create_mock_context_node("step-1", "text")
     step1.title = "Understand"
     step1.parent_ids = {"parent"}
-    step1.expansion = Expansion.ALL
+    step1.default_expansion = Expansion.ALL
     step1.Render = Mock(return_value="Read and understand the code...")
 
     step2 = create_mock_context_node("step-2", "text")
     step2.title = "Analyze"
     step2.parent_ids = {"parent"}
-    step2.expansion = Expansion.ALL
+    step2.default_expansion = Expansion.ALL
     step2.Render = Mock(return_value="Identify issues...")
 
     step3 = create_mock_context_node("step-3", "text")
     step3.title = "Suggest"
     step3.parent_ids = {"parent"}
-    step3.expansion = Expansion.ALL
+    step3.default_expansion = Expansion.ALL
     step3.Render = Mock(return_value="Propose improvements...")
 
     # Add to graph
@@ -82,7 +82,7 @@ def mock_graph_with_loop_child():
 
     child = create_mock_context_node("review", "text")
     child.title = "Review"
-    child.expansion = Expansion.ALL
+    child.default_expansion = Expansion.ALL
     child.Render = Mock(return_value="Review content based on feedback...")
 
     graph.add_node(child)
@@ -97,7 +97,7 @@ def mock_graph_with_states():
     # Create parent node (group for state machine)
     parent = create_mock_context_node("parent", "group")
     parent.title = "Task"
-    parent.expansion = Expansion.ALL
+    parent.default_expansion = Expansion.ALL
     parent.children_ids = {"idle", "working", "done"}
     parent.child_order = ["idle", "working", "done"]
     parent.Render = Mock(return_value="# Task")
@@ -106,19 +106,19 @@ def mock_graph_with_states():
     idle = create_mock_context_node("idle", "text")
     idle.title = "Idle"
     idle.parent_ids = {"parent"}
-    idle.expansion = Expansion.ALL
+    idle.default_expansion = Expansion.ALL
     idle.Render = Mock(return_value="Waiting for work...")
 
     working = create_mock_context_node("working", "text")
     working.title = "Working"
     working.parent_ids = {"parent"}
-    working.expansion = Expansion.ALL
+    working.default_expansion = Expansion.ALL
     working.Render = Mock(return_value="In progress...")
 
     done = create_mock_context_node("done", "text")
     done.title = "Done"
     done.parent_ids = {"parent"}
-    done.expansion = Expansion.ALL
+    done.default_expansion = Expansion.ALL
     done.Render = Mock(return_value="Complete!")
 
     # Add to graph
@@ -770,7 +770,7 @@ class TestSequenceViewApplySelection:
     def test_apply_selection_hides_non_current(self, mock_graph_with_steps):
         """Test that non-current steps are hidden."""
         parent = mock_graph_with_steps.get_node("parent")
-        seq = SequenceView(parent, expand=Expansion.ALL)
+        seq = SequenceView(parent, expansion=Expansion.ALL)
 
         views = {
             "parent": seq,
@@ -781,14 +781,14 @@ class TestSequenceViewApplySelection:
 
         seq.apply_selection(views)
 
-        assert views["step-1"].hide is False  # Current
-        assert views["step-2"].hide is True
-        assert views["step-3"].hide is True
+        assert views["step-1"].hidden is False  # Current
+        assert views["step-2"].hidden is True
+        assert views["step-3"].hidden is True
 
     def test_apply_selection_after_advance(self, mock_graph_with_steps):
         """Test selection updates after advancing."""
         parent = mock_graph_with_steps.get_node("parent")
-        seq = SequenceView(parent, expand=Expansion.ALL)
+        seq = SequenceView(parent, expansion=Expansion.ALL)
 
         views = {
             "parent": seq,
@@ -800,9 +800,9 @@ class TestSequenceViewApplySelection:
         seq.advance()
         seq.apply_selection(views)
 
-        assert views["step-1"].hide is True
-        assert views["step-2"].hide is False  # Now current
-        assert views["step-3"].hide is True
+        assert views["step-1"].hidden is True
+        assert views["step-2"].hidden is False  # Now current
+        assert views["step-3"].hidden is True
 
 
 # =============================================================================
@@ -816,13 +816,13 @@ class TestProjectionEngineIntegration:
     def test_sequence_view_in_projection(self, mock_graph_with_steps, projection_engine):
         """Test that SequenceView filtering works through projection engine."""
         parent = mock_graph_with_steps.get_node("parent")
-        seq = SequenceView(parent, expand=Expansion.ALL)
+        seq = SequenceView(parent, expansion=Expansion.ALL)
 
         views = {
             "parent": seq,
-            "step-1": NodeView(mock_graph_with_steps.get_node("step-1"), expand=Expansion.ALL),
-            "step-2": NodeView(mock_graph_with_steps.get_node("step-2"), expand=Expansion.ALL),
-            "step-3": NodeView(mock_graph_with_steps.get_node("step-3"), expand=Expansion.ALL),
+            "step-1": NodeView(mock_graph_with_steps.get_node("step-1"), expansion=Expansion.ALL),
+            "step-2": NodeView(mock_graph_with_steps.get_node("step-2"), expansion=Expansion.ALL),
+            "step-3": NodeView(mock_graph_with_steps.get_node("step-3"), expansion=Expansion.ALL),
         }
 
         projection = projection_engine.build(
@@ -898,15 +898,15 @@ class TestViewFromDict:
     def test_view_from_dict_node_view(self, mock_graph_with_steps):
         """Test restoring NodeView from dict."""
         node = mock_graph_with_steps.get_node("step-1")
-        original = NodeView(node, hide=True, expand=Expansion.HEADER)
+        original = NodeView(node, hidden=True, expansion=Expansion.HEADER)
 
         data = original.to_dict()
         restored = view_from_dict(data, node)
 
         assert isinstance(restored, NodeView)
         assert not isinstance(restored, ChoiceView)  # Not a subclass
-        assert restored.hide == original.hide
-        assert restored.expand == original.expand
+        assert restored.hidden == original.hidden
+        assert restored.expansion == original.expansion
 
     def test_view_from_dict_choice_view(self, mock_graph_with_steps):
         """Test restoring ChoiceView from dict."""
@@ -976,9 +976,9 @@ class TestViewFromDict:
     def test_view_from_dict_default_type(self, mock_graph_with_steps):
         """Test view_from_dict defaults to NodeView when type missing."""
         node = mock_graph_with_steps.get_node("step-1")
-        data = {"node_id": "step-1", "hide": True, "expand": "all"}
+        data = {"node_id": "step-1", "hidden": True, "expansion": "all"}
 
         restored = view_from_dict(data, node)
 
         assert isinstance(restored, NodeView)
-        assert restored.hide is True
+        assert restored.hidden is True

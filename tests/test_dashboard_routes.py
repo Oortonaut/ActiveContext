@@ -1165,7 +1165,7 @@ class TestWebSocketEndpoint:
 
         # Configure mock node
         mock_node = MagicMock()
-        mock_node.expansion = Expansion.ALL
+        mock_node.default_expansion = Expansion.ALL
         mock_node.node_type = "text"
         mock_node.GetDigest.return_value = {"id": "node-1", "type": "text"}
 
@@ -1683,7 +1683,7 @@ class TestConnectionManagerIntegration:
 
         # Add a view to the timeline
         mock_view = MagicMock()
-        mock_view.hide = False
+        mock_view.hidden = False
         mocks["session"].timeline.views = {"node-1": mock_view}
 
         with TestClient(app) as client, client.websocket_connect("/ws/session-1") as ws:
@@ -1702,7 +1702,7 @@ class TestConnectionManagerIntegration:
             assert response["type"] == "hidden_changed"
             assert response["node_id"] == "node-1"
             assert response["new_hidden"] is True
-            assert mock_view.hide is True
+            assert mock_view.hidden is True
 
     def test_websocket_list_views(self, app_with_mocks):
         """Test list_views command."""

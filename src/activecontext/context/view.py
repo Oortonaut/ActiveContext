@@ -1,6 +1,6 @@
 """View layer for context nodes.
 
-NodeView provides view-specific state (hide, expand) while delegating
+NodeView provides view-specific state (hidden, expansion) while delegating
 content operations to the underlying ContextNode.
 
 Architecture:
@@ -20,87 +20,54 @@ from activecontext.context.state import Expansion
 
 if TYPE_CHECKING:
     from activecontext.context.nodes import ContextNode
+    from activecontext.context.state import NotificationLevel
 
 
 @trace_all_fields
-@dataclass
+@dataclass(init=False)
 class NodeView:
     """View wrapper for ContextNode with visibility state.
 
-    Separates view concerns (hide, expand) from content concerns (data, ticking).
+    Separates view concerns (hidden, expansion) from content concerns (data, ticking).
     The DSL binds variables to NodeViews, allowing view-specific state
     while forwarding content operations to the underlying node.
 
     Attributes:
-        _node: The underlying ContextNode (content)
-        _hide: Whether this view is hidden from projection
-        _expand: Expansion state for rendering (HEADER, CONTENT, INDEX, ALL)
+        node: The underlying ContextNode (content)
+        hidden: Whether this view is hidden from projection
+        expansion: Expansion state for rendering (HEADER, CONTENT, INDEX, ALL)
     """
 
-    __slots__ = ("_node", "_hide", "_expand")
-
-    _node: ContextNode
-    _hide: bool
-    _expand: Expansion
+    node: ContextNode
+    hidden: bool
+    expansion: Expansion
 
     def __init__(
         self,
         node: ContextNode,
-        hide: bool = False,
-        expand: Expansion | None = None,
+        hidden: bool | None = None,
+        expansion: Expansion | None = None,
     ) -> None:
         """Create a view wrapping a node.
 
         Args:
             node: The ContextNode to wrap
-            hide: Whether the view is hidden (default False)
-            expand: Expansion state (default: uses node.expansion)
+            hidden: Whether the view is hidden (default: node.default_hidden)
+            expansion: Expansion state (default: node.default_expansion)
         """
-        object.__setattr__(self, "_node", node)
-        object.__setattr__(self, "_hide", hide)
-        object.__setattr__(self, "_expand", expand if expand is not None else node.expansion)
-
-    def node(self) -> ContextNode:
-        """Return the underlying ContextNode."""
-        return self._node
-
-    # --- View State Properties ---
-
-    @property
-    def hide(self) -> bool:
-        """Whether this view is hidden from projection."""
-        return self._hide
-
-    @hide.setter
-    def hide(self, value: bool) -> None:
-        """Set hide state."""
-        object.__setattr__(self, "_hide", value)
-
-    @property
-    def expand(self) -> Expansion:
-        """Expansion state for rendering."""
-        return self._expand
-
-    @expand.setter
-    def expand(self, value: Expansion) -> None:
-        """Set expansion state."""
-        object.__setattr__(self, "_expand", value)
-
-    @property
-    def expansion(self) -> Expansion:
-        """Alias for expand."""
-        return self._expand
-
-    @expansion.setter
-    def expansion(self, value: Expansion) -> None:
-        """Set expansion state."""
-        object.__setattr__(self, "_expand", value)
+        object.__setattr__(self, "node", node)
+        object.__setattr__(self, "hidden", hidden if hidden is not None else node.default_hidden)
+        object.__setattr__(
+            self,
+            "expansion",
+            expansion if expansion is not None else node.default_expansion,
+        )
 
     # --- Token Calculations ---
 
     @property
     def visible_tokens(self) -> int:
-        """Tokens visible at current expand level.
+        """Tokens visible at current expansion level.
 
         Maps directly to Expansion enum:
         - HEADER: header_tokens
@@ -109,70 +76,68 @@ class NodeView:
         - ALL: all_tokens (header + content + children recursively)
 
         Returns:
-            0 if hidden, otherwise tokens based on expand state.
+            0 if hidden, otherwise tokens based on expansion state.
         """
-        if self._hide:
+        if self.hidden:
             return 0
 
-        node = self._node
-        if self._expand == Expansion.HEADER:
+        node = self.node
+        if self.expansion == Expansion.HEADER:
             return node.header_tokens
-        elif self._expand == Expansion.CONTENT:
+        elif self.expansion == Expansion.CONTENT:
             return node.header_tokens + node.content_tokens
-        elif self._expand == Expansion.INDEX:
+        elif self.expansion == Expansion.INDEX:
             return node.header_tokens + node.content_tokens + node.index_tokens
         else:  # ALL
             return node.all_tokens
 
     def Run(self, freq: Any = None) -> NodeView:
         """Enable tick recomputation with given frequency."""
-        self._node.Run(freq)
+        self.node.Run(freq)
         return self
 
     def Pause(self) -> NodeView:
         """Disable tick recomputation."""
-        self._node.Pause()
+        self.node.Pause()
         return self
 
-    def SetNotify(self, level: Any) -> NodeView:
+    def SetNotify(self, level: NotificationLevel) -> NodeView:
         """Set notification level."""
-        self._node.notification_level = level
+        self.node.notification_level = level
         return self
 
     # --- Attribute Forwarding ---
 
     def __getattr__(self, name: str) -> Any:
         """Forward attribute access to the underlying node."""
-        return getattr(self._node, name)
+        return getattr(self.node, name)
 
     def __setattr__(self, name: str, value: Any) -> None:
-        """Forward attribute assignment to the underlying node.
+        """Set attributes with type checking for view fields.
 
-        Properties (hide, expand, expansion) go through their setters.
-        Slot attributes (_node, _hide, _expand) use object.__setattr__.
+        View fields (hidden, expansion, node) are stored locally with type validation.
         Other attributes are forwarded to the underlying node.
         """
-        # Slot attributes - use object.__setattr__
-        if name in ("_node", "_hide", "_expand"):
+        if name == "expansion":
+            if not isinstance(value, Expansion):
+                raise TypeError(f"expansion must be Expansion, got {type(value).__name__}")
             object.__setattr__(self, name, value)
-        # Property setters - let descriptor protocol handle it
-        elif name in ("hide", "expand", "expansion"):
-            # Get the property descriptor from the class and call its setter
-            prop = type(self).__dict__.get(name)
-            if prop is not None and hasattr(prop, "__set__"):
-                prop.__set__(self, value)
-            else:
-                object.__setattr__(self, name, value)
+        elif name == "hidden":
+            if not isinstance(value, bool):
+                raise TypeError(f"hidden must be bool, got {type(value).__name__}")
+            object.__setattr__(self, name, value)
+        elif name == "node":
+            object.__setattr__(self, name, value)
         else:
-            setattr(self._node, name, value)
+            setattr(self.node, name, value)
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize view state for session persistence."""
         return {
             "type": "NodeView",
-            "node_id": self._node.node_id,
-            "hide": self._hide,
-            "expand": self._expand.value,
+            "node_id": self.node.node_id,
+            "hidden": self.hidden,
+            "expansion": self.expansion.value,
         }
 
     @classmethod
@@ -180,26 +145,26 @@ class NodeView:
         """Restore view from serialized state."""
         return cls(
             node,
-            hide=data.get("hide", False),
-            expand=Expansion(data["expand"]) if "expand" in data else None,
+            hidden=data.get("hidden", False),
+            expansion=Expansion(data["expansion"]) if "expansion" in data else None,
         )
 
     def __repr__(self) -> str:
         """Return string representation."""
-        hide_str = ", hide=True" if self._hide else ""
-        return f"NodeView({self._node!r}, expand={self._expand.value}{hide_str})"
+        hidden_str = ", hidden=True" if self.hidden else ""
+        return f"NodeView({self.node!r}, expansion={self.expansion.value}{hidden_str})"
 
     def __eq__(self, other: Any) -> bool:
         """Compare views by their underlying node."""
         if isinstance(other, NodeView):
-            return self._node is other._node
-        if isinstance(other, type(self._node)):
-            return self._node is other
+            return self.node is other.node
+        if isinstance(other, type(self.node)):
+            return self.node is other
         return False
 
     def __hash__(self) -> int:
         """Hash by underlying node ID."""
-        return hash(self._node.node_id)
+        return hash(self.node.node_id)
 
 
 class ChoiceView(NodeView):
@@ -211,7 +176,7 @@ class ChoiceView(NodeView):
     Behavior by expansion mode:
     - HEADER/CONTENT/INDEX: No changes to children via apply_selection
     - INDEX: Use render_index() to get header lines for all children
-    - ALL: Only selected child visible (with its own expand mode),
+    - ALL: Only selected child visible (with its own expansion mode),
            or all children hidden if no selection
 
     Rendering helpers:
@@ -232,26 +197,24 @@ class ChoiceView(NodeView):
         _selected_id: ID of the currently selected child (or None)
     """
 
-    __slots__ = ("_selected_id",)
-
     _selected_id: str | None
 
     def __init__(
         self,
         node: ContextNode,
         selected_id: str | None = None,
-        hide: bool = False,
-        expand: Expansion | None = None,
+        hidden: bool | None = None,
+        expansion: Expansion | None = None,
     ) -> None:
         """Create a choice view wrapping a node.
 
         Args:
             node: The ContextNode to wrap
             selected_id: ID of the initially selected child (or None)
-            hide: Whether the view is hidden (default False)
-            expand: Expansion state (default: uses node.expansion)
+            hidden: Whether the view is hidden (default: node.default_hidden)
+            expansion: Expansion state (default: node.default_expansion)
         """
-        super().__init__(node, hide=hide, expand=expand)
+        super().__init__(node, hidden=hidden, expansion=expansion)
         object.__setattr__(self, "_selected_id", selected_id)
 
     @property
@@ -277,7 +240,7 @@ class ChoiceView(NodeView):
         return self
 
     def __setattr__(self, name: str, value: Any) -> None:
-        """Handle attribute assignment, including _selected_id slot."""
+        """Handle attribute assignment, including _selected_id."""
         if name == "_selected_id":
             object.__setattr__(self, name, value)
         elif name == "selected_id":
@@ -292,7 +255,7 @@ class ChoiceView(NodeView):
 
     def _get_child_ids(self) -> list[str]:
         """Get ordered list of child IDs from the node."""
-        node = self._node
+        node = self.node
         child_order = getattr(node, "child_order", None)
         if child_order is not None:
             # child_order might be a LinkedChildOrder with to_list() or a regular list
@@ -308,13 +271,13 @@ class ChoiceView(NodeView):
 
         Behavior by expansion mode:
         - HEADER/CONTENT/INDEX: No changes to children (INDEX renders headers itself)
-        - ALL: Only selected child visible (with its own expand mode),
+        - ALL: Only selected child visible (with its own expansion mode),
                or all children hidden if no selection
 
         Args:
             views: Dict mapping node_id -> NodeView for all views
         """
-        if self._expand != Expansion.ALL:
+        if self.expansion != Expansion.ALL:
             return  # Only filter in ALL mode; INDEX renders headers itself
 
         child_ids = self._get_child_ids()
@@ -323,10 +286,10 @@ class ChoiceView(NodeView):
         for child_id in child_ids:
             if child_id in views:
                 if self._selected_id is None:
-                    views[child_id].hide = True
+                    views[child_id].hidden = True
                 else:
-                    views[child_id].hide = child_id != self._selected_id
-                # Selected child keeps its own expand mode
+                    views[child_id].hidden = child_id != self._selected_id
+                # Selected child keeps its own expansion mode
 
     def get_options(self) -> list[str]:
         """Get titles of all child options.
@@ -334,7 +297,7 @@ class ChoiceView(NodeView):
         Returns:
             List of child titles in child_order order
         """
-        node = self._node
+        node = self.node
         graph = getattr(node, "_graph", None)
         if graph is None:
             return []
@@ -364,7 +327,7 @@ class ChoiceView(NodeView):
         Returns:
             Newline-separated headers of all children
         """
-        node = self._node
+        node = self.node
         graph = getattr(node, "_graph", None)
         if graph is None:
             return ""
@@ -397,7 +360,7 @@ class ChoiceView(NodeView):
         # Get the selected child's title
         selected_title = None
         if self._selected_id:
-            node = self._node
+            node = self.node
             graph = getattr(node, "_graph", None)
             if graph:
                 selected_child = graph.get_node(self._selected_id)
@@ -413,9 +376,9 @@ class ChoiceView(NodeView):
         """Serialize view state for session persistence."""
         return {
             "type": "ChoiceView",
-            "node_id": self._node.node_id,
-            "hide": self._hide,
-            "expand": self._expand.value,
+            "node_id": self.node.node_id,
+            "hidden": self.hidden,
+            "expansion": self.expansion.value,
             "selected_id": self._selected_id,
         }
 
@@ -425,15 +388,17 @@ class ChoiceView(NodeView):
         return cls(
             node,
             selected_id=data.get("selected_id"),
-            hide=data.get("hide", False),
-            expand=Expansion(data["expand"]) if "expand" in data else None,
+            hidden=data.get("hidden", False),
+            expansion=Expansion(data["expansion"]) if "expansion" in data else None,
         )
 
     def __repr__(self) -> str:
         """Return string representation."""
-        hide_str = ", hide=True" if self._hide else ""
+        hidden_str = ", hidden=True" if self.hidden else ""
         selected_str = f", selected={self._selected_id!r}" if self._selected_id else ""
-        return f"ChoiceView({self._node!r}, expand={self._expand.value}{hide_str}{selected_str})"
+        return (
+            f"ChoiceView({self.node!r}, expansion={self.expansion.value}{hidden_str}{selected_str})"
+        )
 
 
 class SequenceView(ChoiceView):
@@ -444,10 +409,6 @@ class SequenceView(ChoiceView):
     - Current step is visible, others are hidden (like ChoiceView)
     - Tracks completion state per step
     - Supports forward/backward navigation
-
-    State is persisted in view tags for session save/restore:
-    - _seq_index: Current step index
-    - _seq_completed: Set of completed step indices
 
     Rendering:
     - Progress header: "## Workflow Progress [2/3]"
@@ -468,8 +429,6 @@ class SequenceView(ChoiceView):
         print(seq.is_complete)   # True when all steps done
     """
 
-    __slots__ = ("_current_index", "_completed_steps")
-
     _current_index: int
     _completed_steps: set[int]
 
@@ -477,22 +436,22 @@ class SequenceView(ChoiceView):
         self,
         node: ContextNode,
         selected_id: str | None = None,
-        hide: bool = False,
-        expand: Expansion | None = None,
+        hidden: bool | None = None,
+        expansion: Expansion | None = None,
     ) -> None:
         """Create a sequence view wrapping a node.
 
         Args:
             node: The ContextNode to wrap (typically a GroupNode)
             selected_id: Initial selection (default: first child)
-            hide: Whether the view is hidden (default False)
-            expand: Expansion state (default: ALL for full content)
+            hidden: Whether the view is hidden (default: node.default_hidden)
+            expansion: Expansion state (default: ALL for full content)
         """
-        # Default expand to ALL for sequences
-        if expand is None:
-            expand = Expansion.ALL
+        # Default expansion to ALL for sequences
+        if expansion is None:
+            expansion = Expansion.ALL
 
-        super().__init__(node, selected_id=selected_id, hide=hide, expand=expand)
+        super().__init__(node, selected_id=selected_id, hidden=hidden, expansion=expansion)
 
         # Initialize progression state with defaults
         object.__setattr__(self, "_current_index", 0)
@@ -507,9 +466,9 @@ class SequenceView(ChoiceView):
         """Serialize view state for session persistence."""
         return {
             "type": "SequenceView",
-            "node_id": self._node.node_id,
-            "hide": self._hide,
-            "expand": self._expand.value,
+            "node_id": self.node.node_id,
+            "hidden": self.hidden,
+            "expansion": self.expansion.value,
             "selected_id": self._selected_id,
             "current_index": self._current_index,
             "completed_steps": list(self._completed_steps),
@@ -521,8 +480,8 @@ class SequenceView(ChoiceView):
         view = cls(
             node,
             selected_id=data.get("selected_id"),
-            hide=data.get("hide", False),
-            expand=Expansion(data["expand"]) if "expand" in data else None,
+            hidden=data.get("hidden", False),
+            expansion=Expansion(data["expansion"]) if "expansion" in data else None,
         )
         # Restore progression state
         object.__setattr__(view, "_current_index", data.get("current_index", 0))
@@ -641,7 +600,7 @@ class SequenceView(ChoiceView):
             - [ ] Step 3: Pending
         """
         child_ids = self._get_child_ids()
-        node = self._node
+        node = self.node
         graph = getattr(node, "_graph", None)
 
         lines = [f"## Workflow Progress [{self.progress}]"]
@@ -663,13 +622,13 @@ class SequenceView(ChoiceView):
                     title = getattr(child, "title", None) or child_id
 
             # Add current marker
-            current_marker = " ← current" if i == self._current_index else ""
+            current_marker = " \u2190 current" if i == self._current_index else ""
             lines.append(f"- {marker} Step {i + 1}: {title}{current_marker}")
 
         return "\n".join(lines)
 
     def __setattr__(self, name: str, value: Any) -> None:
-        """Handle attribute assignment for sequence-specific slots."""
+        """Handle attribute assignment for sequence-specific fields."""
         if name in ("_current_index", "_completed_steps"):
             object.__setattr__(self, name, value)
         else:
@@ -677,8 +636,8 @@ class SequenceView(ChoiceView):
 
     def __repr__(self) -> str:
         """Return string representation."""
-        hide_str = ", hide=True" if self._hide else ""
-        return f"SequenceView({self._node!r}, progress={self.progress}{hide_str})"
+        hidden_str = ", hidden=True" if self.hidden else ""
+        return f"SequenceView({self.node!r}, progress={self.progress}{hidden_str})"
 
 
 class LoopView(NodeView):
@@ -689,11 +648,6 @@ class LoopView(NodeView):
     - Accumulates state across iterations
     - Supports early exit via done()
     - Optional max_iterations limit
-
-    State is persisted in view tags for session save/restore:
-    - _loop_iteration: Current iteration count (1-based)
-    - _loop_state: Accumulated state dictionary
-    - _loop_done: Whether loop was exited early
 
     Rendering:
     - Header shows iteration count: "## Review Loop [iteration 2/5]"
@@ -715,8 +669,6 @@ class LoopView(NodeView):
         print(loop.is_done)       # True
     """
 
-    __slots__ = ("_iteration", "_state", "_done", "_max_iterations")
-
     _iteration: int
     _state: dict[str, Any]
     _done: bool
@@ -726,21 +678,21 @@ class LoopView(NodeView):
         self,
         node: ContextNode,
         max_iterations: int | None = None,
-        hide: bool = False,
-        expand: Expansion | None = None,
+        hidden: bool | None = None,
+        expansion: Expansion | None = None,
     ) -> None:
         """Create a loop view wrapping a node.
 
         Args:
             node: The ContextNode to wrap
             max_iterations: Maximum iterations allowed (None = unlimited)
-            hide: Whether the view is hidden (default False)
-            expand: Expansion state (default: ALL)
+            hidden: Whether the view is hidden (default: node.default_hidden)
+            expansion: Expansion state (default: ALL)
         """
-        if expand is None:
-            expand = Expansion.ALL
+        if expansion is None:
+            expansion = Expansion.ALL
 
-        super().__init__(node, hide=hide, expand=expand)
+        super().__init__(node, hidden=hidden, expansion=expansion)
 
         # Initialize loop state with defaults
         object.__setattr__(self, "_iteration", 1)
@@ -752,9 +704,9 @@ class LoopView(NodeView):
         """Serialize view state for session persistence."""
         return {
             "type": "LoopView",
-            "node_id": self._node.node_id,
-            "hide": self._hide,
-            "expand": self._expand.value,
+            "node_id": self.node.node_id,
+            "hidden": self.hidden,
+            "expansion": self.expansion.value,
             "max_iterations": self._max_iterations,
             "iteration": self._iteration,
             "state": dict(self._state),
@@ -767,8 +719,8 @@ class LoopView(NodeView):
         view = cls(
             node,
             max_iterations=data.get("max_iterations"),
-            hide=data.get("hide", False),
-            expand=Expansion(data["expand"]) if "expand" in data else None,
+            hidden=data.get("hidden", False),
+            expansion=Expansion(data["expansion"]) if "expansion" in data else None,
         )
         # Restore loop state
         object.__setattr__(view, "_iteration", data.get("iteration", 1))
@@ -875,7 +827,7 @@ class LoopView(NodeView):
         else:
             iter_str = f"iteration {self._iteration}"
 
-        title = getattr(self._node, "title", None) or "Loop"
+        title = getattr(self.node, "title", None) or "Loop"
         return f"## {title} [{iter_str}]"
 
     def render_state(self) -> str:
@@ -893,7 +845,7 @@ class LoopView(NodeView):
         return "\n".join(lines)
 
     def __setattr__(self, name: str, value: Any) -> None:
-        """Handle attribute assignment for loop-specific slots."""
+        """Handle attribute assignment for loop-specific fields."""
         if name in ("_iteration", "_state", "_done", "_max_iterations"):
             object.__setattr__(self, name, value)
         else:
@@ -901,10 +853,12 @@ class LoopView(NodeView):
 
     def __repr__(self) -> str:
         """Return string representation."""
-        hide_str = ", hide=True" if self._hide else ""
+        hidden_str = ", hidden=True" if self.hidden else ""
         max_str = f"/{self._max_iterations}" if self._max_iterations else ""
         done_str = ", done" if self._done else ""
-        return f"LoopView({self._node!r}, iteration={self._iteration}{max_str}{done_str}{hide_str})"
+        return (
+            f"LoopView({self.node!r}, iteration={self._iteration}{max_str}{done_str}{hidden_str})"
+        )
 
 
 class StateView(ChoiceView):
@@ -916,13 +870,9 @@ class StateView(ChoiceView):
     - Current state visible, others hidden
     - State history tracking
 
-    State is persisted in view tags for session save/restore:
-    - _state_current: Current state name
-    - _state_history: List of previous states
-
     Rendering:
     - Header shows current state and available transitions
-    - "## Task State: working → [done, idle]"
+    - "## Task State: working -> [done, idle]"
 
     Example:
         # Create state machine for task workflow
@@ -947,8 +897,6 @@ class StateView(ChoiceView):
         print(fsm.state_history)  # ["idle", "working"]
     """
 
-    __slots__ = ("_states", "_transitions", "_current_state", "_state_history")
-
     _states: dict[str, str]  # state_name -> node_id
     _transitions: dict[str, list[str]]  # state_name -> allowed next states
     _current_state: str
@@ -960,8 +908,8 @@ class StateView(ChoiceView):
         states: dict[str, str] | None = None,
         transitions: dict[str, list[str]] | None = None,
         initial: str | None = None,
-        hide: bool = False,
-        expand: Expansion | None = None,
+        hidden: bool | None = None,
+        expansion: Expansion | None = None,
     ) -> None:
         """Create a state machine view wrapping a node.
 
@@ -970,11 +918,11 @@ class StateView(ChoiceView):
             states: Mapping of state names to child node IDs
             transitions: Mapping of state names to allowed next states
             initial: Initial state name (default: first state)
-            hide: Whether the view is hidden (default False)
-            expand: Expansion state (default: ALL)
+            hidden: Whether the view is hidden (default: node.default_hidden)
+            expansion: Expansion state (default: ALL)
         """
-        if expand is None:
-            expand = Expansion.ALL
+        if expansion is None:
+            expansion = Expansion.ALL
 
         # Initialize states and transitions
         states = states or {}
@@ -987,7 +935,7 @@ class StateView(ChoiceView):
         # Get initial node ID for ChoiceView selection
         initial_node_id = states.get(initial) if initial else None
 
-        super().__init__(node, selected_id=initial_node_id, hide=hide, expand=expand)
+        super().__init__(node, selected_id=initial_node_id, hidden=hidden, expansion=expansion)
 
         # Initialize state machine with defaults
         object.__setattr__(self, "_states", states)
@@ -999,9 +947,9 @@ class StateView(ChoiceView):
         """Serialize view state for session persistence."""
         return {
             "type": "StateView",
-            "node_id": self._node.node_id,
-            "hide": self._hide,
-            "expand": self._expand.value,
+            "node_id": self.node.node_id,
+            "hidden": self.hidden,
+            "expansion": self.expansion.value,
             "selected_id": self._selected_id,
             "states": self._states,
             "transitions": self._transitions,
@@ -1017,8 +965,8 @@ class StateView(ChoiceView):
             states=data.get("states", {}),
             transitions=data.get("transitions", {}),
             initial=data.get("current_state"),  # Use saved current as initial
-            hide=data.get("hide", False),
-            expand=Expansion(data["expand"]) if "expand" in data else None,
+            hidden=data.get("hidden", False),
+            expansion=Expansion(data["expansion"]) if "expansion" in data else None,
         )
         # Restore state history
         object.__setattr__(view, "_state_history", list(data.get("state_history", [])))
@@ -1129,15 +1077,15 @@ class StateView(ChoiceView):
         """Render state header with current state and transitions.
 
         Returns:
-            Header like "## Task State: working → [done, idle]"
+            Header like "## Task State: working -> [done, idle]"
         """
-        title = getattr(self._node, "title", None) or "State"
+        title = getattr(self.node, "title", None) or "State"
         transitions = self.valid_transitions
-        trans_str = f" → [{', '.join(transitions)}]" if transitions else " (terminal)"
+        trans_str = f" \u2192 [{', '.join(transitions)}]" if transitions else " (terminal)"
         return f"## {title}: {self._current_state}{trans_str}"
 
     def __setattr__(self, name: str, value: Any) -> None:
-        """Handle attribute assignment for state-specific slots."""
+        """Handle attribute assignment for state-specific fields."""
         if name in ("_states", "_transitions", "_current_state", "_state_history"):
             object.__setattr__(self, name, value)
         else:
@@ -1145,10 +1093,10 @@ class StateView(ChoiceView):
 
     def __repr__(self) -> str:
         """Return string representation."""
-        hide_str = ", hide=True" if self._hide else ""
+        hidden_str = ", hidden=True" if self.hidden else ""
         history_len = len(self._state_history)
         history_str = f", history={history_len}" if history_len else ""
-        return f"StateView({self._node!r}, state={self._current_state!r}{history_str}{hide_str})"
+        return f"StateView({self.node!r}, state={self._current_state!r}{history_str}{hidden_str})"
 
 
 # View type registry for deserialization

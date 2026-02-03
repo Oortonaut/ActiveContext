@@ -22,6 +22,7 @@ from pathlib import Path
 from types import FunctionType
 from typing import TYPE_CHECKING, Any
 
+from activecontext.agents.schema import MessageStatus
 from activecontext.context.graph import ContextGraph
 from activecontext.context.nodes import (
     ArtifactNode,
@@ -1324,7 +1325,7 @@ class Timeline:
         path: str,
         *,
         pos: str = "1:0",
-        expansion: Expansion = Expansion.ALL,
+        default_expansion: Expansion = Expansion.ALL,
         mode: str = "paused",
         parent: ContextNode | str | None = None,
     ) -> NodeView:
@@ -1333,7 +1334,7 @@ class Timeline:
         Args:
             path: File path relative to session cwd
             pos: Start position as "line:col" (1-indexed)
-            expansion: Rendering expansion (HEADER, CONTENT, INDEX, ALL)
+            default_expansion: Rendering expansion (HEADER, CONTENT, INDEX, ALL)
             mode: "paused" or "running"
             parent: Optional parent node or node ID (defaults to current_group if set)
 
@@ -1343,7 +1344,7 @@ class Timeline:
         node = TextNode(
             path=path,
             pos=pos,
-            expansion=expansion,
+            default_expansion=default_expansion,
             mode=mode,
         )
 
@@ -1368,14 +1369,14 @@ class Timeline:
         self._file_watcher.register_path(path, node.node_id)
 
         # Create and store NodeView
-        view = NodeView(node, expand=expansion)
+        view = NodeView(node, expansion=default_expansion)
         self._views[node.node_id] = view
         return view
 
     def _make_group_node(
         self,
         *members: ContextNode | NodeView | str,
-        expansion: Expansion = Expansion.CONTENT,
+        default_expansion: Expansion = Expansion.CONTENT,
         mode: str = "paused",
         summary: str | None = None,
         parent: ContextNode | NodeView | str | None = None,
@@ -1384,7 +1385,7 @@ class Timeline:
 
         Args:
             *members: Child nodes, views, or node IDs to include in the group
-            expansion: Rendering expansion (HEADER, CONTENT, INDEX, ALL)
+            default_expansion: Rendering expansion (HEADER, CONTENT, INDEX, ALL)
             mode: "paused" or "running"
             summary: Optional pre-computed summary text
             parent: Optional parent node, view, or node ID (defaults to current_group if set)
@@ -1393,7 +1394,7 @@ class Timeline:
             NodeView wrapping the created GroupNode
         """
         node = GroupNode(
-            expansion=expansion,
+            default_expansion=default_expansion,
             mode=mode,
             cached_summary=summary,
             summary_stale=summary is None,  # Not stale if summary provided
@@ -1422,7 +1423,7 @@ class Timeline:
             self._context_graph.link(member_id, node.node_id)
 
         # Create and store NodeView
-        view = NodeView(node, expand=expansion)
+        view = NodeView(node, expansion=default_expansion)
         self._views[node.node_id] = view
         return view
 
@@ -1430,7 +1431,7 @@ class Timeline:
         self,
         *children: ContextNode | NodeView | str,
         selected: str | None = None,
-        expansion: Expansion = Expansion.ALL,
+        default_expansion: Expansion = Expansion.ALL,
         parent: ContextNode | NodeView | str | None = None,
     ) -> ChoiceView:
         """Create a ChoiceView wrapping a GroupNode for dropdown-like selection.
@@ -1441,7 +1442,7 @@ class Timeline:
         Args:
             *children: Child nodes, views, or node IDs to include as options
             selected: Node ID of the initially selected child (default: first child)
-            expansion: Rendering expansion for the group
+            default_expansion: Rendering expansion for the group
             parent: Optional parent node (defaults to current_group if set)
 
         Returns:
@@ -1450,7 +1451,7 @@ class Timeline:
         from activecontext.context.view import ChoiceView
 
         # Create the underlying group
-        group_view = self._make_group_node(*children, expansion=expansion, parent=parent)
+        group_view = self._make_group_node(*children, default_expansion=default_expansion, parent=parent)
 
         # Default to first child if no selection specified
         if selected is None and children:
@@ -1458,14 +1459,14 @@ class Timeline:
             selected = first.node_id if isinstance(first, (NodeView, ContextNode)) else first
 
         # Create ChoiceView wrapping the group
-        choice_view = ChoiceView(group_view.node(), selected_id=selected, expand=expansion)
+        choice_view = ChoiceView(group_view.node, selected_id=selected, expansion=default_expansion)
         self._views[group_view.node_id] = choice_view
         return choice_view
 
     def _make_sequence_view(
         self,
         *children: ContextNode | NodeView | str,
-        expansion: Expansion = Expansion.ALL,
+        default_expansion: Expansion = Expansion.ALL,
         parent: ContextNode | NodeView | str | None = None,
     ) -> SequenceView:
         """Create a SequenceView for ordered sequential progression.
@@ -1475,7 +1476,7 @@ class Timeline:
 
         Args:
             *children: Child nodes, views, or node IDs representing steps
-            expansion: Rendering expansion for the group
+            default_expansion: Rendering expansion for the group
             parent: Optional parent node (defaults to current_group if set)
 
         Returns:
@@ -1491,10 +1492,10 @@ class Timeline:
         from activecontext.context.view import SequenceView
 
         # Create the underlying group
-        group_view = self._make_group_node(*children, expansion=expansion, parent=parent)
+        group_view = self._make_group_node(*children, default_expansion=default_expansion, parent=parent)
 
         # Create SequenceView wrapping the group (starts at first child)
-        seq_view = SequenceView(group_view.node(), expand=expansion)
+        seq_view = SequenceView(group_view.node, expansion=default_expansion)
         self._views[group_view.node_id] = seq_view
         return seq_view
 
@@ -1502,7 +1503,7 @@ class Timeline:
         self,
         child: ContextNode | NodeView | str,
         max_iterations: int | None = None,
-        expansion: Expansion = Expansion.ALL,
+        default_expansion: Expansion = Expansion.ALL,
         parent: ContextNode | NodeView | str | None = None,
     ) -> LoopView:
         """Create a LoopView for iterative refinement.
@@ -1513,7 +1514,7 @@ class Timeline:
         Args:
             child: The node, view, or node ID to iterate on
             max_iterations: Maximum iterations allowed (None = unlimited)
-            expansion: Rendering expansion
+            default_expansion: Rendering expansion
             parent: Optional parent node
 
         Returns:
@@ -1535,7 +1536,7 @@ class Timeline:
             if node is None:
                 raise ValueError(f"Unknown node ID: {child}")
         elif isinstance(child, NodeView):
-            node = child.node()
+            node = child.node
         else:
             node = child
 
@@ -1547,7 +1548,7 @@ class Timeline:
             self._context_graph.link(node.node_id, self._current_group_id)
 
         # Create LoopView wrapping the node
-        loop_view = LoopView(node, max_iterations=max_iterations, expand=expansion)
+        loop_view = LoopView(node, max_iterations=max_iterations, expansion=default_expansion)
         self._views[node.node_id] = loop_view
         return loop_view
 
@@ -1557,7 +1558,7 @@ class Timeline:
         states: dict[str, str] | None = None,
         transitions: dict[str, list[str]] | None = None,
         initial: str | None = None,
-        expansion: Expansion = Expansion.ALL,
+        default_expansion: Expansion = Expansion.ALL,
         parent: ContextNode | NodeView | str | None = None,
     ) -> StateView:
         """Create a StateView for state machine navigation.
@@ -1570,7 +1571,7 @@ class Timeline:
             states: Mapping of state names to child node IDs
             transitions: Mapping of state names to list of allowed next states
             initial: Initial state name (default: first state)
-            expansion: Rendering expansion
+            default_expansion: Rendering expansion
             parent: Optional parent node
 
         Returns:
@@ -1600,7 +1601,7 @@ class Timeline:
                         raise ValueError(f"Unknown node ID: {child}")
                     child_id = child
                 elif isinstance(child, NodeView):
-                    node = child.node()
+                    node = child.node
                     child_id = node.node_id
                 else:
                     node = child
@@ -1613,10 +1614,10 @@ class Timeline:
         # Create the underlying group with all state nodes as children
         if states:
             node_ids = list(states.values())
-            group_view = self._make_group_node(*node_ids, expansion=expansion, parent=parent)
+            group_view = self._make_group_node(*node_ids, default_expansion=default_expansion, parent=parent)
         else:
             # Empty state machine
-            group_view = self._make_group_node(expansion=expansion, parent=parent)
+            group_view = self._make_group_node(default_expansion=default_expansion, parent=parent)
 
         # Default transitions: allow any state to any state
         if transitions is None and states:
@@ -1625,11 +1626,11 @@ class Timeline:
 
         # Create StateView wrapping the group
         state_view = StateView(
-            group_view.node(),
+            group_view.node,
             states=states or {},
             transitions=transitions or {},
             initial=initial,
-            expand=expansion,
+            expansion=default_expansion,
         )
         self._views[group_view.node_id] = state_view
         return state_view
@@ -1744,7 +1745,7 @@ class Timeline:
         path: str,
         *,
         content: str | None = None,
-        expansion: Expansion = Expansion.ALL,
+        default_expansion: Expansion = Expansion.ALL,
         parent: ContextNode | NodeView | str | None = None,
     ) -> NodeView:
         """Create a tree of TextNodes from a markdown file.
@@ -1755,7 +1756,7 @@ class Timeline:
         Args:
             path: File path relative to session cwd
             content: Markdown content (if None, reads from path)
-            expansion: Rendering expansion (HEADER, CONTENT, INDEX, ALL)
+            default_expansion: Rendering expansion (HEADER, CONTENT, INDEX, ALL)
             parent: Optional parent node, view, or node ID (defaults to current_group if set)
 
         Returns:
@@ -1807,7 +1808,7 @@ class Timeline:
             # No headings - create single TextNode for entire file
             node = TextNode(
                 path=path,
-                expansion=expansion,
+                default_expansion=default_expansion,
                 media_type=MediaType.MARKDOWN,
                 buffer_id=buffer.buffer_id,
                 start_line=1,
@@ -1815,7 +1816,7 @@ class Timeline:
             )
             self._context_graph.add_node(node)
             # Create and store NodeView
-            view = NodeView(node, expand=expansion)
+            view = NodeView(node, expansion=default_expansion)
             self._views[node.node_id] = view
             return view
 
@@ -1830,7 +1831,7 @@ class Timeline:
             node = TextNode(
                 path=path,
                 title=section.title,
-                expansion=expansion,
+                default_expansion=default_expansion,
                 media_type=MediaType.MARKDOWN,
                 buffer_id=buffer.buffer_id,
                 start_line=content_start,
@@ -1842,7 +1843,7 @@ class Timeline:
         # Add all nodes to graph first and create views
         for node in all_nodes:
             self._context_graph.add_node(node)
-            view = NodeView(node, expand=expansion)
+            view = NodeView(node, expansion=default_expansion)
             self._views[node.node_id] = view
 
         # Build hierarchy based on heading levels
@@ -1885,7 +1886,7 @@ class Timeline:
         media_type: str,
         path: str,
         *,
-        expansion: Expansion = Expansion.ALL,
+        default_expansion: Expansion = Expansion.ALL,
         **kwargs: Any,
     ) -> NodeView:
         """Dispatcher for creating text views based on media type.
@@ -1895,7 +1896,7 @@ class Timeline:
         Args:
             media_type: "text" or "markdown"
             path: File path relative to session cwd
-            expansion: Rendering expansion
+            default_expansion: Rendering expansion
             **kwargs: Additional arguments passed to underlying function
 
         Returns:
@@ -1905,9 +1906,9 @@ class Timeline:
             ValueError: If media_type is not recognized
         """
         if media_type == "markdown":
-            return self._make_markdown_node(path, expansion=expansion, **kwargs)
+            return self._make_markdown_node(path, default_expansion=default_expansion, **kwargs)
         elif media_type == "text":
-            return self._make_text_node(path, expansion=expansion, **kwargs)
+            return self._make_text_node(path, default_expansion=default_expansion, **kwargs)
         else:
             raise ValueError(f"Unknown media_type: {media_type}. Use 'text' or 'markdown'.")
 
@@ -1974,7 +1975,7 @@ class Timeline:
             if node is None:
                 raise ValueError(f"Node not found: {node_or_view}")
         elif isinstance(node_or_view, NodeView):
-            node = node_or_view.node()
+            node = node_or_view.node
         else:
             node = node_or_view
 
@@ -2197,7 +2198,7 @@ Provide a concise summary:"""
 
             dsl_node = TextNode(
                 path="@prompts/dsl_reference.md",
-                expansion=Expansion.CONTENT,
+                default_expansion=Expansion.CONTENT,
                 tracing=False,
             )
             self._context_graph.add_node(dsl_node)
@@ -2226,7 +2227,7 @@ Provide a concise summary:"""
             help_node = HelpNode(
                 parent_node_type=target,
                 _help_content=help_content,
-                expansion=Expansion.CONTENT,
+                default_expansion=Expansion.CONTENT,
                 tracing=False,
             )
             self._context_graph.add_node(help_node)
@@ -3246,7 +3247,9 @@ Provide a concise summary:"""
         elif condition.mode == WaitMode.MESSAGE:
             # Wait for incoming message
             if self._agent_manager and condition.agent_id:
-                messages = self._agent_manager.get_messages(condition.agent_id, status="pending")
+                messages = self._agent_manager.get_messages(
+                    condition.agent_id, status=MessageStatus.PENDING
+                )
                 if messages:
                     msg = messages[0]
                     # Mark as delivered

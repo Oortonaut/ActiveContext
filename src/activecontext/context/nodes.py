@@ -27,7 +27,15 @@ from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from activecontext.context.state import Expansion, NotificationLevel, TickFrequency
+from activecontext.agents.schema import AgentState
+from activecontext.context.state import (
+    Expansion,
+    IOMode,
+    NotificationLevel,
+    TaskStatus,
+    TickFrequency,
+    WorkStatus,
+)
 from activecontext.context.traceable import trace_all_fields
 
 if TYPE_CHECKING:
@@ -198,6 +206,24 @@ class LockStatus(Enum):
     ERROR = "error"  # Error during lock operation
 
 
+class MessageRole(Enum):
+    """Role of a message in the conversation history."""
+
+    USER = "user"
+    ASSISTANT = "assistant"
+    TOOL_CALL = "tool_call"
+    TOOL_RESULT = "tool_result"
+
+
+class AgentRelation(Enum):
+    """Relationship of an agent to the viewing agent."""
+
+    SELF = "self"
+    PARENT = "parent"
+    CHILD = "child"
+    PEER = "peer"
+
+
 if TYPE_CHECKING:
     from activecontext.context.graph import ContextGraph
     from activecontext.context.headers import TokenInfo
@@ -238,7 +264,8 @@ class ContextNode(ABC):
     child_order: LinkedChildOrder | None = field(default=None, repr=False)
 
     # Rendering configuration
-    expansion: Expansion = Expansion.ALL
+    default_expansion: Expansion = Expansion.ALL
+    default_hidden: bool = False
     mode: str = "paused"
     tick_frequency: TickFrequency | None = None
 
@@ -378,7 +405,7 @@ class ContextNode(ABC):
             text_buffers: Optional dict of buffer_id -> TextBuffer for markdown nodes
             expand: Expansion state to render with (uses node.expansion if not provided)
         """
-        effective_expand = expand if expand is not None else self.expansion
+        effective_expand = expand if expand is not None else self.default_expansion
         if effective_expand == Expansion.HEADER:
             return self.render_header(cwd=cwd)
         else:  # CONTENT, INDEX, or ALL
@@ -426,9 +453,9 @@ class ContextNode(ABC):
         return render_header(
             self.node_id,
             self.render_digest(),
-            self.expansion,
+            self.default_expansion,
             token_info,
-            notification_level=self.notification_level.value,
+            notification_level=self.notification_level,
             index_tokens=self.index_tokens,
             all_tokens=self.all_tokens,
         )
@@ -605,7 +632,7 @@ class ContextNode(ABC):
                     field_name=field_name,
                     prev_value=prev_value,
                     curr_value=curr_value,
-                    expansion=Expansion.HEADER,
+                    default_expansion=Expansion.HEADER,
                 )
                 existing.child_traces.append(child)
             existing.new_version = new_version
@@ -626,7 +653,7 @@ class ContextNode(ABC):
             prev_value=prev_value,
             curr_value=curr_value,
             trace_target=self,  # Set for future merges
-            expansion=Expansion.HEADER,
+            default_expansion=Expansion.HEADER,
         )
         self._graph.add_node(trace_node)
 
@@ -741,7 +768,7 @@ class ContextNode(ABC):
             "parent_ids": list(self.parent_ids),
             "children_ids": list(self.children_ids),
             "child_order": child_order_list,
-            "expansion": self.expansion.value,
+            "expansion": self.default_expansion.value,
             "mode": self.mode,
             "tick_frequency": self.tick_frequency.to_dict() if self.tick_frequency else None,
             "version": self.version,
@@ -815,8 +842,8 @@ class ContextNode(ABC):
             child = self._graph.get_node(child_id)
             if isinstance(child, HelpNode) and child.parent_node_type == self.node_type:
                 # Unhide if hidden
-                if child.expansion == Expansion.HEADER:
-                    child.expansion = Expansion.CONTENT
+                if child.default_expansion == Expansion.HEADER:
+                    child.default_expansion = Expansion.CONTENT
                 return child
 
         # Create new HelpNode
@@ -824,7 +851,7 @@ class ContextNode(ABC):
         help_node = HelpNode(
             parent_node_type=self.node_type,
             _help_content=help_content,
-            expansion=Expansion.CONTENT,
+            default_expansion=Expansion.CONTENT,
             tracing=False,
         )
         self._graph.add_node(help_node)
@@ -890,7 +917,7 @@ class TextNode(ContextNode):
             "path": self.path,
             "pos": self.pos,
             "end_pos": self.end_pos,
-            "expansion": self.expansion.value,
+            "expansion": self.default_expansion.value,
             "mode": self.mode,
             "version": self.version,
             "media_type": self.media_type.value,
@@ -1162,9 +1189,9 @@ class TextNode(ContextNode):
         return render_header(
             self.node_id,
             self.render_digest(),
-            self.expansion,
+            self.default_expansion,
             token_info,
-            notification_level=self.notification_level.value,
+            notification_level=self.notification_level,
             index_tokens=self.index_tokens,
             all_tokens=self.all_tokens,
             line_range=line_range,
@@ -1244,7 +1271,7 @@ class TextNode(ContextNode):
             parent_ids=set(data.get("parent_ids", [])),
             children_ids=set(data.get("children_ids", [])),
             child_order=child_order,
-            expansion=Expansion(data.get("expansion", "all")),
+            default_expansion=Expansion(data.get("expansion", "all")),
             mode=data.get("mode", "paused"),
             tick_frequency=tick_freq,
             version=data.get("version", 0),
@@ -1302,7 +1329,7 @@ class GroupNode(ContextNode):
             "type": self.node_type,
             "member_count": len(self.children_ids),
             "child_order": child_order_list,
-            "expansion": self.expansion.value,
+            "expansion": self.default_expansion.value,
             "mode": self.mode,
             "version": self.version,
             "summary_stale": self.summary_stale,
@@ -1413,7 +1440,7 @@ class GroupNode(ContextNode):
             parent_ids=set(data.get("parent_ids", [])),
             children_ids=set(data.get("children_ids", [])),
             child_order=child_order,
-            expansion=Expansion(data.get("expansion", "content")),
+            default_expansion=Expansion(data.get("expansion", "content")),
             mode=data.get("mode", "paused"),
             tick_frequency=tick_freq,
             version=data.get("version", 0),
@@ -1455,7 +1482,7 @@ class TopicNode(ContextNode):
             "title": self.title,
             "message_count": len(self.message_indices),
             "status": self.status,
-            "expansion": self.expansion.value,
+            "expansion": self.default_expansion.value,
             "mode": self.mode,
             "version": self.version,
         }
@@ -1529,7 +1556,7 @@ class TopicNode(ContextNode):
             node_id=data["node_id"],
             parent_ids=set(data.get("parent_ids", [])),
             children_ids=set(data.get("children_ids", [])),
-            expansion=Expansion(data.get("expansion", "all")),
+            default_expansion=Expansion(data.get("expansion", "all")),
             mode=data.get("mode", "paused"),
             tick_frequency=tick_freq,
             version=data.get("version", 0),
@@ -1571,7 +1598,7 @@ class ArtifactNode(ContextNode):
             "artifact_type": self.artifact_type,
             "language": self.language,
             "content_length": len(self.content),
-            "expansion": self.expansion.value,
+            "expansion": self.default_expansion.value,
             "mode": self.mode,
             "version": self.version,
         }
@@ -1646,7 +1673,7 @@ class ArtifactNode(ContextNode):
             node_id=data["node_id"],
             parent_ids=set(data.get("parent_ids", [])),
             children_ids=set(data.get("children_ids", [])),
-            expansion=Expansion(data.get("expansion", "all")),
+            default_expansion=Expansion(data.get("expansion", "all")),
             mode=data.get("mode", "paused"),
             tick_frequency=tick_freq,
             version=data.get("version", 0),
@@ -1727,7 +1754,7 @@ class ShellNode(ContextNode):
             "status": self.shell_status.value,
             "exit_code": self.exit_code,
             "duration_ms": self.duration_ms,
-            "expansion": self.expansion.value,
+            "expansion": self.default_expansion.value,
             "mode": self.mode,
             "version": self.version,
         }
@@ -1874,7 +1901,7 @@ class ShellNode(ContextNode):
             node_id=data["node_id"],
             parent_ids=set(data.get("parent_ids", [])),
             children_ids=set(data.get("children_ids", [])),
-            expansion=Expansion(data.get("expansion", "all")),
+            default_expansion=Expansion(data.get("expansion", "all")),
             mode=data.get("mode", "paused"),
             tick_frequency=tick_freq,
             version=data.get("version", 0),
@@ -1946,7 +1973,7 @@ class LockNode(ContextNode):
             "lockfile": self.lockfile,
             "status": self.lock_status.value,
             "timeout": self.timeout,
-            "expansion": self.expansion.value,
+            "expansion": self.default_expansion.value,
             "mode": self.mode,
             "version": self.version,
         }
@@ -2056,7 +2083,7 @@ class LockNode(ContextNode):
             node_id=data["node_id"],
             parent_ids=set(data.get("parent_ids", [])),
             children_ids=set(data.get("children_ids", [])),
-            expansion=Expansion(data.get("expansion", "header")),
+            default_expansion=Expansion(data.get("expansion", "header")),
             mode=data.get("mode", "paused"),
             tick_frequency=tick_freq,
             version=data.get("version", 0),
@@ -2146,7 +2173,7 @@ class SessionNode(ContextNode):
             "total_statements": self.total_statements_executed,
             "running_nodes": self.running_node_count,
             "graph_depth": self.graph_depth,
-            "expansion": self.expansion.value,
+            "expansion": self.default_expansion.value,
             "mode": self.mode,
             "version": self.version,
         }
@@ -2359,7 +2386,7 @@ class SessionNode(ContextNode):
             node_id=data["node_id"],
             parent_ids=set(data.get("parent_ids", [])),
             children_ids=set(data.get("children_ids", [])),
-            expansion=Expansion(data.get("expansion", "all")),
+            default_expansion=Expansion(data.get("expansion", "all")),
             mode=data.get("mode", "running"),  # Default to running for session node
             tick_frequency=tick_freq or TickFrequency.turn(),
             version=data.get("version", 0),
@@ -2408,7 +2435,7 @@ class MessageNode(ContextNode):
         mime_type: MIME type (e.g., "image/png", "audio/wav") or None for text
     """
 
-    role: str = "user"  # "user", "assistant", "tool_call", "tool_result"
+    role: MessageRole = MessageRole.USER
     content: str = ""
     tool_name: str | None = None
     tool_args: dict[str, Any] = field(default_factory=dict)
@@ -2455,9 +2482,9 @@ class MessageNode(ContextNode):
 
         if self.originator.startswith("tool:"):
             tool_name = self.originator[5:]  # Remove "tool:" prefix
-            if self.role == "tool_call":
+            if self.role == MessageRole.TOOL_CALL:
                 return f"Tool Call: {tool_name}"
-            elif self.role == "tool_result":
+            elif self.role == MessageRole.TOOL_RESULT:
                 return "Tool Result"
             return f"Tool: {tool_name}"
 
@@ -2467,12 +2494,12 @@ class MessageNode(ContextNode):
         return {
             "id": self.node_id,
             "type": self.node_type,
-            "role": self.role,
+            "role": self.role.value,
             "originator": self.originator,
             "effective_role": self.effective_role,
             "content_length": len(self.content),
             "tool_name": self.tool_name,
-            "expansion": self.expansion.value,
+            "expansion": self.default_expansion.value,
             "mode": self.mode,
             "version": self.version,
             "content_type": self.content_type,
@@ -2481,9 +2508,9 @@ class MessageNode(ContextNode):
 
     def _get_formatted_content(self) -> str:
         """Get formatted content based on message type."""
-        if self.role == "tool_call":
+        if self.role == MessageRole.TOOL_CALL:
             return self._format_tool_call()
-        elif self.role == "tool_result":
+        elif self.role == MessageRole.TOOL_RESULT:
             return self._format_tool_result()
         return self.content
 
@@ -2521,7 +2548,7 @@ class MessageNode(ContextNode):
         """Return 'Role #N' format using display_sequence."""
         seq = self.display_sequence or 0
         # Use actual role for display (user, assistant, tool_call, tool_result)
-        role_display = self.role.replace("_", " ").title()
+        role_display = self.role.value.replace("_", " ").title()
         return f"{role_display} #{seq}"
 
     def get_token_breakdown(self, cwd: str = ".") -> TokenInfo:
@@ -2531,7 +2558,7 @@ class MessageNode(ContextNode):
         from .headers import TokenInfo
 
         # Collapsed: role and char count
-        collapsed_text = f"[{self.role.upper()}: {len(self.content)} chars]\n"
+        collapsed_text = f"[{self.role.value.upper()}: {len(self.content)} chars]\n"
         collapsed_tokens = count_tokens(collapsed_text)
 
         # Detail: full message content
@@ -2548,7 +2575,7 @@ class MessageNode(ContextNode):
         data = super().to_dict()
         data.update(
             {
-                "role": self.role,
+                "role": self.role.value,
                 "content": self.content,
                 "tool_name": self.tool_name,
                 "tool_args": self.tool_args,
@@ -2569,7 +2596,7 @@ class MessageNode(ContextNode):
             node_id=data["node_id"],
             parent_ids=set(data.get("parent_ids", [])),
             children_ids=set(data.get("children_ids", [])),
-            expansion=Expansion(data.get("expansion", "all")),
+            default_expansion=Expansion(data.get("expansion", "all")),
             mode=data.get("mode", "paused"),
             tick_frequency=tick_freq,
             version=data.get("version", 0),
@@ -2578,7 +2605,7 @@ class MessageNode(ContextNode):
             display_sequence=data.get("display_sequence"),
             originator=originator,
             title=data.get("title", ""),
-            role=data.get("role", "user"),
+            role=MessageRole(data.get("role", "user")),
             content=data.get("content", ""),
             tool_name=data.get("tool_name"),
             tool_args=data.get("tool_args", {}),
@@ -2604,7 +2631,7 @@ class WorkNode(ContextNode):
     """
 
     intent: str = ""
-    work_status: str = "active"  # active, paused, done
+    work_status: WorkStatus = WorkStatus.ACTIVE
     files: list[dict[str, str]] = field(default_factory=list)  # [{path, mode}]
     dependencies: list[str] = field(default_factory=list)
     conflicts: list[dict[str, str]] = field(
@@ -2621,11 +2648,11 @@ class WorkNode(ContextNode):
             "id": self.node_id,
             "type": self.node_type,
             "intent": self.intent,
-            "status": self.work_status,
+            "status": self.work_status.value,
             "file_count": len(self.files),
             "conflict_count": len(self.conflicts),
             "agent_id": self.agent_id,
-            "expansion": self.expansion.value,
+            "expansion": self.default_expansion.value,
             "mode": self.mode,
             "version": self.version,
         }
@@ -2692,7 +2719,7 @@ class WorkNode(ContextNode):
     def render_digest(self) -> str:
         """Return 'Work: intent [status]' format."""
         intent_display = self.intent[:30] + "..." if len(self.intent) > 30 else self.intent
-        return f"Work: {intent_display} [{self.work_status}]"
+        return f"Work: {intent_display} [{self.work_status.value}]"
 
     def get_token_breakdown(self, cwd: str = ".") -> TokenInfo:
         """Return token counts for collapsed/summary/detail."""
@@ -2702,7 +2729,7 @@ class WorkNode(ContextNode):
 
         # Collapsed: work metadata
         nf, nc = len(self.files), len(self.conflicts)
-        collapsed_text = f"[Work: {self.intent} [{self.work_status}] {nf}f {nc}c]\n"
+        collapsed_text = f"[Work: {self.intent} [{self.work_status.value}] {nf}f {nc}c]\n"
         collapsed_tokens = count_tokens(collapsed_text)
 
         # Detail: file list and conflict details
@@ -2725,7 +2752,7 @@ class WorkNode(ContextNode):
         data.update(
             {
                 "intent": self.intent,
-                "work_status": self.work_status,
+                "work_status": self.work_status.value,
                 "files": self.files,
                 "dependencies": self.dependencies,
                 "conflicts": self.conflicts,
@@ -2745,7 +2772,7 @@ class WorkNode(ContextNode):
             node_id=data["node_id"],
             parent_ids=set(data.get("parent_ids", [])),
             children_ids=set(data.get("children_ids", [])),
-            expansion=Expansion(data.get("expansion", "all")),
+            default_expansion=Expansion(data.get("expansion", "all")),
             mode=data.get("mode", "paused"),
             tick_frequency=tick_freq,
             version=data.get("version", 0),
@@ -2755,7 +2782,7 @@ class WorkNode(ContextNode):
             originator=data.get("originator"),
             title=data.get("title", ""),
             intent=data.get("intent", ""),
-            work_status=data.get("work_status", "active"),
+            work_status=WorkStatus(data.get("work_status", "active")),
             files=data.get("files", []),
             dependencies=data.get("dependencies", []),
             conflicts=data.get("conflicts", []),
@@ -2835,7 +2862,7 @@ class MCPServerNode(ContextNode):
             "tool_count": len(self.tools),
             "resource_count": len(self.resources),
             "prompt_count": len(self.prompts),
-            "expansion": self.expansion.value,
+            "expansion": self.default_expansion.value,
             "mode": self.mode,
             "version": self.version,
         }
@@ -2961,7 +2988,7 @@ class MCPServerNode(ContextNode):
                     server_name=self.server_name,
                     description=tool_data["description"],
                     input_schema=tool_data["input_schema"],
-                    expansion=Expansion.HEADER,
+                    default_expansion=Expansion.HEADER,
                 )
                 self._graph.add_node(tool_node)
                 self._graph.link(tool_node.node_id, self.node_id)
@@ -3140,7 +3167,7 @@ class MCPServerNode(ContextNode):
             parent_ids=set(data.get("parent_ids", [])),
             children_ids=set(data.get("children_ids", [])),
             child_order=child_order,
-            expansion=Expansion(data.get("expansion", "all")),
+            default_expansion=Expansion(data.get("expansion", "all")),
             mode=data.get("mode", "paused"),
             tick_frequency=tick_freq,
             version=data.get("version", 0),
@@ -3197,7 +3224,7 @@ class MCPToolNode(ContextNode):
             "tool_name": self.tool_name,
             "server_name": self.server_name,
             "has_schema": bool(self.input_schema.get("properties")),
-            "expansion": self.expansion.value,
+            "expansion": self.default_expansion.value,
             "version": self.version,
         }
 
@@ -3278,7 +3305,7 @@ class MCPToolNode(ContextNode):
             node_id=data["node_id"],
             parent_ids=set(data.get("parent_ids", [])),
             children_ids=set(data.get("children_ids", [])),
-            expansion=Expansion(data.get("expansion", "header")),
+            default_expansion=Expansion(data.get("expansion", "header")),
             mode=data.get("mode", "paused"),
             tick_frequency=tick_freq,
             version=data.get("version", 0),
@@ -3490,7 +3517,7 @@ class MCPManagerNode(ContextNode):
             node_id=d.get("node_id", "mcp_manager"),
             parent_ids=set(d.get("parent_ids", [])),
             children_ids=set(d.get("children_ids", [])),
-            expansion=Expansion(d.get("expansion", "content")),
+            default_expansion=Expansion(d.get("expansion", "content")),
             mode=d.get("mode", "paused"),
             tick_frequency=tick_freq,
             version=d.get("version", 0),
@@ -3694,7 +3721,7 @@ class PluginManagerNode(ContextNode):
             node_id=d.get("node_id", "plugin_manager"),
             parent_ids=set(d.get("parent_ids", [])),
             children_ids=set(d.get("children_ids", [])),
-            expansion=Expansion(d.get("expansion", "content")),
+            default_expansion=Expansion(d.get("expansion", "content")),
             mode=d.get("mode", "paused"),
             tick_frequency=tick_freq,
             version=d.get("version", 0),
@@ -3732,9 +3759,9 @@ class AgentNode(ContextNode):
 
     agent_id: str = ""
     agent_type: str = "default"
-    relation: str = "self"  # self, parent, child, peer
+    relation: AgentRelation = AgentRelation.SELF
     task: str = ""
-    agent_state: str = "running"
+    agent_state: AgentState = AgentState.RUNNING
     session_id: str = ""
     message_count: int = 0
 
@@ -3748,11 +3775,11 @@ class AgentNode(ContextNode):
             "type": self.node_type,
             "agent_id": self.agent_id,
             "agent_type": self.agent_type,
-            "relation": self.relation,
+            "relation": self.relation.value,
             "task": self.task,
-            "agent_state": self.agent_state,
+            "agent_state": self.agent_state.value,
             "message_count": self.message_count,
-            "expansion": self.expansion.value,
+            "expansion": self.default_expansion.value,
             "mode": self.mode,
             "version": self.version,
         }
@@ -3765,7 +3792,7 @@ class AgentNode(ContextNode):
         """Render type, state, task, and messages."""
         parts: list[str] = []
         parts.append(f"  Type: {self.agent_type}\n")
-        parts.append(f"  State: {self.agent_state}\n")
+        parts.append(f"  State: {self.agent_state.value}\n")
 
         if self.task:
             parts.append(f"  Task: {self.task}\n")
@@ -3775,12 +3802,12 @@ class AgentNode(ContextNode):
 
         return "".join(parts)
 
-    def update_state(self, agent_state: str) -> AgentNode:
+    def update_state(self, agent_state: AgentState) -> AgentNode:
         """Update the agent's state."""
         old_state = self.agent_state
         self.agent_state = agent_state
         if old_state != agent_state:
-            self.mark_changed(f"Agent state: {old_state} → {agent_state}")
+            self.mark_changed(f"Agent state: {old_state.value} → {agent_state.value}")
         return self
 
     def update_message_count(self, count: int) -> AgentNode:
@@ -3793,7 +3820,7 @@ class AgentNode(ContextNode):
 
     def render_digest(self) -> str:
         """Return 'Agent: id [state]' format."""
-        return f"Agent: {self.agent_id} [{self.agent_state.upper()}]"
+        return f"Agent: {self.agent_id} [{self.agent_state.value.upper()}]"
 
     def get_token_breakdown(self, cwd: str = ".") -> TokenInfo:
         """Return token counts for collapsed/summary/detail."""
@@ -3802,7 +3829,8 @@ class AgentNode(ContextNode):
         from .headers import TokenInfo
 
         # Collapsed: agent info
-        collapsed_text = f"[Agent: {self.agent_id} [{self.agent_state}] {self.message_count}m]\n"
+        state = self.agent_state.value
+        collapsed_text = f"[Agent: {self.agent_id} [{state}] {self.message_count}m]\n"
         collapsed_tokens = count_tokens(collapsed_text)
 
         # Detail: task and session info
@@ -3821,9 +3849,9 @@ class AgentNode(ContextNode):
             {
                 "agent_id": self.agent_id,
                 "agent_type": self.agent_type,
-                "relation": self.relation,
+                "relation": self.relation.value,
                 "task": self.task,
-                "agent_state": self.agent_state,
+                "agent_state": self.agent_state.value,
                 "session_id": self.session_id,
                 "message_count": self.message_count,
             }
@@ -3841,7 +3869,7 @@ class AgentNode(ContextNode):
             node_id=data["node_id"],
             parent_ids=set(data.get("parent_ids", [])),
             children_ids=set(data.get("children_ids", [])),
-            expansion=Expansion(data.get("expansion", "all")),
+            default_expansion=Expansion(data.get("expansion", "all")),
             mode=data.get("mode", "paused"),
             tick_frequency=tick_freq,
             version=data.get("version", 0),
@@ -3852,9 +3880,9 @@ class AgentNode(ContextNode):
             title=data.get("title", ""),
             agent_id=data.get("agent_id", ""),
             agent_type=data.get("agent_type", "default"),
-            relation=data.get("relation", "self"),
+            relation=AgentRelation(data.get("relation", "self")),
             task=data.get("task", ""),
-            agent_state=data.get("agent_state", "running"),
+            agent_state=AgentState(data.get("agent_state", "running")),
             session_id=data.get("session_id", ""),
             message_count=data.get("message_count", 0),
         )
@@ -3911,7 +3939,7 @@ class TraceNode(ContextNode):
             "versions": f"v{self.old_version}->v{self.new_version}",
             "description": self.description,
             "originator": self.originator,
-            "expansion": self.expansion.value,
+            "expansion": self.default_expansion.value,
         }
 
     # Formatting constants
@@ -3999,7 +4027,7 @@ class TraceNode(ContextNode):
             "node_id": self.node_id,
             "parent_ids": list(self.parent_ids),
             "children_ids": list(self.children_ids),
-            "expansion": self.expansion.value,
+            "expansion": self.default_expansion.value,
             "mode": self.mode,
             "version": self.version,
             "created_at": self.created_at,
@@ -4035,7 +4063,7 @@ class TraceNode(ContextNode):
             node_id=data.get("node_id", str(uuid.uuid4())[-8:]),
             parent_ids=set(data.get("parent_ids", [])),
             children_ids=set(data.get("children_ids", [])),
-            expansion=Expansion(data.get("expansion", "header")),
+            default_expansion=Expansion(data.get("expansion", "header")),
             mode=data.get("mode", "paused"),
             tick_frequency=tick_freq,
             version=data.get("version", 0),
@@ -4081,8 +4109,8 @@ class TaskNode(ContextNode):
 
     task_id: str = field(default_factory=lambda: f"task_{uuid.uuid4().hex[:8]}")
     task_type: str = "script"
-    io_mode: str = "async"
-    status: str = "pending"  # pending, running, paused, done, failed
+    io_mode: IOMode = IOMode.ASYNC
+    status: TaskStatus = TaskStatus.PENDING
     created_at: float = field(default_factory=lambda: time.time())
     started_at: float | None = None
     completed_at: float | None = None
@@ -4106,10 +4134,10 @@ class TaskNode(ContextNode):
             "type": self.node_type,
             "task_id": self.task_id,
             "task_type": self.task_type,
-            "io_mode": self.io_mode,
-            "status": self.status,
+            "io_mode": self.io_mode.value,
+            "status": self.status.value,
             "duration": duration,
-            "expansion": self.expansion.value,
+            "expansion": self.default_expansion.value,
             "mode": self.mode,
         }
 
@@ -4121,8 +4149,8 @@ class TaskNode(ContextNode):
         """Render full task info with timing and metadata."""
         lines = [f"Task: {self.task_id}"]
         lines.append(f"  Type: {self.task_type}")
-        lines.append(f"  Status: {self.status}")
-        lines.append(f"  I/O Mode: {self.io_mode}")
+        lines.append(f"  Status: {self.status.value}")
+        lines.append(f"  I/O Mode: {self.io_mode.value}")
 
         # Timing info
         if self.created_at:
@@ -4154,17 +4182,17 @@ class TaskNode(ContextNode):
 
         return "\n".join(lines)
 
-    def update_status(self, status: str) -> None:
+    def update_status(self, status: TaskStatus) -> None:
         """Update task status with timing."""
         old_status = self.status
         self.status = status
 
-        if status == "running" and not self.started_at:
+        if status == TaskStatus.RUNNING and not self.started_at:
             self.started_at = time.time()
-        elif status in ("done", "failed") and not self.completed_at:
+        elif status in (TaskStatus.DONE, TaskStatus.FAILED) and not self.completed_at:
             self.completed_at = time.time()
 
-        self.mark_changed(f"status: {old_status} -> {status}")
+        self.mark_changed(f"status: {old_status.value} -> {status.value}")
 
     def render_digest(self) -> str:
         """Display name for the task."""
@@ -4177,7 +4205,7 @@ class TaskNode(ContextNode):
         from .headers import TokenInfo
 
         # Collapsed: task status line
-        collapsed_text = f"[Task: {self.task_type} | {self.status}]\n"
+        collapsed_text = f"[Task: {self.task_type} | {self.status.value}]\n"
         collapsed_tokens = count_tokens(collapsed_text)
 
         # Content includes basic info
@@ -4197,8 +4225,8 @@ class TaskNode(ContextNode):
             {
                 "task_id": self.task_id,
                 "task_type": self.task_type,
-                "io_mode": self.io_mode,
-                "status": self.status,
+                "io_mode": self.io_mode.value,
+                "status": self.status.value,
                 "created_at": self.created_at,
                 "started_at": self.started_at,
                 "completed_at": self.completed_at,
@@ -4215,13 +4243,13 @@ class TaskNode(ContextNode):
 
         return cls(
             node_id=data.get("node_id", ""),
-            expansion=Expansion(data.get("expansion", Expansion.CONTENT.value)),
+            default_expansion=Expansion(data.get("expansion", Expansion.CONTENT.value)),
             mode=data.get("mode", "running"),
             tick_frequency=tick_frequency,
             task_id=data.get("task_id", ""),
             task_type=data.get("task_type", "script"),
-            io_mode=data.get("io_mode", "async"),
-            status=data.get("status", "pending"),
+            io_mode=IOMode(data.get("io_mode", "async")),
+            status=TaskStatus(data.get("status", "pending")),
             created_at=data.get("created_at", 0.0),
             started_at=data.get("started_at"),
             completed_at=data.get("completed_at"),
@@ -4458,7 +4486,7 @@ class HelpNode(ContextNode):
             "type": self.node_type,
             "parent_node_type": self.parent_node_type,
             "methods": self._count_methods(),
-            "expansion": self.expansion.value,
+            "expansion": self.default_expansion.value,
         }
 
     def render_digest(self) -> str:
@@ -4553,7 +4581,7 @@ class HelpNode(ContextNode):
             parent_ids=set(data.get("parent_ids", [])),
             children_ids=set(data.get("children_ids", [])),
             child_order=child_order,
-            expansion=Expansion(data.get("expansion", "content")),
+            default_expansion=Expansion(data.get("expansion", "content")),
             mode=data.get("mode", "paused"),
             tick_frequency=tick_freq,
             version=data.get("version", 0),
@@ -4595,7 +4623,7 @@ class MarkdownListItemNode(ContextNode):
             "content_preview": preview,
             "is_ordered": self.is_ordered,
             "indent_level": self.indent_level,
-            "expansion": self.expansion.value,
+            "expansion": self.default_expansion.value,
             "children_count": len(self.children_ids),
         }
 
@@ -4666,7 +4694,7 @@ class MarkdownListItemNode(ContextNode):
             parent_ids=set(data.get("parent_ids", [])),
             children_ids=set(data.get("children_ids", [])),
             child_order=child_order,
-            expansion=Expansion(data.get("expansion", "all")),
+            default_expansion=Expansion(data.get("expansion", "all")),
             mode=data.get("mode", "paused"),
             tick_frequency=tick_freq,
             version=data.get("version", 0),
@@ -4709,7 +4737,7 @@ class MarkdownNode(ContextNode):
             "type": self.node_type,
             "content_length": len(self.content),
             "buffer_id": self.buffer_id,
-            "expansion": self.expansion.value,
+            "expansion": self.default_expansion.value,
             "children_count": len(self.children_ids),
         }
 
@@ -4906,7 +4934,7 @@ class MarkdownNode(ContextNode):
             parent_ids=set(data.get("parent_ids", [])),
             children_ids=set(data.get("children_ids", [])),
             child_order=child_order,
-            expansion=Expansion(data.get("expansion", "all")),
+            default_expansion=Expansion(data.get("expansion", "all")),
             mode=data.get("mode", "paused"),
             tick_frequency=tick_freq,
             version=data.get("version", 0),
@@ -4952,7 +4980,7 @@ class FileSystemNode(ContextNode):
             "root_path": self.root_path,
             "pattern": self.pattern,
             "max_depth": self.max_depth,
-            "expansion": self.expansion.value,
+            "expansion": self.default_expansion.value,
         }
 
     def _scan_directory(self) -> str:
@@ -5092,7 +5120,7 @@ class FileSystemNode(ContextNode):
             parent_ids=set(data.get("parent_ids", [])),
             children_ids=set(data.get("children_ids", [])),
             child_order=child_order,
-            expansion=Expansion(data.get("expansion", "all")),
+            default_expansion=Expansion(data.get("expansion", "all")),
             mode=data.get("mode", "paused"),
             tick_frequency=tick_freq,
             version=data.get("version", 0),
@@ -5138,7 +5166,7 @@ class ClockNode(ContextNode):
             "elapsed": f"{self.elapsed_seconds:.1f}s",
             "remaining": f"{remaining:.1f}s" if remaining is not None else None,
             "is_running": self.is_running,
-            "expansion": self.expansion.value,
+            "expansion": self.default_expansion.value,
         }
 
     def get_elapsed(self) -> float:
@@ -5275,7 +5303,7 @@ class ClockNode(ContextNode):
             parent_ids=set(data.get("parent_ids", [])),
             children_ids=set(data.get("children_ids", [])),
             child_order=child_order,
-            expansion=Expansion(data.get("expansion", "all")),
+            default_expansion=Expansion(data.get("expansion", "all")),
             mode=data.get("mode", "paused"),
             tick_frequency=tick_freq,
             version=data.get("version", 0),
@@ -5320,7 +5348,7 @@ class FunctionDocNode(ContextNode):
             "file_path": self.file_path,
             "function_name": self.function_name,
             "has_docstring": bool(self.docstring),
-            "expansion": self.expansion.value,
+            "expansion": self.default_expansion.value,
         }
 
     def extract_function_info(self) -> FunctionDocNode:
@@ -5440,7 +5468,7 @@ class FunctionDocNode(ContextNode):
             parent_ids=set(data.get("parent_ids", [])),
             children_ids=set(data.get("children_ids", [])),
             child_order=child_order,
-            expansion=Expansion(data.get("expansion", "all")),
+            default_expansion=Expansion(data.get("expansion", "all")),
             mode=data.get("mode", "paused"),
             tick_frequency=tick_freq,
             version=data.get("version", 0),

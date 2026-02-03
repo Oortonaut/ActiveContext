@@ -240,7 +240,7 @@ class TestLockManagement:
 
             ns = timeline.get_namespace()
             lock_node = ns["lock"]
-            assert lock_node.expansion == Expansion.ALL
+            assert lock_node.default_expansion == Expansion.ALL
         finally:
             await timeline.close()
 

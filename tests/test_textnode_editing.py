@@ -351,7 +351,7 @@ class TestTextNodeExpansionStates:
         )
         node._lines = ["line 1", "line 2", "line 3"]
         graph.add_node(node)
-        node.expansion = Expansion.HEADER
+        node.default_expansion = Expansion.HEADER
 
         result = node.Render(cwd=".")
 
@@ -372,7 +372,7 @@ class TestTextNodeExpansionStates:
         )
         node._lines = ["line 1", "line 2", "line 3"]
         graph.add_node(node)
-        node.expansion = Expansion.CONTENT
+        node.default_expansion = Expansion.CONTENT
         node.cached_summary = "This is a test file summary."
         node.summary_stale = False
 
@@ -392,7 +392,7 @@ class TestTextNodeExpansionStates:
         )
         node._lines = ["line 1", "line 2", "line 3"]
         graph.add_node(node)
-        node.expansion = Expansion.CONTENT
+        node.default_expansion = Expansion.CONTENT
         node.cached_summary = None
 
         result = node.Render(cwd=".")
@@ -418,7 +418,7 @@ class TestTextNodeExpansionStates:
                 path=str(test_file),
             )
             graph.add_node(node)
-            node.expansion = Expansion.ALL
+            node.default_expansion = Expansion.ALL
 
             result = node.Render(cwd=tmpdir)
 
@@ -456,7 +456,7 @@ class TestTextNodeExpansionStates:
                 )
                 node.cached_summary = f"Summary for {exp.value} state"
                 node.summary_stale = False
-                node.expansion = exp
+                node.default_expansion = exp
                 graph.add_node(node)
                 nodes[exp] = node
 
@@ -493,7 +493,7 @@ class TestTextNodeExpansionStates:
             title="My Test File",
         )
         graph.add_node(node)
-        node.expansion = Expansion.HEADER
+        node.default_expansion = Expansion.HEADER
 
         header = node.render_header(cwd=".")
 
@@ -512,7 +512,7 @@ class TestTextNodeExpansionStates:
         node._lines = ["line 1"]
         node.cached_summary = "Old stale summary"
         node.summary_stale = True
-        node.expansion = Expansion.CONTENT
+        node.default_expansion = Expansion.CONTENT
         graph.add_node(node)
 
         result = node.Render(cwd=".")

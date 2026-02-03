@@ -22,11 +22,12 @@ from activecontext.context.nodes import (
     GroupNode,
     MCPManagerNode,
     MessageNode,
+    MessageRole,
     SessionNode,
     TextNode,
     TraceNode,
 )
-from activecontext.context.state import Expansion, TickFrequency
+from activecontext.context.state import Expansion, TickFrequency, TickMode
 from activecontext.context.view import view_from_dict
 from activecontext.core.projection_engine import ProjectionEngine
 from activecontext.logging import get_logger
@@ -152,7 +153,7 @@ class Session:
                 # Shouldn't happen, but create fresh if somehow wrong type
                 self._root_context = GroupNode(
                     node_id="context",
-                    expansion=Expansion.ALL,
+                    default_expansion=Expansion.ALL,
                     mode="running",
                     tick_frequency=TickFrequency.turn(),
                 )
@@ -164,7 +165,7 @@ class Session:
             # All other nodes become children of this root
             self._root_context = GroupNode(
                 node_id="context",
-                expansion=Expansion.ALL,
+                default_expansion=Expansion.ALL,
                 mode="running",
                 tick_frequency=TickFrequency.turn(),
             )
@@ -251,7 +252,7 @@ class Session:
         root = self._timeline._make_markdown_node(
             path="system_prompt",
             content=SYSTEM_PROMPT,
-            expansion=Expansion.ALL,  # Fully expanded
+            default_expansion=Expansion.ALL,  # Fully expanded
         )
 
         # Link root node to root context for document ordering
@@ -326,7 +327,7 @@ class Session:
         # Create MCPManagerNode singleton for tracking MCP server connections
         self._mcp_manager_node = MCPManagerNode(
             node_id="mcp_manager",
-            expansion=Expansion.CONTENT,
+            default_expansion=Expansion.CONTENT,
             mode="running",
             tick_frequency=TickFrequency.turn(),
         )
@@ -340,7 +341,7 @@ class Session:
         # canonical conversation nodes via _add_message / per-segment creation.
         self._user_messages_group = GroupNode(
             node_id="user_messages",
-            expansion=Expansion.HEADER,  # Queued messages don't render
+            default_expansion=Expansion.HEADER,  # Queued messages don't render
             mode="running",
             tick_frequency=TickFrequency.turn(),
         )
@@ -831,7 +832,7 @@ class Session:
 
         # Create tool_call message as child of the group
         tool_call = MessageNode(
-            role="tool_call",
+            role=MessageRole.TOOL_CALL,
             content="",
             originator=f"tool:{tool_name}",
             tool_name=tool_name,
@@ -953,7 +954,7 @@ class Session:
 
         # Create MessageNode
         msg_node = MessageNode(
-            role=message.role.value,  # Convert Role enum to string
+            role=MessageRole(message.role.value),  # Convert LLM Role enum to MessageRole
             content=message.content,
             originator=message.originator,
         )
@@ -1080,7 +1081,7 @@ class Session:
             # Create missing user_messages group for backward compatibility
             session._user_messages_group = GroupNode(
                 node_id="user_messages",
-                expansion=Expansion.HEADER,
+                default_expansion=Expansion.HEADER,
                 mode="running",
                 tick_frequency=TickFrequency.turn(),
             )
@@ -1170,10 +1171,10 @@ class Session:
 
         msg = MessageNode(
             node_id=message_id,
-            role="user",
+            role=MessageRole.USER,
             content=content,
             originator="user",
-            expansion=Expansion.ALL,
+            default_expansion=Expansion.ALL,
             mode="running",
             content_type=content_type,
             mime_type=mime_type,
@@ -1337,7 +1338,7 @@ class Session:
                     # Prose / blockquotes → assistant MessageNode
                     if segment.content.strip():
                         msg = MessageNode(
-                            role="assistant",
+                            role=MessageRole.ASSISTANT,
                             content=segment.content,
                             originator="agent",
                         )
@@ -1506,10 +1507,10 @@ class Session:
                 # No tick frequency set, skip
                 continue
 
-            if node.tick_frequency.mode == "turn":
+            if node.tick_frequency.mode == TickMode.TURN:
                 # Turn tick: recompute on every tick (replaces "Sync")
                 tick_kind = "turn"
-            elif node.tick_frequency.mode == "periodic":
+            elif node.tick_frequency.mode == TickMode.PERIODIC:
                 # Periodic tick: check interval
                 if node.tick_frequency.interval is None:
                     log.warning(
@@ -1519,10 +1520,10 @@ class Session:
 
                 if timestamp - node.updated_at >= node.tick_frequency.interval:
                     tick_kind = "periodic"
-            elif node.tick_frequency.mode == "async":
+            elif node.tick_frequency.mode == TickMode.ASYNC:
                 # Async mode - not yet implemented
                 pass
-            elif node.tick_frequency.mode == "never":
+            elif node.tick_frequency.mode == TickMode.NEVER:
                 # Never tick
                 continue
 
@@ -1762,10 +1763,10 @@ class Session:
 
             # Add result as MessageNode
             result_node = MessageNode(
-                role="user",  # Result flows back as user input
+                role=MessageRole.USER,  # Result flows back as user input
                 originator=originator,
                 content=str(result),
-                expansion=Expansion.ALL,
+                default_expansion=Expansion.ALL,
             )
             self.timeline.context_graph.add_node(result_node)
 
@@ -1774,10 +1775,10 @@ class Session:
         except asyncio.CancelledError:
             # Cancellation is regular code path
             cancel_node = MessageNode(
-                role="user",
+                role=MessageRole.USER,
                 originator=originator,
                 content="[Cancelled]",
-                expansion=Expansion.ALL,
+                default_expansion=Expansion.ALL,
             )
             self.timeline.context_graph.add_node(cancel_node)
             raise
@@ -1995,7 +1996,7 @@ class Session:
 
                 # Use forward slashes for cross-platform compatibility
                 safe_path = rel_path.replace("\\", "/")
-                source = f'guide = markdown("{safe_path}", expansion=Expansion.ALL)'
+                source = f'guide = markdown("{safe_path}", default_expansion=Expansion.ALL)'
                 await self._timeline.execute_statement(source)
                 break
 

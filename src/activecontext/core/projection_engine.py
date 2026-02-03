@@ -99,7 +99,7 @@ class ProjectionEngine:
         """Build a projection from current session state.
 
         The projection renders visible nodes from the context graph. Visibility
-        is controlled by NodeView.hide. Expansion is controlled by NodeView.expand.
+        is controlled by NodeView.hidden. Expansion is controlled by NodeView.expansion.
         The agent manipulates the path by showing, hiding, expanding, and
         collapsing nodes. All nodes are ticked regardless of visibility.
 
@@ -154,7 +154,7 @@ class ProjectionEngine:
         """Collect the render path through the graph in document order.
 
         Visibility rules:
-        - Hidden views (view.hide=True) are excluded
+        - Hidden views (view.hidden=True) are excluded
         - COLLAPSED/SUMMARY nodes render themselves (not their children)
         - DETAILS nodes render children according to child_order
 
@@ -208,7 +208,7 @@ class ProjectionEngine:
             return 0
         if views is not None:
             view = views.get(node.node_id)
-            if view is not None and view.hide:
+            if view is not None and view.hidden:
                 return 0
 
         seen.add(node.node_id)
@@ -279,11 +279,11 @@ class ProjectionEngine:
             view = views.get(node_id) if views else None
 
             # Skip if hidden via view
-            if view is not None and view.hide:
+            if view is not None and view.hidden:
                 continue
 
             # Get expand state from view or node
-            expand = view.expand if view is not None else node.expansion
+            expand = view.expansion if view is not None else node.default_expansion
 
             section = self._render_node(
                 node,
@@ -311,12 +311,12 @@ class ProjectionEngine:
             node: The context node to render
             cwd: Working directory for file access
             text_buffers: Dict of buffer_id -> TextBuffer for markdown nodes
-            expand: Expansion state to render with (uses node.expansion if not provided)
+            expand: Expansion state to render with (uses node.default_expansion if not provided)
 
         Returns:
             ProjectionSection or None if node should be skipped
         """
-        effective_expand = expand if expand is not None else node.expansion
+        effective_expand = expand if expand is not None else node.default_expansion
         content = node.Render(cwd=cwd, text_buffers=text_buffers, expand=effective_expand)
         media_type = getattr(node, "media_type", MediaType.TEXT)
         tokens_used = count_tokens(content, media_type)

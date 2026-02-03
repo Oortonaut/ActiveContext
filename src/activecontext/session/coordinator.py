@@ -12,7 +12,7 @@ import contextlib
 import time
 from typing import TYPE_CHECKING, Any
 
-from activecontext.context.nodes import MessageNode
+from activecontext.context.nodes import MessageNode, MessageRole
 from activecontext.context.state import Expansion
 from activecontext.protocols.conversation import InputType
 from activecontext.session.protocols import SessionUpdate, UpdateKind
@@ -75,10 +75,10 @@ class SessionConversationTransport:
         """
         # Create MessageNode in context graph
         node = MessageNode(
-            role="user",  # All non-agent messages use role="user"
+            role=MessageRole.USER,  # All non-agent messages use role="user"
             originator=originator or self._originator,
             content=text,
-            expansion=Expansion.ALL,
+            default_expansion=Expansion.ALL,
         )
         self._session.timeline.context_graph.add_node(node)
 
@@ -159,10 +159,10 @@ class SessionConversationTransport:
         # Add prompt as MessageNode if non-empty
         if prompt:
             prompt_node = MessageNode(
-                role="user",
+                role=MessageRole.USER,
                 originator=self._originator,
                 content=prompt,
-                expansion=Expansion.ALL,
+                default_expansion=Expansion.ALL,
             )
             self._session.timeline.context_graph.add_node(prompt_node)
 
@@ -181,10 +181,10 @@ class SessionConversationTransport:
 
         # Add response as MessageNode
         response_node = MessageNode(
-            role="user",
+            role=MessageRole.USER,
             originator="user",  # Response always from user
             content=response,
-            expansion=Expansion.ALL,
+            default_expansion=Expansion.ALL,
         )
         self._session.timeline.context_graph.add_node(response_node)
 
@@ -321,7 +321,7 @@ class ConversationHandle:
             for n in nodes
             if isinstance(n, MessageNode)
             and n.originator == self._transport.get_originator()
-            and n.role == "user"
+            and n.role == MessageRole.USER
         ]
 
         if not candidates:

@@ -37,6 +37,7 @@ from activecontext.coordination.task_bridge import (
     TaskInfo,
     WorkerInfo,
 )
+from activecontext.context.state import WorkStatus
 from activecontext.mcp.types import MCPConnectionStatus, MCPToolResult
 
 # ---------------------------------------------------------------------------
@@ -1303,7 +1304,7 @@ class TestWorkCoordinatorBridgeHooks:
         await coord.work_on("Fix bug", "src/main.py")
         await coord.work_done()
         assert coord.work_node is not None
-        assert coord.work_node.work_status == "done"
+        assert coord.work_node.work_status == WorkStatus.DONE
 
     @pytest.mark.anyio
     async def test_work_coordinator_without_bridge(self) -> None:
@@ -1325,4 +1326,4 @@ class TestWorkCoordinatorBridgeHooks:
         await coord.work_update(intent="Updated")
         assert node.intent == "Updated"
         await coord.work_done()
-        assert node.work_status == "done"
+        assert node.work_status == WorkStatus.DONE

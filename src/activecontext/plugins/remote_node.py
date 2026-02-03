@@ -192,7 +192,7 @@ class RemoteNode(ContextNode):
             "remote": True,
             "server": self._server_name,
             "stale": self._stale,
-            "expansion": self.expansion.value,
+            "expansion": self.default_expansion.value,
             "mode": self.mode,
             "version": self.version,
         }
@@ -467,7 +467,7 @@ class RemoteNode(ContextNode):
         node.parent_ids = set(data.get("parent_ids", []))
         node.children_ids = set(data.get("children_ids", []))
         if data.get("expansion"):
-            node.expansion = Expansion(data["expansion"])
+            node.default_expansion = Expansion(data["expansion"])
         node.mode = data.get("mode", "paused")
         node.version = data.get("version", 0)
         node.created_at = data.get("created_at", 0.0)

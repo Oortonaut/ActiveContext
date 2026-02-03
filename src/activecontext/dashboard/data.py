@@ -346,7 +346,7 @@ def format_session_update(
 def get_current_view_snapshot(session: Session) -> dict[str, Any]:
     """Get current view state snapshot from session.
 
-    Returns a dict mapping node_id -> {"hide": bool, "expand": str}.
+    Returns a dict mapping node_id -> {"hidden": bool, "expansion": str}.
     This represents the agent's live view state.
     """
     node_states: dict[str, dict[str, Any]] = {}
@@ -355,8 +355,8 @@ def get_current_view_snapshot(session: Session) -> dict[str, Any]:
         views = session.timeline.views
         for node_id, view in views.items():
             node_states[node_id] = {
-                "hide": view.hide,
-                "expand": view.expand.value,
+                "hidden": view.hidden,
+                "expansion": view.expansion.value,
             }
     except Exception:
         _log.debug("Failed to get view snapshot", exc_info=True)
@@ -375,7 +375,7 @@ def apply_view_snapshot(
 
     Args:
         session: The session to update.
-        node_states: Dict mapping node_id -> {"hide": bool, "expand": str}.
+        node_states: Dict mapping node_id -> {"hidden": bool, "expansion": str}.
 
     Returns:
         Dict with updated_count and any errors.
@@ -389,16 +389,16 @@ def apply_view_snapshot(
             if node_id in views:
                 view = views[node_id]
 
-                # Update hide state
-                if "hide" in state:
-                    view.hide = state["hide"]
+                # Update hidden state
+                if "hidden" in state:
+                    view.hidden = state["hidden"]
 
-                # Update expand state
-                if "expand" in state:
+                # Update expansion state
+                if "expansion" in state:
                     try:
-                        view.expand = Expansion(state["expand"])
+                        view.expansion = Expansion(state["expansion"])
                     except ValueError:
-                        errors.append(f"Invalid expansion for {node_id}: {state['expand']}")
+                        errors.append(f"Invalid expansion for {node_id}: {state['expansion']}")
                         continue
 
                 updated_count += 1

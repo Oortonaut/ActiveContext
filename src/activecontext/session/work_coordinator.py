@@ -10,7 +10,7 @@ import uuid
 from typing import TYPE_CHECKING, Any
 
 from activecontext.context.nodes import WorkNode
-from activecontext.context.state import Expansion
+from activecontext.context.state import Expansion, WorkStatus
 
 if TYPE_CHECKING:
     from activecontext.context.graph import ContextGraph
@@ -102,7 +102,7 @@ class WorkCoordinator:
             node_id = f"work_{uuid.uuid4().hex[:8]}"
             self._work_node = WorkNode(
                 node_id=node_id,
-                expansion=Expansion.ALL,
+                default_expansion=Expansion.ALL,
                 intent=entry.intent,
                 work_status=entry.status,
                 files=[f.to_dict() for f in file_accesses],
@@ -153,7 +153,7 @@ class WorkCoordinator:
         files: list[str] | None = None,
         mode: str = "write",
         dependencies: list[str] | None = None,
-        status: str | None = None,
+        status: WorkStatus | None = None,
     ) -> WorkNode | None:
         """Update current work registration.
 
@@ -162,7 +162,7 @@ class WorkCoordinator:
             files: New file list (replaces existing)
             mode: Access mode for new files
             dependencies: New dependencies
-            status: New status (active/paused/done)
+            status: New status (ACTIVE/PAUSED/DONE)
 
         Returns:
             Updated WorkNode, or None if not registered
@@ -222,8 +222,8 @@ class WorkCoordinator:
         self._scratchpad_manager.unregister()
 
         if self._work_node:
-            self._work_node.work_status = "done"
-            self._work_node.expansion = Expansion.HEADER
+            self._work_node.work_status = WorkStatus.DONE
+            self._work_node.default_expansion = Expansion.HEADER
 
         # Complete task in task-graph with wall time (no-op when bridge inactive)
         if self._task_bridge and self._task_bridge.is_active:
@@ -244,7 +244,7 @@ class WorkCoordinator:
                 "agent_id": e.id,
                 "session_id": e.session_id,
                 "intent": e.intent,
-                "status": e.status,
+                "status": e.status.value,
                 "files": [f.to_dict() for f in e.files],
                 "dependencies": e.dependencies,
                 "started_at": e.started_at.isoformat(),

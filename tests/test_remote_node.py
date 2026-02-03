@@ -348,7 +348,7 @@ class TestSerialization:
             _cached_tokens=TokenEstimate(collapsed=10, summary=20, detail=30),
             _cached_digest={"id": "test"},
         )
-        original.expansion = Expansion.CONTENT
+        original.default_expansion = Expansion.CONTENT
         original.mode = "running"
         original.version = 5
         original.title = "Lint Check"
@@ -364,7 +364,7 @@ class TestSerialization:
         assert restored._cached_renders.header == "h"
         assert restored._cached_renders.content == "c"
         assert restored._cached_tokens.collapsed == 10
-        assert restored.expansion == Expansion.CONTENT
+        assert restored.default_expansion == Expansion.CONTENT
         assert restored.mode == "running"
         assert restored.version == 5
         assert restored.title == "Lint Check"

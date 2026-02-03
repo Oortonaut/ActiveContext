@@ -39,12 +39,12 @@ def mock_graph():
 
     # Create mock nodes with Render method
     running_node = create_mock_context_node("running1", "view", mode="running")
-    running_node.expansion = Expansion.ALL
+    running_node.default_expansion = Expansion.ALL
     running_node.Render = Mock(return_value="# Running Node Content\nThis is the content.")
     running_node.clear_pending_traces = Mock()
 
     paused_root = create_mock_context_node("paused_root", "view", mode="paused")
-    paused_root.expansion = Expansion.CONTENT
+    paused_root.default_expansion = Expansion.CONTENT
     paused_root.Render = Mock(return_value="# Paused Root Summary")
     paused_root.clear_pending_traces = Mock()
 
@@ -124,7 +124,7 @@ class TestCollectRenderPath:
         graph = ContextGraph()
 
         root = create_mock_context_node("root", "view")
-        root.expansion = Expansion.HEADER
+        root.default_expansion = Expansion.HEADER
         child = create_mock_context_node("child", "view")
 
         graph.add_node(root)
@@ -146,18 +146,18 @@ class TestCollectRenderPath:
         graph = ContextGraph()
 
         hidden_node = create_mock_context_node("hidden", "view", mode="running")
-        hidden_node.expansion = Expansion.HEADER
+        hidden_node.default_expansion = Expansion.HEADER
 
         visible_node = create_mock_context_node("visible", "view", mode="running")
-        visible_node.expansion = Expansion.ALL
+        visible_node.default_expansion = Expansion.ALL
 
         graph.add_node(hidden_node)
         graph.add_node(visible_node)
 
         # Create views dict with hidden node marked as hidden
         views = {
-            "hidden": NodeView(hidden_node, hide=True),
-            "visible": NodeView(visible_node, hide=False),
+            "hidden": NodeView(hidden_node, hidden=True),
+            "visible": NodeView(visible_node, hidden=False),
         }
 
         path = projection_engine._collect_render_path(graph, views)
@@ -217,12 +217,12 @@ class TestRenderPathRendering:
         graph = ContextGraph()
 
         hidden_node = create_mock_context_node("hidden", "view", mode="running")
-        hidden_node.expansion = Expansion.HEADER
+        hidden_node.default_expansion = Expansion.HEADER
         hidden_node.Render = Mock(return_value="Hidden content")
         hidden_node.clear_pending_traces = Mock()
 
         visible_node = create_mock_context_node("visible", "view", mode="running")
-        visible_node.expansion = Expansion.ALL
+        visible_node.default_expansion = Expansion.ALL
         visible_node.Render = Mock(return_value="Visible content")
         visible_node.clear_pending_traces = Mock()
 
@@ -231,8 +231,8 @@ class TestRenderPathRendering:
 
         # Create views dict with hidden node marked as hidden
         views = {
-            "hidden": NodeView(hidden_node, hide=True),
-            "visible": NodeView(visible_node, hide=False),
+            "hidden": NodeView(hidden_node, hidden=True),
+            "visible": NodeView(visible_node, hidden=False),
         }
 
         path = projection_engine._collect_render_path(graph, views)
@@ -250,7 +250,7 @@ class TestRenderPathRendering:
         running_node = mock_graph.get_node("running1")
         paused_node = mock_graph.get_node("paused_root")
 
-        # Render is called with expand param (from view or node.expansion)
+        # Render is called with expand param (from view or node.default_expansion)
         running_node.Render.assert_called_once_with(
             cwd="/test", text_buffers=None, expand=Expansion.ALL
         )
@@ -342,7 +342,7 @@ class TestProjectionIntegration:
         # Create graph with nodes
         graph = ContextGraph()
         node = create_mock_context_node("node1", "view", mode="running")
-        node.expansion = Expansion.ALL
+        node.default_expansion = Expansion.ALL
         node.Render = Mock(return_value="Node content")
         node.clear_pending_traces = Mock()
         graph.add_node(node)

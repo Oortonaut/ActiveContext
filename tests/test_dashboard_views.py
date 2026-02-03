@@ -27,12 +27,12 @@ def mock_session():
 
     # Create mock views
     view1 = MagicMock()
-    view1.hide = False
-    view1.expand = Expansion.ALL
+    view1.hidden = False
+    view1.expansion = Expansion.ALL
 
     view2 = MagicMock()
-    view2.hide = True
-    view2.expand = Expansion.HEADER
+    view2.hidden = True
+    view2.expansion = Expansion.HEADER
 
     session.timeline.views = {
         "node-1": view1,
@@ -75,7 +75,7 @@ class TestViewSnapshot:
             name="my-view",
             created_at=1000.0,
             updated_at=2000.0,
-            node_states={"node-1": {"hide": True, "expand": "header"}},
+            node_states={"node-1": {"hidden": True, "expansion": "header"}},
         )
 
         result = snapshot.to_dict()
@@ -83,7 +83,7 @@ class TestViewSnapshot:
         assert result["name"] == "my-view"
         assert result["created_at"] == 1000.0
         assert result["updated_at"] == 2000.0
-        assert result["node_states"]["node-1"]["hide"] is True
+        assert result["node_states"]["node-1"]["hidden"] is True
 
     def test_from_dict(self):
         """Should deserialize from dictionary."""
@@ -91,14 +91,14 @@ class TestViewSnapshot:
             "name": "restored",
             "created_at": 500.0,
             "updated_at": 600.0,
-            "node_states": {"node-2": {"hide": False, "expand": "all"}},
+            "node_states": {"node-2": {"hidden": False, "expansion": "all"}},
         }
 
         snapshot = ViewSnapshot.from_dict(data)
 
         assert snapshot.name == "restored"
         assert snapshot.created_at == 500.0
-        assert snapshot.node_states["node-2"]["expand"] == "all"
+        assert snapshot.node_states["node-2"]["expansion"] == "all"
 
 
 # =============================================================================
@@ -123,9 +123,9 @@ class TestViewManager:
 
         assert snapshot.name == "my-view"
         assert "node-1" in snapshot.node_states
-        assert snapshot.node_states["node-1"]["hide"] is False
-        assert snapshot.node_states["node-1"]["expand"] == "all"
-        assert snapshot.node_states["node-2"]["hide"] is True
+        assert snapshot.node_states["node-1"]["hidden"] is False
+        assert snapshot.node_states["node-1"]["expansion"] == "all"
+        assert snapshot.node_states["node-2"]["hidden"] is True
 
     def test_clone_view_fails_for_existing_name(self, mock_session):
         """Should raise error when cloning to existing name."""
@@ -175,14 +175,14 @@ class TestViewManager:
         original_created_at = original.created_at
 
         # Modify the mock session views
-        mock_session.timeline.views["node-1"].hide = True
-        mock_session.timeline.views["node-1"].expand = Expansion.CONTENT
+        mock_session.timeline.views["node-1"].hidden = True
+        mock_session.timeline.views["node-1"].expansion = Expansion.CONTENT
 
         # Read (update) the view
         snapshot = manager.read_view("test", mock_session)
 
-        assert snapshot.node_states["node-1"]["hide"] is True
-        assert snapshot.node_states["node-1"]["expand"] == "content"
+        assert snapshot.node_states["node-1"]["hidden"] is True
+        assert snapshot.node_states["node-1"]["expansion"] == "content"
         # created_at should be preserved
         assert snapshot.created_at == original_created_at
 
@@ -201,15 +201,15 @@ class TestViewManager:
         manager.clone_view("saved", mock_session)
 
         # Change the session views
-        mock_session.timeline.views["node-1"].hide = True
-        mock_session.timeline.views["node-1"].expand = Expansion.HEADER
+        mock_session.timeline.views["node-1"].hidden = True
+        mock_session.timeline.views["node-1"].expansion = Expansion.HEADER
 
         # Apply saved state
         updated = manager.write_view("saved", mock_session)
 
         assert updated == 2  # Both nodes updated
-        assert mock_session.timeline.views["node-1"].hide is False
-        assert mock_session.timeline.views["node-1"].expand == Expansion.ALL
+        assert mock_session.timeline.views["node-1"].hidden is False
+        assert mock_session.timeline.views["node-1"].expansion == Expansion.ALL
 
     def test_write_view_fails_for_unknown(self, mock_session):
         """Should raise error for unknown view name."""

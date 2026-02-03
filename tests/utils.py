@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
+from activecontext.context.state import Expansion
 from activecontext.core.llm.provider import Message, Role
 
 
@@ -52,6 +53,8 @@ def create_mock_context_node(
     node.children_ids = children_ids or set()
     node.child_order = None  # Lazily initialized like real nodes
     node._graph = None
+    node.default_expansion = Expansion.ALL
+    node.default_hidden = False
 
 
     # Add add_child method that mimics real ContextNode behavior

@@ -251,13 +251,13 @@ class TestMarkdownNode:
         children = [graph.get_node(child_id) for child_id in md.child_order]
 
         # Set different expansion states
-        children[0].expansion = Expansion.HEADER
-        children[1].expansion = Expansion.CONTENT
-        children[2].expansion = Expansion.ALL
+        children[0].default_expansion = Expansion.HEADER
+        children[1].default_expansion = Expansion.CONTENT
+        children[2].default_expansion = Expansion.ALL
 
-        assert children[0].expansion == Expansion.HEADER
-        assert children[1].expansion == Expansion.CONTENT
-        assert children[2].expansion == Expansion.ALL
+        assert children[0].default_expansion == Expansion.HEADER
+        assert children[1].default_expansion == Expansion.CONTENT
+        assert children[2].default_expansion == Expansion.ALL
 
     def test_get_digest(self):
         """Test digest generation."""
@@ -306,14 +306,14 @@ class TestMarkdownNode:
         assert len(children) == 3
 
         # Set different expansion states on list items
-        children[0].expansion = Expansion.HEADER
-        children[1].expansion = Expansion.CONTENT
-        children[2].expansion = Expansion.ALL
+        children[0].default_expansion = Expansion.HEADER
+        children[1].default_expansion = Expansion.CONTENT
+        children[2].default_expansion = Expansion.ALL
 
         # Verify states are independent
-        assert children[0].expansion == Expansion.HEADER
-        assert children[1].expansion == Expansion.CONTENT
-        assert children[2].expansion == Expansion.ALL
+        assert children[0].default_expansion == Expansion.HEADER
+        assert children[1].default_expansion == Expansion.CONTENT
+        assert children[2].default_expansion == Expansion.ALL
 
         # Verify each renders appropriately
         render0 = children[0].Render()

@@ -467,80 +467,80 @@ class TestStateTransitions:
         node = TextNode(
             node_id="test",
             path="test.py",
-            expansion=Expansion.HEADER,
+            default_expansion=Expansion.HEADER,
         )
 
-        assert node.expansion == Expansion.HEADER
+        assert node.default_expansion == Expansion.HEADER
 
-        node.expansion = Expansion.CONTENT
-        assert node.expansion == Expansion.CONTENT
+        node.default_expansion = Expansion.CONTENT
+        assert node.default_expansion == Expansion.CONTENT
 
     def test_expansion_content_to_index(self):
         """Test Expansion transition from CONTENT to INDEX."""
         node = TextNode(
             node_id="test",
             path="test.py",
-            expansion=Expansion.CONTENT,
+            default_expansion=Expansion.CONTENT,
         )
 
-        node.expansion = Expansion.INDEX
-        assert node.expansion == Expansion.INDEX
+        node.default_expansion = Expansion.INDEX
+        assert node.default_expansion == Expansion.INDEX
 
     def test_expansion_index_to_all(self):
         """Test Expansion transition from INDEX to ALL."""
         node = TextNode(
             node_id="test",
             path="test.py",
-            expansion=Expansion.INDEX,
+            default_expansion=Expansion.INDEX,
         )
 
-        node.expansion = Expansion.ALL
-        assert node.expansion == Expansion.ALL
+        node.default_expansion = Expansion.ALL
+        assert node.default_expansion == Expansion.ALL
 
     def test_expansion_full_sequence(self):
         """Test full Expansion sequence: HEADER -> CONTENT -> INDEX -> ALL."""
         node = TextNode(
             node_id="test",
             path="test.py",
-            expansion=Expansion.HEADER,
+            default_expansion=Expansion.HEADER,
         )
 
         # Step through all states
         states = [Expansion.HEADER, Expansion.CONTENT, Expansion.INDEX, Expansion.ALL]
 
         for expected_state in states:
-            node.expansion = expected_state
-            assert node.expansion == expected_state
+            node.default_expansion = expected_state
+            assert node.default_expansion == expected_state
 
     def test_expansion_reverse_sequence(self):
         """Test reverse Expansion sequence: ALL -> INDEX -> CONTENT -> HEADER."""
         node = TextNode(
             node_id="test",
             path="test.py",
-            expansion=Expansion.ALL,
+            default_expansion=Expansion.ALL,
         )
 
         states = [Expansion.ALL, Expansion.INDEX, Expansion.CONTENT, Expansion.HEADER]
 
         for expected_state in states:
-            node.expansion = expected_state
-            assert node.expansion == expected_state
+            node.default_expansion = expected_state
+            assert node.default_expansion == expected_state
 
     def test_expansion_skip_states(self):
         """Test skipping intermediate Expansion states."""
         node = TextNode(
             node_id="test",
             path="test.py",
-            expansion=Expansion.HEADER,
+            default_expansion=Expansion.HEADER,
         )
 
         # Skip directly to ALL
-        node.expansion = Expansion.ALL
-        assert node.expansion == Expansion.ALL
+        node.default_expansion = Expansion.ALL
+        assert node.default_expansion == Expansion.ALL
 
         # Skip back to HEADER
-        node.expansion = Expansion.HEADER
-        assert node.expansion == Expansion.HEADER
+        node.default_expansion = Expansion.HEADER
+        assert node.default_expansion == Expansion.HEADER
 
     def test_visibility_hide_show(self):
         """Test Visibility HIDE/SHOW transitions."""
@@ -567,18 +567,18 @@ class TestStateTransitions:
         """Test GroupNode uses CONTENT as default expansion."""
         group = GroupNode(
             node_id="group1",
-            expansion=Expansion.CONTENT,
+            default_expansion=Expansion.CONTENT,
         )
-        assert group.expansion == Expansion.CONTENT
+        assert group.default_expansion == Expansion.CONTENT
 
     def test_expansion_text_node_default(self):
         """Test TextNode uses ALL as default expansion."""
         text = TextNode(
             node_id="text1",
             path="test.py",
-            expansion=Expansion.ALL,
+            default_expansion=Expansion.ALL,
         )
-        assert text.expansion == Expansion.ALL
+        assert text.default_expansion == Expansion.ALL
 
 
 # =============================================================================
@@ -596,7 +596,7 @@ class TestGroupSummarizationTriggers:
 
         group = GroupNode(
             node_id="group1",
-            expansion=Expansion.CONTENT,
+            default_expansion=Expansion.CONTENT,
             cached_summary="Initial summary",
             summary_stale=False,
             last_child_versions={"child1": 1, "child2": 1},
@@ -605,14 +605,14 @@ class TestGroupSummarizationTriggers:
         child1 = TextNode(
             node_id="child1",
             path="file1.py",
-            expansion=Expansion.ALL,
+            default_expansion=Expansion.ALL,
         )
         child1.version = 1
 
         child2 = TextNode(
             node_id="child2",
             path="file2.py",
-            expansion=Expansion.ALL,
+            default_expansion=Expansion.ALL,
         )
         child2.version = 1
 
@@ -846,7 +846,7 @@ class TestDAGEdgeCases:
         """Test checkpoint preserves GroupNode-specific state."""
         group = GroupNode(
             node_id="group1",
-            expansion=Expansion.CONTENT,
+            default_expansion=Expansion.CONTENT,
             summary_prompt="Test prompt",
             cached_summary="Test summary",
             summary_stale=True,

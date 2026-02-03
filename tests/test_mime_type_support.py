@@ -14,7 +14,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from activecontext.agents.schema import AgentMessage
-from activecontext.context.nodes import MessageNode
+from activecontext.context.nodes import MessageNode, MessageRole
 from activecontext.context.state import Expansion
 from activecontext.dashboard.data import get_message_history_data
 from activecontext.transport.acp.agent import extract_content_from_blocks
@@ -110,7 +110,7 @@ class TestMessageNodeMimeType:
         """Test that MessageNode defaults to text content type."""
         node = MessageNode(
             node_id="msg_1",
-            role="user",
+            role=MessageRole.USER,
             content="Hello world",
             originator="user",
         )
@@ -121,7 +121,7 @@ class TestMessageNodeMimeType:
         """Test MessageNode with image content type."""
         node = MessageNode(
             node_id="msg_2",
-            role="user",
+            role=MessageRole.USER,
             content="base64_image_data",
             originator="user",
             content_type="image",
@@ -134,10 +134,10 @@ class TestMessageNodeMimeType:
         """Test that GetDigest includes MIME type fields."""
         node = MessageNode(
             node_id="msg_3",
-            role="user",
+            role=MessageRole.USER,
             content="Hello",
             originator="user",
-            expansion=Expansion.ALL,
+            default_expansion=Expansion.ALL,
             content_type="text",
             mime_type=None,
         )

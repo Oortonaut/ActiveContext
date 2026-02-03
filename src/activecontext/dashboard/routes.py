@@ -348,8 +348,8 @@ async def _handle_set_expansion(
         )
         return
 
-    old_expansion = node.expansion
-    node.expansion = new_expansion
+    old_expansion = node.default_expansion
+    node.default_expansion = new_expansion
 
     # Broadcast update to all dashboard clients
     await broadcast_update(
@@ -427,8 +427,8 @@ async def _handle_set_hidden(
         return
 
     view = views[node_id]
-    old_hidden = view.hide
-    view.hide = bool(new_hidden)
+    old_hidden = view.hidden
+    view.hidden = bool(new_hidden)
 
     # Broadcast update to all dashboard clients
     await broadcast_update(
@@ -438,7 +438,7 @@ async def _handle_set_hidden(
             "node_id": node_id,
             "change": "hidden_changed",
             "old_hidden": old_hidden,
-            "new_hidden": view.hide,
+            "new_hidden": view.hidden,
         },
         time.time(),
     )
@@ -449,7 +449,7 @@ async def _handle_set_hidden(
             "type": "hidden_changed",
             "node_id": node_id,
             "old_hidden": old_hidden,
-            "new_hidden": view.hide,
+            "new_hidden": view.hidden,
         }
     )
 

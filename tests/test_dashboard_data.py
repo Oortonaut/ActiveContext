@@ -1360,17 +1360,17 @@ class TestGetCurrentViewSnapshot:
         assert result["node_count"] == 0
 
     def test_captures_view_state(self, mock_session):
-        """Should capture hide and expand state for each view."""
+        """Should capture hidden and expansion state for each view."""
         from activecontext.context.state import Expansion
         from activecontext.dashboard.data import get_current_view_snapshot
 
         view1 = MagicMock()
-        view1.hide = False
-        view1.expand = Expansion.ALL
+        view1.hidden = False
+        view1.expansion = Expansion.ALL
 
         view2 = MagicMock()
-        view2.hide = True
-        view2.expand = Expansion.HEADER
+        view2.hidden = True
+        view2.expansion = Expansion.HEADER
 
         mock_session.timeline.views = {
             "node-1": view1,
@@ -1380,10 +1380,10 @@ class TestGetCurrentViewSnapshot:
         result = get_current_view_snapshot(mock_session)
 
         assert result["node_count"] == 2
-        assert result["node_states"]["node-1"]["hide"] is False
-        assert result["node_states"]["node-1"]["expand"] == "all"
-        assert result["node_states"]["node-2"]["hide"] is True
-        assert result["node_states"]["node-2"]["expand"] == "header"
+        assert result["node_states"]["node-1"]["hidden"] is False
+        assert result["node_states"]["node-1"]["expansion"] == "all"
+        assert result["node_states"]["node-2"]["hidden"] is True
+        assert result["node_states"]["node-2"]["expansion"] == "header"
 
     def test_handles_exception(self, mock_session):
         """Should return empty result on exception."""
@@ -1401,26 +1401,26 @@ class TestApplyViewSnapshot:
     """Tests for apply_view_snapshot function."""
 
     def test_applies_state_to_existing_views(self, mock_session):
-        """Should apply hide and expand state to matching views."""
+        """Should apply hidden and expansion state to matching views."""
         from activecontext.context.state import Expansion
         from activecontext.dashboard.data import apply_view_snapshot
 
         view1 = MagicMock()
-        view1.hide = False
-        view1.expand = Expansion.ALL
+        view1.hidden = False
+        view1.expansion = Expansion.ALL
 
         mock_session.timeline.views = {"node-1": view1}
 
         node_states = {
-            "node-1": {"hide": True, "expand": "header"},
+            "node-1": {"hidden": True, "expansion": "header"},
         }
 
         result = apply_view_snapshot(mock_session, node_states)
 
         assert result["updated_count"] == 1
         assert result["errors"] == []
-        assert view1.hide is True
-        assert view1.expand == Expansion.HEADER
+        assert view1.hidden is True
+        assert view1.expansion == Expansion.HEADER
 
     def test_skips_nonexistent_views(self, mock_session):
         """Should skip nodes that don't have views."""
@@ -1429,7 +1429,7 @@ class TestApplyViewSnapshot:
         mock_session.timeline.views = {}
 
         node_states = {
-            "nonexistent": {"hide": True, "expand": "header"},
+            "nonexistent": {"hidden": True, "expansion": "header"},
         }
 
         result = apply_view_snapshot(mock_session, node_states)
@@ -1443,13 +1443,13 @@ class TestApplyViewSnapshot:
         from activecontext.dashboard.data import apply_view_snapshot
 
         view1 = MagicMock()
-        view1.hide = False
-        view1.expand = Expansion.ALL
+        view1.hidden = False
+        view1.expansion = Expansion.ALL
 
         mock_session.timeline.views = {"node-1": view1}
 
         node_states = {
-            "node-1": {"hide": True, "expand": "invalid"},
+            "node-1": {"hidden": True, "expansion": "invalid"},
         }
 
         result = apply_view_snapshot(mock_session, node_states)

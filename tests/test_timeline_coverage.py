@@ -313,7 +313,7 @@ class TestNotifyFunction:
 
             ns = timeline.get_namespace()
             v = ns["v"]
-            assert v.node().notification_level == NotificationLevel.WAKE
+            assert v.node.notification_level == NotificationLevel.WAKE
         finally:
             await timeline.close()
 
@@ -327,7 +327,7 @@ class TestNotifyFunction:
 
             ns = timeline.get_namespace()
             v = ns["v"]
-            assert v.node().notification_level == NotificationLevel.HOLD
+            assert v.node.notification_level == NotificationLevel.HOLD
         finally:
             await timeline.close()
 
@@ -801,7 +801,7 @@ class TestCurrentGroup:
             # Create a topic (should be auto-linked)
             await timeline.execute_statement('t = topic("Auto-linked")')
             ns = timeline.get_namespace()
-            topic_node = ns["t"].node()
+            topic_node = ns["t"].node
 
             # Verify parent relationship
             parents = timeline._context_graph.get_parents(topic_node.node_id)
@@ -1022,7 +1022,7 @@ class TestResolveNodeId:
         try:
             await timeline.execute_statement('t = topic("Test")')
             ns = timeline.get_namespace()
-            node = ns["t"].node()
+            node = ns["t"].node
 
             result = timeline._resolve_node_id(node)
             assert result == node.node_id
@@ -1068,7 +1068,7 @@ class TestCheckWaitConditionModes:
 
             ns = timeline.get_namespace()
             # Get the actual node, not the view
-            shell_node = ns["s"].node() if hasattr(ns["s"], "node") else ns["s"]
+            shell_node = ns["s"].node if hasattr(ns["s"], "node") else ns["s"]
 
             # Mark as completed - shell_status is a dataclass field
             shell_node.shell_status = ShellStatus.COMPLETED
@@ -1105,8 +1105,8 @@ class TestCheckWaitConditionModes:
 
             ns = timeline.get_namespace()
             # Get the actual nodes
-            shell1 = ns["s1"].node() if hasattr(ns["s1"], "node") else ns["s1"]
-            shell2 = ns["s2"].node() if hasattr(ns["s2"], "node") else ns["s2"]
+            shell1 = ns["s1"].node if hasattr(ns["s1"], "node") else ns["s1"]
+            shell2 = ns["s2"].node if hasattr(ns["s2"], "node") else ns["s2"]
 
             # Mark only first as completed
             shell1.shell_status = ShellStatus.COMPLETED
@@ -1142,8 +1142,8 @@ class TestCheckWaitConditionModes:
 
             ns = timeline.get_namespace()
             # Get the actual nodes
-            shell1 = ns["s1"].node() if hasattr(ns["s1"], "node") else ns["s1"]
-            shell2 = ns["s2"].node() if hasattr(ns["s2"], "node") else ns["s2"]
+            shell1 = ns["s1"].node if hasattr(ns["s1"], "node") else ns["s1"]
+            shell2 = ns["s2"].node if hasattr(ns["s2"], "node") else ns["s2"]
 
             # Mark only first as completed
             shell1.shell_status = ShellStatus.COMPLETED
@@ -1177,7 +1177,7 @@ class TestCheckWaitConditionModes:
 
             ns = timeline.get_namespace()
             # Get the actual node
-            shell_node = ns["s"].node() if hasattr(ns["s"], "node") else ns["s"]
+            shell_node = ns["s"].node if hasattr(ns["s"], "node") else ns["s"]
 
             # Mark as failed
             shell_node.shell_status = ShellStatus.FAILED
@@ -1402,7 +1402,7 @@ class TestGroupWithCurrentGroupParent:
             # Create topic with explicit parent g2
             await timeline.execute_statement(f't = topic("Test", parent="{g2_id}")')
             ns = timeline.get_namespace()
-            topic_node = ns["t"].node()
+            topic_node = ns["t"].node
 
             # Should be linked to g2, not g1
             parents = timeline._context_graph.get_parents(topic_node.node_id)

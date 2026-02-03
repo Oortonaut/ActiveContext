@@ -180,12 +180,12 @@ class TestHelpIdempotency:
     def test_help_unhides_existing(self, text_node: TextNode, graph: ContextGraph) -> None:
         """If HelpNode was set to HEADER, calling .help() again unhides it."""
         help_node = text_node.help()
-        help_node.expansion = Expansion.HEADER
+        help_node.default_expansion = Expansion.HEADER
 
         # Calling .help() again should unhide it
         result = text_node.help()
         assert result is help_node
-        assert result.expansion == Expansion.CONTENT
+        assert result.default_expansion == Expansion.CONTENT
 
 
 # ---------------------------------------------------------------------------
@@ -454,7 +454,7 @@ class TestHelpNoArgs:
         help_node = HelpNode(
             parent_node_type="dsl",
             _help_content="# DSL Reference\nFunctions available in the namespace.",
-            expansion=Expansion.CONTENT,
+            default_expansion=Expansion.CONTENT,
         )
         graph.add_node(help_node)
         assert help_node.node_type == "help"
@@ -489,7 +489,7 @@ class TestHelpNodeSerialization:
             node_id="help_2",
             parent_node_type="text",
             _help_content="# TextNode\nFile view.\n",
-            expansion=Expansion.ALL,
+            default_expansion=Expansion.ALL,
         )
         data = original.to_dict()
         restored = HelpNode._from_dict(data)
@@ -497,7 +497,7 @@ class TestHelpNodeSerialization:
         assert restored.node_id == "help_2"
         assert restored.parent_node_type == "text"
         assert restored._help_content == original._help_content
-        assert restored.expansion == Expansion.ALL
+        assert restored.default_expansion == Expansion.ALL
 
     def test_roundtrip_serialization(self) -> None:
         """to_dict -> _from_dict preserves all data."""
@@ -505,7 +505,7 @@ class TestHelpNodeSerialization:
             node_id="help_rt",
             parent_node_type="group",
             _help_content="# GroupNode\nSummary facade.\n\n## Methods\n- `SetSummary(text)` -- Set summary\n",
-            expansion=Expansion.CONTENT,
+            default_expansion=Expansion.CONTENT,
             title="Group Help",
         )
         data = original.to_dict()
@@ -514,7 +514,7 @@ class TestHelpNodeSerialization:
         assert restored.node_id == original.node_id
         assert restored.parent_node_type == original.parent_node_type
         assert restored._help_content == original._help_content
-        assert restored.expansion == original.expansion
+        assert restored.default_expansion == original.default_expansion
         assert restored.title == original.title
 
     def test_from_dict_via_registry(self) -> None:

@@ -1,7 +1,7 @@
 """Tests for MessageNode and conversation rendering with IDs."""
 
 from activecontext.context.graph import ContextGraph
-from activecontext.context.nodes import MessageNode
+from activecontext.context.nodes import MessageNode, MessageRole
 from activecontext.context.state import Expansion
 
 
@@ -11,57 +11,57 @@ class TestMessageNodeBasics:
     def test_create_message_node(self) -> None:
         """Test basic MessageNode creation."""
         node = MessageNode(
-            role="user",
+            role=MessageRole.USER,
             content="Hello, world!",
             originator="user",
         )
         assert node.node_type == "message"
-        assert node.role == "user"
+        assert node.role == MessageRole.USER
         assert node.content == "Hello, world!"
         assert node.originator == "user"
 
     def test_effective_role_user(self) -> None:
         """Test effective role is USER for user messages."""
-        node = MessageNode(role="user", content="test", originator="user")
+        node = MessageNode(role=MessageRole.USER, content="test", originator="user")
         assert node.effective_role == "USER"
 
     def test_effective_role_assistant(self) -> None:
         """Test effective role is ASSISTANT for non-user messages."""
-        node = MessageNode(role="assistant", content="test", originator="agent")
+        node = MessageNode(role=MessageRole.ASSISTANT, content="test", originator="agent")
         assert node.effective_role == "ASSISTANT"
 
         # Tool messages are also ASSISTANT role
-        tool_node = MessageNode(role="tool_call", content="", originator="tool:grep")
+        tool_node = MessageNode(role=MessageRole.TOOL_CALL, content="", originator="tool:grep")
         assert tool_node.effective_role == "ASSISTANT"
 
     def test_display_label_user(self) -> None:
         """Test display label for user messages."""
-        node = MessageNode(role="user", content="test", originator="user")
+        node = MessageNode(role=MessageRole.USER, content="test", originator="user")
         assert node.display_label == "User"  # Default, overridden at render time
 
     def test_display_label_agent(self) -> None:
         """Test display label for agent messages."""
-        node = MessageNode(role="assistant", content="test", originator="agent")
+        node = MessageNode(role=MessageRole.ASSISTANT, content="test", originator="agent")
         assert node.display_label == "Agent"
 
     def test_display_label_agent_plan(self) -> None:
         """Test display label for agent in plan mode."""
-        node = MessageNode(role="assistant", content="test", originator="agent:plan")
+        node = MessageNode(role=MessageRole.ASSISTANT, content="test", originator="agent:plan")
         assert node.display_label == "Agent (Plan)"
 
     def test_display_label_child_agent(self) -> None:
         """Test display label for child agents."""
-        node = MessageNode(role="assistant", content="test", originator="agent:explorer")
+        node = MessageNode(role=MessageRole.ASSISTANT, content="test", originator="agent:explorer")
         assert node.display_label == "Child: explorer"
 
     def test_display_label_tool_call(self) -> None:
         """Test display label for tool calls."""
-        node = MessageNode(role="tool_call", content="", originator="tool:grep")
+        node = MessageNode(role=MessageRole.TOOL_CALL, content="", originator="tool:grep")
         assert node.display_label == "Tool Call: grep"
 
     def test_display_label_tool_result(self) -> None:
         """Test display label for tool results."""
-        node = MessageNode(role="tool_result", content="output", originator="tool:grep")
+        node = MessageNode(role=MessageRole.TOOL_RESULT, content="output", originator="tool:grep")
         assert node.display_label == "Tool Result"
 
 
@@ -72,7 +72,7 @@ class TestMessageNodeSerialization:
         """Test serialization to dict."""
         node = MessageNode(
             node_id="abc12345",
-            role="user",
+            role=MessageRole.USER,
             content="Hello",
             originator="user",
             tool_name=None,
@@ -101,14 +101,14 @@ class TestMessageNodeSerialization:
         node = MessageNode._from_dict(data)
 
         assert node.node_id == "test1234"
-        assert node.role == "assistant"
+        assert node.role == MessageRole.ASSISTANT
         assert node.content == "Response"
         assert node.originator == "agent"
 
     def test_roundtrip_serialization(self) -> None:
         """Test that serialization roundtrips correctly."""
         original = MessageNode(
-            role="tool_call",
+            role=MessageRole.TOOL_CALL,
             content="",
             originator="tool:read_file",
             tool_name="read_file",
@@ -129,7 +129,7 @@ class TestMessageNodeRender:
     def test_render_basic_message(self) -> None:
         """Test rendering a basic message."""
         node = MessageNode(
-            role="user",
+            role=MessageRole.USER,
             content="Hello, how are you?",
             originator="user",
         )
@@ -139,10 +139,10 @@ class TestMessageNodeRender:
     def test_render_collapsed_state(self) -> None:
         """Test header state shows metadata only."""
         node = MessageNode(
-            role="user",
+            role=MessageRole.USER,
             content="Hello, world!",
             originator="user",
-            expansion=Expansion.HEADER,
+            default_expansion=Expansion.HEADER,
         )
         rendered = node.Render()
         assert "User" in rendered  # Title case in new header format
@@ -151,7 +151,7 @@ class TestMessageNodeRender:
     def test_render_tool_call(self) -> None:
         """Test rendering a tool call message."""
         node = MessageNode(
-            role="tool_call",
+            role=MessageRole.TOOL_CALL,
             content="",
             originator="tool:grep",
             tool_name="grep",
@@ -164,7 +164,7 @@ class TestMessageNodeRender:
     def test_render_tool_result(self) -> None:
         """Test rendering a tool result message."""
         node = MessageNode(
-            role="tool_result",
+            role=MessageRole.TOOL_RESULT,
             content="line1: test found\nline2: test again",
             originator="tool:grep",
         )
@@ -179,7 +179,7 @@ class TestMessageNodeInGraph:
         """Test adding a MessageNode to the graph."""
         graph = ContextGraph()
         node = MessageNode(
-            role="user",
+            role=MessageRole.USER,
             content="Hello",
             originator="user",
         )
@@ -191,9 +191,9 @@ class TestMessageNodeInGraph:
     def test_get_messages_by_type(self) -> None:
         """Test retrieving message nodes by type."""
         graph = ContextGraph()
-        msg1 = MessageNode(role="user", content="Q1", originator="user")
-        msg2 = MessageNode(role="assistant", content="A1", originator="agent")
-        msg3 = MessageNode(role="user", content="Q2", originator="user")
+        msg1 = MessageNode(role=MessageRole.USER, content="Q1", originator="user")
+        msg2 = MessageNode(role=MessageRole.ASSISTANT, content="A1", originator="agent")
+        msg3 = MessageNode(role=MessageRole.USER, content="Q2", originator="user")
 
         graph.add_node(msg1)
         graph.add_node(msg2)

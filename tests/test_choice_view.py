@@ -30,7 +30,7 @@ def mock_graph_with_children():
     # Create parent node
     parent = create_mock_context_node("parent", "group")
     parent.title = "Parent Group"
-    parent.expansion = Expansion.ALL
+    parent.default_expansion = Expansion.ALL
     parent.children_ids = {"child-a", "child-b", "child-c"}
     parent.child_order = ["child-a", "child-b", "child-c"]
     parent.Render = Mock(return_value="# Parent Group")
@@ -39,19 +39,19 @@ def mock_graph_with_children():
     child_a = create_mock_context_node("child-a", "text")
     child_a.title = "Option A"
     child_a.parent_ids = {"parent"}
-    child_a.expansion = Expansion.ALL
+    child_a.default_expansion = Expansion.ALL
     child_a.Render = Mock(return_value="Content A")
 
     child_b = create_mock_context_node("child-b", "text")
     child_b.title = "Option B"
     child_b.parent_ids = {"parent"}
-    child_b.expansion = Expansion.ALL
+    child_b.default_expansion = Expansion.ALL
     child_b.Render = Mock(return_value="Content B")
 
     child_c = create_mock_context_node("child-c", "text")
     child_c.title = "Option C"
     child_c.parent_ids = {"parent"}
-    child_c.expansion = Expansion.ALL
+    child_c.default_expansion = Expansion.ALL
     child_c.Render = Mock(return_value="Content C")
 
     # Add to graph
@@ -88,8 +88,8 @@ class TestChoiceViewBasic:
         choice = ChoiceView(parent, selected_id="child-b")
 
         assert choice.selected_id == "child-b"
-        assert choice.node() is parent
-        assert not choice.hide
+        assert choice.node is parent
+        assert not choice.hidden
 
     def test_choice_view_select_fluent(self, mock_graph_with_children):
         """Test fluent select method."""
@@ -132,7 +132,7 @@ class TestApplySelection:
     def test_apply_selection_hides_non_selected(self, mock_graph_with_children):
         """Test that non-selected children are hidden in ALL mode."""
         parent = mock_graph_with_children.get_node("parent")
-        choice = ChoiceView(parent, selected_id="child-b", expand=Expansion.ALL)
+        choice = ChoiceView(parent, selected_id="child-b", expansion=Expansion.ALL)
 
         # Create views for all children
         views = {
@@ -144,36 +144,36 @@ class TestApplySelection:
 
         choice.apply_selection(views)
 
-        assert views["child-a"].hide is True
-        assert views["child-b"].hide is False
-        assert views["child-c"].hide is True
+        assert views["child-a"].hidden is True
+        assert views["child-b"].hidden is False
+        assert views["child-c"].hidden is True
 
     def test_apply_selection_index_mode_no_changes(self, mock_graph_with_children):
         """Test that INDEX mode doesn't modify child views (renders headers itself)."""
         parent = mock_graph_with_children.get_node("parent")
-        choice = ChoiceView(parent, selected_id="child-b", expand=Expansion.INDEX)
+        choice = ChoiceView(parent, selected_id="child-b", expansion=Expansion.INDEX)
 
         views = {
             "parent": choice,
-            "child-a": NodeView(mock_graph_with_children.get_node("child-a"), expand=Expansion.ALL),
-            "child-b": NodeView(mock_graph_with_children.get_node("child-b"), expand=Expansion.ALL),
-            "child-c": NodeView(mock_graph_with_children.get_node("child-c"), expand=Expansion.ALL),
+            "child-a": NodeView(mock_graph_with_children.get_node("child-a"), expansion=Expansion.ALL),
+            "child-b": NodeView(mock_graph_with_children.get_node("child-b"), expansion=Expansion.ALL),
+            "child-c": NodeView(mock_graph_with_children.get_node("child-c"), expansion=Expansion.ALL),
         }
 
         choice.apply_selection(views)
 
         # INDEX mode: no changes to children (ChoiceView renders headers itself)
-        assert views["child-a"].hide is False
-        assert views["child-b"].hide is False
-        assert views["child-c"].hide is False
-        assert views["child-a"].expand == Expansion.ALL
-        assert views["child-b"].expand == Expansion.ALL
-        assert views["child-c"].expand == Expansion.ALL
+        assert views["child-a"].hidden is False
+        assert views["child-b"].hidden is False
+        assert views["child-c"].hidden is False
+        assert views["child-a"].expansion == Expansion.ALL
+        assert views["child-b"].expansion == Expansion.ALL
+        assert views["child-c"].expansion == Expansion.ALL
 
     def test_apply_selection_no_effect_in_header_mode(self, mock_graph_with_children):
         """Test that HEADER mode shows all children (not filtered)."""
         parent = mock_graph_with_children.get_node("parent")
-        choice = ChoiceView(parent, selected_id="child-b", expand=Expansion.HEADER)
+        choice = ChoiceView(parent, selected_id="child-b", expansion=Expansion.HEADER)
 
         views = {
             "parent": choice,
@@ -184,14 +184,14 @@ class TestApplySelection:
 
         choice.apply_selection(views)
 
-        assert views["child-a"].hide is False
-        assert views["child-b"].hide is False
-        assert views["child-c"].hide is False
+        assert views["child-a"].hidden is False
+        assert views["child-b"].hidden is False
+        assert views["child-c"].hidden is False
 
     def test_apply_selection_with_no_selection_hides_all(self, mock_graph_with_children):
         """Test that all children are hidden when no selection is made in ALL mode."""
         parent = mock_graph_with_children.get_node("parent")
-        choice = ChoiceView(parent, selected_id=None, expand=Expansion.ALL)
+        choice = ChoiceView(parent, selected_id=None, expansion=Expansion.ALL)
 
         views = {
             "parent": choice,
@@ -203,14 +203,14 @@ class TestApplySelection:
         choice.apply_selection(views)
 
         # All children hidden when no selection in ALL mode
-        assert views["child-a"].hide is True
-        assert views["child-b"].hide is True
-        assert views["child-c"].hide is True
+        assert views["child-a"].hidden is True
+        assert views["child-b"].hidden is True
+        assert views["child-c"].hidden is True
 
     def test_apply_selection_missing_view(self, mock_graph_with_children):
         """Test that missing views are skipped gracefully."""
         parent = mock_graph_with_children.get_node("parent")
-        choice = ChoiceView(parent, selected_id="child-b", expand=Expansion.ALL)
+        choice = ChoiceView(parent, selected_id="child-b", expansion=Expansion.ALL)
 
         # Only include some views (child-c missing)
         views = {
@@ -222,8 +222,8 @@ class TestApplySelection:
         # Should not raise, just skip missing views
         choice.apply_selection(views)
 
-        assert views["child-a"].hide is True
-        assert views["child-b"].hide is False
+        assert views["child-a"].hidden is True
+        assert views["child-b"].hidden is False
 
 
 # =============================================================================
@@ -343,12 +343,12 @@ class TestProjectionEngineIntegration:
         parent = mock_graph_with_children.get_node("parent")
 
         # Create views with ChoiceView for parent
-        choice = ChoiceView(parent, selected_id="child-b", expand=Expansion.ALL)
+        choice = ChoiceView(parent, selected_id="child-b", expansion=Expansion.ALL)
         views = {
             "parent": choice,
-            "child-a": NodeView(mock_graph_with_children.get_node("child-a"), expand=Expansion.ALL),
-            "child-b": NodeView(mock_graph_with_children.get_node("child-b"), expand=Expansion.ALL),
-            "child-c": NodeView(mock_graph_with_children.get_node("child-c"), expand=Expansion.ALL),
+            "child-a": NodeView(mock_graph_with_children.get_node("child-a"), expansion=Expansion.ALL),
+            "child-b": NodeView(mock_graph_with_children.get_node("child-b"), expansion=Expansion.ALL),
+            "child-c": NodeView(mock_graph_with_children.get_node("child-c"), expansion=Expansion.ALL),
         }
 
         # Build projection
@@ -358,9 +358,9 @@ class TestProjectionEngineIntegration:
         )
 
         # After build, non-selected views should be hidden
-        assert views["child-a"].hide is True
-        assert views["child-b"].hide is False
-        assert views["child-c"].hide is True
+        assert views["child-a"].hidden is True
+        assert views["child-b"].hidden is False
+        assert views["child-c"].hidden is True
 
         # The projection should only include parent and selected child
         rendered_ids = [section.source_id for section in projection.sections]
@@ -376,7 +376,7 @@ class TestProjectionEngineIntegration:
         # Create a second parent node with children
         parent2 = create_mock_context_node("parent2", "group")
         parent2.title = "Parent 2"
-        parent2.expansion = Expansion.ALL
+        parent2.default_expansion = Expansion.ALL
         parent2.children_ids = {"child-x", "child-y"}
         parent2.child_order = ["child-x", "child-y"]
         parent2.Render = Mock(return_value="# Parent 2")
@@ -384,13 +384,13 @@ class TestProjectionEngineIntegration:
         child_x = create_mock_context_node("child-x", "text")
         child_x.title = "Option X"
         child_x.parent_ids = {"parent2"}
-        child_x.expansion = Expansion.ALL
+        child_x.default_expansion = Expansion.ALL
         child_x.Render = Mock(return_value="Content X")
 
         child_y = create_mock_context_node("child-y", "text")
         child_y.title = "Option Y"
         child_y.parent_ids = {"parent2"}
-        child_y.expansion = Expansion.ALL
+        child_y.default_expansion = Expansion.ALL
         child_y.Render = Mock(return_value="Content Y")
 
         mock_graph_with_children.add_node(parent2)
@@ -400,17 +400,17 @@ class TestProjectionEngineIntegration:
         mock_graph_with_children.link("child-y", "parent2")
 
         # Create views with two ChoiceViews
-        choice1 = ChoiceView(parent, selected_id="child-b", expand=Expansion.ALL)
-        choice2 = ChoiceView(parent2, selected_id="child-x", expand=Expansion.ALL)
+        choice1 = ChoiceView(parent, selected_id="child-b", expansion=Expansion.ALL)
+        choice2 = ChoiceView(parent2, selected_id="child-x", expansion=Expansion.ALL)
 
         views = {
             "parent": choice1,
-            "child-a": NodeView(mock_graph_with_children.get_node("child-a"), expand=Expansion.ALL),
-            "child-b": NodeView(mock_graph_with_children.get_node("child-b"), expand=Expansion.ALL),
-            "child-c": NodeView(mock_graph_with_children.get_node("child-c"), expand=Expansion.ALL),
+            "child-a": NodeView(mock_graph_with_children.get_node("child-a"), expansion=Expansion.ALL),
+            "child-b": NodeView(mock_graph_with_children.get_node("child-b"), expansion=Expansion.ALL),
+            "child-c": NodeView(mock_graph_with_children.get_node("child-c"), expansion=Expansion.ALL),
             "parent2": choice2,
-            "child-x": NodeView(mock_graph_with_children.get_node("child-x"), expand=Expansion.ALL),
-            "child-y": NodeView(mock_graph_with_children.get_node("child-y"), expand=Expansion.ALL),
+            "child-x": NodeView(mock_graph_with_children.get_node("child-x"), expansion=Expansion.ALL),
+            "child-y": NodeView(mock_graph_with_children.get_node("child-y"), expansion=Expansion.ALL),
         }
 
         # Build projection
@@ -420,10 +420,10 @@ class TestProjectionEngineIntegration:
         )
 
         # First choice: child-b selected
-        assert views["child-a"].hide is True
-        assert views["child-b"].hide is False
-        assert views["child-c"].hide is True
+        assert views["child-a"].hidden is True
+        assert views["child-b"].hidden is False
+        assert views["child-c"].hidden is True
 
         # Second choice: child-x selected
-        assert views["child-x"].hide is False
-        assert views["child-y"].hide is True
+        assert views["child-x"].hidden is False
+        assert views["child-y"].hidden is True

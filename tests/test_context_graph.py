@@ -15,7 +15,7 @@ import pytest
 
 from activecontext.context.checkpoint import Checkpoint, GroupState
 from activecontext.context.graph import ContextGraph
-from activecontext.context.state import Expansion, TickFrequency
+from activecontext.context.state import Expansion, TickFrequency, TickMode
 from tests.utils import create_mock_context_node
 
 # =============================================================================
@@ -621,69 +621,69 @@ class TestStateTypes:
     def test_tick_frequency_turn(self):
         """Test TickFrequency.turn() factory."""
         freq = TickFrequency.turn()
-        assert freq.mode == "turn"
+        assert freq.mode == TickMode.TURN
         assert freq.interval is None
         assert freq.to_string() == "turn"
 
     def test_tick_frequency_async(self):
         """Test TickFrequency.async_() factory."""
         freq = TickFrequency.async_()
-        assert freq.mode == "async"
+        assert freq.mode == TickMode.ASYNC
         assert freq.interval is None
         assert freq.to_string() == "async"
 
     def test_tick_frequency_never(self):
         """Test TickFrequency.never() factory."""
         freq = TickFrequency.never()
-        assert freq.mode == "never"
+        assert freq.mode == TickMode.NEVER
         assert freq.interval is None
         assert freq.to_string() == "never"
 
     def test_tick_frequency_period(self):
         """Test TickFrequency.period() factory."""
         freq = TickFrequency.period(5.0)
-        assert freq.mode == "periodic"
+        assert freq.mode == TickMode.PERIODIC
         assert freq.interval == 5.0
         assert freq.to_string() == "period:5.0"
 
     def test_tick_frequency_from_string_sync(self):
         """Test parsing 'Sync' and 'turn' strings."""
         freq1 = TickFrequency.from_string("Sync")
-        assert freq1.mode == "turn"
+        assert freq1.mode == TickMode.TURN
 
         freq2 = TickFrequency.from_string("turn")
-        assert freq2.mode == "turn"
+        assert freq2.mode == TickMode.TURN
 
     def test_tick_frequency_from_string_async(self):
         """Test parsing 'async' string."""
         freq = TickFrequency.from_string("async")
-        assert freq.mode == "async"
+        assert freq.mode == TickMode.ASYNC
 
     def test_tick_frequency_from_string_never(self):
         """Test parsing 'never' string."""
         freq = TickFrequency.from_string("never")
-        assert freq.mode == "never"
+        assert freq.mode == TickMode.NEVER
 
     def test_tick_frequency_from_string_periodic_seconds(self):
         """Test parsing periodic with seconds."""
         freq1 = TickFrequency.from_string("Periodic:5s")
-        assert freq1.mode == "periodic"
+        assert freq1.mode == TickMode.PERIODIC
         assert freq1.interval == 5.0
 
         freq2 = TickFrequency.from_string("period:10.5")
-        assert freq2.mode == "periodic"
+        assert freq2.mode == TickMode.PERIODIC
         assert freq2.interval == 10.5
 
     def test_tick_frequency_from_string_periodic_minutes(self):
         """Test parsing periodic with minutes."""
         freq = TickFrequency.from_string("period:2m")
-        assert freq.mode == "periodic"
+        assert freq.mode == TickMode.PERIODIC
         assert freq.interval == 120.0
 
     def test_tick_frequency_from_string_periodic_hours(self):
         """Test parsing periodic with hours."""
         freq = TickFrequency.from_string("Periodic:1h")
-        assert freq.mode == "periodic"
+        assert freq.mode == TickMode.PERIODIC
         assert freq.interval == 3600.0
 
     def test_tick_frequency_from_string_invalid(self):

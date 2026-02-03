@@ -16,7 +16,7 @@ import asyncio
 
 import pytest
 
-from activecontext.context.nodes import MessageNode
+from activecontext.context.nodes import MessageNode, MessageRole
 
 
 class TestMessageQueueing:
@@ -34,7 +34,7 @@ class TestMessageQueueing:
         node = session.queue_user_message("Hello from external code")
 
         assert isinstance(node, MessageNode)
-        assert node.role == "user"
+        assert node.role == MessageRole.USER
         assert node.content == "Hello from external code"
         assert node.originator == "user"
 

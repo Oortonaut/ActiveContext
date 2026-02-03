@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from activecontext.context.nodes import WorkNode
-from activecontext.context.state import Expansion
+from activecontext.context.state import Expansion, WorkStatus
 from activecontext.coordination import (
     Conflict,
     FileAccess,
@@ -42,7 +42,7 @@ class TestWorkEntry:
             id="abc12345",
             session_id="session-1",
             intent="Refactoring auth",
-            status="active",
+            status=WorkStatus.ACTIVE,
             files=[FileAccess("src/auth.py", "write")],
             dependencies=["tests/test_auth.py"],
         )
@@ -69,7 +69,7 @@ class TestWorkEntry:
         }
         entry = WorkEntry.from_dict(d)
         assert entry.id == "abc12345"
-        assert entry.status == "paused"
+        assert entry.status == WorkStatus.PAUSED
         assert len(entry.files) == 1
 
 
@@ -109,7 +109,7 @@ class TestScratchpadManager:
         )
 
         assert entry.intent == "Testing feature X"
-        assert entry.status == "active"
+        assert entry.status == WorkStatus.ACTIVE
         assert manager.agent_id is not None
         assert len(manager.agent_id) == 8
 
@@ -145,10 +145,10 @@ class TestScratchpadManager:
             intent="Initial intent",
         )
 
-        updated = manager.update(intent="Updated intent", status="paused")
+        updated = manager.update(intent="Updated intent", status=WorkStatus.PAUSED)
         assert updated is not None
         assert updated.intent == "Updated intent"
-        assert updated.status == "paused"
+        assert updated.status == WorkStatus.PAUSED
 
     def test_update_without_register_returns_none(self, tmp_path: Path) -> None:
         manager = ScratchpadManager(str(tmp_path))
@@ -266,7 +266,7 @@ class TestScratchpadManager:
             intent="Paused work",
             files=[FileAccess("src/main.py", "write")],
         )
-        manager1.update(status="paused")
+        manager1.update(status=WorkStatus.PAUSED)
 
         # Agent 2 checks - no conflict with paused agent
         manager2 = ScratchpadManager(str(tmp_path))
@@ -314,7 +314,7 @@ class TestWorkNode:
         node = WorkNode(
             node_id="work_123",
             intent="Implementing feature",
-            work_status="active",
+            work_status=WorkStatus.ACTIVE,
             agent_id="abc12345",
             files=[{"path": "src/main.py", "mode": "write"}],
             conflicts=[
@@ -338,7 +338,7 @@ class TestWorkNode:
         node = WorkNode(
             node_id="work_123",
             intent="Implementing a very long feature description that should be truncated",
-            expansion=Expansion.HEADER,
+            default_expansion=Expansion.HEADER,
             files=[{"path": "src/main.py", "mode": "write"}],
         )
         rendered = node.Render()
@@ -349,7 +349,7 @@ class TestWorkNode:
         node = WorkNode(
             node_id="work_123",
             intent="Test work",
-            expansion=Expansion.ALL,
+            default_expansion=Expansion.ALL,
             agent_id="abc12345",
             files=[
                 {"path": "src/main.py", "mode": "write"},
@@ -367,7 +367,7 @@ class TestWorkNode:
         node = WorkNode(
             node_id="work_123",
             intent="Test",
-            expansion=Expansion.ALL,
+            default_expansion=Expansion.ALL,
             conflicts=[
                 {
                     "agent_id": "def67890",
@@ -386,7 +386,7 @@ class TestWorkNode:
         node = WorkNode(
             node_id="work_123",
             intent="Test",
-            work_status="paused",
+            work_status=WorkStatus.PAUSED,
             files=[{"path": "src/main.py", "mode": "write"}],
             dependencies=["tests/test_main.py"],
             conflicts=[],
@@ -416,7 +416,7 @@ class TestWorkNode:
         node = WorkNode._from_dict(d)
         assert node.node_id == "work_123"
         assert node.intent == "Test"
-        assert node.work_status == "active"
+        assert node.work_status == WorkStatus.ACTIVE
         assert node.agent_id == "abc12345"
 
     def test_from_dict_via_factory(self) -> None:

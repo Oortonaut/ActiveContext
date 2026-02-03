@@ -3,7 +3,7 @@
 import pytest
 
 from activecontext.context.graph import ContextGraph
-from activecontext.context.nodes import GroupNode, MessageNode, TextNode
+from activecontext.context.nodes import GroupNode, MessageNode, MessageRole, TextNode
 from activecontext.session.timeline import Timeline
 
 
@@ -46,7 +46,7 @@ class MockSession:
         self.add_node(group)
 
         tool_call = MessageNode(
-            role="tool_call",
+            role=MessageRole.TOOL_CALL,
             content="",
             originator=f"tool:{tool_name}",
             tool_name=tool_name,
@@ -130,7 +130,7 @@ class TestAddNodeLinking:
     def test_add_node_at_root(self) -> None:
         """Test adding node at root level (no group)."""
         session = MockSession()
-        node = MessageNode(role="user", content="Hello", originator="user")
+        node = MessageNode(role=MessageRole.USER, content="Hello", originator="user")
 
         session.add_node(node)
 
@@ -145,7 +145,7 @@ class TestAddNodeLinking:
         session._timeline.context_graph.add_node(group)
         session.push_group("group1")
 
-        node = MessageNode(role="user", content="Hello", originator="user")
+        node = MessageNode(role=MessageRole.USER, content="Hello", originator="user")
         session.add_node(node)
 
         # Node should be child of the group
@@ -159,7 +159,7 @@ class TestAddNodeLinking:
         session._timeline.context_graph.add_node(group)
         session.push_group("group1")
 
-        node1 = MessageNode(role="user", content="First", originator="user")
+        node1 = MessageNode(role=MessageRole.USER, content="First", originator="user")
         node2 = TextNode(path="test.py")
 
         session.add_node(node1)
@@ -204,7 +204,7 @@ class TestBeginEndToolUse:
         assert len(children) == 1
         tool_call = children[0]
         assert isinstance(tool_call, MessageNode)
-        assert tool_call.role == "tool_call"
+        assert tool_call.role == MessageRole.TOOL_CALL
         assert tool_call.tool_name == "grep"
         assert tool_call.tool_args == {"pattern": "TODO"}
 
@@ -304,7 +304,7 @@ class TestToolUseDAGStructure:
         session = MockSession()
 
         # Simulate: user asks, agent uses view tool
-        user_msg = MessageNode(role="user", content="Show main.py", originator="user")
+        user_msg = MessageNode(role=MessageRole.USER, content="Show main.py", originator="user")
         session.add_node(user_msg)
 
         group_id = session.begin_tool_use("view", {"path": "main.py"})
@@ -314,7 +314,7 @@ class TestToolUseDAGStructure:
 
         session.end_tool_use(summary="Opened main.py")
 
-        agent_msg = MessageNode(role="assistant", content="Here it is", originator="agent")
+        agent_msg = MessageNode(role=MessageRole.ASSISTANT, content="Here it is", originator="agent")
         session.add_node(agent_msg)
 
         # Verify structure
@@ -332,5 +332,5 @@ class TestToolUseDAGStructure:
 
         # Group should have tool_call as child
         children = graph.get_children(group_id)
-        tool_calls = [c for c in children if isinstance(c, MessageNode) and c.role == "tool_call"]
+        tool_calls = [c for c in children if isinstance(c, MessageNode) and c.role == MessageRole.TOOL_CALL]
         assert len(tool_calls) == 1

@@ -1,6 +1,6 @@
 """View management for dashboard.
 
-ViewManager provides named snapshots of view state (hide/expand per node)
+ViewManager provides named snapshots of view state (hidden/expansion per node)
 that can be saved, restored, and synchronized with the agent's live state.
 """
 
@@ -25,13 +25,13 @@ _log = logging.getLogger(__name__)
 class ViewSnapshot:
     """A named snapshot of view state.
 
-    Captures the hide/expand state for all nodes at a point in time.
+    Captures the hidden/expansion state for all nodes at a point in time.
     """
 
     name: str
     created_at: float = field(default_factory=time.time)
     updated_at: float = field(default_factory=time.time)
-    # node_id -> {"hide": bool, "expand": str}
+    # node_id -> {"hidden": bool, "expansion": str}
     node_states: dict[str, dict[str, Any]] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -57,7 +57,7 @@ class ViewSnapshot:
 class ViewManager:
     """Manages named view snapshots for a session.
 
-    View snapshots capture the hide/expand state of all nodes,
+    View snapshots capture the hidden/expansion state of all nodes,
     allowing users to save and restore different "views" of the context.
 
     Operations:
@@ -232,8 +232,8 @@ class ViewManager:
             views = session.timeline.views
             for node_id, view in views.items():
                 node_states[node_id] = {
-                    "hide": view.hide,
-                    "expand": view.expand.value,
+                    "hidden": view.hidden,
+                    "expansion": view.expansion.value,
                 }
         except Exception as e:
             _log.warning(f"Failed to capture view state: {e}")
@@ -261,16 +261,16 @@ class ViewManager:
                 if node_id in views:
                     view = views[node_id]
 
-                    # Update hide state
-                    if "hide" in state:
-                        view.hide = state["hide"]
+                    # Update hidden state
+                    if "hidden" in state:
+                        view.hidden = state["hidden"]
 
-                    # Update expand state
-                    if "expand" in state:
+                    # Update expansion state
+                    if "expansion" in state:
                         try:
-                            view.expand = Expansion(state["expand"])
+                            view.expansion = Expansion(state["expansion"])
                         except ValueError:
-                            _log.warning(f"Invalid expansion value: {state['expand']}")
+                            _log.warning(f"Invalid expansion value: {state['expansion']}")
 
                     updated_count += 1
         except Exception as e:

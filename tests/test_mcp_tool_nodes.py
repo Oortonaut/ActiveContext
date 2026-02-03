@@ -31,7 +31,7 @@ def mcp_server_node(context_graph):
     """Create an MCPServerNode added to the graph."""
     node = MCPServerNode(
         server_name="test-server",
-        expansion=Expansion.ALL,
+        default_expansion=Expansion.ALL,
     )
     context_graph.add_node(node)
     return node
@@ -90,7 +90,7 @@ class TestMCPToolNodeInit:
         assert node.server_name == ""
         assert node.description == ""
         assert node.input_schema == {}
-        assert node.expansion == Expansion.ALL  # Inherited from ContextNode
+        assert node.default_expansion == Expansion.ALL  # Inherited from ContextNode
         assert node.node_type == "mcp_tool"
 
     def test_custom_values(self):
@@ -100,13 +100,13 @@ class TestMCPToolNodeInit:
             server_name="filesystem",
             description="Read a file",
             input_schema={"type": "object"},
-            expansion=Expansion.ALL,
+            default_expansion=Expansion.ALL,
         )
         assert node.tool_name == "read_file"
         assert node.server_name == "filesystem"
         assert node.description == "Read a file"
         assert node.input_schema == {"type": "object"}
-        assert node.expansion == Expansion.ALL
+        assert node.default_expansion == Expansion.ALL
 
 
 class TestMCPToolNodeRender:
@@ -131,7 +131,7 @@ class TestMCPToolNodeRender:
 
     def test_render_collapsed(self, tool_node):
         """Test HEADER state shows tool name via uniform header."""
-        tool_node.expansion = Expansion.HEADER
+        tool_node.default_expansion = Expansion.HEADER
         result = tool_node.Render()
         # Uniform header includes display name and node_id
         assert "read_file" in result
@@ -140,14 +140,14 @@ class TestMCPToolNodeRender:
 
     def test_render_content(self, tool_node):
         """Test CONTENT state shows description and parameters."""
-        tool_node.expansion = Expansion.CONTENT
+        tool_node.default_expansion = Expansion.CONTENT
         result = tool_node.Render()
         assert "Read contents" in result
         assert "`path`" in result
 
     def test_render_details(self, tool_node):
         """Test DETAILS state shows name, description, and required params."""
-        tool_node.expansion = Expansion.ALL
+        tool_node.default_expansion = Expansion.ALL
         result = tool_node.Render()
         assert "Read contents of a file" in result
         assert "`path`" in result  # Required param
@@ -164,7 +164,7 @@ class TestMCPToolNodeDigest:
             tool_name="read_file",
             server_name="filesystem",
             input_schema={"properties": {"path": {}}},
-            expansion=Expansion.ALL,
+            default_expansion=Expansion.ALL,
         )
         digest = node.GetDigest()
         assert digest["type"] == "mcp_tool"
@@ -205,7 +205,7 @@ class TestMCPToolNodeSerialization:
             server_name="filesystem",
             description="Write a file",
             input_schema={"properties": {"path": {}}},
-            expansion=Expansion.ALL,
+            default_expansion=Expansion.ALL,
         )
         data = original.to_dict()
         restored = MCPToolNode._from_dict(data)
@@ -213,7 +213,7 @@ class TestMCPToolNodeSerialization:
         assert restored.server_name == "filesystem"
         assert restored.description == "Write a file"
         assert restored.input_schema == {"properties": {"path": {}}}
-        assert restored.expansion == Expansion.ALL
+        assert restored.default_expansion == Expansion.ALL
 
     def test_from_dict_via_factory(self):
         """Test ContextNode.from_dict() dispatches to MCPToolNode."""
@@ -419,8 +419,8 @@ class TestMCPToolNodeIntegration:
         tool = mcp_server_node.tool("read_file")
 
         # Test direct assignment
-        tool.expansion = Expansion.ALL
-        assert tool.expansion == Expansion.ALL
+        tool.default_expansion = Expansion.ALL
+        assert tool.default_expansion == Expansion.ALL
 
     def test_tool_node_render_digest(self):
         """Test MCPToolNode.render_digest() format."""
@@ -442,7 +442,7 @@ class TestMCPToolNodeIntegration:
         from activecontext.core.projection_engine import ProjectionEngine
 
         mcp_server_node.update_from_connection(mock_connection)
-        mcp_server_node.expansion = Expansion.ALL  # DETAILS/ALL render children
+        mcp_server_node.default_expansion = Expansion.ALL  # DETAILS/ALL render children
 
         engine = ProjectionEngine()
         projection = engine.build(context_graph=context_graph, cwd=".")
