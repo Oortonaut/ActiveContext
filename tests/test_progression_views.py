@@ -302,9 +302,9 @@ class TestSequenceViewPersistence:
         seq.advance()
         seq.advance()
 
-        # State is persisted to view.tags
-        assert seq.tags["_seq_index"] == 2
-        assert set(seq.tags["_seq_completed"]) == {0, 1}
+        # State is tracked in view fields
+        assert seq.current_index == 2
+        assert seq.completed_steps == {0, 1}
 
     def test_sequence_view_to_dict_from_dict(self, mock_graph_with_steps):
         """Test serialization and deserialization."""
@@ -505,10 +505,10 @@ class TestLoopViewPersistence:
         loop.iterate(note="test")
         loop.iterate(result="ok")
 
-        # State is persisted to view.tags
-        assert loop.tags["_loop_iteration"] == 3
-        assert loop.tags["_loop_state"] == {"note": "test", "result": "ok"}
-        assert loop.tags["_loop_done"] is False
+        # State is tracked in view fields
+        assert loop.iteration == 3
+        assert loop.state == {"note": "test", "result": "ok"}
+        assert loop.is_done is False
 
     def test_loop_view_to_dict_from_dict(self, mock_graph_with_loop_child):
         """Test serialization and deserialization."""
@@ -728,9 +728,9 @@ class TestStateViewPersistence:
         fsm.transition("working")
         fsm.transition("done")
 
-        # State is persisted to view.tags
-        assert fsm.tags["_state_current"] == "done"
-        assert fsm.tags["_state_history"] == ["idle", "working"]
+        # State is tracked in view fields
+        assert fsm.current_state == "done"
+        assert fsm.state_history == ["idle", "working"]
 
     def test_state_view_to_dict_from_dict(self, mock_graph_with_states):
         """Test serialization and deserialization."""

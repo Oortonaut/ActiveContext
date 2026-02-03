@@ -707,7 +707,6 @@ class TestSessionPersistence:
         # The critical test: _user_messages_group must be restored
         assert loaded is not None
         assert loaded._user_messages_group is not None, "_user_messages_group should be restored"
-        assert loaded._alerts_group is not None, "_alerts_group should be restored"
 
         # Verify the group points to the correct node in the graph
         graph_node = loaded.timeline.context_graph.get_node("user_messages")

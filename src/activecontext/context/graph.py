@@ -15,7 +15,6 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from activecontext.context.checkpoint import Checkpoint, GroupState
-from activecontext.context.state import Notification, NotificationLevel
 
 if TYPE_CHECKING:
     from activecontext.context.nodes import ContextNode
@@ -202,11 +201,6 @@ class ContextGraph:
 
     # Root context node ID for document-ordered rendering
     _root_context_id: str | None = field(default=None)
-
-    # Notification system for change alerts
-    _seen_traces: set[str] = field(default_factory=set)  # For deduplication
-    _pending_notifications: list[Notification] = field(default_factory=list)
-    _has_wake: bool = False
 
     def add_node(self, node: ContextNode) -> str:
         """Add a node to the graph.
@@ -520,66 +514,6 @@ class ContextGraph:
         traces.sort(key=lambda t: getattr(t, "new_version", 0), reverse=True)
         return traces
 
-    # -------------------------------------------------------------------------
-    # Notification System
-    # -------------------------------------------------------------------------
-
-    def emit_notification(
-        self,
-        node_id: str,
-        trace_id: str,
-        header: str,
-        level: NotificationLevel,
-        originator: str | None = None,
-    ) -> None:
-        """Collect notification with deduplication.
-
-        Called by nodes when their notification_level is HOLD or WAKE.
-        Notifications are deduplicated by trace_id to ensure at-most-once
-        delivery.
-
-        Args:
-            node_id: Source node that changed
-            trace_id: Unique ID for deduplication (typically node_id:version)
-            header: Brief description for the alert
-            level: NotificationLevel (HOLD or WAKE)
-            originator: Who/what caused the change (node ID, filename, or arbitrary string)
-        """
-        if trace_id in self._seen_traces:
-            return  # Already processed this trace
-        self._seen_traces.add(trace_id)
-
-        notification = Notification(
-            node_id=node_id,
-            trace_id=trace_id,
-            header=header,
-            level=level.value,
-            originator=originator,
-        )
-        self._pending_notifications.append(notification)
-
-        if level == NotificationLevel.WAKE:
-            self._has_wake = True
-
-    def has_wake_notification(self) -> bool:
-        """Check if there's a pending WAKE notification."""
-        return self._has_wake
-
-    def flush_notifications(self) -> list[Notification]:
-        """Get and clear pending notifications.
-
-        Called by Session.tick() to process notifications and update
-        the Alerts group.
-
-        Returns:
-            List of pending notifications (may be empty)
-        """
-        notifications = self._pending_notifications
-        self._pending_notifications = []
-        self._has_wake = False
-        self._seen_traces.clear()  # Reset for next batch
-        return notifications
-
     def _is_descendant(self, node_id: str, potential_ancestor_id: str) -> bool:
         """Check if node_id is a descendant of potential_ancestor_id."""
         if node_id == potential_ancestor_id:
@@ -616,9 +550,7 @@ class ContextGraph:
             "running_node_ids": list(self._running_nodes),
             "type_counters": dict(self._type_counters),
             "root_context_id": self._root_context_id,
-            "checkpoints": {
-                name: cp.to_dict() for name, cp in self._checkpoints.items()
-            },
+            "checkpoints": {name: cp.to_dict() for name, cp in self._checkpoints.items()},
         }
 
     @classmethod

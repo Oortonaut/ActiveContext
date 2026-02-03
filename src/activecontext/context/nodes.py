@@ -247,9 +247,6 @@ class ContextNode(ABC):
     created_at: float = field(default_factory=time.time)
     updated_at: float = field(default_factory=time.time)
 
-    # Metadata
-    tags: dict[str, Any] = field(default_factory=dict)
-
     # Originator: identifies the source of this node (node ID, filename, or arbitrary string)
     originator: str | None = None
 
@@ -269,6 +266,9 @@ class ContextNode(ABC):
     # Controls how changes to this node are communicated to the agent
     notification_level: NotificationLevel = NotificationLevel.IGNORE
     is_subscription_point: bool = False  # If True, notifications stop here
+    # Notification flags — set by _mark_changed on ancestors, cleared by view processing
+    _notified: bool = field(default=False, repr=False)
+    _wake_notified: bool = field(default=False, repr=False)
 
     # Tracing configuration
     # When True, state changes create TraceNode children for history
@@ -471,24 +471,28 @@ class ContextNode(ABC):
         """
         return self.GetDigest()
 
-    def _mark_changed(
+    def mark_changed(
         self,
-        description: str = "",
+        description: str,
+        *,
         content: str | None = None,
         originator: str | None = None,
-        field_name: str = "",
-        prev_value: Any = "",
-        curr_value: Any = "",
+        field: str = "",
+        old: Any = "",
+        new: Any = "",
     ) -> TraceNode | None:
-        """Mark this node as changed, optionally creating a trace.
+        """Record a change, creating a trace and notifying ancestors.
+
+        Called by @trace_all_fields for field changes, or manually for
+        non-field changes (e.g., "content reloaded", "shell completed").
 
         Args:
             description: Human-readable description of the change
             content: Optional diff or detailed change content
             originator: Who/what caused the change (defaults to self.originator)
-            field_name: Name of field that changed (e.g., "state", "content")
-            prev_value: Previous value (will be stringified)
-            curr_value: Current value (will be stringified)
+            field: Name of field that changed (e.g., "state", "content")
+            old: Previous value (will be stringified)
+            new: Current value (will be stringified)
 
         Returns:
             TraceNode if tracing is enabled, None otherwise
@@ -505,18 +509,36 @@ class ContextNode(ABC):
                 description=description,
                 content=content,
                 originator=originator,
-                field_name=field_name,
-                prev_value=str(prev_value) if prev_value != "" else "",
-                curr_value=str(curr_value) if curr_value != "" else "",
+                field_name=field,
+                prev_value=str(old) if old != "" else "",
+                curr_value=str(new) if new != "" else "",
             )
 
-        # Generate notification if level is not IGNORE
-        # Pass trace_node so notification can use its node_id as trace_id
+        self._mark_changed(trace_node, description, originator)
+        return trace_node
+
+    def _mark_changed(
+        self,
+        trace_node: TraceNode | None,
+        description: str = "",
+        originator: str | None = None,
+    ) -> None:
+        """Internal: deliver notification to ancestors and notify parents.
+
+        Args:
+            trace_node: The trace node (for notification dedup), or None.
+            description: Human-readable description of the change.
+            originator: Who/what caused the change.
+        """
+        # Set notification flags on ancestor nodes
         if self.notification_level != NotificationLevel.IGNORE and description:
-            self._emit_notification(description, originator, trace_node=trace_node)
+            is_wake = self.notification_level == NotificationLevel.WAKE
+            for ancestor in self.find_ancestors():
+                ancestor._notified = True
+                if is_wake:
+                    ancestor._wake_notified = True
 
         self.notify_parents(description)
-        return trace_node
 
     # Time window for merging traces to the same node (seconds)
     TRACE_MERGE_WINDOW = 1.0
@@ -622,30 +644,14 @@ class ContextNode(ABC):
 
         return trace_node
 
-    def _emit_notification(
-        self,
-        description: str,
-        originator: str | None = None,
-        trace_node: TraceNode | None = None,
-    ) -> None:
-        """Emit notification - collected by graph's notification system.
+    def find_ancestors(self) -> list[ContextNode]:
+        """Return all ancestor nodes (parents, grandparents, etc.).
 
-        Args:
-            description: Human-readable description of the change.
-            originator: Who/what caused the change.
-            trace_node: Optional TraceNode to use for trace_id (uses its node_id).
+        Uses a visited set to avoid cycles in the DAG.
         """
-        if self._graph and hasattr(self._graph, "emit_notification"):
-            header = self._format_notification_header(description)
-            # Use trace node_id if available, else fall back to synthetic ID
-            trace_id = trace_node.node_id if trace_node else f"{self.node_id}:{self.version}"
-            self._graph.emit_notification(
-                node_id=self.node_id,
-                trace_id=trace_id,
-                header=header,
-                level=self.notification_level,
-                originator=originator or self.originator,
-            )
+        if not self._graph:
+            return []
+        return self._graph.get_ancestors(self.node_id)
 
     def _format_notification_header(self, description: str) -> str:
         """Format brief notification header. Override in subclasses.
@@ -741,7 +747,6 @@ class ContextNode(ABC):
             "version": self.version,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
-            "tags": self.tags,
             "originator": self.originator,
             "title": self.title,
             "content_id": self.content_id,
@@ -988,7 +993,7 @@ class TextNode(ContextNode):
         old_pos = self.pos
         self.pos = pos
         if old_pos != pos:
-            self._mark_changed(description=f"Position: {old_pos} → {pos}")
+            self.mark_changed(f"Position: {old_pos} → {pos}")
         return self
 
     def SetEndPos(self, end_pos: str | None) -> TextNode:
@@ -1002,7 +1007,7 @@ class TextNode(ContextNode):
         if old_end != end_pos:
             old_str = old_end or "end"
             new_str = end_pos or "end"
-            self._mark_changed(description=f"EndPos: {old_str} → {new_str}")
+            self.mark_changed(f"EndPos: {old_str} → {new_str}")
         return self
 
     def replace_lines(
@@ -1057,7 +1062,7 @@ class TextNode(ContextNode):
             parts.append(f"+{n_ins}")
         desc = f"Lines {line_no}: {', '.join(parts)}" if parts else f"Lines {line_no}: no-op"
 
-        self._mark_changed(description=desc)
+        self.mark_changed(desc)
 
     # -- internal helpers for replace_lines ----------------------------------
 
@@ -1140,16 +1145,10 @@ class TextNode(ContextNode):
         return f"{self.path}:{start_line}"
 
     def render_header(self, cwd: str = ".") -> str:
-        """Render header with optional heading prefix and line range."""
+        """Render header with optional line range."""
         from .headers import render_header
 
         token_info = self.get_token_breakdown(cwd)
-
-        # Build heading prefix from markdown heading level tag
-        heading_prefix = ""
-        level = self.tags.get("level")
-        if level and isinstance(level, int):
-            heading_prefix = "#" * level + " "
 
         # Build line range caption
         line_range = ""
@@ -1168,7 +1167,6 @@ class TextNode(ContextNode):
             notification_level=self.notification_level.value,
             index_tokens=self.index_tokens,
             all_tokens=self.all_tokens,
-            heading_prefix=heading_prefix,
             line_range=line_range,
         )
 
@@ -1252,7 +1250,6 @@ class TextNode(ContextNode):
             version=data.get("version", 0),
             created_at=data.get("created_at", time.time()),
             updated_at=data.get("updated_at", time.time()),
-            tags=data.get("tags", {}),
             display_sequence=data.get("display_sequence"),
             originator=data.get("originator"),
             title=data.get("title", ""),
@@ -1422,7 +1419,6 @@ class GroupNode(ContextNode):
             version=data.get("version", 0),
             created_at=data.get("created_at", time.time()),
             updated_at=data.get("updated_at", time.time()),
-            tags=data.get("tags", {}),
             display_sequence=data.get("display_sequence"),
             originator=data.get("originator"),
             title=data.get("title", ""),
@@ -1486,7 +1482,7 @@ class TopicNode(ContextNode):
         old_status = self.status
         self.status = status
         if old_status != status:
-            self._mark_changed(description=f"Topic status: {old_status} → {status}")
+            self.mark_changed(f"Topic status: {old_status} → {status}")
         return self
 
     def render_digest(self) -> str:
@@ -1539,7 +1535,6 @@ class TopicNode(ContextNode):
             version=data.get("version", 0),
             created_at=data.get("created_at", time.time()),
             updated_at=data.get("updated_at", time.time()),
-            tags=data.get("tags", {}),
             display_sequence=data.get("display_sequence"),
             originator=data.get("originator"),
             title=data.get("title", ""),
@@ -1597,8 +1592,8 @@ class ArtifactNode(ContextNode):
         """
         old_content = self.content
         self.content = content
-        self._mark_changed(
-            description=f"Content updated ({len(old_content)} → {len(content)} chars)",
+        self.mark_changed(
+            f"Content updated ({len(old_content)} → {len(content)} chars)",
         )
         return self
 
@@ -1657,7 +1652,6 @@ class ArtifactNode(ContextNode):
             version=data.get("version", 0),
             created_at=data.get("created_at", time.time()),
             updated_at=data.get("updated_at", time.time()),
-            tags=data.get("tags", {}),
             display_sequence=data.get("display_sequence"),
             originator=data.get("originator"),
             title=data.get("title", ""),
@@ -1762,7 +1756,7 @@ class ShellNode(ContextNode):
         old_status = self.shell_status
         self.shell_status = ShellStatus.RUNNING
         self.started_at_exec = time.time()
-        self._mark_changed(description=f"Shell: {old_status.value} → running")
+        self.mark_changed(f"Shell: {old_status.value} → running")
         return self
 
     def set_completed(
@@ -1795,8 +1789,8 @@ class ShellNode(ContextNode):
         else:
             self.shell_status = ShellStatus.FAILED
 
-        self._mark_changed(
-            description=f"Shell '{self.command}' {self.shell_status.value} (exit={exit_code})",
+        self.mark_changed(
+            f"Shell '{self.command}' {self.shell_status.value} (exit={exit_code})",
             content=output[:500] if output else None,
         )
         return self
@@ -1812,16 +1806,16 @@ class ShellNode(ContextNode):
         self.output = output
         self.duration_ms = duration_ms
         self.exit_code = -1
-        self._mark_changed(
-            description=f"Shell '{self.command}' timed out after {duration_ms:.0f}ms",
+        self.mark_changed(
+            f"Shell '{self.command}' timed out after {duration_ms:.0f}ms",
         )
         return self
 
     def set_cancelled(self) -> ShellNode:
         """Mark as cancelled by user."""
         self.shell_status = ShellStatus.CANCELLED
-        self._mark_changed(
-            description=f"Shell '{self.command}' cancelled",
+        self.mark_changed(
+            f"Shell '{self.command}' cancelled",
         )
         return self
 
@@ -1886,7 +1880,6 @@ class ShellNode(ContextNode):
             version=data.get("version", 0),
             created_at=data.get("created_at", time.time()),
             updated_at=data.get("updated_at", time.time()),
-            tags=data.get("tags", {}),
             display_sequence=data.get("display_sequence"),
             originator=data.get("originator"),
             title=data.get("title", ""),
@@ -1983,8 +1976,8 @@ class LockNode(ContextNode):
         self.lock_status = LockStatus.ACQUIRED
         self.acquired_at = time.time()
         self.holder_pid = pid
-        self._mark_changed(
-            description=f"Lock '{self.lockfile}' acquired by PID {pid}",
+        self.mark_changed(
+            f"Lock '{self.lockfile}' acquired by PID {pid}",
         )
         return self
 
@@ -1992,16 +1985,16 @@ class LockNode(ContextNode):
         """Mark lock acquisition as timed out."""
         self.lock_status = LockStatus.TIMEOUT
         self.error_message = f"Timed out after {self.timeout}s"
-        self._mark_changed(
-            description=f"Lock '{self.lockfile}' timed out",
+        self.mark_changed(
+            f"Lock '{self.lockfile}' timed out",
         )
         return self
 
     def set_released(self) -> LockNode:
         """Mark lock as released."""
         self.lock_status = LockStatus.RELEASED
-        self._mark_changed(
-            description=f"Lock '{self.lockfile}' released",
+        self.mark_changed(
+            f"Lock '{self.lockfile}' released",
         )
         return self
 
@@ -2009,8 +2002,8 @@ class LockNode(ContextNode):
         """Mark lock operation as failed with error."""
         self.lock_status = LockStatus.ERROR
         self.error_message = message
-        self._mark_changed(
-            description=f"Lock '{self.lockfile}' error: {message}",
+        self.mark_changed(
+            f"Lock '{self.lockfile}' error: {message}",
         )
         return self
 
@@ -2069,7 +2062,6 @@ class LockNode(ContextNode):
             version=data.get("version", 0),
             created_at=data.get("created_at", time.time()),
             updated_at=data.get("updated_at", time.time()),
-            tags=data.get("tags", {}),
             display_sequence=data.get("display_sequence"),
             originator=data.get("originator"),
             title=data.get("title", ""),
@@ -2255,7 +2247,7 @@ class SessionNode(ContextNode):
         desc = f"Turn {self.turn_count}: {tokens_used} tokens"
         if action_description:
             desc += f" - {action_description[:50]}"
-        self._mark_changed(description=desc)
+        self.mark_changed(desc)
         return self
 
     def record_statement(self) -> SessionNode:
@@ -2373,7 +2365,6 @@ class SessionNode(ContextNode):
             version=data.get("version", 0),
             created_at=data.get("created_at", time.time()),
             updated_at=data.get("updated_at", time.time()),
-            tags=data.get("tags", {}),
             display_sequence=data.get("display_sequence"),
             originator=data.get("originator"),
             title=data.get("title", ""),
@@ -2423,6 +2414,7 @@ class MessageNode(ContextNode):
     tool_args: dict[str, Any] = field(default_factory=dict)
     content_type: str = "text"  # "text", "image", "audio", etc.
     mime_type: str | None = None  # MIME type (e.g., "image/png")
+    processed: bool = False  # Whether this message has been processed by the agent loop
 
     @property
     def node_type(self) -> str:
@@ -2520,8 +2512,8 @@ class MessageNode(ContextNode):
         """Update message content."""
         old_len = len(self.content)
         self.content = content
-        self._mark_changed(
-            description=f"Message content updated ({old_len} → {len(content)} chars)",
+        self.mark_changed(
+            f"Message content updated ({old_len} → {len(content)} chars)",
         )
         return self
 
@@ -2583,7 +2575,6 @@ class MessageNode(ContextNode):
             version=data.get("version", 0),
             created_at=data.get("created_at", time.time()),
             updated_at=data.get("updated_at", time.time()),
-            tags=data.get("tags", {}),
             display_sequence=data.get("display_sequence"),
             originator=originator,
             title=data.get("title", ""),
@@ -2677,7 +2668,7 @@ class WorkNode(ContextNode):
         old_intent = self.intent
         self.intent = intent
         if old_intent != intent:
-            self._mark_changed(description=f"Intent: {old_intent[:30]}... → {intent[:30]}...")
+            self.mark_changed(f"Intent: {old_intent[:30]}... → {intent[:30]}...")
         return self
 
     def set_files(self, files: list[dict[str, str]]) -> WorkNode:
@@ -2685,7 +2676,7 @@ class WorkNode(ContextNode):
         old_count = len(self.files)
         self.files = files
         if old_count != len(files):
-            self._mark_changed(description=f"Files: {old_count} → {len(files)}")
+            self.mark_changed(f"Files: {old_count} → {len(files)}")
         return self
 
     def set_conflicts(self, conflicts: list[dict[str, str]]) -> WorkNode:
@@ -2693,8 +2684,8 @@ class WorkNode(ContextNode):
         old_count = len(self.conflicts)
         self.conflicts = conflicts
         if len(conflicts) != old_count:
-            self._mark_changed(
-                description=f"Work conflicts: {old_count} → {len(conflicts)}",
+            self.mark_changed(
+                f"Work conflicts: {old_count} → {len(conflicts)}",
             )
         return self
 
@@ -2760,7 +2751,6 @@ class WorkNode(ContextNode):
             version=data.get("version", 0),
             created_at=data.get("created_at", time.time()),
             updated_at=data.get("updated_at", time.time()),
-            tags=data.get("tags", {}),
             display_sequence=data.get("display_sequence"),
             originator=data.get("originator"),
             title=data.get("title", ""),
@@ -2959,9 +2949,7 @@ class MCPServerNode(ContextNode):
                 node = self._graph.get_node(node_id)
                 if node:
                     # Generate trace before removal
-                    node._mark_changed(
-                        description=f"Tool '{tool_name}' removed from {self.server_name}"
-                    )
+                    node.mark_changed(f"Tool '{tool_name}' removed from {self.server_name}")
                     self._graph.remove_node(node_id)
 
             # Add new tools
@@ -2994,7 +2982,7 @@ class MCPServerNode(ContextNode):
                         node.input_schema = tool_data["input_schema"]
                         changed = True
                     if changed:
-                        node._mark_changed(description=f"Tool '{tool_name}' schema updated")
+                        node.mark_changed(f"Tool '{tool_name}' schema updated")
 
         # Update resources and prompts (no child nodes for these yet)
         self.resources = [
@@ -3013,9 +3001,7 @@ class MCPServerNode(ContextNode):
             }
             for p in connection.prompts
         ]
-        self._mark_changed(
-            description=f"MCP {self.server_name}: {self.status}, {len(self.tools)} tools"
-        )
+        self.mark_changed(f"MCP {self.server_name}: {self.status}, {len(self.tools)} tools")
 
     def start_call(self, call_id: str, tool_name: str) -> None:
         """Register a pending async tool call.
@@ -3047,8 +3033,8 @@ class MCPServerNode(ContextNode):
         duration_ms = (time.time() - started_at) * 1000
 
         # Mark the node as changed
-        self._mark_changed(
-            description=f"MCP tool '{tool_name}' completed",
+        self.mark_changed(
+            f"MCP tool '{tool_name}' completed",
             content=str(result)[:200] if result else error,
         )
 
@@ -3160,7 +3146,6 @@ class MCPServerNode(ContextNode):
             version=data.get("version", 0),
             created_at=data.get("created_at", time.time()),
             updated_at=data.get("updated_at", time.time()),
-            tags=data.get("tags", {}),
             display_sequence=data.get("display_sequence"),
             originator=data.get("originator"),
             title=data.get("title", ""),
@@ -3299,7 +3284,6 @@ class MCPToolNode(ContextNode):
             version=data.get("version", 0),
             created_at=data.get("created_at", time.time()),
             updated_at=data.get("updated_at", time.time()),
-            tags=data.get("tags", {}),
             display_sequence=data.get("display_sequence"),
             originator=data.get("originator"),
             title=data.get("title", ""),
@@ -3440,7 +3424,7 @@ class MCPManagerNode(ContextNode):
             self.resource_counts[name] = new_resources
 
         change_desc = "; ".join(changes) if changes else description
-        self._mark_changed(description=change_desc)
+        self.mark_changed(change_desc)
         self.notify_parents(change_desc)
 
     def register_server(self, server_node: MCPServerNode) -> None:
@@ -3512,7 +3496,6 @@ class MCPManagerNode(ContextNode):
             version=d.get("version", 0),
             created_at=d.get("created_at", 0.0),
             updated_at=d.get("updated_at", 0.0),
-            tags=d.get("tags", {}),
             display_sequence=d.get("display_sequence"),
             originator=d.get("originator"),
             title=d.get("title", ""),
@@ -3649,14 +3632,14 @@ class PluginManagerNode(ContextNode):
             if len(self.connection_events) > self.max_events:
                 self.connection_events.pop(0)
 
-            self._mark_changed(description=f"Plugin '{name}': {old_status or 'new'} -> {status}")
+            self.mark_changed(f"Plugin '{name}': {old_status or 'new'} -> {status}")
 
     def unregister_plugin(self, name: str) -> None:
         """Remove a plugin from tracking."""
         self.plugin_states.pop(name, None)
         self.plugin_types.pop(name, None)
         self.loaded_count = sum(1 for s in self.plugin_states.values() if s == "connected")
-        self._mark_changed(description=f"Plugin '{name}' unregistered")
+        self.mark_changed(f"Plugin '{name}' unregistered")
 
     def render_digest(self) -> str:
         """Return 'Plugin Manager' format."""
@@ -3717,7 +3700,6 @@ class PluginManagerNode(ContextNode):
             version=d.get("version", 0),
             created_at=d.get("created_at", 0.0),
             updated_at=d.get("updated_at", 0.0),
-            tags=d.get("tags", {}),
             display_sequence=d.get("display_sequence"),
             originator=d.get("originator"),
             title=d.get("title", ""),
@@ -3798,7 +3780,7 @@ class AgentNode(ContextNode):
         old_state = self.agent_state
         self.agent_state = agent_state
         if old_state != agent_state:
-            self._mark_changed(description=f"Agent state: {old_state} → {agent_state}")
+            self.mark_changed(f"Agent state: {old_state} → {agent_state}")
         return self
 
     def update_message_count(self, count: int) -> AgentNode:
@@ -3806,7 +3788,7 @@ class AgentNode(ContextNode):
         old_count = self.message_count
         self.message_count = count
         if old_count != count:
-            self._mark_changed(description=f"Messages: {old_count} → {count}")
+            self.mark_changed(f"Messages: {old_count} → {count}")
         return self
 
     def render_digest(self) -> str:
@@ -3865,7 +3847,6 @@ class AgentNode(ContextNode):
             version=data.get("version", 0),
             created_at=data.get("created_at", time.time()),
             updated_at=data.get("updated_at", time.time()),
-            tags=data.get("tags", {}),
             display_sequence=data.get("display_sequence"),
             originator=data.get("originator"),
             title=data.get("title", ""),
@@ -4023,7 +4004,6 @@ class TraceNode(ContextNode):
             "version": self.version,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
-            "tags": self.tags,
             "display_sequence": self.display_sequence,
             "originator": self.originator,
             "node": self.node,
@@ -4061,7 +4041,6 @@ class TraceNode(ContextNode):
             version=data.get("version", 0),
             created_at=data.get("created_at", time.time()),
             updated_at=data.get("updated_at", time.time()),
-            tags=data.get("tags", {}),
             display_sequence=data.get("display_sequence"),
             originator=data.get("originator"),
             title=data.get("title", ""),
@@ -4185,7 +4164,7 @@ class TaskNode(ContextNode):
         elif status in ("done", "failed") and not self.completed_at:
             self.completed_at = time.time()
 
-        self._mark_changed(f"status: {old_status} -> {status}")
+        self.mark_changed(f"status: {old_status} -> {status}")
 
     def render_digest(self) -> str:
         """Display name for the task."""
@@ -4346,7 +4325,6 @@ def _extract_help_content(cls: type) -> str:
                     "version",
                     "created_at",
                     "updated_at",
-                    "tags",
                     "originator",
                     "title",
                     "display_sequence",
@@ -4581,7 +4559,6 @@ class HelpNode(ContextNode):
             version=data.get("version", 0),
             created_at=data.get("created_at", time.time()),
             updated_at=data.get("updated_at", time.time()),
-            tags=data.get("tags", {}),
             display_sequence=data.get("display_sequence"),
             originator=data.get("originator"),
             title=data.get("title", ""),
@@ -4695,7 +4672,6 @@ class MarkdownListItemNode(ContextNode):
             version=data.get("version", 0),
             created_at=data.get("created_at", time.time()),
             updated_at=data.get("updated_at", time.time()),
-            tags=data.get("tags", {}),
             display_sequence=data.get("display_sequence"),
             originator=data.get("originator"),
             title=data.get("title", ""),
@@ -4844,7 +4820,7 @@ class MarkdownNode(ContextNode):
             # Add to stack for potential children
             stack.append((indent_level, item_node))
 
-        self._mark_changed(description=f"Parsed {len(items)} list items")
+        self.mark_changed(f"Parsed {len(items)} list items")
         return self
 
     def set_content(self, content: str) -> MarkdownNode:
@@ -4862,9 +4838,7 @@ class MarkdownNode(ContextNode):
         if self.auto_parse:
             self.parse_and_create_children()
 
-        self._mark_changed(
-            description=f"Content updated ({len(old_content)} → {len(content)} chars)"
-        )
+        self.mark_changed(f"Content updated ({len(old_content)} → {len(content)} chars)")
         return self
 
     def render_content(
@@ -4938,7 +4912,6 @@ class MarkdownNode(ContextNode):
             version=data.get("version", 0),
             created_at=data.get("created_at", time.time()),
             updated_at=data.get("updated_at", time.time()),
-            tags=data.get("tags", {}),
             display_sequence=data.get("display_sequence"),
             originator=data.get("originator"),
             title=data.get("title", ""),
@@ -5042,7 +5015,7 @@ class FileSystemNode(ContextNode):
         else:
             self.expanded_paths.add(path)
         self._last_scan = 0  # Force rescan
-        self._mark_changed(description=f"Toggled {path}")
+        self.mark_changed(f"Toggled {path}")
         return self
 
     def Recompute(self) -> None:
@@ -5125,7 +5098,6 @@ class FileSystemNode(ContextNode):
             version=data.get("version", 0),
             created_at=data.get("created_at", time.time()),
             updated_at=data.get("updated_at", time.time()),
-            tags=data.get("tags", {}),
             display_sequence=data.get("display_sequence"),
             originator=data.get("originator"),
             title=data.get("title", ""),
@@ -5193,7 +5165,7 @@ class ClockNode(ContextNode):
         if not self.is_running:
             self.start_time = time.time()
             self.is_running = True
-            self._mark_changed(description="Timer started")
+            self.mark_changed("Timer started")
         return self
 
     def pause(self) -> ClockNode:
@@ -5201,7 +5173,7 @@ class ClockNode(ContextNode):
         if self.is_running:
             self.elapsed_seconds = self.get_elapsed()
             self.is_running = False
-            self._mark_changed(description="Timer paused")
+            self.mark_changed("Timer paused")
         return self
 
     def reset(self) -> ClockNode:
@@ -5209,14 +5181,14 @@ class ClockNode(ContextNode):
         self.start_time = time.time()
         self.elapsed_seconds = 0.0
         self.is_running = False
-        self._mark_changed(description="Timer reset")
+        self.mark_changed("Timer reset")
         return self
 
     def Recompute(self) -> None:
         """Update elapsed time on tick."""
         if self.is_running and self.is_complete():
             self.pause()
-            self._mark_changed(description="Countdown completed")
+            self.mark_changed("Countdown completed")
 
     def _format_time(self, seconds: float) -> str:
         """Format seconds as HH:MM:SS."""
@@ -5309,7 +5281,6 @@ class ClockNode(ContextNode):
             version=data.get("version", 0),
             created_at=data.get("created_at", time.time()),
             updated_at=data.get("updated_at", time.time()),
-            tags=data.get("tags", {}),
             display_sequence=data.get("display_sequence"),
             originator=data.get("originator"),
             title=data.get("title", ""),
@@ -5388,7 +5359,7 @@ class FunctionDocNode(ContextNode):
                     # Extract source
                     self.source_lines = ast.unparse(node)
 
-                    self._mark_changed(description=f"Extracted {self.function_name}")
+                    self.mark_changed(f"Extracted {self.function_name}")
                     return self
 
             self.docstring = f"[Function {self.function_name} not found in {self.file_path}]"
@@ -5475,7 +5446,6 @@ class FunctionDocNode(ContextNode):
             version=data.get("version", 0),
             created_at=data.get("created_at", time.time()),
             updated_at=data.get("updated_at", time.time()),
-            tags=data.get("tags", {}),
             display_sequence=data.get("display_sequence"),
             originator=data.get("originator"),
             title=data.get("title", ""),

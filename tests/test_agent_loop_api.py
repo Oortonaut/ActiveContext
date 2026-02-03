@@ -172,10 +172,10 @@ class TestMessageQueueing:
         session = await manager.create_session(cwd=".")
 
         node = session.queue_user_message("Test")
-        assert not node.tags.get("processed", False)
+        assert not node.processed
 
         session.mark_message_processed(node.node_id)
-        assert node.tags.get("processed") is True
+        assert node.processed is True
 
     @pytest.mark.asyncio
     async def test_mark_message_processed_nonexistent_message(self):

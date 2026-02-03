@@ -2,9 +2,9 @@
 
 Tests cover:
 - NotificationLevel enum and Notification dataclass
-- ContextNode notification emission and header formatting
-- ContextGraph notification collection and deduplication
-- Session Alerts group and tick() processing
+- ContextNode notification flags and header formatting
+- Push-based notification flag delivery to ancestors
+- Session tick processing of notification flags
 - notify() DSL function
 """
 
@@ -16,6 +16,7 @@ import pytest
 from activecontext.context.graph import ContextGraph
 from activecontext.context.nodes import (
     ArtifactNode,
+    GroupNode,
     TextNode,
 )
 from activecontext.context.state import Notification, NotificationLevel
@@ -106,42 +107,66 @@ class TestContextNodeNotification:
         node = TextNode(path="test.py")
         assert node.is_subscription_point is False
 
-    def test_emit_notification_when_ignore(self) -> None:
-        """Test that IGNORE level does not emit notifications."""
+    def test_ignore_level_no_ancestor_flags(self) -> None:
+        """Test that IGNORE level does not set flags on ancestors."""
         graph = ContextGraph()
-        node = TextNode(path="test.py", notification_level=NotificationLevel.IGNORE)
-        graph.add_node(node)
+        parent = GroupNode(node_id="parent")
+        child = TextNode(
+            node_id="child", path="test.py", notification_level=NotificationLevel.IGNORE
+        )
+        graph.add_node(parent)
+        graph.add_node(child)
+        graph.link("child", "parent")
 
-        node._mark_changed(description="test")
+        child.mark_changed("test")
 
-        # No notifications should be emitted
-        assert len(graph._pending_notifications) == 0
+        assert parent._notified is False
+        assert parent._wake_notified is False
 
-    def test_emit_notification_when_hold(self) -> None:
-        """Test that HOLD level emits notifications."""
+    def test_hold_level_sets_notified_flag(self) -> None:
+        """Test that HOLD level sets _notified on ancestor nodes."""
         graph = ContextGraph()
-        node = TextNode(path="test.py", notification_level=NotificationLevel.HOLD)
-        graph.add_node(node)
+        parent = GroupNode(node_id="parent")
+        child = TextNode(node_id="child", path="test.py", notification_level=NotificationLevel.HOLD)
+        graph.add_node(parent)
+        graph.add_node(child)
+        graph.link("child", "parent")
 
-        node._mark_changed(description="test change")
+        child.mark_changed("test change")
 
-        assert len(graph._pending_notifications) == 1
-        notif = graph._pending_notifications[0]
-        assert notif.node_id == node.node_id
-        assert notif.level == "hold"
+        assert parent._notified is True
+        assert parent._wake_notified is False
 
-    def test_emit_notification_when_wake(self) -> None:
-        """Test that WAKE level emits notifications and sets wake flag."""
+    def test_wake_level_sets_both_flags(self) -> None:
+        """Test that WAKE level sets both _notified and _wake_notified."""
         graph = ContextGraph()
-        node = TextNode(path="test.py", notification_level=NotificationLevel.WAKE)
-        graph.add_node(node)
+        parent = GroupNode(node_id="parent")
+        child = TextNode(node_id="child", path="test.py", notification_level=NotificationLevel.WAKE)
+        graph.add_node(parent)
+        graph.add_node(child)
+        graph.link("child", "parent")
 
-        node._mark_changed(description="test change")
+        child.mark_changed("test change")
 
-        assert len(graph._pending_notifications) == 1
-        assert graph.has_wake_notification() is True
-        notif = graph._pending_notifications[0]
-        assert notif.level == "wake"
+        assert parent._notified is True
+        assert parent._wake_notified is True
+
+    def test_flags_reach_all_ancestors(self) -> None:
+        """Test that notification flags are set on all ancestors in the DAG."""
+        graph = ContextGraph()
+        grandparent = GroupNode(node_id="grandparent")
+        parent = GroupNode(node_id="parent")
+        child = TextNode(node_id="child", path="test.py", notification_level=NotificationLevel.HOLD)
+        graph.add_node(grandparent)
+        graph.add_node(parent)
+        graph.add_node(child)
+        graph.link("parent", "grandparent")
+        graph.link("child", "parent")
+
+        child.mark_changed("test change")
+
+        assert parent._notified is True
+        assert grandparent._notified is True
 
     def test_format_notification_header_default(self) -> None:
         """Test default header formatting."""
@@ -169,108 +194,6 @@ class TestContextNodeNotification:
 
 
 # =============================================================================
-# ContextGraph Notification Tests
-# =============================================================================
-
-
-class TestContextGraphNotification:
-    """Tests for ContextGraph notification collection."""
-
-    def test_emit_notification_adds_to_queue(self) -> None:
-        """Test that emit_notification adds to pending list."""
-        graph = ContextGraph()
-        graph.emit_notification(
-            node_id="test",
-            trace_id="test:1",
-            header="test header",
-            level=NotificationLevel.HOLD,
-        )
-
-        assert len(graph._pending_notifications) == 1
-        notif = graph._pending_notifications[0]
-        assert notif.node_id == "test"
-        assert notif.trace_id == "test:1"
-        assert notif.header == "test header"
-        assert notif.level == "hold"
-
-    def test_deduplication_by_trace_id(self) -> None:
-        """Test that same trace_id is not added twice."""
-        graph = ContextGraph()
-
-        # Emit same trace twice
-        graph.emit_notification("test", "test:1", "header1", NotificationLevel.HOLD)
-        graph.emit_notification("test", "test:1", "header2", NotificationLevel.HOLD)
-
-        # Should only have one notification
-        assert len(graph._pending_notifications) == 1
-        assert graph._pending_notifications[0].header == "header1"
-
-    def test_different_trace_ids_both_added(self) -> None:
-        """Test that different trace_ids are both added."""
-        graph = ContextGraph()
-
-        graph.emit_notification("test", "test:1", "header1", NotificationLevel.HOLD)
-        graph.emit_notification("test", "test:2", "header2", NotificationLevel.HOLD)
-
-        assert len(graph._pending_notifications) == 2
-
-    def test_has_wake_notification_false_initially(self) -> None:
-        """Test that has_wake_notification is False initially."""
-        graph = ContextGraph()
-        assert graph.has_wake_notification() is False
-
-    def test_has_wake_notification_true_after_wake(self) -> None:
-        """Test that has_wake_notification is True after WAKE notification."""
-        graph = ContextGraph()
-        graph.emit_notification("test", "test:1", "header", NotificationLevel.WAKE)
-        assert graph.has_wake_notification() is True
-
-    def test_has_wake_notification_false_after_hold(self) -> None:
-        """Test that has_wake_notification stays False for HOLD."""
-        graph = ContextGraph()
-        graph.emit_notification("test", "test:1", "header", NotificationLevel.HOLD)
-        assert graph.has_wake_notification() is False
-
-    def test_flush_notifications_returns_all(self) -> None:
-        """Test that flush_notifications returns all pending."""
-        graph = ContextGraph()
-        graph.emit_notification("n1", "n1:1", "h1", NotificationLevel.HOLD)
-        graph.emit_notification("n2", "n2:1", "h2", NotificationLevel.WAKE)
-
-        notifications = graph.flush_notifications()
-
-        assert len(notifications) == 2
-        assert notifications[0].node_id == "n1"
-        assert notifications[1].node_id == "n2"
-
-    def test_flush_notifications_clears_state(self) -> None:
-        """Test that flush_notifications clears all state."""
-        graph = ContextGraph()
-        graph.emit_notification("test", "test:1", "header", NotificationLevel.WAKE)
-
-        assert len(graph._pending_notifications) == 1
-        assert graph.has_wake_notification() is True
-        assert len(graph._seen_traces) == 1
-
-        graph.flush_notifications()
-
-        assert len(graph._pending_notifications) == 0
-        assert graph.has_wake_notification() is False
-        assert len(graph._seen_traces) == 0
-
-    def test_flush_allows_same_trace_again(self) -> None:
-        """Test that after flush, same trace_id can be added again."""
-        graph = ContextGraph()
-
-        graph.emit_notification("test", "test:1", "header", NotificationLevel.HOLD)
-        graph.flush_notifications()
-
-        # Same trace_id should work again after flush
-        graph.emit_notification("test", "test:1", "header", NotificationLevel.HOLD)
-        assert len(graph._pending_notifications) == 1
-
-
-# =============================================================================
 # Session Integration Tests
 # =============================================================================
 
@@ -284,56 +207,41 @@ class TestSessionNotificationIntegration:
         return tmp_path
 
     @pytest.mark.asyncio
-    async def test_alerts_group_created(self, temp_cwd: Path) -> None:
-        """Test that Alerts group is created in session."""
+    async def test_tick_clears_notification_flags(self, temp_cwd: Path) -> None:
+        """Test that tick() clears notification flags from nodes."""
         from activecontext.session.session_manager import SessionManager
 
         manager = SessionManager()
         session = await manager.create_session(cwd=str(temp_cwd))
 
         try:
-            # Check alerts group exists
-            assert session._alerts_group is not None
-            assert session._alerts_group.node_id == "alerts"
-
-            # Check it's linked to root
             graph = session._timeline.context_graph
-            alerts = graph.get_node("alerts")
-            assert alerts is not None
-            assert "context" in alerts.parent_ids
-        finally:
-            await manager.close_session(session.session_id)
 
-    @pytest.mark.asyncio
-    async def test_tick_processes_notifications(self, temp_cwd: Path) -> None:
-        """Test that tick() processes notifications into Alerts group."""
-        from activecontext.session.session_manager import SessionManager
+            # Create parent and child with HOLD notification
+            parent = GroupNode(node_id="test_parent")
+            child = TextNode(
+                node_id="test_child",
+                path="test.py",
+                notification_level=NotificationLevel.HOLD,
+            )
+            graph.add_node(parent)
+            graph.add_node(child)
+            graph.link("test_child", "test_parent")
 
-        manager = SessionManager()
-        session = await manager.create_session(cwd=str(temp_cwd))
+            # Trigger a change — sets _notified on parent
+            child.mark_changed("changed")
+            assert parent._notified is True
 
-        try:
-            # Create a node with HOLD notification level
-            graph = session._timeline.context_graph
-            node = TextNode(path="test.py", notification_level=NotificationLevel.HOLD)
-            graph.add_node(node)
-
-            # Trigger a change
-            node._mark_changed(description="changed")
-
-            # Run tick
+            # Run tick — should clear flags
             await session.tick()
-
-            # Check alerts group has content
-            alerts_children = graph.get_children("alerts")
-            assert len(alerts_children) == 1
-            assert "changed" in alerts_children[0].content
+            assert parent._notified is False
+            assert parent._wake_notified is False
         finally:
             await manager.close_session(session.session_id)
 
     @pytest.mark.asyncio
     async def test_wake_notification_sets_event(self, temp_cwd: Path) -> None:
-        """Test that WAKE notification sets the wake event."""
+        """Test that WAKE notification sets the wake event during tick."""
         from activecontext.session.session_manager import SessionManager
 
         manager = SessionManager()
@@ -344,13 +252,21 @@ class TestSessionNotificationIntegration:
             session._wake_event.clear()
             assert not session._wake_event.is_set()
 
-            # Create node with WAKE level
             graph = session._timeline.context_graph
-            node = TextNode(path="test.py", notification_level=NotificationLevel.WAKE)
-            graph.add_node(node)
+
+            # Create parent and child with WAKE level
+            parent = GroupNode(node_id="test_parent")
+            child = TextNode(
+                node_id="test_child",
+                path="test.py",
+                notification_level=NotificationLevel.WAKE,
+            )
+            graph.add_node(parent)
+            graph.add_node(child)
+            graph.link("test_child", "test_parent")
 
             # Trigger change
-            node._mark_changed(description="changed")
+            child.mark_changed("changed")
 
             # Run tick
             await session.tick()

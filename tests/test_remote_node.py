@@ -352,7 +352,6 @@ class TestSerialization:
         original.mode = "running"
         original.version = 5
         original.title = "Lint Check"
-        original.tags = {"priority": "high"}
 
         data = original.to_dict()
         restored = RemoteNode.from_dict(data)
@@ -369,7 +368,6 @@ class TestSerialization:
         assert restored.mode == "running"
         assert restored.version == 5
         assert restored.title == "Lint Check"
-        assert restored.tags == {"priority": "high"}
 
     def test_from_dict_no_connection(self) -> None:
         """from_dict produces a node with no connection (transient)."""

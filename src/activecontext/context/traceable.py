@@ -296,11 +296,11 @@ def trace_all_fields(cls: type[T]) -> type[T]:
                 fmt = field_formatters.get(name, format_value)
                 old_str = fmt(old_value)
                 new_str = fmt(value)
-                self._mark_changed(
-                    description=f"{name}: {old_str} -> {new_str}",
-                    field_name=name,
-                    prev_value=old_str,
-                    curr_value=new_str,
+                self.mark_changed(
+                    f"{name}: {old_str} -> {new_str}",
+                    field=name,
+                    old=old_str,
+                    new=new_str,
                 )
         else:
             original_setattr(self, name, value)

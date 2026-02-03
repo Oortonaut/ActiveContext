@@ -54,24 +54,25 @@ class MockContextNode:
     _graph: Any = None
     _mark_changed_calls: list = field(default_factory=list, repr=False)
 
-    def _mark_changed(
+    def mark_changed(
         self,
         description: str = "",
+        *,
         content: str | None = None,
         originator: str | None = None,
-        field_name: str = "",
-        prev_value: Any = "",
-        curr_value: Any = "",
+        field: str = "",
+        old: Any = "",
+        new: Any = "",
     ) -> None:
-        """Track _mark_changed calls for verification."""
+        """Track mark_changed calls for verification."""
         self._mark_changed_calls.append(
             {
                 "description": description,
                 "content": content,
                 "originator": originator,
-                "field_name": field_name,
-                "prev_value": prev_value,
-                "curr_value": curr_value,
+                "field_name": field,
+                "prev_value": str(old) if old != "" else "",
+                "curr_value": str(new) if new != "" else "",
             }
         )
 

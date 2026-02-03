@@ -56,7 +56,6 @@ if TYPE_CHECKING:
 
     from activecontext.config.schema import Config
     from activecontext.context.buffer import TextBuffer
-    from activecontext.context.state import Notification
     from activecontext.core.llm.provider import LLMProvider, Message
     from activecontext.terminal.protocol import TerminalExecutor
 
@@ -209,9 +208,6 @@ class Session:
         # User messages group - created in _create_metadata_nodes
         self._user_messages_group: GroupNode | None = None
 
-        # Alerts group for notifications - created in _create_metadata_nodes
-        self._alerts_group: GroupNode | None = None
-
         # Track whether startup() has been called
         self._startup_done: bool = is_restore  # Restored sessions skip startup
 
@@ -350,17 +346,6 @@ class Session:
         )
         self._timeline.context_graph.add_node(self._user_messages_group)
         self._timeline.context_graph.link("user_messages", "context")
-
-        # Create Alerts group for notifications
-        # Notifications from HOLD/WAKE level nodes appear here
-        self._alerts_group = GroupNode(
-            node_id="alerts",
-            expansion=Expansion.HEADER,  # Header when empty, ALL when has content
-            mode="running",
-            tick_frequency=TickFrequency.turn(),
-        )
-        self._timeline.context_graph.add_node(self._alerts_group)
-        self._timeline.context_graph.link("alerts", "context")
 
     @property
     def session_id(self) -> str:
@@ -1103,23 +1088,6 @@ class Session:
             session._timeline.context_graph.link("user_messages", "context")
             log.debug("Created missing user_messages group for restored session")
 
-        # Link session's alerts group to the restored graph's node (if exists)
-        # Or create it if missing (backward compat)
-        restored_alerts = context_graph.get_node("alerts")
-        if isinstance(restored_alerts, GroupNode):
-            session._alerts_group = restored_alerts
-        else:
-            # Create missing alerts group for backward compatibility
-            session._alerts_group = GroupNode(
-                node_id="alerts",
-                expansion=Expansion.HEADER,
-                mode="running",
-                tick_frequency=TickFrequency.turn(),
-            )
-            session._timeline.context_graph.add_node(session._alerts_group)
-            session._timeline.context_graph.link("alerts", "context")
-            log.debug("Created missing alerts group for restored session")
-
         # Restore text buffers for virtual content (system prompts)
         session._restore_system_prompt_buffer()
 
@@ -1232,8 +1200,7 @@ class Session:
         children = self._timeline.context_graph.get_children("user_messages")
         for child in children:
             if isinstance(child, MessageNode):
-                # Check if message has been processed (via tags)
-                if not child.tags.get("processed", False):
+                if not child.processed:
                     return True
         return False
 
@@ -1245,7 +1212,7 @@ class Session:
         messages: list[MessageNode] = []
         children = self._timeline.context_graph.get_children("user_messages")
         for child in children:
-            if isinstance(child, MessageNode) and not child.tags.get("processed", False):
+            if isinstance(child, MessageNode) and not child.processed:
                 messages.append(child)
         return messages
 
@@ -1253,7 +1220,7 @@ class Session:
         """Mark a message as processed."""
         node = self._timeline.context_graph.get_node(message_id)
         if isinstance(node, MessageNode):
-            node.tags["processed"] = True
+            node.processed = True
 
     async def _prompt_with_llm(self, content: str) -> AsyncIterator[SessionUpdate]:
         """Process prompt using the LLM provider.
@@ -1290,7 +1257,9 @@ class Session:
             tokens_est = n_chars // 4
             log.debug(
                 "Iteration %d, projection %d chars (~%d tokens)",
-                iteration, n_chars, tokens_est,
+                iteration,
+                n_chars,
+                tokens_est,
             )
 
             # Write context dump file if configured
@@ -1394,8 +1363,7 @@ class Session:
             action_desc = None
             if had_executable:
                 exec_count = sum(
-                    1 for s in parsed.segments
-                    if s.language == "python/acrepl" or s.kind == "xml"
+                    1 for s in parsed.segments if s.language == "python/acrepl" or s.kind == "xml"
                 )
                 action_desc = f"Executed {exec_count} code block(s)"
             if self._session_node:
@@ -1576,27 +1544,13 @@ class Session:
                     )
                 )
 
-        # 6. Process notifications from nodes with HOLD/WAKE levels
-        # Check for WAKE notifications before flush (flush clears the flag)
-        should_wake = context_graph.has_wake_notification()
-        notifications = context_graph.flush_notifications()
-        if notifications:
-            self._update_alerts_group(notifications)
-            updates.append(
-                SessionUpdate(
-                    kind=UpdateKind.NODE_CHANGED,
-                    session_id=self._session_id,
-                    payload={
-                        "node_id": "alerts",
-                        "change": "notifications_updated",
-                        "count": len(notifications),
-                    },
-                    timestamp=timestamp,
-                )
-            )
-
-        if should_wake:
-            self._wake_event.set()
+        # 6. Process push-based notification flags from nodes
+        for node in context_graph._nodes.values():
+            if node._notified:
+                if node._wake_notified:
+                    self._wake_event.set()
+                node._notified = False
+                node._wake_notified = False
 
         return updates
 
@@ -1724,38 +1678,6 @@ class Session:
     def wake(self) -> None:
         """Wake the agent loop to process pending work."""
         self._wake_event.set()
-
-    def _update_alerts_group(self, notifications: list[Notification]) -> None:
-        """Update Alerts group with new notifications.
-
-        Args:
-            notifications: List of Notification objects to display
-        """
-        from activecontext.context.nodes import ArtifactNode
-
-        if not self._alerts_group:
-            return
-
-        context_graph = self._timeline.context_graph
-
-        # Clear old alert nodes
-        for child in context_graph.get_children(self._alerts_group.node_id):
-            context_graph.remove_node(child.node_id)
-
-        # Add new alert nodes (as ArtifactNodes)
-        for i, notif in enumerate(notifications):
-            alert_node = ArtifactNode(
-                node_id=f"alert_{i}",
-                content=notif.header,
-                artifact_type="notification",
-                expansion=Expansion.ALL,
-                tags={"level": notif.level, "source": notif.node_id},
-            )
-            context_graph.add_node(alert_node)
-            context_graph.link(alert_node.node_id, self._alerts_group.node_id)
-
-        # Update group visibility based on content
-        self._alerts_group.expansion = Expansion.ALL if notifications else Expansion.HEADER
 
     def get_projection(self) -> Projection:
         """Build the LLM projection from current session state.

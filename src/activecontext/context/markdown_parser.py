@@ -63,9 +63,8 @@ class HeadingSection:
         Returns:
             Annotated heading like '## Heading Text | line 10..25 of 320 {#text_1}'
         """
-        prefix = "#" * self.level
         tags = self.render_tags(total_lines, node_id)
-        return f"{prefix} {self.title} {tags}"
+        return f"{self.title} {tags}"
 
 
 @dataclass
@@ -137,7 +136,7 @@ class MarkdownParser:
                 match = self.HEADING_PATTERN.match(line)
                 if match:
                     level = len(match.group(1))
-                    title = match.group(2).strip()
+                    title = line.strip()
                     headings.append((line_num, level, title))
 
             # Track blank lines for indented code detection

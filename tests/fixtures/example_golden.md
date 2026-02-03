@@ -248,7 +248,7 @@ Some content here.
 
 ###No space after hashes (invalid heading per CommonMark)
 
-### Extra spaces after hashes | line 251..256 of 323 {#text_57}
+###    Extra spaces after hashes | line 251..256 of 323 {#text_57}
 
    ### Leading spaces before heading (invalid)
 

@@ -12,14 +12,18 @@ NodeView owns visibility state, ContextNode owns content data.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from activecontext.context import trace_all_fields
 from activecontext.context.state import Expansion
 
 if TYPE_CHECKING:
     from activecontext.context.nodes import ContextNode
 
 
+@trace_all_fields
+@dataclass
 class NodeView:
     """View wrapper for ContextNode with visibility state.
 
@@ -31,15 +35,13 @@ class NodeView:
         _node: The underlying ContextNode (content)
         _hide: Whether this view is hidden from projection
         _expand: Expansion state for rendering (HEADER, CONTENT, INDEX, ALL)
-        _tags: View-specific metadata (e.g., _hidden_expansion for unhide restoration)
     """
 
-    __slots__ = ("_node", "_hide", "_expand", "_tags")
+    __slots__ = ("_node", "_hide", "_expand")
 
     _node: ContextNode
     _hide: bool
     _expand: Expansion
-    _tags: dict[str, Any]
 
     def __init__(
         self,
@@ -57,7 +59,6 @@ class NodeView:
         object.__setattr__(self, "_node", node)
         object.__setattr__(self, "_hide", hide)
         object.__setattr__(self, "_expand", expand if expand is not None else node.expansion)
-        object.__setattr__(self, "_tags", {})
 
     def node(self) -> ContextNode:
         """Return the underlying ContextNode."""
@@ -94,11 +95,6 @@ class NodeView:
     def expansion(self, value: Expansion) -> None:
         """Set expansion state."""
         object.__setattr__(self, "_expand", value)
-
-    @property
-    def tags(self) -> dict[str, Any]:
-        """View-specific metadata."""
-        return self._tags
 
     # --- Token Calculations ---
 
@@ -152,12 +148,12 @@ class NodeView:
     def __setattr__(self, name: str, value: Any) -> None:
         """Forward attribute assignment to the underlying node.
 
-        Properties (hide, expand, expansion, tags) go through their setters.
-        Slot attributes (_node, _hide, _expand, _tags) use object.__setattr__.
+        Properties (hide, expand, expansion) go through their setters.
+        Slot attributes (_node, _hide, _expand) use object.__setattr__.
         Other attributes are forwarded to the underlying node.
         """
         # Slot attributes - use object.__setattr__
-        if name in ("_node", "_hide", "_expand", "_tags"):
+        if name in ("_node", "_hide", "_expand"):
             object.__setattr__(self, name, value)
         # Property setters - let descriptor protocol handle it
         elif name in ("hide", "expand", "expansion"):
@@ -177,19 +173,16 @@ class NodeView:
             "node_id": self._node.node_id,
             "hide": self._hide,
             "expand": self._expand.value,
-            "tags": dict(self._tags),
         }
 
     @classmethod
     def from_dict(cls, data: dict[str, Any], node: ContextNode) -> NodeView:
         """Restore view from serialized state."""
-        view = cls(
+        return cls(
             node,
             hide=data.get("hide", False),
             expand=Expansion(data["expand"]) if "expand" in data else None,
         )
-        view._tags.update(data.get("tags", {}))
-        return view
 
     def __repr__(self) -> str:
         """Return string representation."""
@@ -424,20 +417,17 @@ class ChoiceView(NodeView):
             "hide": self._hide,
             "expand": self._expand.value,
             "selected_id": self._selected_id,
-            "tags": dict(self._tags),
         }
 
     @classmethod
     def from_dict(cls, data: dict[str, Any], node: ContextNode) -> ChoiceView:
         """Restore view from serialized state."""
-        view = cls(
+        return cls(
             node,
             selected_id=data.get("selected_id"),
             hide=data.get("hide", False),
             expand=Expansion(data["expand"]) if "expand" in data else None,
         )
-        view._tags.update(data.get("tags", {}))
-        return view
 
     def __repr__(self) -> str:
         """Return string representation."""
@@ -512,11 +502,6 @@ class SequenceView(ChoiceView):
         child_ids = self._get_child_ids()
         if child_ids and self._selected_id is None and 0 <= self._current_index < len(child_ids):
             object.__setattr__(self, "_selected_id", child_ids[self._current_index])
-
-    def _persist_state(self) -> None:
-        """Persist progression state to view tags."""
-        self._tags["_seq_index"] = self._current_index
-        self._tags["_seq_completed"] = list(self._completed_steps)
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize view state for session persistence."""
@@ -595,7 +580,6 @@ class SequenceView(ChoiceView):
             object.__setattr__(self, "_current_index", self._current_index + 1)
             self._sync_selection()
 
-        self._persist_state()
         return self
 
     def back(self) -> SequenceView:
@@ -609,7 +593,6 @@ class SequenceView(ChoiceView):
         if self._current_index > 0:
             object.__setattr__(self, "_current_index", self._current_index - 1)
             self._sync_selection()
-            self._persist_state()
         return self
 
     def mark_complete(self) -> SequenceView:
@@ -619,7 +602,6 @@ class SequenceView(ChoiceView):
             Self for method chaining
         """
         self._completed_steps.add(self._current_index)
-        self._persist_state()
         return self
 
     def skip(self) -> SequenceView:
@@ -632,7 +614,6 @@ class SequenceView(ChoiceView):
         if self._current_index < len(child_ids) - 1:
             object.__setattr__(self, "_current_index", self._current_index + 1)
             self._sync_selection()
-            self._persist_state()
         return self
 
     def goto(self, index: int) -> SequenceView:
@@ -648,7 +629,6 @@ class SequenceView(ChoiceView):
         if 0 <= index < len(child_ids):
             object.__setattr__(self, "_current_index", index)
             self._sync_selection()
-            self._persist_state()
         return self
 
     def render_progress(self) -> str:
@@ -768,12 +748,6 @@ class LoopView(NodeView):
         object.__setattr__(self, "_done", False)
         object.__setattr__(self, "_max_iterations", max_iterations)
 
-    def _persist_state(self) -> None:
-        """Persist loop state to view tags."""
-        self._tags["_loop_iteration"] = self._iteration
-        self._tags["_loop_state"] = dict(self._state)
-        self._tags["_loop_done"] = self._done
-
     def to_dict(self) -> dict[str, Any]:
         """Serialize view state for session persistence."""
         return {
@@ -856,7 +830,6 @@ class LoopView(NodeView):
         # Increment iteration
         object.__setattr__(self, "_iteration", self._iteration + 1)
 
-        self._persist_state()
         return self
 
     def update_state(self, **state_updates: Any) -> LoopView:
@@ -869,7 +842,6 @@ class LoopView(NodeView):
             Self for method chaining
         """
         self._state.update(state_updates)
-        self._persist_state()
         return self
 
     def done(self) -> LoopView:
@@ -879,7 +851,6 @@ class LoopView(NodeView):
             Self for method chaining
         """
         object.__setattr__(self, "_done", True)
-        self._persist_state()
         return self
 
     def reset(self) -> LoopView:
@@ -891,7 +862,6 @@ class LoopView(NodeView):
         object.__setattr__(self, "_iteration", 1)
         object.__setattr__(self, "_state", {})
         object.__setattr__(self, "_done", False)
-        self._persist_state()
         return self
 
     def render_header(self) -> str:
@@ -1025,11 +995,6 @@ class StateView(ChoiceView):
         object.__setattr__(self, "_current_state", initial or "")
         object.__setattr__(self, "_state_history", [])
 
-    def _persist_state(self) -> None:
-        """Persist state machine state to view tags."""
-        self._tags["_state_current"] = self._current_state
-        self._tags["_state_history"] = list(self._state_history)
-
     def to_dict(self) -> dict[str, Any]:
         """Serialize view state for session persistence."""
         return {
@@ -1123,7 +1088,6 @@ class StateView(ChoiceView):
         # Update selection to show new state's node
         object.__setattr__(self, "_selected_id", self._states[to_state])
 
-        self._persist_state()
         return self
 
     def force_transition(self, to_state: str) -> StateView:
@@ -1146,7 +1110,6 @@ class StateView(ChoiceView):
         object.__setattr__(self, "_current_state", to_state)
         object.__setattr__(self, "_selected_id", self._states[to_state])
 
-        self._persist_state()
         return self
 
     def reset(self) -> StateView:
@@ -1160,7 +1123,6 @@ class StateView(ChoiceView):
             object.__setattr__(self, "_current_state", initial)
             object.__setattr__(self, "_selected_id", self._states[initial])
         object.__setattr__(self, "_state_history", [])
-        self._persist_state()
         return self
 
     def render_header(self) -> str:

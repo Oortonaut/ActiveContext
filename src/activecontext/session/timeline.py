@@ -740,9 +740,6 @@ class Timeline:
                 # DAG manipulation
                 "link": self._link,
                 "unlink": self._unlink,
-                # Traversal control
-                "hide": self._hide,
-                "unhide": self._unhide,
                 # Checkpointing
                 "checkpoint": self._checkpoint,
                 "restore": self._restore,
@@ -1206,8 +1203,8 @@ class Timeline:
                 node = self._context_graph.get_node(node_id)
                 if isinstance(node, TextNode):
                     # Mark node as needing re-render
-                    node._mark_changed(
-                        description=f"File '{event.path.name}' {event.change_type}",
+                    node.mark_changed(
+                        f"File '{event.path.name}' {event.change_type}",
                     )
 
             # Call the session's file change callback if set
@@ -1839,9 +1836,6 @@ class Timeline:
                 start_line=content_start,
                 end_line=section.end_line,
             )
-            # Store heading metadata in tags
-            node.tags["heading"] = section.title
-            node.tags["level"] = section.level
             all_nodes.append(node)
             section_nodes[i] = node
 
@@ -2035,7 +2029,7 @@ Provide a concise summary:"""
         node.cached_summary = summary
         node.summary_stale = False
         node.content_hash = content_hash
-        node._mark_changed(description="Summary generated")
+        node.mark_changed("Summary generated")
 
         return summary
 
@@ -2077,63 +2071,6 @@ Provide a concise summary:"""
         parent_id = parent.node_id if isinstance(parent, (NodeView, ContextNode)) else parent
         return self._context_graph.unlink(child_id, parent_id)
 
-    def _hide(self, *nodes: NodeView | ContextNode | str) -> int:
-        """Hide nodes from projection traversal.
-
-        Sets view.hide = True, excluding it from rendering while
-        retaining all state for potential restoration via unhide().
-
-        The previous expand state is stored in view.tags['_hidden_expand']
-        so it can be restored later.
-
-        Args:
-            *nodes: One or more NodeViews, nodes, or node IDs to hide
-
-        Returns:
-            Number of nodes successfully hidden
-
-        Example:
-            hide(text_1)              # Hide single node
-            hide(text_1, text_2)      # Hide multiple nodes
-            hide("text_1", group_2)   # Mix of IDs and objects
-        """
-        count = 0
-        for item in nodes:
-            # Handle NodeView
-            if isinstance(item, NodeView):
-                view = item
-                if view.hide:
-                    continue  # Already hidden
-                # Store previous expand for restoration
-                view.tags["_hidden_expand"] = view.expand.value
-                view.hide = True
-                count += 1
-            # Handle ContextNode
-            elif isinstance(item, ContextNode):
-                node = item
-                # Create a view wrapper if needed - for now, find in namespace
-                found_view = self._find_view_for_node(node)
-                if found_view is not None:
-                    if found_view.hide:
-                        continue
-                    found_view.tags["_hidden_expand"] = found_view.expand.value
-                    found_view.hide = True
-                    count += 1
-            # Handle string (node ID)
-            elif isinstance(item, str):
-                resolved = self._context_graph.get_node(item)
-                if resolved is None:
-                    continue
-                found_view = self._find_view_for_node(resolved)
-                if found_view is not None:
-                    if found_view.hide:
-                        continue
-                    found_view.tags["_hidden_expand"] = found_view.expand.value
-                    found_view.hide = True
-                    count += 1
-
-        return count
-
     def _find_view_for_node(self, node: ContextNode) -> NodeView | None:
         """Find NodeView wrapping a ContextNode.
 
@@ -2144,70 +2081,6 @@ Provide a concise summary:"""
             NodeView wrapping the node, or None if not found
         """
         return self._views.get(node.node_id)
-
-    def _unhide(
-        self,
-        *nodes: NodeView | ContextNode | str,
-        expand: Expansion | None = None,
-    ) -> int:
-        """Restore hidden nodes to projection traversal.
-
-        Reverses the effect of hide() by setting view.hide = False and
-        restoring the previous expand state (or a specified one).
-
-        Args:
-            *nodes: One or more NodeViews, nodes, or node IDs to restore
-            expand: Optional expand state to set. If None, restores to the
-                   state before hide() was called, or DETAILS if unknown.
-
-        Returns:
-            Number of nodes successfully restored
-
-        Example:
-            unhide(text_1)                        # Restore to previous state
-            unhide(text_1, text_2)                # Restore multiple
-            unhide(text_1, expand=Expansion.CONTENT)  # Force specific expand
-        """
-        count = 0
-        for item in nodes:
-            view: NodeView | None = None
-
-            # Handle NodeView
-            if isinstance(item, NodeView):
-                view = item
-            # Handle ContextNode
-            elif isinstance(item, ContextNode):
-                view = self._find_view_for_node(item)
-            # Handle string (node ID)
-            elif isinstance(item, str):
-                resolved = self._context_graph.get_node(item)
-                if resolved is not None:
-                    view = self._find_view_for_node(resolved)
-
-            if view is None:
-                continue
-
-            # Skip if not hidden
-            if not view.hide:
-                continue
-
-            # Determine target expand state
-            if expand is not None:
-                target = expand
-            elif "_hidden_expand" in view.tags:
-                # Restore to previous state
-                target = Expansion(view.tags["_hidden_expand"])
-                del view.tags["_hidden_expand"]
-            else:
-                # Default to ALL if no stored state
-                target = Expansion.ALL
-
-            # Unhide and set expand
-            view.hide = False
-            view.expand = target
-            count += 1
-
-        return count
 
     def _checkpoint(self, name: str) -> Any:
         """Create a checkpoint of the current DAG structure.
@@ -3488,8 +3361,6 @@ Provide a concise summary:"""
             "state_machine",
             "link",
             "unlink",
-            "hide",
-            "unhide",
             "checkpoint",
             "restore",
             "checkpoints",

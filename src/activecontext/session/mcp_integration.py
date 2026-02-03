@@ -241,9 +241,7 @@ class MCPIntegration:
             for tool_name, tool_node_id in list(node._tool_nodes.items()):
                 tool_node = self._context_graph.get_node(tool_node_id)
                 if tool_node:
-                    tool_node._mark_changed(
-                        description=f"Tool '{tool_name}' removed (server disconnected)"
-                    )
+                    tool_node.mark_changed(f"Tool '{tool_name}' removed (server disconnected)")
                     self._context_graph.remove_node(tool_node_id)
             node._tool_nodes.clear()
 
@@ -251,7 +249,7 @@ class MCPIntegration:
             node.tools = []
             node.resources = []
             node.prompts = []
-            node._mark_changed(description=f"MCP {name}: disconnected")
+            node.mark_changed(f"MCP {name}: disconnected")
 
         # Unregister from MCPManagerNode
         mcp_manager = self._context_graph.get_node("mcp_manager")

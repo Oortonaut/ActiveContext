@@ -507,7 +507,6 @@ class TestHelpNodeSerialization:
             _help_content="# GroupNode\nSummary facade.\n\n## Methods\n- `SetSummary(text)` -- Set summary\n",
             expansion=Expansion.CONTENT,
             title="Group Help",
-            tags={"auto": True},
         )
         data = original.to_dict()
         restored = HelpNode._from_dict(data)
@@ -517,7 +516,6 @@ class TestHelpNodeSerialization:
         assert restored._help_content == original._help_content
         assert restored.expansion == original.expansion
         assert restored.title == original.title
-        assert restored.tags == original.tags
 
     def test_from_dict_via_registry(self) -> None:
         """Registry-based deserialization works for HelpNode."""

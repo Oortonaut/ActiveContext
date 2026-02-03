@@ -51,11 +51,11 @@ Even more content.
         result = parser.parse(content)
 
         assert len(result.sections) == 3
-        assert result.sections[0].title == "Introduction"
+        assert result.sections[0].title == "# Introduction"
         assert result.sections[0].level == 1
-        assert result.sections[1].title == "Section One"
+        assert result.sections[1].title == "## Section One"
         assert result.sections[1].level == 2
-        assert result.sections[2].title == "Subsection"
+        assert result.sections[2].title == "### Subsection"
         assert result.sections[2].level == 3
 
     def test_no_headings(self, parser: MarkdownParser) -> None:
@@ -111,8 +111,8 @@ More content.
         result = parser.parse(content)
 
         assert len(result.sections) == 2
-        assert result.sections[0].title == "Real Heading"
-        assert result.sections[1].title == "Another Real Heading"
+        assert result.sections[0].title == "# Real Heading"
+        assert result.sections[1].title == "## Another Real Heading"
 
     def test_fenced_code_block_tildes(self, parser: MarkdownParser) -> None:
         """Test that headings inside tilde fenced blocks are ignored."""
@@ -128,8 +128,8 @@ More content.
         result = parser.parse(content)
 
         assert len(result.sections) == 2
-        assert result.sections[0].title == "Real Heading"
-        assert result.sections[1].title == "Real Section Two"
+        assert result.sections[0].title == "# Real Heading"
+        assert result.sections[1].title == "## Real Section Two"
 
     def test_nested_fenced_blocks(self, parser: MarkdownParser) -> None:
         """Test that nested fence markers work correctly."""
@@ -150,8 +150,8 @@ More content.
         result = parser.parse(content)
 
         assert len(result.sections) == 2
-        assert result.sections[0].title == "Start"
-        assert result.sections[1].title == "Real After Nested"
+        assert result.sections[0].title == "# Start"
+        assert result.sections[1].title == "## Real After Nested"
 
     def test_blockquotes_ignored(self, parser: MarkdownParser) -> None:
         """Test that headings inside blockquotes are ignored."""
@@ -172,9 +172,9 @@ More content.
         result = parser.parse(content)
 
         assert len(result.sections) == 3
-        assert result.sections[0].title == "Real Heading"
-        assert result.sections[1].title == "Real Section Two"
-        assert result.sections[2].title == "Real Section Three"
+        assert result.sections[0].title == "# Real Heading"
+        assert result.sections[1].title == "## Real Section Two"
+        assert result.sections[2].title == "### Real Section Three"
 
     def test_indented_code_blocks(self, parser: MarkdownParser) -> None:
         """Test that headings in indented code blocks are ignored."""
@@ -199,9 +199,9 @@ More text.
         result = parser.parse(content)
 
         assert len(result.sections) == 3
-        assert result.sections[0].title == "Real Heading"
-        assert result.sections[1].title == "Real Section Two"
-        assert result.sections[2].title == "Real Section Three"
+        assert result.sections[0].title == "# Real Heading"
+        assert result.sections[1].title == "## Real Section Two"
+        assert result.sections[2].title == "### Real Section Three"
 
     def test_indented_code_requires_blank_line(self, parser: MarkdownParser) -> None:
         """Test that indented text after non-blank line is not code."""
@@ -218,8 +218,8 @@ Some text followed by
         # The "# This might look like indented code" should still be ignored
         # because it has leading spaces - but the exact behavior depends on
         # CommonMark interpretation. Our parser skips 4-space indent after blank.
-        assert result.sections[0].title == "Real Heading"
-        assert result.sections[1].title == "Real Section Two"
+        assert result.sections[0].title == "# Real Heading"
+        assert result.sections[1].title == "## Real Section Two"
 
     def test_all_heading_levels(self, parser: MarkdownParser) -> None:
         """Test that all heading levels 1-6 are recognized."""
@@ -237,7 +237,7 @@ Some text followed by
         assert len(result.sections) == 6
         for i, section in enumerate(result.sections, start=1):
             assert section.level == i
-            assert section.title == f"Level {i}"
+            assert section.title == f"{'#' * i} Level {i}"
 
     def test_heading_must_have_space(self, parser: MarkdownParser) -> None:
         """Test that headings require space after hashes."""
@@ -253,8 +253,8 @@ Some text followed by
 
         # Only lines with space after # are headings
         assert len(result.sections) == 2
-        assert result.sections[0].title == "Valid Heading"
-        assert result.sections[1].title == "Valid With Space"
+        assert result.sections[0].title == "# Valid Heading"
+        assert result.sections[1].title == "### Valid With Space"
 
     def test_heading_with_inline_formatting(self, parser: MarkdownParser) -> None:
         """Test headings with inline markdown formatting."""
@@ -267,9 +267,9 @@ Some text followed by
         result = parser.parse(content)
 
         assert len(result.sections) == 3
-        assert result.sections[0].title == "Heading with `code` in it"
-        assert result.sections[1].title == "Heading with *emphasis* and **strong**"
-        assert result.sections[2].title == "Heading with [link](http://example.com)"
+        assert result.sections[0].title == "# Heading with `code` in it"
+        assert result.sections[1].title == "## Heading with *emphasis* and **strong**"
+        assert result.sections[2].title == "### Heading with [link](http://example.com)"
 
     def test_empty_sections(self, parser: MarkdownParser) -> None:
         """Test back-to-back headings with no content between."""
@@ -287,9 +287,9 @@ Back to content.
 
         assert len(result.sections) == 5
         # Third and Fourth have no content - their line ranges should be small
-        assert result.sections[2].title == "Third"
-        assert result.sections[3].title == "Fourth"
-        assert result.sections[4].title == "Fifth"
+        assert result.sections[2].title == "### Third"
+        assert result.sections[3].title == "### Fourth"
+        assert result.sections[4].title == "### Fifth"
 
     def test_section_line_ranges(self, parser: MarkdownParser) -> None:
         """Test that section line ranges are calculated correctly."""
@@ -364,7 +364,7 @@ class TestFixtureFile:
         # The fixture starts with "# Comprehensive Markdown Parser Test Fixture"
         # so there is no preamble
         assert result.preamble_end == 0
-        assert result.sections[0].title == "Comprehensive Markdown Parser Test Fixture"
+        assert result.sections[0].title == "# Comprehensive Markdown Parser Test Fixture"
 
     def test_fixture_no_code_block_headings(self, fixture_content: str) -> None:
         """Test that fake headings in code blocks are not included."""
@@ -444,7 +444,9 @@ class TestFixtureFile:
 
         actual_titles = [s.title for s in result.sections]
         for expected in expected_titles:
-            assert expected in actual_titles, f"Expected heading not found: {expected}"
+            assert any(
+                t.endswith(f" {expected}") or t == f"# {expected}" for t in actual_titles
+            ), f"Expected heading not found: {expected}"
 
 
 class TestRenderWithTags:
@@ -473,7 +475,7 @@ class TestRenderWithTags:
 
     def test_render_heading_format(self) -> None:
         """Test that render_heading produces correct format."""
-        section = HeadingSection(level=2, title="Features", start_line=10, end_line=25)
+        section = HeadingSection(level=2, title="## Features", start_line=10, end_line=25)
 
         result = section.render_heading(100, "text_0")
         assert result == "## Features | line 10..25 of 100 {#text_0}"
@@ -481,7 +483,7 @@ class TestRenderWithTags:
     def test_render_heading_levels(self) -> None:
         """Test render_heading with different heading levels."""
         for level in range(1, 7):
-            section = HeadingSection(level=level, title="Test", start_line=1, end_line=5)
-            result = section.render_heading(10, "test")
             prefix = "#" * level
+            section = HeadingSection(level=level, title=f"{prefix} Test", start_line=1, end_line=5)
+            result = section.render_heading(10, "test")
             assert result.startswith(f"{prefix} Test")

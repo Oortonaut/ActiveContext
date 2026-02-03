@@ -362,7 +362,7 @@ class RemoteNode(ContextNode):
         for notif_data in notifications:
             desc = notif_data.get("description", "")
             if desc:
-                self._mark_changed(description=desc)
+                self.mark_changed(desc)
 
         # Bump version to signal change
         self.version += 1
@@ -472,7 +472,6 @@ class RemoteNode(ContextNode):
         node.version = data.get("version", 0)
         node.created_at = data.get("created_at", 0.0)
         node.updated_at = data.get("updated_at", 0.0)
-        node.tags = data.get("tags", {})
         node.originator = data.get("originator")
         node.title = data.get("title", "")
         node.content_id = data.get("content_id")

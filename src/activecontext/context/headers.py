@@ -4,11 +4,11 @@ This module provides consistent header formatting for all node types,
 making every node uniquely referenceable by the LLM.
 
 Header Format:
-  [heading_prefix] name [line_range] | {#display_id} state (tokens: ...)
+  name [line_range] | {#display_id} state (tokens: ...)
 
 Examples:
   system_prompt:1 | {#text_8} all (tokens: 111 / 21+90 of 111)
-  ### Running Commands (lines 77-84) | {#system_prompt_8} all (tokens: 111 / 21+90 of 111)
+  ### Running Commands (lines 77-84) | {#system_prompt_8} all (tokens: 111)
 
 Token Format:
 - visible / header+content+index of all
@@ -104,20 +104,18 @@ def render_header(
     *,
     index_tokens: int = 0,
     all_tokens: int | None = None,
-    heading_prefix: str = "",
     line_range: str = "",
 ) -> str:
     """Render a uniform header for a context node.
 
     Args:
         display_id: Short display ID like "text_1" or "message_13"
-        name: Human-readable name like "main.py:1-50" or "User #13"
+        name: Human-readable name like "main.py:1-50" or "### Running Commands"
         state: Current rendering state
         token_info: Token breakdown for the node's own content
         notification_level: Optional notification level (ignore/hold/wake)
         index_tokens: Sum of children's header tokens (from node.index_tokens)
         all_tokens: Total recursive tokens (from node.all_tokens), overrides computed
-        heading_prefix: Optional heading prefix (e.g. "### " for level-3 markdown heading)
         line_range: Optional line range caption (e.g. "(lines 77-84)")
 
     Returns:
@@ -148,8 +146,6 @@ def render_header(
         brief = f"{brief} {notification_level}"
 
     parts: list[str] = []
-    if heading_prefix:
-        parts.append(heading_prefix)
     parts.append(name)
     if line_range:
         parts.append(f" {line_range}")

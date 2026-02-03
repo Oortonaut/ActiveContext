@@ -310,7 +310,9 @@ class Agent(Script):
             tokens_est = n_chars // 4
             log.debug(
                 "Iteration %d, projection %d chars (~%d tokens)",
-                iteration, n_chars, tokens_est,
+                iteration,
+                n_chars,
+                tokens_est,
             )
 
             # Write context dump file if configured
