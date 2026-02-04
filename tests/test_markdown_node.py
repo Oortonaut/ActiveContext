@@ -3,6 +3,7 @@
 from activecontext.context.graph import ContextGraph
 from activecontext.context.nodes import MarkdownListItemNode, MarkdownNode
 from activecontext.context.state import Expansion
+from activecontext.context.view import NodeView
 
 
 class TestMarkdownListItemNode:
@@ -316,9 +317,9 @@ class TestMarkdownNode:
         assert children[2].default_expansion == Expansion.ALL
 
         # Verify each renders appropriately
-        render0 = children[0].Render()
-        render1 = children[1].Render()
-        render2 = children[2].Render()
+        render0 = NodeView(children[0]).render()
+        render1 = NodeView(children[1]).render()
+        render2 = NodeView(children[2]).render()
 
         # HEADER should only show metadata, not content
         assert "markdown_list_item" in render0

@@ -272,8 +272,8 @@ class TestTokenBreakdown:
     def test_empty_node(self):
         node = PtyNode(command="gdb")
         info = node.get_token_breakdown()
-        assert info.collapsed > 0
-        assert info.summary == 0
+        assert info.title > 0
+        assert info.content == 0
         assert info.detail == 0
 
     def test_with_output(self):
@@ -281,8 +281,8 @@ class TestTokenBreakdown:
         for i in range(20):
             node.append_output(f"line {i}\n")
         info = node.get_token_breakdown()
-        assert info.collapsed > 0
-        assert info.summary > 0  # last 10 lines
+        assert info.title > 0
+        assert info.content > 0  # last 10 lines
         assert info.detail > 0  # remaining lines
 
 

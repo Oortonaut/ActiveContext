@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 
 from activecontext.context.graph import ContextGraph
+from activecontext.context.view import NodeView
 from activecontext.session.timeline import Timeline
 
 
@@ -217,7 +218,7 @@ Content for section two.
             # Render all nodes and verify content
             rendered_parts = []
             for node in all_nodes:
-                rendered = node.Render(
+                rendered = NodeView(node).render(
                     cwd=str(temp_cwd),
                     text_buffers=timeline._text_buffers,
                 )

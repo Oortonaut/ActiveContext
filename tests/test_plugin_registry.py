@@ -228,7 +228,7 @@ class TestRegistryPluginAPI:
         # Existing API
         assert reg.get("shell") is ShellNode
         assert reg.is_builtin("shell")
-        assert len(reg.list_types()) == 17  # all builtins (including PluginManagerNode)
+        assert len(reg.list_types()) == 18  # all builtins (including PluginManagerNode)
 
         # Old register still works
         reg.register("custom_old", TopicNode)

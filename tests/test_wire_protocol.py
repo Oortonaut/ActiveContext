@@ -228,7 +228,7 @@ class TestNodeManagement:
             node_id="sh_abc123",
             state={"command": "pytest", "status": "running"},
             renders={"header": "### Shell: pytest", "content": "", "detail": ""},
-            tokens={"collapsed": 10, "summary": 0, "detail": 0},
+            tokens={"title": 10, "content": 0, "detail": 0},
             digest={"id": "sh_abc123", "type": "shell"},
         )
         assert result.node_id == "sh_abc123"
@@ -251,7 +251,7 @@ class TestNodeManagement:
         result = NodeSyncResult(
             state={"command": "pytest", "status": "completed"},
             renders={"header": "h", "content": "c", "detail": "d"},
-            tokens={"collapsed": 10, "summary": 50, "detail": 200},
+            tokens={"title": 10, "content": 50, "detail": 200},
             digest={"id": "sh_1", "type": "shell"},
             notifications=[
                 {"description": "Shell completed", "level": "wake"},

@@ -26,6 +26,7 @@ from activecontext.context.nodes import (
 )
 from activecontext.context.registry import get_node_registry
 from activecontext.context.state import Expansion
+from activecontext.context.view import NodeView
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -85,7 +86,7 @@ class TestHelpNodeConstruction:
             _help_content="## Methods\n- `SetPos(self, pos)` -- Set position\n",
         )
         graph.add_node(node)
-        rendered = node.render_header()
+        rendered = NodeView(node).render_header()
         # Should contain the display name
         assert "text Help" in rendered
 

@@ -65,6 +65,25 @@ def create_mock_context_node(
 
     node.add_child = add_child
 
+    # Rendering methods
+    node.render_digest = Mock(return_value=f"{node_type}:{node_id}")
+    node.render_content = Mock(return_value="")
+    node.notification_level = None
+    node.display_sequence = None
+    node.title = node_id
+    node.version = 0
+
+    # Token breakdown
+    from activecontext.context.headers import TokenInfo
+
+    node.get_token_breakdown = Mock(return_value=TokenInfo(title=10, content=0, detail=0))
+
+    # Header tokens (used by visible_tokens)
+    node.header_tokens = 22  # 10 + TOKEN_COUNTS_OVERHEAD(12)
+    node.content_tokens = 0
+    node.index_tokens = 0
+    node.all_tokens = 22
+
     # Add GetDigest method
     node.GetDigest = Mock(
         return_value={

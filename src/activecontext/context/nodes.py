@@ -334,7 +334,7 @@ class ContextNode(ABC):
     def header_tokens(self) -> int:
         """Tokens for the header line, including token counts overhead.
 
-        Computed from get_token_breakdown().collapsed (the metadata line)
+        Computed from get_token_breakdown().title (the metadata line)
         plus TOKEN_COUNTS_OVERHEAD for the token display string in the header.
         """
         from activecontext.context.headers import TOKEN_COUNTS_OVERHEAD
@@ -345,11 +345,11 @@ class ContextNode(ABC):
     def content_tokens(self) -> int:
         """Tokens for this node's own content (excluding children).
 
-        Delegates to get_token_breakdown().summary + detail, which subclasses
+        Delegates to get_token_breakdown().content + detail, which subclasses
         override to provide accurate counts.
         """
         breakdown = self.get_token_breakdown()
-        return breakdown.summary + breakdown.detail
+        return breakdown.content + breakdown.detail
 
     @property
     def index_tokens(self) -> int:
@@ -394,40 +394,12 @@ class ContextNode(ABC):
         """Return metadata digest for this node."""
         ...
 
-    def Render(
-        self,
-        cwd: str = ".",
-        text_buffers: dict[str, Any] | None = None,
-        expand: Expansion | None = None,
-    ) -> str:
-        """Render this node's content based on expansion state.
-
-        Composes render_header() + render_content() based on expansion:
-          HEADER  → render_header() only
-          CONTENT / INDEX / ALL → render_header() + render_content()
-
-        Args:
-            cwd: Working directory for file access
-            text_buffers: Optional dict of buffer_id -> TextBuffer for markdown nodes
-            expand: Expansion state to render with (uses node.expansion if not provided)
-        """
-        effective_expand = expand if expand is not None else self.default_expansion
-        if effective_expand == Expansion.HEADER:
-            return self.render_header(cwd=cwd)
-        else:  # CONTENT, INDEX, or ALL
-            header = self.render_header(cwd=cwd)
-            content = self.render_content(cwd=cwd, text_buffers=text_buffers)
-            return header + content
-
     @abstractmethod
     def get_token_breakdown(self) -> TokenInfo:
         """Return token counts for different visibility levels.
 
-        Args:
-            cwd: Working directory for relative path resolution.
-
         Returns:
-            TokenInfo with collapsed, summary, and detail token counts.
+            TokenInfo with title, content, index, detail, and total token counts.
         """
         ...
 
@@ -441,34 +413,6 @@ class ContextNode(ABC):
             MessageNode: "User"
         """
         ...
-
-    def render_header(self) -> str:
-        """Render uniform header for this node based on current state.
-
-        """
-        token_info = self.get_token_breakdown()
-
-        from .state import NotificationLevel
-
-        # Compute header and content from TokenInfo (node's own breakdown)
-        header_toks = token_info.title + TOKEN_COUNTS_OVERHEAD
-        content_toks = token_info.content + token_info.detail
-        index_toks = token_info.index
-        all_toks = token_info.total
-
-        token_str = token_info.format_token_info(expansion)
-
-        # Build brief: "summary wake" or just "summary" if notification is ignore/None
-        brief = state.value
-        if notification_level and notification_level != NotificationLevel.IGNORE:
-            brief = f"{brief} {notification_level.value}"
-
-        parts: list[str] = []
-        parts.append(name)
-        if line_range:
-            parts.append(f" {line_range}")
-        parts.append(f" | {{#{display_id}}} {brief} {token_str}\n")
-        return "".join(parts)
 
     def Recompute(self) -> None:
         """Recompute this node's content. Called during tick for running nodes.
@@ -488,7 +432,6 @@ class ContextNode(ABC):
     ) -> str:
         """Render the content section — the actual content of this node.
 
-        Primary content method. Render() composes render_header() + render_content().
         Subclasses override this to provide node-specific content.
         Base returns empty string (header-only nodes).
         """
@@ -1213,7 +1156,7 @@ class TextNode(ContextNode):
 
         return TokenInfo(
             title=collapsed_tokens,
-            summary=summary_tokens,
+            content=summary_tokens,
             detail=detail_tokens,
         )
 
@@ -1390,11 +1333,11 @@ class GroupNode(ContextNode):
                 child = self._graph.get_node(child_id)
                 if child:
                     child_info = child.get_token_breakdown()
-                    child_total += child_info.title + child_info.summary + child_info.detail
+                    child_total += child_info.title + child_info.content + child_info.detail
 
         return TokenInfo(
             title=collapsed_tokens,
-            summary=summary_tokens,
+            content=summary_tokens,
             detail=0,  # Group has no detail of its own
             total=collapsed_tokens + summary_tokens + child_total if child_total else None,
         )
@@ -1522,7 +1465,7 @@ class TopicNode(ContextNode):
         # Topics don't have summary vs detail distinction
         return TokenInfo(
             title=collapsed_tokens,
-            summary=0,
+            content=0,
             detail=0,
         )
 
@@ -1638,7 +1581,7 @@ class ArtifactNode(ContextNode):
 
         return TokenInfo(
             title=collapsed_tokens,
-            summary=0,
+            content=0,
             detail=detail_tokens,
         )
 
@@ -1861,7 +1804,7 @@ class ShellNode(ContextNode):
 
         return TokenInfo(
             title=collapsed_tokens,
-            summary=0,
+            content=0,
             detail=detail_tokens,
         )
 
@@ -2149,7 +2092,7 @@ class PtyNode(ContextNode):
 
         return TokenInfo(
             title=collapsed_tokens,
-            summary=summary_tokens,
+            content=summary_tokens,
             detail=detail_tokens,
         )
 
@@ -2340,7 +2283,7 @@ class LockNode(ContextNode):
 
         return TokenInfo(
             title=collapsed_tokens,
-            summary=0,
+            content=0,
             detail=detail_tokens,
         )
 
@@ -2633,7 +2576,7 @@ class SessionNode(ContextNode):
         # Session node has statistics as detail
         return TokenInfo(
             title=collapsed_tokens,
-            summary=0,
+            content=0,
             detail=0,
         )
 
@@ -2853,7 +2796,7 @@ class MessageNode(ContextNode):
 
         return TokenInfo(
             title=collapsed_tokens,
-            summary=0,
+            content=0,
             detail=detail_tokens,
         )
 
@@ -3029,7 +2972,7 @@ class WorkNode(ContextNode):
 
         return TokenInfo(
             title=collapsed_tokens,
-            summary=0,
+            content=0,
             detail=detail_tokens,
         )
 
@@ -3413,7 +3356,7 @@ class MCPServerNode(ContextNode):
 
         return TokenInfo(
             title=collapsed_tokens,
-            summary=summary_tokens,
+            content=summary_tokens,
             detail=detail_tokens,
         )
 
@@ -3564,7 +3507,7 @@ class MCPToolNode(ContextNode):
 
         return TokenInfo(
             title=collapsed_tokens,
-            summary=summary_tokens,
+            content=summary_tokens,
             detail=detail_tokens,
         )
 
@@ -3774,7 +3717,7 @@ class MCPManagerNode(ContextNode):
 
         return TokenInfo(
             title=collapsed_tokens,
-            summary=summary_tokens,
+            content=summary_tokens,
             detail=0,
         )
 
@@ -3977,7 +3920,7 @@ class PluginManagerNode(ContextNode):
 
         return TokenInfo(
             title=collapsed_tokens,
-            summary=summary_tokens,
+            content=summary_tokens,
             detail=0,
         )
 
@@ -4125,7 +4068,7 @@ class AgentNode(ContextNode):
 
         return TokenInfo(
             title=collapsed_tokens,
-            summary=0,
+            content=0,
             detail=detail_tokens,
         )
 
@@ -4285,7 +4228,7 @@ class TraceNode(ContextNode):
 
         return TokenInfo(
             title=collapsed_tokens,
-            summary=0,
+            content=0,
             detail=0,
         )
 
@@ -4496,12 +4439,12 @@ class TaskNode(ContextNode):
         collapsed_tokens = count_tokens(collapsed_text)
 
         # Content includes basic info
-        summary_text = self.render_content(cwd=cwd)
+        summary_text = self.render_content()
         summary_tokens = count_tokens(summary_text)
 
         return TokenInfo(
             title=collapsed_tokens,
-            summary=summary_tokens,
+            content=summary_tokens,
             detail=0,
         )
 
@@ -4833,7 +4776,7 @@ class HelpNode(ContextNode):
 
         return TokenInfo(
             title=collapsed_tokens,
-            summary=summary_tokens,
+            content=summary_tokens,
             detail=detail_tokens,
         )
 
@@ -4944,7 +4887,7 @@ class MarkdownListItemNode(ContextNode):
 
         return TokenInfo(
             title=collapsed_tokens,
-            summary=0,
+            content=0,
             detail=detail_tokens,
         )
 
@@ -5185,7 +5128,7 @@ class MarkdownNode(ContextNode):
 
         return TokenInfo(
             title=collapsed_tokens,
-            summary=0,
+            content=0,
             detail=detail_tokens,
         )
 
@@ -5369,7 +5312,7 @@ class FileSystemNode(ContextNode):
 
         return TokenInfo(
             title=collapsed_tokens,
-            summary=0,
+            content=0,
             detail=detail_tokens,
         )
 
@@ -5553,7 +5496,7 @@ class ClockNode(ContextNode):
 
         return TokenInfo(
             title=collapsed_tokens,
-            summary=summary_tokens,
+            content=summary_tokens,
             detail=0,
         )
 
@@ -5717,7 +5660,7 @@ class FunctionDocNode(ContextNode):
 
         return TokenInfo(
             title=collapsed_tokens,
-            summary=summary_tokens,
+            content=summary_tokens,
             detail=detail_tokens,
         )
 

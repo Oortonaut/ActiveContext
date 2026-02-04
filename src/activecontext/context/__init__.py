@@ -23,7 +23,7 @@ from activecontext.context.content import (
 )
 from activecontext.context.exposed import exposed, get_exposed, is_exposed
 from activecontext.context.graph import ContextGraph
-from activecontext.context.headers import TokenInfo, format_token_info, render_header
+from activecontext.context.headers import TokenInfo
 from activecontext.context.markdown_parser import (
     HeadingSection,
     MarkdownParser,
@@ -94,8 +94,6 @@ __all__ = [
     "parse_markdown",
     # Headers
     "TokenInfo",
-    "format_token_info",
-    "render_header",
     # Graph
     "ContextGraph",
     # Content

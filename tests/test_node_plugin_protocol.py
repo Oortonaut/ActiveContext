@@ -23,6 +23,7 @@ from activecontext.context.nodes import (
     TraceNode,
     WorkNode,
 )
+from activecontext.context.view import NodeView
 from activecontext.plugins.protocol import (
     MethodCall,
     NodeNotification,
@@ -60,7 +61,6 @@ class TestProtocolConformance:
         [
             "node_type",
             "node_id",
-            "render_header",
             "render_content",
             "render_digest",
             "get_token_breakdown",
@@ -109,7 +109,7 @@ class TestAdapterMethods:
             language="python",
         )
         content = node.render_content()
-        header = node.render_header()
+        header = NodeView(node).render_header()
         # Content should not include the header
         assert not content.startswith(header) or content == ""
         # But it should contain something from the summary
@@ -129,7 +129,7 @@ class TestAdapterMethods:
             artifact_type="output",
             content="line 1\nline 2\nline 3",
         )
-        header = node.render_header()
+        header = NodeView(node).render_header()
         content = node.render_content()
 
         composed = header + content
@@ -167,8 +167,8 @@ class TestSupportingTypes:
 
     def test_token_estimate_defaults(self) -> None:
         est = TokenEstimate()
-        assert est.collapsed == 0
-        assert est.summary == 0
+        assert est.title == 0
+        assert est.content == 0
         assert est.detail == 0
 
     def test_node_notification(self) -> None:
@@ -183,7 +183,7 @@ class TestSupportingTypes:
         result = SyncResult(
             state={"command": "pytest", "status": "completed"},
             renders=RenderSnapshot(header="h", content="c", detail="d"),
-            tokens=TokenEstimate(collapsed=10, summary=50, detail=200),
+            tokens=TokenEstimate(title=10, content=50, detail=200),
             digest={"id": "sh_1", "type": "shell"},
             notifications=[
                 NodeNotification(description="done", level="hold"),
@@ -191,5 +191,5 @@ class TestSupportingTypes:
         )
         assert result.state["command"] == "pytest"
         assert result.renders.header == "h"
-        assert result.tokens.collapsed == 10
+        assert result.tokens.title == 10
         assert len(result.notifications) == 1

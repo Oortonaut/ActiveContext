@@ -13,6 +13,7 @@ from activecontext.context.nodes import (
     MCPServerNode,
     MCPToolNode,
 )
+from activecontext.context.view import NodeView
 from activecontext.mcp.types import MCPConnectionStatus, MCPToolInfo
 
 # =============================================================================
@@ -132,23 +133,23 @@ class TestMCPToolNodeRender:
     def test_render_collapsed(self, tool_node):
         """Test HEADER state shows tool name via uniform header."""
         tool_node.default_expansion = Expansion.HEADER
-        result = tool_node.Render()
+        result = NodeView(tool_node, expansion=Expansion.HEADER).render()
         # Uniform header includes display name and node_id
         assert "read_file" in result
         assert f"{{#{tool_node.node_id}}}" in result
-        assert "tokens" in result
+        assert "header" in result  # Expansion state shown in header
 
     def test_render_content(self, tool_node):
         """Test CONTENT state shows description and parameters."""
         tool_node.default_expansion = Expansion.CONTENT
-        result = tool_node.Render()
+        result = NodeView(tool_node, expansion=Expansion.CONTENT).render()
         assert "Read contents" in result
         assert "`path`" in result
 
     def test_render_details(self, tool_node):
         """Test DETAILS state shows name, description, and required params."""
         tool_node.default_expansion = Expansion.ALL
-        result = tool_node.Render()
+        result = NodeView(tool_node, expansion=Expansion.ALL).render()
         assert "Read contents of a file" in result
         assert "`path`" in result  # Required param
         assert "(required)" in result  # Required marker

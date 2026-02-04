@@ -1709,7 +1709,6 @@ class Session:
             context_graph=self._timeline.context_graph,
             cwd=self._cwd,
             text_buffers=self._text_buffers,
-            views=self._timeline.views,
         )
 
     def clear_message_history(self) -> None:

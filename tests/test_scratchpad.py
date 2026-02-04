@@ -8,6 +8,7 @@ from pathlib import Path
 
 from activecontext.context.nodes import WorkNode
 from activecontext.context.state import Expansion, WorkStatus
+from activecontext.context.view import NodeView
 from activecontext.coordination import (
     Conflict,
     FileAccess,
@@ -341,9 +342,9 @@ class TestWorkNode:
             default_expansion=Expansion.HEADER,
             files=[{"path": "src/main.py", "mode": "write"}],
         )
-        rendered = node.Render()
+        rendered = NodeView(node, expansion=Expansion.HEADER).render()
         assert "Work:" in rendered  # Display name in new header format
-        assert "(tokens:" in rendered  # New token breakdown format
+        assert "header" in rendered  # Expansion state shown in header
 
     def test_render_details(self) -> None:
         node = WorkNode(
@@ -356,9 +357,9 @@ class TestWorkNode:
                 {"path": "src/util.py", "mode": "read"},
             ],
         )
-        rendered = node.Render()
+        rendered = NodeView(node, expansion=Expansion.ALL).render()
         assert "Work: Test work [active]" in rendered  # New header format
-        assert "(tokens:" in rendered  # Token breakdown
+        assert "all" in rendered  # Expansion state shown in header
         assert "Agent: abc12345" in rendered
         assert "[W] src/main.py" in rendered
         assert "[R] src/util.py" in rendered
@@ -377,7 +378,7 @@ class TestWorkNode:
                 }
             ],
         )
-        rendered = node.Render()
+        rendered = NodeView(node, expansion=Expansion.ALL).render()
         assert "CONFLICTS" in rendered
         assert "def67890" in rendered
         assert "src/shared.py" in rendered

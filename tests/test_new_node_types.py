@@ -3,6 +3,7 @@
 import time
 
 from activecontext.context.nodes import ClockNode, FileSystemNode, FunctionDocNode
+from activecontext.context.view import NodeView
 
 
 class TestFileSystemNode:
@@ -101,7 +102,7 @@ class TestFileSystemNode:
         """Test different render modes."""
         fs = FileSystemNode(root_path=str(tmp_path))
 
-        header = fs.render_header()
+        header = NodeView(fs).render_header()
         assert header  # Has header
 
         content = fs.render_content()
@@ -341,7 +342,7 @@ def test_func(x: int) -> str:
 
         doc = FunctionDocNode(file_path=str(test_file), function_name="test_func")
 
-        header = doc.render_header()
+        header = NodeView(doc).render_header()
         assert header  # Has header
 
         content = doc.render_content()

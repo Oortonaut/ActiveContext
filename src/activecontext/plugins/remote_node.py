@@ -64,7 +64,7 @@ class RemoteNode(ContextNode):
     Behavior:
     - Property reads return from _cached_state
     - Method calls queue in _pending_calls
-    - render_header/content return from _cached_renders
+    - render_digest/content return from _cached_renders
     - get_token_breakdown returns cached token info
     - tick() syncs with remote: sends pending calls, receives updated state
     - to_dict/from_dict handle serialization for checkpointing
@@ -129,13 +129,6 @@ class RemoteNode(ContextNode):
     # Rendering (composable sections from cache)
     # ------------------------------------------------------------------
 
-    def render_header(self, cwd: str = ".") -> str:
-        """Return cached header or generate a fallback."""
-        if self._cached_renders.header:
-            return self._cached_renders.header
-        # Fallback: use the parent class uniform header
-        return super().render_header(cwd=cwd)
-
     def render_digest(self) -> str:
         """Return cached digest summary, title, or type fallback."""
         if self._cached_digest:
@@ -162,19 +155,19 @@ class RemoteNode(ContextNode):
     # Token estimation
     # ------------------------------------------------------------------
 
-    def get_token_breakdown(self, cwd: str = ".") -> TokenInfo:
+    def get_token_breakdown(self) -> TokenInfo:
         """Return cached token info, with fallback estimation."""
         ct = self._cached_tokens
-        if ct.collapsed > 0 or ct.summary > 0 or ct.detail > 0:
+        if ct.title > 0 or ct.content > 0 or ct.detail > 0:
             return TokenInfo(
-                collapsed=ct.collapsed,
-                summary=ct.summary,
+                title=ct.title,
+                content=ct.content,
                 detail=ct.detail,
             )
         # Fallback: estimate from cached render text
         return TokenInfo(
-            collapsed=_estimate_tokens(self._cached_renders.header),
-            summary=_estimate_tokens(self._cached_renders.content),
+            title=_estimate_tokens(self._cached_renders.header),
+            content=_estimate_tokens(self._cached_renders.content),
             detail=_estimate_tokens(self._cached_renders.detail),
         )
 
@@ -347,8 +340,8 @@ class RemoteNode(ContextNode):
         tokens = raw.get("tokens", {})
         if tokens:
             self._cached_tokens = TokenEstimate(
-                collapsed=tokens.get("collapsed", 0),
-                summary=tokens.get("summary", 0),
+                title=tokens.get("title", 0),
+                content=tokens.get("content", 0),
                 detail=tokens.get("detail", 0),
             )
 
@@ -420,8 +413,8 @@ class RemoteNode(ContextNode):
                     "detail": self._cached_renders.detail,
                 },
                 "_cached_tokens": {
-                    "collapsed": self._cached_tokens.collapsed,
-                    "summary": self._cached_tokens.summary,
+                    "title": self._cached_tokens.title,
+                    "content": self._cached_tokens.content,
                     "detail": self._cached_tokens.detail,
                 },
                 "_cached_digest": dict(self._cached_digest),
@@ -447,8 +440,8 @@ class RemoteNode(ContextNode):
         # Parse cached tokens
         tokens_data = data.get("_cached_tokens", {})
         tokens = TokenEstimate(
-            collapsed=tokens_data.get("collapsed", 0),
-            summary=tokens_data.get("summary", 0),
+            title=tokens_data.get("title", 0),
+            content=tokens_data.get("content", 0),
             detail=tokens_data.get("detail", 0),
         )
 

@@ -3,6 +3,7 @@
 from activecontext.context.graph import ContextGraph
 from activecontext.context.nodes import MessageNode, MessageRole
 from activecontext.context.state import Expansion
+from activecontext.context.view import NodeView
 
 
 class TestMessageNodeBasics:
@@ -133,7 +134,7 @@ class TestMessageNodeRender:
             content="Hello, how are you?",
             originator="user",
         )
-        rendered = node.Render()
+        rendered = NodeView(node).render()
         assert "Hello, how are you?" in rendered
 
     def test_render_collapsed_state(self) -> None:
@@ -144,9 +145,9 @@ class TestMessageNodeRender:
             originator="user",
             default_expansion=Expansion.HEADER,
         )
-        rendered = node.Render()
+        rendered = NodeView(node, expansion=Expansion.HEADER).render()
         assert "User" in rendered  # Title case in new header format
-        assert "(tokens:" in rendered  # New token breakdown format
+        assert "header" in rendered  # Expansion state shown in header
 
     def test_render_tool_call(self) -> None:
         """Test rendering a tool call message."""
@@ -157,7 +158,7 @@ class TestMessageNodeRender:
             tool_name="grep",
             tool_args={"pattern": "test", "path": "src/"},
         )
-        rendered = node.Render()
+        rendered = NodeView(node).render()
         assert "[Tool: grep]" in rendered
         assert 'pattern="test"' in rendered
 
@@ -168,7 +169,7 @@ class TestMessageNodeRender:
             content="line1: test found\nline2: test again",
             originator="tool:grep",
         )
-        rendered = node.Render()
+        rendered = NodeView(node).render()
         assert "test found" in rendered
 
 

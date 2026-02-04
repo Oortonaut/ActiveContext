@@ -13,6 +13,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from activecontext.context.state import Expansion
+from activecontext.context.view import NodeView
 from activecontext.plugins.protocol import (
     RenderSnapshot,
     TokenEstimate,
@@ -52,7 +53,7 @@ def _make_sync_result(
             "content": "Found 3 errors\n",
             "detail": "Error details here\n",
         },
-        "tokens": tokens or {"collapsed": 10, "summary": 25, "detail": 40},
+        "tokens": tokens or {"title": 10, "content": 25, "detail": 40},
         "digest": digest
         or {
             "id": "remote_1",
@@ -124,7 +125,7 @@ class TestCachedRenders:
     """Test that render methods return cached values."""
 
     def test_render_header_from_cache(self) -> None:
-        """render_header returns cached header when available."""
+        """render_header returns header via NodeView."""
         node = _make_node(
             _cached_renders=RenderSnapshot(
                 header="### cached header",
@@ -132,7 +133,9 @@ class TestCachedRenders:
                 detail="detail text\n",
             )
         )
-        assert node.render_header() == "### cached header"
+        header = NodeView(node).render_header()
+        # NodeView builds header dynamically from render_digest + token info
+        assert node.node_id in header
 
     def test_render_content_from_cache(self) -> None:
         """render_content returns cached content."""
@@ -170,10 +173,10 @@ class TestFallbackRenders:
     """Test render fallbacks when no cached data."""
 
     def test_render_header_fallback(self) -> None:
-        """render_header falls back to ContextNode.render_header."""
+        """render_header via NodeView produces uniform header."""
         node = _make_node()
-        header = node.render_header()
-        # The fallback uses the uniform header format; verify it's non-empty
+        header = NodeView(node).render_header()
+        # The uniform header format; verify it's non-empty
         assert header
         # It should contain the node_id reference
         assert node.node_id in header
@@ -321,7 +324,7 @@ class TestSerialization:
         node = _make_node(
             _cached_state={"errors": 3},
             _cached_renders=RenderSnapshot(header="h", content="c", detail="d"),
-            _cached_tokens=TokenEstimate(collapsed=10, summary=20, detail=30),
+            _cached_tokens=TokenEstimate(title=10, content=20, detail=30),
             _cached_digest={"id": "test"},
         )
         d = node.to_dict()
@@ -331,7 +334,7 @@ class TestSerialization:
         assert d["_server_name"] == "lint-server"
         assert d["_cached_state"] == {"errors": 3}
         assert d["_cached_renders"]["header"] == "h"
-        assert d["_cached_tokens"]["collapsed"] == 10
+        assert d["_cached_tokens"]["title"] == 10
 
     def test_to_dict_excludes_connection(self) -> None:
         """to_dict does not include _connection."""
@@ -345,7 +348,7 @@ class TestSerialization:
         original = _make_node(
             _cached_state={"errors": 3},
             _cached_renders=RenderSnapshot(header="h", content="c", detail="d"),
-            _cached_tokens=TokenEstimate(collapsed=10, summary=20, detail=30),
+            _cached_tokens=TokenEstimate(title=10, content=20, detail=30),
             _cached_digest={"id": "test"},
         )
         original.default_expansion = Expansion.CONTENT
@@ -363,7 +366,7 @@ class TestSerialization:
         assert restored._cached_state == {"errors": 3}
         assert restored._cached_renders.header == "h"
         assert restored._cached_renders.content == "c"
-        assert restored._cached_tokens.collapsed == 10
+        assert restored._cached_tokens.title == 10
         assert restored.default_expansion == Expansion.CONTENT
         assert restored.mode == "running"
         assert restored.version == 5
@@ -498,7 +501,7 @@ class TestTickUpdatesCaches:
                 "content": "new content\n",
                 "detail": "new detail\n",
             },
-            tokens={"collapsed": 15, "summary": 30, "detail": 50},
+            tokens={"title": 15, "content": 30, "detail": 50},
             digest={"id": "remote_1", "errors": 7},
         )
         conn = _mock_connection(sync_result=result)
@@ -514,8 +517,8 @@ class TestTickUpdatesCaches:
         assert node._cached_renders.header == "### new header"
         assert node._cached_renders.content == "new content\n"
         assert node._cached_renders.detail == "new detail\n"
-        assert node._cached_tokens.collapsed == 15
-        assert node._cached_tokens.summary == 30
+        assert node._cached_tokens.title == 15
+        assert node._cached_tokens.content == 30
         assert node._cached_tokens.detail == 50
         assert node._cached_digest == {"id": "remote_1", "errors": 7}
 
@@ -620,10 +623,10 @@ class TestTokenEstimation:
 
     def test_cached_tokens_returned(self) -> None:
         """get_token_breakdown returns cached values."""
-        node = _make_node(_cached_tokens=TokenEstimate(collapsed=10, summary=20, detail=30))
+        node = _make_node(_cached_tokens=TokenEstimate(title=10, content=20, detail=30))
         info = node.get_token_breakdown()
-        assert info.collapsed == 10
-        assert info.summary == 20
+        assert info.title == 10
+        assert info.content == 20
         assert info.detail == 30
 
     def test_fallback_estimation_from_renders(self) -> None:
@@ -636,16 +639,16 @@ class TestTokenEstimation:
             )
         )
         info = node.get_token_breakdown()
-        assert info.collapsed == _estimate_tokens("A" * 40)
-        assert info.summary == _estimate_tokens("B" * 80)
+        assert info.title == _estimate_tokens("A" * 40)
+        assert info.content == _estimate_tokens("B" * 80)
         assert info.detail == _estimate_tokens("C" * 120)
 
     def test_empty_renders_zero_tokens(self) -> None:
         """Empty renders produce zero token estimates."""
         node = _make_node()
         info = node.get_token_breakdown()
-        assert info.collapsed == 0
-        assert info.summary == 0
+        assert info.title == 0
+        assert info.content == 0
         assert info.detail == 0
 
 

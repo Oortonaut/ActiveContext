@@ -30,12 +30,16 @@ class Visibility(Enum):
 
 class Expansion(Enum):
     """Rendering state for context nodes.
-
-    States control how visible nodes appear in projections (ordered by verbosity):
-    - HEADER: Title and metadata only (size, trace count)
-    - CONTENT: Main content/summary (default for groups)
-    - INDEX: Content plus section headings without recursing
-    - ALL: Everything including index and full details (default for views)
+    Nodes have the following content, that is expanded into the rendered node:
+    - header: Digest(Title + metadata)
+    - content: Leaf node content
+    - index: Child headers
+    - detail: Rendered children (subsumes index)
+    Expansion controls which node content is included in the rendered view:
+    - HEADER: header
+    - CONTENT: header + content
+    - INDEX: header + content + index
+    - ALL: header + content + index + detail
     """
 
     HEADER = "header"

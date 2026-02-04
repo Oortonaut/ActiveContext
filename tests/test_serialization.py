@@ -326,7 +326,7 @@ class TestMessagePackSerializerWithMsgpack:
         assert "id" not in decoded
 
     def test_encode_decode_response(self) -> None:
-        result = {"state": {"running": True}, "tokens": {"collapsed": 10}}
+        result = {"state": {"running": True}, "tokens": {"title": 10}}
         encoded = self.s.encode_response(result, id=3)
         decoded = self.s.decode(encoded)
         assert decoded["result"] == result

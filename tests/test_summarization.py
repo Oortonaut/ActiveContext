@@ -242,9 +242,9 @@ class TestTextNodeSummarization:
         node.cached_summary = "This is a test summary with several words in it."
         context_graph.add_node(node)
 
-        breakdown = node.get_token_breakdown(cwd=str(tmp_path))
+        breakdown = node.get_token_breakdown()
 
-        # Summary tokens should be non-zero when summary exists
-        assert breakdown.summary > 0
-        assert breakdown.collapsed > 0
+        # Content tokens should be non-zero when summary exists
+        assert breakdown.content > 0
+        assert breakdown.title > 0
         assert breakdown.detail > 0

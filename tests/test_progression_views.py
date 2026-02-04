@@ -7,8 +7,6 @@ Tests coverage for:
 
 from __future__ import annotations
 
-from unittest.mock import Mock
-
 import pytest
 
 from activecontext.context.graph import ContextGraph
@@ -40,26 +38,22 @@ def mock_graph_with_steps():
     parent.default_expansion = Expansion.ALL
     parent.children_ids = {"step-1", "step-2", "step-3"}
     parent.child_order = ["step-1", "step-2", "step-3"]
-    parent.Render = Mock(return_value="# Workflow")
 
     # Create step nodes
     step1 = create_mock_context_node("step-1", "text")
     step1.title = "Understand"
     step1.parent_ids = {"parent"}
     step1.default_expansion = Expansion.ALL
-    step1.Render = Mock(return_value="Read and understand the code...")
 
     step2 = create_mock_context_node("step-2", "text")
     step2.title = "Analyze"
     step2.parent_ids = {"parent"}
     step2.default_expansion = Expansion.ALL
-    step2.Render = Mock(return_value="Identify issues...")
 
     step3 = create_mock_context_node("step-3", "text")
     step3.title = "Suggest"
     step3.parent_ids = {"parent"}
     step3.default_expansion = Expansion.ALL
-    step3.Render = Mock(return_value="Propose improvements...")
 
     # Add to graph
     graph.add_node(parent)
@@ -83,8 +77,6 @@ def mock_graph_with_loop_child():
     child = create_mock_context_node("review", "text")
     child.title = "Review"
     child.default_expansion = Expansion.ALL
-    child.Render = Mock(return_value="Review content based on feedback...")
-
     graph.add_node(child)
     return graph
 
@@ -100,26 +92,22 @@ def mock_graph_with_states():
     parent.default_expansion = Expansion.ALL
     parent.children_ids = {"idle", "working", "done"}
     parent.child_order = ["idle", "working", "done"]
-    parent.Render = Mock(return_value="# Task")
 
     # Create state nodes
     idle = create_mock_context_node("idle", "text")
     idle.title = "Idle"
     idle.parent_ids = {"parent"}
     idle.default_expansion = Expansion.ALL
-    idle.Render = Mock(return_value="Waiting for work...")
 
     working = create_mock_context_node("working", "text")
     working.title = "Working"
     working.parent_ids = {"parent"}
     working.default_expansion = Expansion.ALL
-    working.Render = Mock(return_value="In progress...")
 
     done = create_mock_context_node("done", "text")
     done.title = "Done"
     done.parent_ids = {"parent"}
     done.default_expansion = Expansion.ALL
-    done.Render = Mock(return_value="Complete!")
 
     # Add to graph
     graph.add_node(parent)
@@ -825,9 +813,11 @@ class TestProjectionEngineIntegration:
             "step-3": NodeView(mock_graph_with_steps.get_node("step-3"), expansion=Expansion.ALL),
         }
 
+        # Pre-populate engine views
+        projection_engine.views.update(views)
+
         projection = projection_engine.build(
             context_graph=mock_graph_with_steps,
-            views=views,
         )
 
         # Only parent and current step should be rendered

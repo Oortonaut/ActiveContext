@@ -19,6 +19,7 @@ from activecontext.context.nodes import (
     register_file_watcher,
     unregister_file_watcher,
 )
+from activecontext.context.view import NodeView
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -353,7 +354,7 @@ class TestTextNodeExpansionStates:
         graph.add_node(node)
         node.default_expansion = Expansion.HEADER
 
-        result = node.Render(cwd=".")
+        result = NodeView(node, expansion=Expansion.HEADER).render(cwd=".")
 
         # Should have header but not content
         assert "txt1" in result or "Test File" in result
@@ -376,7 +377,7 @@ class TestTextNodeExpansionStates:
         node.cached_summary = "This is a test file summary."
         node.summary_stale = False
 
-        result = node.Render(cwd=".")
+        result = NodeView(node, expansion=Expansion.CONTENT).render(cwd=".")
 
         # Should include summary
         assert "This is a test file summary." in result
@@ -395,7 +396,7 @@ class TestTextNodeExpansionStates:
         node.default_expansion = Expansion.CONTENT
         node.cached_summary = None
 
-        result = node.Render(cwd=".")
+        result = NodeView(node, expansion=Expansion.CONTENT).render(cwd=".")
 
         # Should show header but no content
         assert "line 1" not in result
@@ -420,7 +421,7 @@ class TestTextNodeExpansionStates:
             graph.add_node(node)
             node.default_expansion = Expansion.ALL
 
-            result = node.Render(cwd=tmpdir)
+            result = NodeView(node, expansion=Expansion.ALL).render(cwd=tmpdir)
 
             # Should include all content lines
             assert "line 1" in result
@@ -461,10 +462,10 @@ class TestTextNodeExpansionStates:
                 nodes[exp] = node
 
             # Render each and verify expected content
-            header_output = nodes[Expansion.HEADER].Render(cwd=tmpdir)
-            content_output = nodes[Expansion.CONTENT].Render(cwd=tmpdir)
-            index_output = nodes[Expansion.INDEX].Render(cwd=tmpdir)
-            all_output = nodes[Expansion.ALL].Render(cwd=tmpdir)
+            header_output = NodeView(nodes[Expansion.HEADER], expansion=Expansion.HEADER).render(cwd=tmpdir)
+            content_output = NodeView(nodes[Expansion.CONTENT], expansion=Expansion.CONTENT).render(cwd=tmpdir)
+            index_output = NodeView(nodes[Expansion.INDEX], expansion=Expansion.INDEX).render(cwd=tmpdir)
+            all_output = NodeView(nodes[Expansion.ALL], expansion=Expansion.ALL).render(cwd=tmpdir)
 
             # HEADER: Only metadata
             assert "def foo():" not in header_output
@@ -483,8 +484,9 @@ class TestTextNodeExpansionStates:
             assert "return 42" in all_output
 
     def test_render_header_format(self):
-        """Verify render_header() produces expected format."""
+        """Verify NodeView.render_header() produces expected format."""
         from activecontext.context.state import Expansion
+        from activecontext.context.view import NodeView
 
         graph = ContextGraph()
         node = TextNode(
@@ -493,9 +495,9 @@ class TestTextNodeExpansionStates:
             title="My Test File",
         )
         graph.add_node(node)
-        node.default_expansion = Expansion.HEADER
 
-        header = node.render_header(cwd=".")
+        view = NodeView(node, expansion=Expansion.HEADER)
+        header = view.render_header()
 
         # Header should include node ID or title
         assert "hdr1" in header or "My Test File" in header
@@ -515,7 +517,7 @@ class TestTextNodeExpansionStates:
         node.default_expansion = Expansion.CONTENT
         graph.add_node(node)
 
-        result = node.Render(cwd=".")
+        result = NodeView(node, expansion=Expansion.CONTENT).render(cwd=".")
 
         # Stale summary should not appear
         assert "Old stale summary" not in result

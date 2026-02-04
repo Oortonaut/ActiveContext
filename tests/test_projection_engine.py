@@ -243,19 +243,21 @@ class TestRenderPathRendering:
         assert sections[0].source_id == "visible"
 
     def test_render_path_calls_render(self, projection_engine, mock_graph):
-        """Test that Render is called for each visible node."""
+        """Test that render_content is called for each visible node."""
         path = projection_engine._collect_render_path(mock_graph)
-        projection_engine._render_path(mock_graph, path, cwd="/test")
+        projection_engine._render_path(
+            mock_graph, path, cwd="/test", views=projection_engine.views,
+        )
 
         running_node = mock_graph.get_node("running1")
         paused_node = mock_graph.get_node("paused_root")
 
-        # Render is called with expand param (from view or node.default_expansion)
-        running_node.Render.assert_called_once_with(
-            cwd="/test", text_buffers=None, expand=Expansion.ALL
+        # render_content is called via NodeView.render()
+        running_node.render_content.assert_called_once_with(
+            cwd="/test", text_buffers=None
         )
-        paused_node.Render.assert_called_once_with(
-            cwd="/test", text_buffers=None, expand=Expansion.CONTENT
+        paused_node.render_content.assert_called_once_with(
+            cwd="/test", text_buffers=None
         )
 
     def test_render_empty_path_returns_empty_sections(self, projection_engine):

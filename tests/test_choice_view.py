@@ -7,8 +7,6 @@ Tests coverage for:
 
 from __future__ import annotations
 
-from unittest.mock import Mock
-
 import pytest
 
 from activecontext.context.graph import ContextGraph
@@ -33,26 +31,26 @@ def mock_graph_with_children():
     parent.default_expansion = Expansion.ALL
     parent.children_ids = {"child-a", "child-b", "child-c"}
     parent.child_order = ["child-a", "child-b", "child-c"]
-    parent.Render = Mock(return_value="# Parent Group")
+
 
     # Create child nodes
     child_a = create_mock_context_node("child-a", "text")
     child_a.title = "Option A"
     child_a.parent_ids = {"parent"}
     child_a.default_expansion = Expansion.ALL
-    child_a.Render = Mock(return_value="Content A")
+
 
     child_b = create_mock_context_node("child-b", "text")
     child_b.title = "Option B"
     child_b.parent_ids = {"parent"}
     child_b.default_expansion = Expansion.ALL
-    child_b.Render = Mock(return_value="Content B")
+
 
     child_c = create_mock_context_node("child-c", "text")
     child_c.title = "Option C"
     child_c.parent_ids = {"parent"}
     child_c.default_expansion = Expansion.ALL
-    child_c.Render = Mock(return_value="Content C")
+
 
     # Add to graph
     graph.add_node(parent)
@@ -262,29 +260,22 @@ class TestGetOptions:
 class TestRenderIndex:
     """Tests for render_index method."""
 
-    def test_render_index_returns_child_headers(self, mock_graph_with_children):
-        """Test that render_index returns header lines for all children."""
+    def test_render_index_returns_child_digests(self, mock_graph_with_children):
+        """Test that render_index returns digest lines for all children."""
         parent = mock_graph_with_children.get_node("parent")
 
-        # Add render_header to children
-        mock_graph_with_children.get_node("child-a").render_header = Mock(
-            return_value="## Option A [10 tokens]"
-        )
-        mock_graph_with_children.get_node("child-b").render_header = Mock(
-            return_value="## Option B [20 tokens]"
-        )
-        mock_graph_with_children.get_node("child-c").render_header = Mock(
-            return_value="## Option C [15 tokens]"
-        )
+        # Set render_digest on children
+        mock_graph_with_children.get_node("child-a").render_digest.return_value = "Option A"
+        mock_graph_with_children.get_node("child-b").render_digest.return_value = "Option B"
+        mock_graph_with_children.get_node("child-c").render_digest.return_value = "Option C"
 
         choice = ChoiceView(parent)
         index = choice.render_index()
 
-        # Should contain all child headers
+        # Should contain all child digests
         assert "Option A" in index
         assert "Option B" in index
         assert "Option C" in index
-        assert "[10 tokens]" in index
 
     def test_render_index_no_graph(self, mock_graph_with_children):
         """Test render_index when node has no graph reference."""
@@ -351,10 +342,12 @@ class TestProjectionEngineIntegration:
             "child-c": NodeView(mock_graph_with_children.get_node("child-c"), expansion=Expansion.ALL),
         }
 
+        # Pre-populate engine views
+        projection_engine.views.update(views)
+
         # Build projection
         projection = projection_engine.build(
             context_graph=mock_graph_with_children,
-            views=views,
         )
 
         # After build, non-selected views should be hidden
@@ -379,20 +372,14 @@ class TestProjectionEngineIntegration:
         parent2.default_expansion = Expansion.ALL
         parent2.children_ids = {"child-x", "child-y"}
         parent2.child_order = ["child-x", "child-y"]
-        parent2.Render = Mock(return_value="# Parent 2")
-
         child_x = create_mock_context_node("child-x", "text")
         child_x.title = "Option X"
         child_x.parent_ids = {"parent2"}
         child_x.default_expansion = Expansion.ALL
-        child_x.Render = Mock(return_value="Content X")
-
         child_y = create_mock_context_node("child-y", "text")
         child_y.title = "Option Y"
         child_y.parent_ids = {"parent2"}
         child_y.default_expansion = Expansion.ALL
-        child_y.Render = Mock(return_value="Content Y")
-
         mock_graph_with_children.add_node(parent2)
         mock_graph_with_children.add_node(child_x)
         mock_graph_with_children.add_node(child_y)
@@ -413,10 +400,12 @@ class TestProjectionEngineIntegration:
             "child-y": NodeView(mock_graph_with_children.get_node("child-y"), expansion=Expansion.ALL),
         }
 
+        # Pre-populate engine views
+        projection_engine.views.update(views)
+
         # Build projection
         projection_engine.build(
             context_graph=mock_graph_with_children,
-            views=views,
         )
 
         # First choice: child-b selected

@@ -63,6 +63,37 @@ class NodeView:
             expansion if expansion is not None else node.default_expansion,
         )
 
+    # --- Rendering ---
+
+    def render_header(self) -> str:
+        """Render uniform header line with token counts at current expansion."""
+        from activecontext.context.state import NotificationLevel
+
+        node = self.node
+        token_info = node.get_token_breakdown()
+        token_str = token_info.format_token_info(self.expansion)
+
+        # Build display_id: "text_1" or fallback to node_id
+        seq = node.display_sequence
+        display_id = f"{node.node_type}_{seq}" if seq is not None else node.node_id
+
+        name = node.render_digest()
+
+        brief = self.expansion.value
+        nl = node.notification_level
+        if nl and nl != NotificationLevel.IGNORE:
+            brief = f"{brief} {nl.value}"
+
+        return f"{name} | {{#{display_id}}} {brief} {token_str}\n"
+
+    def render(self, cwd: str = ".", text_buffers: dict[str, Any] | None = None) -> str:
+        """Render this view at current expansion level."""
+        if self.expansion == Expansion.HEADER:
+            return self.render_header()
+        header = self.render_header()
+        content = self.node.render_content(cwd=cwd, text_buffers=text_buffers)
+        return header + content
+
     # --- Token Calculations ---
 
     @property
@@ -337,14 +368,7 @@ class ChoiceView(NodeView):
         for child_id in child_ids:
             child = graph.get_node(child_id)
             if child:
-                # Get header line from child
-                header = getattr(child, "render_header", None)
-                if callable(header):
-                    lines.append(header())
-                else:
-                    # Fallback to title or ID
-                    title = getattr(child, "title", None) or child_id
-                    lines.append(f"- {title}")
+                lines.append(child.render_digest())
         return "\n".join(lines)
 
     def render_digest(self) -> str:

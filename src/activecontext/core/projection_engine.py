@@ -12,7 +12,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
-from activecontext.context.state import Expansion
 from activecontext.core.tokens import MediaType, count_tokens
 from activecontext.session.protocols import Projection, ProjectionSection
 
@@ -82,9 +81,17 @@ class ProjectionEngine:
             # Try to load from app config
             self.config = self._config_from_app_config()
 
+        # View graph (node_id -> NodeView) for rendering
+        self._views: dict[str, NodeView] = {}
+
     def _config_from_app_config(self) -> ProjectionConfig:
         """Build ProjectionConfig from app config or defaults."""
         return ProjectionConfig()
+
+    @property
+    def views(self) -> dict[str, NodeView]:
+        """Get the view graph (node_id -> NodeView) for rendering."""
+        return self._views
 
     def build(
         self,
@@ -92,8 +99,6 @@ class ProjectionEngine:
         context_graph: ContextGraph | None = None,
         cwd: str = ".",
         text_buffers: dict[str, Any] | None = None,
-        # View/content separation
-        views: dict[str, NodeView] | None = None,
         content_registry: ContentRegistry | None = None,
     ) -> Projection:
         """Build a projection from current session state.
@@ -107,23 +112,21 @@ class ProjectionEngine:
             context_graph: ContextGraph (DAG of nodes)
             cwd: Working directory for file access
             text_buffers: Dict of buffer_id -> TextBuffer for markdown nodes
-            views: Dict mapping node_id -> NodeView for visibility/expansion
             content_registry: Optional ContentRegistry for shared content
 
         Returns:
             Complete Projection ready for LLM
         """
         if context_graph and len(context_graph) > 0:
-            # Collect the render path
-            render_path = self._collect_render_path(context_graph, views)
+            # Collect the render path (creates views on-demand)
+            render_path = self._collect_render_path(context_graph, self._views)
 
             # Apply ChoiceView selection filters
-            if views:
-                from activecontext.context.view import ChoiceView
+            from activecontext.context.view import ChoiceView
 
-                for view in views.values():
-                    if isinstance(view, ChoiceView):
-                        view.apply_selection(views)
+            for view in self._views.values():
+                if isinstance(view, ChoiceView):
+                    view.apply_selection(self._views)
 
             # Render the path
             sections = self._render_path(
@@ -131,7 +134,7 @@ class ProjectionEngine:
                 render_path,
                 cwd,
                 text_buffers=text_buffers,
-                views=views,
+                views=self._views,
                 content_registry=content_registry,
             )
 
@@ -206,6 +209,12 @@ class ProjectionEngine:
         # Check if hidden via view
         if node.node_id in seen:
             return 0
+
+        # Ensure view exists for this node (create on-demand)
+        if views is not None and node.node_id not in views:
+            from activecontext.context.view import NodeView
+            views[node.node_id] = NodeView(node, expansion=node.default_expansion)
+
         if views is not None:
             view = views.get(node.node_id)
             if view is not None and view.hidden:
@@ -282,14 +291,11 @@ class ProjectionEngine:
             if view is not None and view.hidden:
                 continue
 
-            # Get expand state from view or node
-            expand = view.expansion if view is not None else node.default_expansion
-
             section = self._render_node(
                 node,
                 cwd,
+                view=view,
                 text_buffers=text_buffers,
-                expand=expand,
             )
 
             if section:
@@ -302,22 +308,27 @@ class ProjectionEngine:
         node: ContextNode,
         cwd: str,
         *,
+        view: NodeView | None = None,
         text_buffers: dict[str, Any] | None = None,
-        expand: Expansion | None = None,
     ) -> ProjectionSection | None:
         """Render a single node.
 
         Args:
             node: The context node to render
             cwd: Working directory for file access
+            view: Optional NodeView for expansion-aware rendering
             text_buffers: Dict of buffer_id -> TextBuffer for markdown nodes
-            expand: Expansion state to render with (uses node.default_expansion if not provided)
 
         Returns:
             ProjectionSection or None if node should be skipped
         """
-        effective_expand = expand if expand is not None else node.default_expansion
-        content = node.Render(cwd=cwd, text_buffers=text_buffers, expand=effective_expand)
+        if view is not None:
+            content = view.render(cwd=cwd, text_buffers=text_buffers)
+            effective_expand = view.expansion
+        else:
+            content = node.render_content(cwd=cwd, text_buffers=text_buffers)
+            effective_expand = node.default_expansion
+
         media_type = getattr(node, "media_type", MediaType.TEXT)
         tokens_used = count_tokens(content, media_type)
 

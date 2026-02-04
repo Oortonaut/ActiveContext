@@ -193,7 +193,7 @@ class MCPIntegration:
             node = MCPServerNode(
                 node_id=identifier,
                 server_name=name,
-                expansion=expansion,
+                default_expansion=expansion,
             )
             self._mcp_server_nodes[name] = node
             self._context_graph.add_node(node)

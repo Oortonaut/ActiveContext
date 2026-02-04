@@ -79,30 +79,14 @@ class NodePlugin(Protocol):
 
     # --- Rendering (composable sections, no view concepts) ---
     #
-    # Each method returns ONE section of content. The projection engine
-    # composes them based on the view's Expansion state:
+    # Nodes produce content via render_digest() and render_content().
+    # Header rendering (with token counts and expansion state) is handled
+    # by NodeView.render_header(). The projection engine composes them
+    # via NodeView.render() based on the view's Expansion state.
     #
-    #   HEADER  → render_header()
-    #   CONTENT → render_header() + render_content()
-    #   INDEX   → render_header() + render_content() + (children headers)
-    #   ALL     → render_header() + render_content() + (children content)
-    #
-    # Nodes never see Expansion — that's a view concept. They just produce
-    # content at each granularity level.
+    # Nodes never see Expansion — that's a view concept.
 
-    def render_header(self, cwd: str = ".") -> str:
-        """Render the header section — always shown regardless of expansion.
-
-        This is the minimal representation: type badge, display name,
-        status indicators, and token size info. Should aim for ~50 tokens
-        or fewer.
-
-        The base ContextNode implementation delegates to the uniform
-        header formatter (context.headers.render_header).
-        """
-        ...
-
-    def render_digest(self, cwd: str = ".") -> str:
+    def render_digest(self) -> str:
         """Render node metadata — the framework prepends the title line.
 
         Returns a short metadata string (e.g., display name, status).
@@ -123,18 +107,19 @@ class NodePlugin(Protocol):
 
     # --- Token estimation ---
 
-    def get_token_breakdown(self, cwd: str = ".") -> TokenInfo:
+    def get_token_breakdown(self) -> TokenInfo:
         """Estimate token counts for each rendering level.
 
         Returns a TokenInfo with:
-        - collapsed: tokens for render_header() output
-        - summary: tokens for render_content() output
-        - detail: tokens for full content (kept for backward compat)
+        - title: tokens for the metadata/header line
+        - content: tokens for render_content() output
+        - index: tokens for children headers (INDEX mode)
+        - detail: tokens for rendered children (ALL mode)
+        - total: total recursive tokens (for groups)
 
         These are estimates, not exact counts. Nodes should estimate
         from their data (line count, content length) rather than
-        rendering and counting. TextBuffer preprocesses token counts
-        for file content nodes.
+        rendering and counting.
         """
         ...
 
@@ -272,8 +257,8 @@ class TokenEstimate:
     RemoteNode converts this to TokenInfo for the projection engine.
     """
 
-    collapsed: int = 0
-    summary: int = 0
+    title: int = 0
+    content: int = 0
     detail: int = 0
 
 

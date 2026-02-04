@@ -19,10 +19,8 @@ Token Format:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
 
-if TYPE_CHECKING:
-    from .state import Expansion, NotificationLevel
+from .state import Expansion
 
 # Overhead tokens for the token counts display itself.
 # The "(tokens: NNN / NN+NN+NN of NNN)" string occupies tokens in the header.
@@ -35,121 +33,75 @@ class TokenInfo:
     """Token counts for different visibility levels.
 
     Attributes:
-        collapsed: Tokens rendered at COLLAPSED/HEADER state (metadata only)
-        summary: Additional tokens rendered at CONTENT state
+        title: Tokens rendered at COLLAPSED/HEADER state (metadata only)
+        content: Additional tokens rendered at CONTENT state
         detail: Additional tokens rendered at DETAILS/ALL state
         total: Total recursive tokens (for groups with children), None if no recursion
         is_bytes: If True, format as bytes instead of tokens
     """
 
-    collapsed: int = 0
-    summary: int = 0
+    title: int = 0
+    content: int = 0
+    index: int = 0 # included in detail rendering
     detail: int = 0
     total: int | None = None
     is_bytes: bool = False
 
+    def format_token_info(
+        self,
+        expansion: Expansion
+    ) -> str:
+        """Format token info string based on current visibility state.
 
-def format_token_info(
-    header: int,
-    content: int,
-    index: int,
-    all_tokens: int,
-    state: Expansion,
-) -> str:
-    """Format token info string based on current visibility state.
+        New format: (tokens: visible / header+content+index of all)
+        When index=0, omit: (tokens: visible / header+content of all)
 
-    New format: (tokens: visible / header+content+index of all)
-    When index=0, omit: (tokens: visible / header+content of all)
+        Args:
+            header: Header line tokens
+            content: Node's own content tokens
+            index: Sum of children's header tokens
+            all_tokens: Total recursive tokens
+            expansion: Current rendering state
 
-    Args:
-        header: Header line tokens
-        content: Node's own content tokens
-        index: Sum of children's header tokens
-        all_tokens: Total recursive tokens
-        state: Current rendering state
+        Returns:
+            Formatted string like "(tokens: 92 / 18+74+120 of 340)"
 
-    Returns:
-        Formatted string like "(tokens: 92 / 18+74+120 of 340)"
+        Examples:
+            HEADER:  (tokens: 18 / 18+74+120 of 340) — only header visible
+            CONTENT: (tokens: 92 / 18+74+120 of 340) — header+content visible
+            INDEX:   (tokens: 212 / 18+74+120 of 340) — header+content+index visible
+            ALL:     (tokens: 340 / 18+74+120 of 340) — everything visible
+        """
 
-    Examples:
-        HEADER:  (tokens: 18 / 18+74+120 of 340) — only header visible
-        CONTENT: (tokens: 92 / 18+74+120 of 340) — header+content visible
-        INDEX:   (tokens: 212 / 18+74+120 of 340) — header+content+index visible
-        ALL:     (tokens: 340 / 18+74+120 of 340) — everything visible
-    """
-    from .state import Expansion
+        title: int = self.title + TOKEN_COUNTS_OVERHEAD
+        breakdown: str = ""
+        visible: int = 0
 
-    # Compute visible tokens based on expansion
-    if state == Expansion.HEADER:
-        visible = header
-    elif state == Expansion.CONTENT:
-        visible = header + content
-    elif state == Expansion.INDEX:
-        visible = header + content + index
-    else:  # ALL
-        visible = all_tokens
+        if self.index == 0:  # Assuming no children
+            # Compute visible tokens based on expansion
+            if expansion == Expansion.HEADER:
+                visible = title
+                breakdown = f"{self.title}|{self.content}+{self.index}+{self.detail}"
+            else:
+                visible = title + self.content
+                breakdown = f"{visible}"
+        else:
+            # Compute visible tokens based on expansion
+            if expansion == Expansion.HEADER:
+                visible = title
+                breakdown = f"{visible}={title}|{self.content}+{self.index}+{self.detail}"
+            elif expansion == Expansion.CONTENT:
+                visible = title + self.content
+                breakdown = f"{visible}={title}+{self.content}|{self.index}+{self.detail}"
+            elif expansion == Expansion.INDEX:
+                visible = title + self.content + self.index
+                breakdown = f"{visible}={title}+{self.content}+{self.index}|{self.detail}"
+            else:  # ALL
+                # Don't include detail because that's included in its own reporting
+                visible = title + self.content + self.index
+                breakdown = f"{visible}={title}+{self.content}+{self.index}"
 
-    # Build breakdown: header+content+index (omit +0 when no index)
-    breakdown = f"{header}+{content}+{index}" if index > 0 else f"{header}+{content}"
+        if self.total is not None and self.total > 0:
+            breakdown += f" of {self.total}"
 
-    return f"(tokens: {visible} / {breakdown} of {all_tokens})"
-
-
-def render_header(
-    display_id: str,
-    name: str,
-    state: Expansion,
-    token_info: TokenInfo,
-    notification_level: NotificationLevel | None = None,
-    *,
-    index_tokens: int = 0,
-    all_tokens: int | None = None,
-    line_range: str = "",
-) -> str:
-    """Render a uniform header for a context node.
-
-    Args:
-        display_id: Short display ID like "text_1" or "message_13"
-        name: Human-readable name like "main.py:1-50" or "### Running Commands"
-        state: Current rendering state
-        token_info: Token breakdown for the node's own content
-        notification_level: Optional notification level (IGNORE/HOLD/WAKE)
-        index_tokens: Sum of children's header tokens (from node.index_tokens)
-        all_tokens: Total recursive tokens (from node.all_tokens), overrides computed
-        line_range: Optional line range caption (e.g. "(lines 77-84)")
-
-    Returns:
-        Formatted header string with pipe separator between identity and metadata.
-
-    Examples:
-        "main.py:1-50 | {#text_1} all (tokens: 340 / 18+74+120 of 340)\\n"
-        "### Running Commands (lines 77-84) | {#text_8} all (tokens: 111 / 21+90 of 111)\\n"
-    """
-    from .state import NotificationLevel
-
-    # Compute header and content from TokenInfo (node's own breakdown)
-    header_toks = token_info.collapsed + TOKEN_COUNTS_OVERHEAD
-    content_toks = token_info.summary + token_info.detail
-    index_toks = index_tokens
-
-    # all = total recursive; use explicit value or fallback to TokenInfo.total or sum
-    if all_tokens is not None:
-        all_toks = all_tokens
-    elif token_info.total is not None:
-        all_toks = token_info.total
-    else:
-        all_toks = header_toks + content_toks + index_toks
-
-    token_str = format_token_info(header_toks, content_toks, index_toks, all_toks, state)
-
-    # Build brief: "summary wake" or just "summary" if notification is ignore/None
-    brief = state.value
-    if notification_level and notification_level != NotificationLevel.IGNORE:
-        brief = f"{brief} {notification_level.value}"
-
-    parts: list[str] = []
-    parts.append(name)
-    if line_range:
-        parts.append(f" {line_range}")
-    parts.append(f" | {{#{display_id}}} {brief} {token_str}\n")
-    return "".join(parts)
+        return breakdown
