@@ -52,6 +52,7 @@ nul
 .ac/
 .claude/
 .mcacp/
+mcacp.json
 .playwright-mcp/
 .task-graph/
 

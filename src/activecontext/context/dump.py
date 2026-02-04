@@ -1,7 +1,6 @@
 """Context dump writer for logging projection snapshots to markdown files.
 
 Provides:
-- ``frame_context(projection)`` — format a Projection with framing headers
 - ``ContextDumpWriter`` — write numbered context-NNNNNN.md files with rotation
 """
 
@@ -22,43 +21,7 @@ _log = logging.getLogger(__name__)
 _DUMP_RE = re.compile(r"^context-(\d{6})\.md$")
 
 
-def frame_context(projection: Projection) -> str:
-    """Format a projection with framing headers for each section.
 
-    Message sections (section_type == "message") get ``# **{Role}**`` (h1).
-    All other sections get ``## **{Type}**`` (h2).
-
-    Args:
-        projection: The Projection to format.
-
-    Returns:
-        Markdown string with framing headers prepended to each section.
-    """
-    parts: list[str] = []
-
-    for section in projection.sections:
-        try:
-            if not section.content:
-                continue
-
-            tokens = section.tokens_used
-            source = section.source_id
-
-            if section.section_type == "message":
-                # Use effective_role from metadata for a clean label
-                role = section.metadata.get("effective_role", "Unknown")
-                role = role.capitalize()
-                header = f"# **{role}**: {source} ({tokens} tokens)"
-            else:
-                label = section.section_type.replace("_", " ").title()
-                header = f"## **{label}**: {source} ({tokens} tokens)"
-
-            parts.append(f"{header}\n{section.content}")
-        except Exception:
-            _log.debug("Skipping bad section in frame_context", exc_info=True)
-            continue
-
-    return "\n\n".join(parts)
 
 
 class ContextDumpWriter:
@@ -115,7 +78,7 @@ class ContextDumpWriter:
         filename = f"context-{self._counter:06d}.md"
         path = self._directory / filename
 
-        content = frame_context(projection)
+        content = projection.frame_context()
         path.write_text(content, encoding="utf-8")
         _log.debug("Wrote context dump: %s", path)
 

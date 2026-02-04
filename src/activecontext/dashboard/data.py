@@ -246,13 +246,12 @@ def get_rendered_projection_data(session: Session) -> dict[str, Any]:
                 continue
 
         # Count total tokens
-        from activecontext.context.dump import frame_context
         from activecontext.core.tokens import count_tokens
 
         total_tokens = count_tokens(rendered)
 
         try:
-            framed = frame_context(projection)
+            framed = projection.frame_context()
         except Exception:
             _log.debug("Failed to generate framed projection", exc_info=True)
             framed = rendered

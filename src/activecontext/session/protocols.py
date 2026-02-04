@@ -233,6 +233,23 @@ class Projection:
         """Render full projection as string for LLM."""
         return "\n\n".join(s.content for s in self.sections if s.content)
 
+    def frame_context(self) -> str:
+        """Format a projection with framing headers for each section.
+
+        Message sections (section_type == "message") get ``# **{Role}**`` (h1).
+        All other sections get ``## **{Type}**`` (h2).
+
+        Returns:
+            Markdown string with framing headers prepended to each section.
+        """
+        parts: list[str] = []
+
+        for section in self.sections:
+            if section.content:
+                parts.append(section.content)
+
+        return "".join(parts)
+
 
 # -----------------------------------------------------------------------------
 # Protocols
