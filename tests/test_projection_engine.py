@@ -147,20 +147,16 @@ class TestCollectRenderPath:
 
         hidden_node = create_mock_context_node("hidden", "view", mode="running")
         hidden_node.default_expansion = Expansion.HEADER
+        hidden_node.default_hidden = True  # Set default hidden to True
 
         visible_node = create_mock_context_node("visible", "view", mode="running")
         visible_node.default_expansion = Expansion.ALL
+        visible_node.default_hidden = False
 
         graph.add_node(hidden_node)
         graph.add_node(visible_node)
 
-        # Create views dict with hidden node marked as hidden
-        views = {
-            "hidden": NodeView(hidden_node, hidden=True),
-            "visible": NodeView(visible_node, hidden=False),
-        }
-
-        path = projection_engine._collect_render_path(graph, views)
+        path = projection_engine._collect_render_path(graph)
 
         assert "visible" in path.node_ids
         assert "hidden" not in path.node_ids
@@ -211,7 +207,7 @@ class TestCollectRenderPath:
         graph.link("grandchild", "child1")
         graph.link("child2", "root")
 
-        path = projection_engine._collect_render_path(graph, projection_engine.views)
+        path = projection_engine._collect_render_path(graph)
 
         # Check that views were created with correct indent
         assert projection_engine.views["root"].indent == 0
@@ -230,9 +226,9 @@ class TestRenderPathRendering:
 
     def test_render_path_basic(self, projection_engine, mock_graph):
         """Test basic path rendering."""
-        path = projection_engine._collect_render_path(mock_graph, projection_engine.views)
+        path = projection_engine._collect_render_path(mock_graph)
         sections = projection_engine._render_path(
-            mock_graph, path, cwd=".", views=projection_engine.views
+            mock_graph, path, views=projection_engine.views
         )
 
         assert len(sections) == 2  # Running node + paused root
@@ -265,8 +261,8 @@ class TestRenderPathRendering:
             "visible": NodeView(visible_node, hidden=False),
         }
 
-        path = projection_engine._collect_render_path(graph, views)
-        sections = projection_engine._render_path(graph, path, cwd=".", views=views)
+        path = projection_engine._collect_render_path(graph)
+        sections = projection_engine._render_path(graph, path, views=views)
 
         # Only visible node should be rendered
         assert len(sections) == 1
@@ -274,9 +270,9 @@ class TestRenderPathRendering:
 
     def test_render_path_calls_render(self, projection_engine, mock_graph):
         """Test that render_content is called for each visible node."""
-        path = projection_engine._collect_render_path(mock_graph, projection_engine.views)
+        path = projection_engine._collect_render_path(mock_graph)
         projection_engine._render_path(
-            mock_graph, path, cwd="/test", views=projection_engine.views,
+            mock_graph, path, views=projection_engine.views,
         )
 
         running_node = mock_graph.get_node("running1")
@@ -284,10 +280,10 @@ class TestRenderPathRendering:
 
         # render_content is called via NodeView.render()
         running_node.render_content.assert_called_once_with(
-            cwd="/test", text_buffers=None
+            text_buffers=None
         )
         paused_node.render_content.assert_called_once_with(
-            cwd="/test", text_buffers=None
+            text_buffers=None
         )
 
     def test_render_empty_path_returns_empty_sections(self, projection_engine):
@@ -295,7 +291,7 @@ class TestRenderPathRendering:
         graph = ContextGraph()
         path = RenderPath()
 
-        sections = projection_engine._render_path(graph, path, cwd=".", views={})
+        sections = projection_engine._render_path(graph, path, views={})
 
         assert sections == []
 
@@ -312,7 +308,6 @@ class TestProjectionBuild:
         """Test building projection with context graph."""
         projection = projection_engine.build(
             context_graph=mock_graph,
-            cwd="/test",
         )
 
         assert len(projection.sections) >= 2  # Graph nodes
@@ -382,7 +377,6 @@ class TestProjectionIntegration:
         # Build projection
         projection = engine.build(
             context_graph=graph,
-            cwd="/test",
         )
 
         # Verify components

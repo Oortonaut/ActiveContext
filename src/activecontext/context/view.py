@@ -88,12 +88,12 @@ class NodeView:
 
         return f"{name} | {{#{display_id}}} {brief} {token_str}\n"
 
-    def render(self, cwd: str = ".", text_buffers: dict[str, Any] | None = None) -> str:
+    def render(self, text_buffers: dict[str, Any] | None = None) -> str:
         """Render this view at current expansion level."""
         if self.expansion == Expansion.HEADER:
             return self.render_header()
         header = self.render_header()
-        content = self.node.render_content(cwd=cwd, text_buffers=text_buffers)
+        content = self.node.render_content(text_buffers=text_buffers)
         return header + content
 
     # --- Token Calculations ---

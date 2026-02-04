@@ -97,7 +97,6 @@ class ProjectionEngine:
         self,
         *,
         context_graph: ContextGraph | None = None,
-        cwd: str = ".",
         text_buffers: dict[str, Any] | None = None,
         content_registry: ContentRegistry | None = None,
     ) -> Projection:
@@ -110,7 +109,6 @@ class ProjectionEngine:
 
         Args:
             context_graph: ContextGraph (DAG of nodes)
-            cwd: Working directory for file access
             text_buffers: Dict of buffer_id -> TextBuffer for markdown nodes
             content_registry: Optional ContentRegistry for shared content
 
@@ -119,20 +117,20 @@ class ProjectionEngine:
         """
         if context_graph and len(context_graph) > 0:
             # Collect the render path (creates views on-demand)
-            render_path = self._collect_render_path(context_graph, self._views)
+            render_path = self._collect_render_path(context_graph)
 
-            # Apply ChoiceView selection filters
-            from activecontext.context.view import ChoiceView
-
-            for view in self._views.values():
-                if isinstance(view, ChoiceView):
-                    view.apply_selection(self._views)
+            # TODO: move this somewhere good.
+            #  # Apply ChoiceView selection filters
+            #  from activecontext.context.view import ChoiceView
+            #
+            #  for view in self._views.values():
+            #      if isinstance(view, ChoiceView):
+            #          view.apply_selection(self._views)
 
             # Render the path
             sections = self._render_path(
                 context_graph,
                 render_path,
-                cwd,
                 text_buffers=text_buffers,
                 views=self._views,
                 content_registry=content_registry,
@@ -152,7 +150,6 @@ class ProjectionEngine:
     def _collect_render_path(
         self,
         graph: ContextGraph,
-        views: dict[str, NodeView] | None = None,
     ) -> RenderPath:
         """Collect the render path through the graph in document order.
 
@@ -163,7 +160,6 @@ class ProjectionEngine:
 
         Args:
             graph: The context graph
-            views: Optional dict mapping node_id -> NodeView for visibility
 
         Returns:
             RenderPath capturing nodes in document order with token totals
@@ -174,11 +170,11 @@ class ProjectionEngine:
         # Start from root context if set, otherwise collect all root nodes
         root = graph.get_root()
         if root is not None:
-            path.total_tokens = self._collect_from_node(graph, root, path, seen, views)
+            path.total_tokens = self._collect_from_node(graph, root, path, seen)
         else:
             # Collect all root nodes (nodes with no parents)
             for node in graph.get_roots():
-                path.total_tokens += self._collect_from_node(graph, node, path, seen, views)
+                path.total_tokens += self._collect_from_node(graph, node, path, seen)
 
         return path
 
@@ -188,7 +184,6 @@ class ProjectionEngine:
         node: ContextNode,
         path: RenderPath,
         seen: set[str],
-        views: dict[str, NodeView] | None = None,
         depth: int = 0,
     ) -> int:
         """Recursively collect nodes in document order, computing token totals.
@@ -202,7 +197,6 @@ class ProjectionEngine:
             node: Current node to process
             path: RenderPath to append to
             seen: Set of already-seen node IDs
-            views: Optional dict mapping node_id -> NodeView for visibility
             depth: Current traversal depth (0 for roots)
 
         Returns:
@@ -213,14 +207,13 @@ class ProjectionEngine:
             return 0
 
         # Ensure view exists for this node (create on-demand with correct indent)
-        if views is not None and node.node_id not in views:
+        if node.node_id not in self._views:
             from activecontext.context.view import NodeView
-            views[node.node_id] = NodeView(node, indent=depth, expansion=node.default_expansion)
+            self._views[node.node_id] = NodeView(node, indent=depth, expansion=node.default_expansion, hidden=node.default_hidden)
 
-        if views is not None:
-            view = views.get(node.node_id)
-            if view is not None and view.hidden:
-                return 0
+        view = self._views[node.node_id]
+        if view.hidden:
+            return 0
 
         seen.add(node.node_id)
         path.node_ids.append(node.node_id)
@@ -231,13 +224,13 @@ class ProjectionEngine:
 
         # Recurse into children first (post-order) to compute their totals
         children_total = 0
-        child_order = getattr(node, "child_order", None)
+        child_order = node.child_order
         if child_order:
             for child_id in child_order:
                 child = graph.get_node(child_id)
                 if child:
                     path.edges.append((child_id, node.node_id))
-                    child_tokens = self._collect_from_node(graph, child, path, seen, views, depth + 1)
+                    child_tokens = self._collect_from_node(graph, child, path, seen, depth + 1)
                     if isinstance(child_tokens, int):
                         children_total += child_tokens
 
@@ -257,7 +250,6 @@ class ProjectionEngine:
         self,
         graph: ContextGraph,
         path: RenderPath,
-        cwd: str,
         *,
         text_buffers: dict[str, Any] | None = None,
         views: dict[str, NodeView],
@@ -268,7 +260,6 @@ class ProjectionEngine:
         Args:
             graph: The context graph (for node lookup)
             path: The render path to render
-            cwd: Working directory for file access
             text_buffers: Dict of buffer_id -> TextBuffer for markdown nodes
             views: Dict mapping node_id -> NodeView for visibility/expansion (required)
             content_registry: Optional ContentRegistry for shared content
@@ -297,7 +288,6 @@ class ProjectionEngine:
 
             section = self._render_node(
                 node,
-                cwd,
                 view=view,
                 text_buffers=text_buffers,
             )
@@ -310,7 +300,6 @@ class ProjectionEngine:
     def _render_node(
         self,
         node: ContextNode,
-        cwd: str,
         *,
         view: NodeView,
         text_buffers: dict[str, Any] | None = None,
@@ -319,14 +308,13 @@ class ProjectionEngine:
 
         Args:
             node: The context node to render
-            cwd: Working directory for file access
             view: NodeView for expansion-aware rendering (required)
             text_buffers: Dict of buffer_id -> TextBuffer for markdown nodes
 
         Returns:
             ProjectionSection or None if node should be skipped
         """
-        content = view.render(cwd=cwd, text_buffers=text_buffers)
+        content = view.render(text_buffers=text_buffers)
 
         media_type = getattr(node, "media_type", MediaType.TEXT)
         tokens_used = count_tokens(content, media_type)
