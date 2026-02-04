@@ -41,10 +41,12 @@ class NodeView:
     node: ContextNode
     hidden: bool
     expansion: Expansion
+    indent: int = 0
 
     def __init__(
         self,
         node: ContextNode,
+        indent: int = 0,
         hidden: bool | None = None,
         expansion: Expansion | None = None,
     ) -> None:
@@ -55,13 +57,13 @@ class NodeView:
             hidden: Whether the view is hidden (default: node.default_hidden)
             expansion: Expansion state (default: node.default_expansion)
         """
+        hidden = node.default_hidden if hidden is None else hidden
+        expansion = node.default_expansion if expansion is None else expansion
+
         object.__setattr__(self, "node", node)
-        object.__setattr__(self, "hidden", hidden if hidden is not None else node.default_hidden)
-        object.__setattr__(
-            self,
-            "expansion",
-            expansion if expansion is not None else node.default_expansion,
-        )
+        object.__setattr__(self, "hidden", hidden)
+        object.__setattr__(self, "expansion", expansion)
+        object.__setattr__(self, "indent", indent)
 
     # --- Rendering ---
 

@@ -428,12 +428,14 @@ class TestProjection:
                     section_type="view",
                     source_id="v1",
                     content="=== test.py ===\n1 | print('hello')",
+                    indent=0,
                     tokens_used=10,
                 ),
                 ProjectionSection(
                     section_type="conversation",
                     source_id="conv",
                     content="## Conversation\n**USER**: hi",
+                    indent=0,
                     tokens_used=5,
                 ),
             ]
@@ -452,12 +454,14 @@ class TestProjection:
                     section_type="view",
                     source_id="v1",
                     content="has content",
+                    indent=0,
                     tokens_used=5,
                 ),
                 ProjectionSection(
                     section_type="view",
                     source_id="v2",
                     content="",  # Empty
+                    indent=0,
                     tokens_used=0,
                 ),
             ]

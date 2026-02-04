@@ -191,6 +191,34 @@ class TestCollectRenderPath:
         assert len(path) == 0
         assert not path
 
+    def test_collect_render_path_sets_indent_by_depth(self, projection_engine):
+        """Test that indent is set based on traversal depth."""
+        graph = ContextGraph()
+
+        root = create_mock_context_node("root", "view", mode="running")
+        child1 = create_mock_context_node("child1", "view", mode="running")
+        grandchild = create_mock_context_node("grandchild", "view", mode="running")
+        child2 = create_mock_context_node("child2", "view", mode="running")
+
+        graph.add_node(root)
+        graph.add_node(child1)
+        graph.add_node(grandchild)
+        graph.add_node(child2)
+
+        # Build hierarchy: root -> child1 -> grandchild
+        #                   root -> child2
+        graph.link("child1", "root")
+        graph.link("grandchild", "child1")
+        graph.link("child2", "root")
+
+        path = projection_engine._collect_render_path(graph, projection_engine.views)
+
+        # Check that views were created with correct indent
+        assert projection_engine.views["root"].indent == 0
+        assert projection_engine.views["child1"].indent == 1
+        assert projection_engine.views["grandchild"].indent == 2
+        assert projection_engine.views["child2"].indent == 1
+
 
 # =============================================================================
 # Render Path Rendering Tests
@@ -202,8 +230,10 @@ class TestRenderPathRendering:
 
     def test_render_path_basic(self, projection_engine, mock_graph):
         """Test basic path rendering."""
-        path = projection_engine._collect_render_path(mock_graph)
-        sections = projection_engine._render_path(mock_graph, path, cwd=".")
+        path = projection_engine._collect_render_path(mock_graph, projection_engine.views)
+        sections = projection_engine._render_path(
+            mock_graph, path, cwd=".", views=projection_engine.views
+        )
 
         assert len(sections) == 2  # Running node + paused root
         section_ids = {s.source_id for s in sections}
@@ -244,7 +274,7 @@ class TestRenderPathRendering:
 
     def test_render_path_calls_render(self, projection_engine, mock_graph):
         """Test that render_content is called for each visible node."""
-        path = projection_engine._collect_render_path(mock_graph)
+        path = projection_engine._collect_render_path(mock_graph, projection_engine.views)
         projection_engine._render_path(
             mock_graph, path, cwd="/test", views=projection_engine.views,
         )
@@ -265,7 +295,7 @@ class TestRenderPathRendering:
         graph = ContextGraph()
         path = RenderPath()
 
-        sections = projection_engine._render_path(graph, path, cwd=".")
+        sections = projection_engine._render_path(graph, path, cwd=".", views={})
 
         assert sections == []
 

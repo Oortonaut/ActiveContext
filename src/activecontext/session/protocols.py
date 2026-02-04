@@ -212,6 +212,7 @@ class ProjectionSection:
     section_type: str  # "conversation", "view", "group"
     source_id: str
     content: str
+    indent: int
     tokens_used: int
     expansion: Expansion = Expansion.ALL
     metadata: dict[str, Any] = field(default_factory=dict)
@@ -230,10 +231,6 @@ class Projection:
     handles: dict[str, dict[str, Any]] = field(default_factory=dict)
 
     def render(self) -> str:
-        """Render full projection as string for LLM."""
-        return "\n\n".join(s.content for s in self.sections if s.content)
-
-    def frame_context(self) -> str:
         """Format a projection with framing headers for each section.
 
         Message sections (section_type == "message") get ``# **{Role}**`` (h1).
@@ -246,7 +243,7 @@ class Projection:
 
         for section in self.sections:
             if section.content:
-                parts.append(section.content)
+                parts.append("  " * section.indent + section.content)
 
         return "".join(parts)
 

@@ -78,7 +78,7 @@ class ContextDumpWriter:
         filename = f"context-{self._counter:06d}.md"
         path = self._directory / filename
 
-        content = projection.frame_context()
+        content = projection.render()
         path.write_text(content, encoding="utf-8")
         _log.debug("Wrote context dump: %s", path)
 

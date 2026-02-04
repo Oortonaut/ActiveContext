@@ -251,7 +251,7 @@ def get_rendered_projection_data(session: Session) -> dict[str, Any]:
         total_tokens = count_tokens(rendered)
 
         try:
-            framed = projection.frame_context()
+            framed = projection.render()
         except Exception:
             _log.debug("Failed to generate framed projection", exc_info=True)
             framed = rendered

@@ -189,6 +189,7 @@ class ProjectionEngine:
         path: RenderPath,
         seen: set[str],
         views: dict[str, NodeView] | None = None,
+        depth: int = 0,
     ) -> int:
         """Recursively collect nodes in document order, computing token totals.
 
@@ -202,6 +203,7 @@ class ProjectionEngine:
             path: RenderPath to append to
             seen: Set of already-seen node IDs
             views: Optional dict mapping node_id -> NodeView for visibility
+            depth: Current traversal depth (0 for roots)
 
         Returns:
             Total tokens for this subtree (used for parent's children_tokens)
@@ -210,10 +212,10 @@ class ProjectionEngine:
         if node.node_id in seen:
             return 0
 
-        # Ensure view exists for this node (create on-demand)
+        # Ensure view exists for this node (create on-demand with correct indent)
         if views is not None and node.node_id not in views:
             from activecontext.context.view import NodeView
-            views[node.node_id] = NodeView(node, expansion=node.default_expansion)
+            views[node.node_id] = NodeView(node, indent=depth, expansion=node.default_expansion)
 
         if views is not None:
             view = views.get(node.node_id)
@@ -235,7 +237,7 @@ class ProjectionEngine:
                 child = graph.get_node(child_id)
                 if child:
                     path.edges.append((child_id, node.node_id))
-                    child_tokens = self._collect_from_node(graph, child, path, seen, views)
+                    child_tokens = self._collect_from_node(graph, child, path, seen, views, depth + 1)
                     if isinstance(child_tokens, int):
                         children_total += child_tokens
 
@@ -258,7 +260,7 @@ class ProjectionEngine:
         cwd: str,
         *,
         text_buffers: dict[str, Any] | None = None,
-        views: dict[str, NodeView] | None = None,
+        views: dict[str, NodeView],
         content_registry: ContentRegistry | None = None,
     ) -> list[ProjectionSection]:
         """Render the collected path into projection sections.
@@ -268,7 +270,7 @@ class ProjectionEngine:
             path: The render path to render
             cwd: Working directory for file access
             text_buffers: Dict of buffer_id -> TextBuffer for markdown nodes
-            views: Dict mapping node_id -> NodeView for visibility/expansion
+            views: Dict mapping node_id -> NodeView for visibility/expansion (required)
             content_registry: Optional ContentRegistry for shared content
 
         Returns:
@@ -284,11 +286,13 @@ class ProjectionEngine:
             if node is None:
                 continue
 
-            # Get view for this node (if available)
-            view = views.get(node_id) if views else None
+            # Get view for this node (must exist - created in _collect_render_path)
+            view = views.get(node_id)
+            if view is None:
+                raise ValueError(f"No view found for node {node_id} - views must be created before rendering")
 
             # Skip if hidden via view
-            if view is not None and view.hidden:
+            if view.hidden:
                 continue
 
             section = self._render_node(
@@ -308,7 +312,7 @@ class ProjectionEngine:
         node: ContextNode,
         cwd: str,
         *,
-        view: NodeView | None = None,
+        view: NodeView,
         text_buffers: dict[str, Any] | None = None,
     ) -> ProjectionSection | None:
         """Render a single node.
@@ -316,18 +320,13 @@ class ProjectionEngine:
         Args:
             node: The context node to render
             cwd: Working directory for file access
-            view: Optional NodeView for expansion-aware rendering
+            view: NodeView for expansion-aware rendering (required)
             text_buffers: Dict of buffer_id -> TextBuffer for markdown nodes
 
         Returns:
             ProjectionSection or None if node should be skipped
         """
-        if view is not None:
-            content = view.render(cwd=cwd, text_buffers=text_buffers)
-            effective_expand = view.expansion
-        else:
-            content = node.render_content(cwd=cwd, text_buffers=text_buffers)
-            effective_expand = node.default_expansion
+        content = view.render(cwd=cwd, text_buffers=text_buffers)
 
         media_type = getattr(node, "media_type", MediaType.TEXT)
         tokens_used = count_tokens(content, media_type)
@@ -336,7 +335,8 @@ class ProjectionEngine:
             section_type=node.node_type,
             source_id=node.node_id,
             content=content,
+            indent=view.indent,
             tokens_used=tokens_used,
-            expansion=effective_expand,
+            expansion=view.expansion,
             metadata=node.GetDigest(),
         )
