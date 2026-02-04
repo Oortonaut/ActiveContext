@@ -145,7 +145,7 @@ class TestMarkdownNode:
         graph.add_node(md)
         md.parse_and_create_children()
 
-        assert len(md.children_ids) == 2
+        assert len(md.child_order) == 2
         # Use child_order for proper ordering
         children = [graph.get_node(child_id) for child_id in md.child_order]
         assert all(isinstance(child, MarkdownListItemNode) for child in children)
@@ -160,14 +160,14 @@ class TestMarkdownNode:
         md.parse_and_create_children()
 
         # Should have 1 direct child (Parent)
-        assert len(md.children_ids) == 1
+        assert len(md.child_order) == 1
 
         parent_node = graph.get_node(list(md.child_order)[0])
         assert isinstance(parent_node, MarkdownListItemNode)
         assert parent_node.content == "Parent"
 
         # Parent should have 2 children
-        assert len(parent_node.children_ids) == 2
+        assert len(parent_node.child_order) == 2
         grandchildren = [graph.get_node(child_id) for child_id in parent_node.child_order]
         assert grandchildren[0].content == "Child 1"
         assert grandchildren[1].content == "Child 2"
@@ -190,7 +190,7 @@ class TestMarkdownNode:
         assert level2_nodes[1].content == "Level 2b"
 
         # Check level 3
-        assert len(level2_nodes[0].children_ids) == 1
+        assert len(level2_nodes[0].child_order) == 1
         level3 = graph.get_node(list(level2_nodes[0].child_order)[0])
         assert level3.content == "Level 3"
         assert level3.indent_level == 2
@@ -203,7 +203,7 @@ class TestMarkdownNode:
 
         md.set_content("- New item 1\n- New item 2")
 
-        assert len(md.children_ids) == 2
+        assert len(md.child_order) == 2
         children = [graph.get_node(child_id) for child_id in md.child_order]
         assert children[0].content == "New item 1"
         assert children[1].content == "New item 2"
@@ -217,7 +217,7 @@ class TestMarkdownNode:
         md.set_content("- Item 1\n- Item 2")
 
         # Should not create children
-        assert len(md.children_ids) == 0
+        assert len(md.child_order) == 0
 
     def test_reparse_replaces_old_children(self):
         """Test that re-parsing removes old children and creates new ones."""
@@ -226,14 +226,14 @@ class TestMarkdownNode:
         graph.add_node(md)
         md.parse_and_create_children()
 
-        old_child_ids = set(md.children_ids)
+        old_child_ids = set(md.child_order)
         assert len(old_child_ids) == 2
 
         # Change content and reparse
         md.set_content("- New 1\n- New 2\n- New 3")
 
         # Should have different children
-        new_child_ids = set(md.children_ids)
+        new_child_ids = set(md.child_order)
         assert len(new_child_ids) == 3
         assert old_child_ids.isdisjoint(new_child_ids)
 
@@ -286,7 +286,7 @@ class TestMarkdownNode:
         md = MarkdownNode(content="")
         graph.add_node(md)
         md.parse_and_create_children()
-        assert len(md.children_ids) == 0
+        assert len(md.child_order) == 0
 
     def test_no_graph_reference(self):
         """Test that parse_and_create_children without graph doesn't crash."""
@@ -294,7 +294,7 @@ class TestMarkdownNode:
         # Should not crash, just return self
         result = md.parse_and_create_children()
         assert result is md
-        assert len(md.children_ids) == 0
+        assert len(md.child_order) == 0
 
     def test_markdown_list_item_child_expansion_states(self):
         """Test MarkdownListItemNode children can have independent expansion states."""
@@ -339,19 +339,19 @@ class TestMarkdownNode:
         md.parse_and_create_children()
 
         # MarkdownNode should have 2 direct children (Parent 1, Parent 2)
-        assert len(md.children_ids) == 2
+        assert len(md.child_order) == 2
         parents = [graph.get_node(cid) for cid in md.child_order]
 
         # First parent
         assert parents[0].content == "Parent 1"
-        assert len(parents[0].children_ids) == 2
+        assert len(parents[0].child_order) == 2
         p1_children = [graph.get_node(cid) for cid in parents[0].child_order]
         assert p1_children[0].content == "Child 1A"
         assert p1_children[1].content == "Child 1B"
 
         # Second parent
         assert parents[1].content == "Parent 2"
-        assert len(parents[1].children_ids) == 1
+        assert len(parents[1].child_order) == 1
         p2_children = [graph.get_node(cid) for cid in parents[1].child_order]
         assert p2_children[0].content == "Child 2A"
 

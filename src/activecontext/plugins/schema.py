@@ -41,7 +41,6 @@ _BASE_FIELDS: frozenset[str] = frozenset(
         # Identity / graph structure
         "node_id",
         "parent_ids",
-        "children_ids",
         "child_order",
         # Rendering / view state (owned by NodeView, not the plugin)
         "expansion",

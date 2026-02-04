@@ -1773,7 +1773,7 @@ class Timeline:
             parent: Optional parent node, view, or node ID (defaults to current_group if set)
 
         Returns:
-            NodeView wrapping the root TextNode (children are accessible via children_ids)
+            NodeView wrapping the root TextNode (children are accessible via child_order)
         """
         import os
 

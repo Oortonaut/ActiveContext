@@ -14,7 +14,7 @@ from unittest.mock import Mock
 import pytest
 
 from activecontext.context.checkpoint import Checkpoint, GroupState
-from activecontext.context.graph import ContextGraph
+from activecontext.context.graph import ContextGraph, LinkedChildOrder
 from activecontext.context.state import Expansion, TickFrequency, TickMode
 from tests.utils import create_mock_context_node
 
@@ -180,7 +180,7 @@ class TestGraphOperations:
 
         assert success is True
         assert "parent" in child.parent_ids
-        assert "child" in parent.children_ids
+        assert "child" in parent.child_order
 
     def test_link_removes_child_from_roots(self, empty_graph):
         """Test that linking a root node removes it from roots."""
@@ -241,13 +241,13 @@ class TestGraphOperations:
         root1_node = populated_graph.get_node("root1")
 
         assert "root1" in child1_node.parent_ids
-        assert "child1" in root1_node.children_ids
+        assert "child1" in root1_node.child_order
 
         success = populated_graph.unlink("child1", "root1")
 
         assert success is True
         assert "root1" not in child1_node.parent_ids
-        assert "child1" not in root1_node.children_ids
+        assert "child1" not in root1_node.child_order
 
     def test_unlink_makes_node_root(self, populated_graph):
         """Test that unlinking all parents makes node a root."""
@@ -509,7 +509,7 @@ class TestCheckpoints:
         group.node_type = "group"
         group.mode = "idle"
         group.parent_ids = set()
-        group.children_ids = set()
+        group.child_order = LinkedChildOrder()
         group.summary_prompt = "Custom prompt"
         group.cached_summary = "Cached summary text"
         group.last_child_versions = {"child1": 5}

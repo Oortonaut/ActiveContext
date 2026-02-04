@@ -140,7 +140,7 @@ Run pip install"""
 
             # Root should have children (the ## sections)
             root = ns["m"]
-            assert len(root.children_ids) == 2  # Features and Installation
+            assert len(root.child_order) == 2  # Features and Installation
         finally:
             await timeline.close()
 
@@ -201,7 +201,7 @@ Content for section two.
             all_nodes = [root]
             children = []
             context_objects = timeline.get_context_objects()
-            for child_id in root.children_ids:
+            for child_id in root.child_order:
                 child = context_objects.get(child_id)
                 if child:
                     children.append(child)

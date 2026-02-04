@@ -17,6 +17,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
+from activecontext.context.graph import LinkedChildOrder
 from activecontext.context.headers import TokenInfo
 from activecontext.context.nodes import ContextNode
 from activecontext.context.state import Expansion
@@ -458,7 +459,9 @@ class RemoteNode(ContextNode):
 
         # Restore common ContextNode fields
         node.parent_ids = set(data.get("parent_ids", []))
-        node.children_ids = set(data.get("children_ids", []))
+        node.child_order = LinkedChildOrder.from_list(
+            data.get("child_order") or data.get("children_ids") or []
+        )
         if data.get("expansion"):
             node.default_expansion = Expansion(data["expansion"])
         node.mode = data.get("mode", "paused")

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from activecontext.context.graph import ContextGraph
+from activecontext.context.graph import ContextGraph, LinkedChildOrder
 from activecontext.context.state import Expansion
 from activecontext.context.view import (
     ChoiceView,
@@ -36,8 +36,7 @@ def mock_graph_with_steps():
     parent = create_mock_context_node("parent", "group")
     parent.title = "Workflow"
     parent.default_expansion = Expansion.ALL
-    parent.children_ids = {"step-1", "step-2", "step-3"}
-    parent.child_order = ["step-1", "step-2", "step-3"]
+    parent.child_order = LinkedChildOrder.from_list(["step-1", "step-2", "step-3"])
 
     # Create step nodes
     step1 = create_mock_context_node("step-1", "text")
@@ -90,8 +89,7 @@ def mock_graph_with_states():
     parent = create_mock_context_node("parent", "group")
     parent.title = "Task"
     parent.default_expansion = Expansion.ALL
-    parent.children_ids = {"idle", "working", "done"}
-    parent.child_order = ["idle", "working", "done"]
+    parent.child_order = LinkedChildOrder.from_list(["idle", "working", "done"])
 
     # Create state nodes
     idle = create_mock_context_node("idle", "text")
@@ -839,8 +837,7 @@ class TestEdgeCases:
     def test_sequence_view_empty_children(self, mock_graph_with_steps):
         """Test SequenceView with no children."""
         parent = mock_graph_with_steps.get_node("parent")
-        parent.children_ids = set()
-        parent.child_order = []
+        parent.child_order = LinkedChildOrder()
 
         seq = SequenceView(parent)
 

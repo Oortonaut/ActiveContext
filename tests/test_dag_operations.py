@@ -268,12 +268,12 @@ class TestDAGLinkUnlinkOperations:
         # Link third child after first
         graph.link("child3", "parent", after="child1")
 
-        # Verify ordering is preserved in children_ids
+        # Verify ordering is preserved in child_order
         # Note: actual ordering depends on LinkedChildOrder implementation
         parent_node = graph.get_node("parent")
-        assert "child1" in parent_node.children_ids
-        assert "child2" in parent_node.children_ids
-        assert "child3" in parent_node.children_ids
+        assert "child1" in parent_node.child_order
+        assert "child2" in parent_node.child_order
+        assert "child3" in parent_node.child_order
 
 
 # =============================================================================

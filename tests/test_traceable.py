@@ -471,7 +471,7 @@ class TestExcludedFields:
         """Test that identity fields are excluded."""
         assert "node_id" in _EXCLUDED_FIELDS
         assert "parent_ids" in _EXCLUDED_FIELDS
-        assert "children_ids" in _EXCLUDED_FIELDS
+        assert "child_order" in _EXCLUDED_FIELDS
 
     def test_contains_internal_state(self):
         """Test that internal state fields are excluded."""

@@ -129,7 +129,7 @@ class TestHelpMethodCreation:
         help_node = text_node.help()
         assert isinstance(help_node, HelpNode)
         assert help_node.parent_node_type == "text"
-        assert help_node.node_id in text_node.children_ids
+        assert help_node.node_id in text_node.child_order
 
     def test_help_node_in_graph(self, text_node: TextNode, graph: ContextGraph) -> None:
         """HelpNode created by .help() is added to the graph."""
@@ -173,7 +173,7 @@ class TestHelpIdempotency:
 
         help_count = sum(
             1
-            for child_id in text_node.children_ids
+            for child_id in text_node.child_order
             if isinstance(graph.get_node(child_id), HelpNode)
         )
         assert help_count == 1

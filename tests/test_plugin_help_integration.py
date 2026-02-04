@@ -279,7 +279,7 @@ class TestPluginNodeHelpMethod:
         help_node = custom_lint_node.help()
         assert isinstance(help_node, HelpNode)
         assert help_node.parent_node_type == "custom_lint"
-        assert help_node.node_id in custom_lint_node.children_ids
+        assert help_node.node_id in custom_lint_node.child_order
 
     def test_help_content_uses_plugin_info(
         self, custom_lint_node: CustomLintNode, mock_plugin_module

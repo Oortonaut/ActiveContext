@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
+from activecontext.context.graph import LinkedChildOrder
 from activecontext.context.state import Expansion
 from activecontext.core.llm.provider import Message, Role
 
@@ -29,7 +30,7 @@ def create_mock_context_node(
     node_type: str,
     mode: str = "idle",
     parent_ids: set[str] | None = None,
-    children_ids: set[str] | None = None,
+    child_order: LinkedChildOrder | None = None,
 ) -> Any:
     """Create a mock ContextNode for testing.
 
@@ -38,7 +39,7 @@ def create_mock_context_node(
         node_type: Type of node (e.g., "view", "group")
         mode: Node mode ("idle", "running")
         parent_ids: Set of parent node IDs
-        children_ids: Set of child node IDs
+        child_order: Ordered children (LinkedChildOrder)
 
     Returns:
         Mock node object with required attributes
@@ -50,8 +51,7 @@ def create_mock_context_node(
     node.node_type = node_type
     node.mode = mode
     node.parent_ids = parent_ids or set()
-    node.children_ids = children_ids or set()
-    node.child_order = None  # Lazily initialized like real nodes
+    node.child_order = child_order or LinkedChildOrder()
     node._graph = None
     node.default_expansion = Expansion.ALL
     node.default_hidden = False

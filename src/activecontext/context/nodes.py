@@ -248,7 +248,7 @@ class ContextNode(ABC):
     Attributes:
         node_id: Unique identifier (8-char UUID suffix)
         parent_ids: Set of parent node IDs (DAG allows multiple parents)
-        children_ids: Set of child node IDs
+        child_order: Ordered children (LinkedChildOrder with O(1) add/remove/contains)
         state: Rendering state (HIDDEN, COLLAPSED, SUMMARY, DETAILS, ALL)
         mode: "paused" or "running" for tick processing
         tick_frequency: Tick frequency specification (turn, async, never, period)
@@ -263,11 +263,9 @@ class ContextNode(ABC):
 
     node_id: str = field(default_factory=lambda: str(uuid.uuid4())[:8])
     parent_ids: set[str] = field(default_factory=set)
-    children_ids: set[str] = field(default_factory=set)
 
-    # Ordered children for projection rendering (lazily initialized by graph.link())
-    # None = no children linked yet, LinkedChildOrder = has/had children
-    child_order: LinkedChildOrder | None = field(default=None, repr=False)
+    # Ordered children (doubly-linked list with O(1) add/remove/contains)
+    child_order: LinkedChildOrder = field(default_factory=LinkedChildOrder, repr=False)
 
     # Rendering configuration
     default_expansion: Expansion = Expansion.ALL
@@ -361,7 +359,7 @@ class ContextNode(ABC):
         if not self._graph:
             return 0
         total = 0
-        for child_id in self.child_order or self.children_ids:
+        for child_id in self.child_order:
             child = self._graph.get_node(child_id)
             if child:
                 total += child.header_tokens
@@ -707,20 +705,11 @@ class ContextNode(ABC):
 
         Subclasses should override to include their specific fields.
         """
-        # Convert LinkedChildOrder to list for serialization
-        child_order_list: list[str] | None = None
-        if self.child_order is not None:
-            if hasattr(self.child_order, "to_list"):
-                child_order_list = self.child_order.to_list()
-            else:
-                child_order_list = list(self.child_order)
-
         return {
             "node_type": self.node_type,
             "node_id": self.node_id,
             "parent_ids": list(self.parent_ids),
-            "children_ids": list(self.children_ids),
-            "child_order": child_order_list,
+            "child_order": self.child_order.to_list(),
             "expansion": self.default_expansion.value,
             "mode": self.mode,
             "tick_frequency": self.tick_frequency.to_dict() if self.tick_frequency else None,
@@ -791,7 +780,7 @@ class ContextNode(ABC):
             raise RuntimeError(f"Cannot create help: node {self.node_id} is not in a graph")
 
         # Check if a HelpNode child already exists
-        for child_id in self.children_ids:
+        for child_id in self.child_order:
             child = self._graph.get_node(child_id)
             if isinstance(child, HelpNode) and child.parent_node_type == self.node_type:
                 # Unhide if hidden
@@ -1193,20 +1182,13 @@ class TextNode(ContextNode):
         except ValueError:
             media_type = MediaType.TEXT
 
-        # Convert child_order from list to LinkedChildOrder if needed
-        child_order_data = data.get("child_order")
-        child_order = None
-        if child_order_data:
-            if isinstance(child_order_data, list):
-                child_order = LinkedChildOrder.from_list(child_order_data)
-            else:
-                child_order = child_order_data
 
         node = cls(
             node_id=data["node_id"],
             parent_ids=set(data.get("parent_ids", [])),
-            children_ids=set(data.get("children_ids", [])),
-            child_order=child_order,
+            child_order=LinkedChildOrder.from_list(
+                data.get("child_order") or data.get("children_ids") or []
+            ),
             default_expansion=Expansion(data.get("expansion", "all")),
             mode=data.get("mode", "paused"),
             tick_frequency=tick_freq,
@@ -1252,19 +1234,11 @@ class GroupNode(ContextNode):
         return "group"
 
     def GetDigest(self) -> dict[str, Any]:
-        # Handle both LinkedChildOrder and list for child_order
-        child_order_list = None
-        if self.child_order is not None:
-            if hasattr(self.child_order, "to_list"):
-                child_order_list = self.child_order.to_list()
-            else:
-                child_order_list = list(self.child_order) if self.child_order else None
-
         return {
             "id": self.node_id,
             "type": self.node_type,
-            "member_count": len(self.children_ids),
-            "child_order": child_order_list,
+            "member_count": len(self.child_order),
+            "child_order": self.child_order.to_list(),
             "expansion": self.default_expansion.value,
             "mode": self.mode,
             "version": self.version,
@@ -1306,7 +1280,7 @@ class GroupNode(ContextNode):
 
     def render_digest(self) -> str:
         """Return 'Group (N members)' format."""
-        return f"Group ({len(self.children_ids)} members)"
+        return f"Group ({len(self.child_order)} members)"
 
     def get_token_breakdown(self) -> TokenInfo:
         """Return token counts for collapsed/summary/detail."""
@@ -1315,7 +1289,7 @@ class GroupNode(ContextNode):
         from .headers import TokenInfo
 
         # Use child_order for iteration
-        ordered_children = self.child_order if self.child_order else list(self.children_ids)
+        ordered_children = self.child_order
 
         # Collapsed: member count line
         collapsed_text = f"[Group: {len(ordered_children)} members]\n"
@@ -1362,20 +1336,13 @@ class GroupNode(ContextNode):
         if data.get("tick_frequency"):
             tick_freq = TickFrequency.from_dict(data["tick_frequency"])
 
-        # Convert child_order from list to LinkedChildOrder if needed
-        child_order_data = data.get("child_order")
-        child_order = None
-        if child_order_data:
-            if isinstance(child_order_data, list):
-                child_order = LinkedChildOrder.from_list(child_order_data)
-            else:
-                child_order = child_order_data
 
         node = cls(
             node_id=data["node_id"],
             parent_ids=set(data.get("parent_ids", [])),
-            children_ids=set(data.get("children_ids", [])),
-            child_order=child_order,
+            child_order=LinkedChildOrder.from_list(
+                data.get("child_order") or data.get("children_ids") or []
+            ),
             default_expansion=Expansion(data.get("expansion", "content")),
             mode=data.get("mode", "paused"),
             tick_frequency=tick_freq,
@@ -1432,8 +1399,8 @@ class TopicNode(ContextNode):
         parts: list[str] = []
         if self.message_indices:
             parts.append(f"Messages: {self.message_indices[0]}-{self.message_indices[-1]}\n")
-        if self.children_ids:
-            parts.append(f"Contains {len(self.children_ids)} artifacts\n")
+        if self.child_order:
+            parts.append(f"Contains {len(self.child_order)} artifacts\n")
         return "".join(parts)
 
     def set_status(self, status: str) -> TopicNode:
@@ -1491,7 +1458,9 @@ class TopicNode(ContextNode):
         node = cls(
             node_id=data["node_id"],
             parent_ids=set(data.get("parent_ids", [])),
-            children_ids=set(data.get("children_ids", [])),
+            child_order=LinkedChildOrder.from_list(
+                data.get("child_order") or data.get("children_ids") or []
+            ),
             default_expansion=Expansion(data.get("expansion", "all")),
             mode=data.get("mode", "paused"),
             tick_frequency=tick_freq,
@@ -1608,7 +1577,9 @@ class ArtifactNode(ContextNode):
         node = cls(
             node_id=data["node_id"],
             parent_ids=set(data.get("parent_ids", [])),
-            children_ids=set(data.get("children_ids", [])),
+            child_order=LinkedChildOrder.from_list(
+                data.get("child_order") or data.get("children_ids") or []
+            ),
             default_expansion=Expansion(data.get("expansion", "all")),
             mode=data.get("mode", "paused"),
             tick_frequency=tick_freq,
@@ -1836,7 +1807,9 @@ class ShellNode(ContextNode):
         node = cls(
             node_id=data["node_id"],
             parent_ids=set(data.get("parent_ids", [])),
-            children_ids=set(data.get("children_ids", [])),
+            child_order=LinkedChildOrder.from_list(
+                data.get("child_order") or data.get("children_ids") or []
+            ),
             default_expansion=Expansion(data.get("expansion", "all")),
             mode=data.get("mode", "paused"),
             tick_frequency=tick_freq,
@@ -2122,7 +2095,9 @@ class PtyNode(ContextNode):
         node = cls(
             node_id=data["node_id"],
             parent_ids=set(data.get("parent_ids", [])),
-            children_ids=set(data.get("children_ids", [])),
+            child_order=LinkedChildOrder.from_list(
+                data.get("child_order") or data.get("children_ids") or []
+            ),
             default_expansion=Expansion(data.get("expansion", "content")),
             mode=data.get("mode", "paused"),
             tick_frequency=tick_freq,
@@ -2312,7 +2287,9 @@ class LockNode(ContextNode):
         node = cls(
             node_id=data["node_id"],
             parent_ids=set(data.get("parent_ids", [])),
-            children_ids=set(data.get("children_ids", [])),
+            child_order=LinkedChildOrder.from_list(
+                data.get("child_order") or data.get("children_ids") or []
+            ),
             default_expansion=Expansion(data.get("expansion", "header")),
             mode=data.get("mode", "paused"),
             tick_frequency=tick_freq,
@@ -2543,7 +2520,7 @@ class SessionNode(ContextNode):
                 max_depth = max(max_depth, depth)
                 node = self._graph.get_node(nid)
                 if node:
-                    for child_id in node.children_ids:
+                    for child_id in node.child_order:
                         if child_id not in visited:
                             queue.append((child_id, depth + 1))
 
@@ -2615,7 +2592,9 @@ class SessionNode(ContextNode):
         node = cls(
             node_id=data["node_id"],
             parent_ids=set(data.get("parent_ids", [])),
-            children_ids=set(data.get("children_ids", [])),
+            child_order=LinkedChildOrder.from_list(
+                data.get("child_order") or data.get("children_ids") or []
+            ),
             default_expansion=Expansion(data.get("expansion", "all")),
             mode=data.get("mode", "running"),  # Default to running for session node
             tick_frequency=tick_freq or TickFrequency.turn(),
@@ -2825,7 +2804,9 @@ class MessageNode(ContextNode):
         node = cls(
             node_id=data["node_id"],
             parent_ids=set(data.get("parent_ids", [])),
-            children_ids=set(data.get("children_ids", [])),
+            child_order=LinkedChildOrder.from_list(
+                data.get("child_order") or data.get("children_ids") or []
+            ),
             default_expansion=Expansion(data.get("expansion", "all")),
             mode=data.get("mode", "paused"),
             tick_frequency=tick_freq,
@@ -3001,7 +2982,9 @@ class WorkNode(ContextNode):
         node = cls(
             node_id=data["node_id"],
             parent_ids=set(data.get("parent_ids", [])),
-            children_ids=set(data.get("children_ids", [])),
+            child_order=LinkedChildOrder.from_list(
+                data.get("child_order") or data.get("children_ids") or []
+            ),
             default_expansion=Expansion(data.get("expansion", "all")),
             mode=data.get("mode", "paused"),
             tick_frequency=tick_freq,
@@ -3383,20 +3366,13 @@ class MCPServerNode(ContextNode):
         if data.get("tick_frequency"):
             tick_freq = TickFrequency.from_dict(data["tick_frequency"])
 
-        # Convert child_order from list to LinkedChildOrder if needed
-        child_order_data = data.get("child_order")
-        child_order = None
-        if child_order_data:
-            if isinstance(child_order_data, list):
-                child_order = LinkedChildOrder.from_list(child_order_data)
-            else:
-                child_order = child_order_data
 
         node = cls(
             node_id=data["node_id"],
             parent_ids=set(data.get("parent_ids", [])),
-            children_ids=set(data.get("children_ids", [])),
-            child_order=child_order,
+            child_order=LinkedChildOrder.from_list(
+                data.get("child_order") or data.get("children_ids") or []
+            ),
             default_expansion=Expansion(data.get("expansion", "all")),
             mode=data.get("mode", "paused"),
             tick_frequency=tick_freq,
@@ -3534,7 +3510,9 @@ class MCPToolNode(ContextNode):
         return cls(
             node_id=data["node_id"],
             parent_ids=set(data.get("parent_ids", [])),
-            children_ids=set(data.get("children_ids", [])),
+            child_order=LinkedChildOrder.from_list(
+                data.get("child_order") or data.get("children_ids") or []
+            ),
             default_expansion=Expansion(data.get("expansion", "header")),
             mode=data.get("mode", "paused"),
             tick_frequency=tick_freq,
@@ -3746,7 +3724,9 @@ class MCPManagerNode(ContextNode):
         node = cls(
             node_id=d.get("node_id", "mcp_manager"),
             parent_ids=set(d.get("parent_ids", [])),
-            children_ids=set(d.get("children_ids", [])),
+            child_order=LinkedChildOrder.from_list(
+                d.get("child_order") or d.get("children_ids") or []
+            ),
             default_expansion=Expansion(d.get("expansion", "content")),
             mode=d.get("mode", "paused"),
             tick_frequency=tick_freq,
@@ -3950,7 +3930,9 @@ class PluginManagerNode(ContextNode):
         node = cls(
             node_id=d.get("node_id", "plugin_manager"),
             parent_ids=set(d.get("parent_ids", [])),
-            children_ids=set(d.get("children_ids", [])),
+            child_order=LinkedChildOrder.from_list(
+                d.get("child_order") or d.get("children_ids") or []
+            ),
             default_expansion=Expansion(d.get("expansion", "content")),
             mode=d.get("mode", "paused"),
             tick_frequency=tick_freq,
@@ -4098,7 +4080,9 @@ class AgentNode(ContextNode):
         node = cls(
             node_id=data["node_id"],
             parent_ids=set(data.get("parent_ids", [])),
-            children_ids=set(data.get("children_ids", [])),
+            child_order=LinkedChildOrder.from_list(
+                data.get("child_order") or data.get("children_ids") or []
+            ),
             default_expansion=Expansion(data.get("expansion", "all")),
             mode=data.get("mode", "paused"),
             tick_frequency=tick_freq,
@@ -4256,7 +4240,7 @@ class TraceNode(ContextNode):
             "node_type": self.node_type,
             "node_id": self.node_id,
             "parent_ids": list(self.parent_ids),
-            "children_ids": list(self.children_ids),
+            "child_order": self.child_order.to_list(),
             "expansion": self.default_expansion.value,
             "mode": self.mode,
             "version": self.version,
@@ -4292,7 +4276,9 @@ class TraceNode(ContextNode):
         return cls(
             node_id=data.get("node_id", str(uuid.uuid4())[-8:]),
             parent_ids=set(data.get("parent_ids", [])),
-            children_ids=set(data.get("children_ids", [])),
+            child_order=LinkedChildOrder.from_list(
+                data.get("child_order") or data.get("children_ids") or []
+            ),
             default_expansion=Expansion(data.get("expansion", "header")),
             mode=data.get("mode", "paused"),
             tick_frequency=tick_freq,
@@ -4575,7 +4561,6 @@ def _extract_help_content(cls: type) -> str:
                 if f.name in {
                     "node_id",
                     "parent_ids",
-                    "children_ids",
                     "child_order",
                     "expansion",
                     "mode",
@@ -4798,19 +4783,12 @@ class HelpNode(ContextNode):
         if data.get("tick_frequency"):
             tick_freq = TickFrequency.from_dict(data["tick_frequency"])
 
-        child_order_data = data.get("child_order")
-        child_order = None
-        if child_order_data:
-            if isinstance(child_order_data, list):
-                child_order = LinkedChildOrder.from_list(child_order_data)
-            else:
-                child_order = child_order_data
-
         return cls(
             node_id=data["node_id"],
             parent_ids=set(data.get("parent_ids", [])),
-            children_ids=set(data.get("children_ids", [])),
-            child_order=child_order,
+            child_order=LinkedChildOrder.from_list(
+                data.get("child_order") or data.get("children_ids") or []
+            ),
             default_expansion=Expansion(data.get("expansion", "content")),
             mode=data.get("mode", "paused"),
             tick_frequency=tick_freq,
@@ -4854,7 +4832,7 @@ class MarkdownListItemNode(ContextNode):
             "is_ordered": self.is_ordered,
             "indent_level": self.indent_level,
             "expansion": self.default_expansion.value,
-            "children_count": len(self.children_ids),
+            "children_count": len(self.child_order),
         }
 
     def render_content(
@@ -4911,19 +4889,12 @@ class MarkdownListItemNode(ContextNode):
         if data.get("tick_frequency"):
             tick_freq = TickFrequency.from_dict(data["tick_frequency"])
 
-        child_order_data = data.get("child_order")
-        child_order = None
-        if child_order_data:
-            if isinstance(child_order_data, list):
-                child_order = LinkedChildOrder.from_list(child_order_data)
-            else:
-                child_order = child_order_data
-
         return cls(
             node_id=data["node_id"],
             parent_ids=set(data.get("parent_ids", [])),
-            children_ids=set(data.get("children_ids", [])),
-            child_order=child_order,
+            child_order=LinkedChildOrder.from_list(
+                data.get("child_order") or data.get("children_ids") or []
+            ),
             default_expansion=Expansion(data.get("expansion", "all")),
             mode=data.get("mode", "paused"),
             tick_frequency=tick_freq,
@@ -4968,7 +4939,7 @@ class MarkdownNode(ContextNode):
             "content_length": len(self.content),
             "buffer_id": self.buffer_id,
             "expansion": self.default_expansion.value,
-            "children_count": len(self.children_ids),
+            "children_count": len(self.child_order),
         }
 
     def _parse_lists(self) -> list[tuple[str, bool, int, str]]:
@@ -5037,7 +5008,7 @@ class MarkdownNode(ContextNode):
                 return
             children_to_remove = [
                 child_id
-                for child_id in parent.children_ids
+                for child_id in parent.child_order
                 if isinstance(self._graph.get_node(child_id), MarkdownListItemNode)
             ]
             for child_id in children_to_remove:
@@ -5120,7 +5091,7 @@ class MarkdownNode(ContextNode):
         from .headers import TokenInfo
 
         # Collapsed: metadata only
-        collapsed_text = f"[Markdown: {len(self.content)} chars, {len(self.children_ids)} items]\n"
+        collapsed_text = f"[Markdown: {len(self.content)} chars, {len(self.child_order)} items]\n"
         collapsed_tokens = count_tokens(collapsed_text)
 
         # Detail: full content
@@ -5151,19 +5122,12 @@ class MarkdownNode(ContextNode):
         if data.get("tick_frequency"):
             tick_freq = TickFrequency.from_dict(data["tick_frequency"])
 
-        child_order_data = data.get("child_order")
-        child_order = None
-        if child_order_data:
-            if isinstance(child_order_data, list):
-                child_order = LinkedChildOrder.from_list(child_order_data)
-            else:
-                child_order = child_order_data
-
         return cls(
             node_id=data["node_id"],
             parent_ids=set(data.get("parent_ids", [])),
-            children_ids=set(data.get("children_ids", [])),
-            child_order=child_order,
+            child_order=LinkedChildOrder.from_list(
+                data.get("child_order") or data.get("children_ids") or []
+            ),
             default_expansion=Expansion(data.get("expansion", "all")),
             mode=data.get("mode", "paused"),
             tick_frequency=tick_freq,
@@ -5337,19 +5301,12 @@ class FileSystemNode(ContextNode):
         if data.get("tick_frequency"):
             tick_freq = TickFrequency.from_dict(data["tick_frequency"])
 
-        child_order_data = data.get("child_order")
-        child_order = None
-        if child_order_data:
-            if isinstance(child_order_data, list):
-                child_order = LinkedChildOrder.from_list(child_order_data)
-            else:
-                child_order = child_order_data
-
         return cls(
             node_id=data["node_id"],
             parent_ids=set(data.get("parent_ids", [])),
-            children_ids=set(data.get("children_ids", [])),
-            child_order=child_order,
+            child_order=LinkedChildOrder.from_list(
+                data.get("child_order") or data.get("children_ids") or []
+            ),
             default_expansion=Expansion(data.get("expansion", "all")),
             mode=data.get("mode", "paused"),
             tick_frequency=tick_freq,
@@ -5520,19 +5477,12 @@ class ClockNode(ContextNode):
         if data.get("tick_frequency"):
             tick_freq = TickFrequency.from_dict(data["tick_frequency"])
 
-        child_order_data = data.get("child_order")
-        child_order = None
-        if child_order_data:
-            if isinstance(child_order_data, list):
-                child_order = LinkedChildOrder.from_list(child_order_data)
-            else:
-                child_order = child_order_data
-
         return cls(
             node_id=data["node_id"],
             parent_ids=set(data.get("parent_ids", [])),
-            children_ids=set(data.get("children_ids", [])),
-            child_order=child_order,
+            child_order=LinkedChildOrder.from_list(
+                data.get("child_order") or data.get("children_ids") or []
+            ),
             default_expansion=Expansion(data.get("expansion", "all")),
             mode=data.get("mode", "paused"),
             tick_frequency=tick_freq,
@@ -5685,19 +5635,12 @@ class FunctionDocNode(ContextNode):
         if data.get("tick_frequency"):
             tick_freq = TickFrequency.from_dict(data["tick_frequency"])
 
-        child_order_data = data.get("child_order")
-        child_order = None
-        if child_order_data:
-            if isinstance(child_order_data, list):
-                child_order = LinkedChildOrder.from_list(child_order_data)
-            else:
-                child_order = child_order_data
-
         return cls(
             node_id=data["node_id"],
             parent_ids=set(data.get("parent_ids", [])),
-            children_ids=set(data.get("children_ids", [])),
-            child_order=child_order,
+            child_order=LinkedChildOrder.from_list(
+                data.get("child_order") or data.get("children_ids") or []
+            ),
             default_expansion=Expansion(data.get("expansion", "all")),
             mode=data.get("mode", "paused"),
             tick_frequency=tick_freq,

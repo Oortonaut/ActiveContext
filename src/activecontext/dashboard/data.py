@@ -78,8 +78,8 @@ def get_context_data(session: Session) -> dict[str, Any]:
                     digest["parent_ids"] = list(node.parent_ids)
                 else:
                     digest["parent_ids"] = []
-                if hasattr(node, "children_ids"):
-                    digest["children_ids"] = list(node.children_ids)
+                if hasattr(node, "child_order"):
+                    digest["children_ids"] = node.child_order.to_list()
                 else:
                     digest["children_ids"] = []
 

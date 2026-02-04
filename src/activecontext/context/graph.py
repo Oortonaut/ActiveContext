@@ -253,7 +253,7 @@ class ContextGraph:
 
         if recursive:
             # Remove descendants first (depth-first)
-            for child_id in list(node.children_ids):
+            for child_id in list(node.child_order):
                 self.remove_node(child_id, recursive=True)
 
         # Unlink from parents
@@ -261,7 +261,7 @@ class ContextGraph:
             self.unlink(node_id, parent_id)
 
         # Unlink children (they become roots or stay linked to other parents)
-        for child_id in list(node.children_ids):
+        for child_id in list(node.child_order):
             self.unlink(child_id, node_id)
 
         # Remove from indices
@@ -307,11 +307,6 @@ class ContextGraph:
 
         # Create the link
         child.parent_ids.add(parent_id)
-        parent.children_ids.add(child_id)
-
-        # Maintain child_order for document ordering
-        if parent.child_order is None:
-            parent.child_order = LinkedChildOrder()
 
         if child_id not in parent.child_order:
             if before and before in parent.child_order:
@@ -346,11 +341,7 @@ class ContextGraph:
 
         # Remove link
         child.parent_ids.discard(parent_id)
-        parent.children_ids.discard(child_id)
-
-        # Remove from child_order if present
-        if parent.child_order and child_id in parent.child_order:
-            parent.child_order.remove(child_id)
+        parent.child_order.remove(child_id)
 
         # If child has no more parents, it becomes a root
         if not child.parent_ids:
@@ -375,7 +366,7 @@ class ContextGraph:
         node = self._nodes.get(node_id)
         if not node:
             return []
-        return [self._nodes[cid] for cid in node.children_ids if cid in self._nodes]
+        return [self._nodes[cid] for cid in node.child_order if cid in self._nodes]
 
     def get_parents(self, node_id: str) -> list[ContextNode]:
         """Get direct parents of a node.
@@ -425,7 +416,7 @@ class ContextGraph:
             node = self._nodes.get(nid)
             if not node:
                 return
-            for child_id in node.children_ids:
+            for child_id in node.child_order:
                 if child_id not in visited:
                     visited.add(child_id)
                     child = self._nodes.get(child_id)
@@ -494,7 +485,7 @@ class ContextGraph:
         for parent_id in node.parent_ids:
             parent = self._nodes.get(parent_id)
             if parent:
-                for child_id in parent.children_ids:
+                for child_id in parent.child_order:
                     child = self._nodes.get(child_id)
                     if (
                         child
@@ -505,7 +496,7 @@ class ContextGraph:
 
         # Also check trace_sink if set
         if node.trace_sink and node.trace_sink.node_id in self._nodes:
-            for child_id in node.trace_sink.children_ids:
+            for child_id in node.trace_sink.child_order:
                 child = self._nodes.get(child_id)
                 if child and child.node_type == "trace" and getattr(child, "node", None) == node_id:
                     traces.append(child)
@@ -674,10 +665,7 @@ class ContextGraph:
         # Clear all current edges
         for node in self._nodes.values():
             node.parent_ids.clear()
-            node.children_ids.clear()
-            # Clear child_order to prevent stale entries (if initialized)
-            if node.child_order is not None:
-                node.child_order.clear()
+            node.child_order.clear()
         self._root_ids.clear()
 
         # Restore edges from checkpoint

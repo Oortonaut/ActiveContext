@@ -261,7 +261,7 @@ class TestMCPServerNodeToolChildren:
         for node_id in mcp_server_node._tool_nodes.values():
             node = context_graph.get_node(node_id)
             assert mcp_server_node.node_id in node.parent_ids
-            assert node_id in mcp_server_node.children_ids
+            assert node_id in mcp_server_node.child_order
 
     def test_tool_method_returns_tool_node(self, context_graph, mcp_server_node, mock_connection):
         """Test MCPServerNode.tool() returns the correct MCPToolNode."""

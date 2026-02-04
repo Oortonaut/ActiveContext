@@ -98,7 +98,7 @@ m = markdown("inline.md", content="# Title\n\nContent")  # Inline content
 m = markdown("docs/guide.md", parent=docs_group) # Link to parent
 ```
 
-Returns the root TextNode. Child sections are accessible via `children_ids`.
+Returns the root TextNode. Child sections are accessible via `child_order`.
 
 ### `view(media_type, path, expansion=Expansion.ALL, **kwargs)`
 Dispatcher that routes to `text()` or `markdown()` based on media type.

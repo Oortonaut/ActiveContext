@@ -203,7 +203,6 @@ _EXCLUDED_FIELDS = frozenset(
         # Identity fields - changes here are structural, not state changes
         "node_id",
         "parent_ids",
-        "children_ids",
         "child_order",
         # Version tracking - updated by _mark_changed itself
         "version",

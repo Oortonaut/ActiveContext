@@ -288,16 +288,7 @@ class ChoiceView(NodeView):
 
     def _get_child_ids(self) -> list[str]:
         """Get ordered list of child IDs from the node."""
-        node = self.node
-        child_order = getattr(node, "child_order", None)
-        if child_order is not None:
-            # child_order might be a LinkedChildOrder with to_list() or a regular list
-            if hasattr(child_order, "to_list"):
-                return list(child_order.to_list())
-            else:
-                return list(child_order)
-        else:
-            return list(getattr(node, "children_ids", set()))
+        return self.node.child_order.to_list()
 
     def apply_selection(self, views: dict[str, NodeView]) -> None:
         """Apply selection filtering to child views based on expansion mode.
@@ -336,14 +327,7 @@ class ChoiceView(NodeView):
             return []
 
         # Get child IDs in order
-        child_order = getattr(node, "child_order", None)
-        if child_order is not None:
-            if hasattr(child_order, "to_list"):
-                child_ids = child_order.to_list()
-            else:
-                child_ids = list(child_order)
-        else:
-            child_ids = list(getattr(node, "children_ids", set()))
+        child_ids = node.child_order.to_list()
 
         # Get titles for each child
         titles = []

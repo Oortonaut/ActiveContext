@@ -19,7 +19,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from activecontext.config.schema import PluginsConfig, PluginServerConfig
-from activecontext.context.graph import ContextGraph
+from activecontext.context.graph import ContextGraph, LinkedChildOrder
 from activecontext.plugins.connection import PluginConnection
 from activecontext.plugins.descriptor import NodePluginDescriptor, PluginSource
 from activecontext.plugins.manager import PluginConnectionInfo, PluginManager
@@ -411,8 +411,7 @@ class TestNodeTypeRegistration:
             mock_node.node_id = "lint_1"
             mock_node.node_type = "lint"
             mock_node.parent_ids = set()
-            mock_node.children_ids = set()
-            mock_node.child_order = None
+            mock_node.child_order = LinkedChildOrder()
             mock_node.display_sequence = None
             mock_node.mode = "idle"
             mock_node._graph = None

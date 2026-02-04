@@ -150,7 +150,7 @@ class TestAddNodeLinking:
 
         # Node should be child of the group
         assert "group1" in node.parent_ids
-        assert node.node_id in group.children_ids
+        assert node.node_id in group.child_order
 
     def test_add_multiple_nodes_in_group(self) -> None:
         """Test adding multiple nodes to same group."""
@@ -168,8 +168,8 @@ class TestAddNodeLinking:
         # Both should be children of the group
         assert "group1" in node1.parent_ids
         assert "group1" in node2.parent_ids
-        assert node1.node_id in group.children_ids
-        assert node2.node_id in group.children_ids
+        assert node1.node_id in group.child_order
+        assert node2.node_id in group.child_order
 
     def test_add_node_rejects_non_context_node(self) -> None:
         """Test that add_node rejects non-ContextNode objects."""

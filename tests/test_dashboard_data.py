@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, PropertyMock, patch
 
 import pytest
 
+from activecontext.context.graph import LinkedChildOrder
 from activecontext.dashboard.data import (
     format_session_update,
     get_client_capabilities_data,
@@ -76,7 +77,7 @@ def mock_node():
         "state": "all",
     }
     node.parent_ids = set()
-    node.children_ids = set()
+    node.child_order = LinkedChildOrder()
     return node
 
 
@@ -311,7 +312,7 @@ class TestGetContextData:
     def test_includes_parent_and_children_ids(self, mock_session, mock_node):
         """Should include parent_ids and children_ids in node digest."""
         mock_node.parent_ids = {"parent-1", "parent-2"}
-        mock_node.children_ids = {"child-1"}
+        mock_node.child_order = LinkedChildOrder.from_list(["child-1"])
         mock_session.get_context_graph.return_value = iter([mock_node])
 
         result = get_context_data(mock_session)
@@ -323,7 +324,7 @@ class TestGetContextData:
     def test_handles_nodes_without_parent_ids(self, mock_session, mock_node):
         """Should handle nodes without parent_ids attribute."""
         del mock_node.parent_ids
-        mock_node.children_ids = set()
+        mock_node.child_order = LinkedChildOrder()
         mock_session.get_context_graph.return_value = iter([mock_node])
 
         result = get_context_data(mock_session)
@@ -331,10 +332,10 @@ class TestGetContextData:
         node_data = result["nodes_by_type"]["TextNode"][0]
         assert node_data["parent_ids"] == []
 
-    def test_handles_nodes_without_children_ids(self, mock_session, mock_node):
-        """Should handle nodes without children_ids attribute."""
+    def test_handles_nodes_without_child_order(self, mock_session, mock_node):
+        """Should handle nodes without child_order attribute."""
         mock_node.parent_ids = set()
-        del mock_node.children_ids
+        del mock_node.child_order
         mock_session.get_context_graph.return_value = iter([mock_node])
 
         result = get_context_data(mock_session)
@@ -347,17 +348,17 @@ class TestGetContextData:
         text_node = MagicMock()
         text_node.GetDigest.return_value = {"type": "TextNode", "node_id": "t1"}
         text_node.parent_ids = set()
-        text_node.children_ids = set()
+        text_node.child_order = LinkedChildOrder()
 
         group_node = MagicMock()
         group_node.GetDigest.return_value = {"type": "GroupNode", "node_id": "g1"}
         group_node.parent_ids = set()
-        group_node.children_ids = set()
+        group_node.child_order = LinkedChildOrder()
 
         shell_node = MagicMock()
         shell_node.GetDigest.return_value = {"type": "ShellNode", "node_id": "s1"}
         shell_node.parent_ids = set()
-        shell_node.children_ids = set()
+        shell_node.child_order = LinkedChildOrder()
 
         mock_session.get_context_graph.return_value = iter([text_node, group_node, shell_node])
 
@@ -385,7 +386,7 @@ class TestGetContextData:
         good_node = MagicMock()
         good_node.GetDigest.return_value = {"type": "GoodNode", "node_id": "g1"}
         good_node.parent_ids = set()
-        good_node.children_ids = set()
+        good_node.child_order = LinkedChildOrder()
 
         mock_session.get_context_graph.return_value = iter([bad_node, good_node])
 
@@ -399,7 +400,7 @@ class TestGetContextData:
         node = MagicMock()
         node.GetDigest.return_value = {"node_id": "n1"}  # No 'type' key
         node.parent_ids = set()
-        node.children_ids = set()
+        node.child_order = LinkedChildOrder()
         mock_session.get_context_graph.return_value = iter([node])
 
         result = get_context_data(mock_session)
@@ -1244,7 +1245,7 @@ class TestEdgeCases:
         node = MagicMock()
         node.GetDigest.return_value = {"node_id": "n1"}  # No 'type'
         node.parent_ids = set()
-        node.children_ids = set()
+        node.child_order = LinkedChildOrder()
         mock_session.get_context_graph.return_value = iter([node])
 
         result = get_context_data(mock_session)
@@ -1328,7 +1329,7 @@ class TestEdgeCases:
             node = MagicMock()
             node.GetDigest.return_value = {"type": f"Type{i % 10}", "node_id": f"n{i}"}
             node.parent_ids = set()
-            node.children_ids = set()
+            node.child_order = LinkedChildOrder()
             nodes.append(node)
 
         mock_session.get_context_graph.return_value = iter(nodes)
