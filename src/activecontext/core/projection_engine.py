@@ -34,31 +34,31 @@ class ProjectionConfig:
 class RenderPath:
     """Path through the context graph for rendering.
 
-    Captures which nodes to render and their relationships,
+    Captures which views to render and their relationships,
     similar to Checkpoint's edge structure. This allows:
     - Hierarchical rendering (parents before children)
     - Token usage collection per subtree
     - Group summarization of children
 
     Attributes:
-        node_ids: Ordered list of node IDs to render
+        views: Ordered list of NodeViews to render (document order)
         edges: List of (child_id, parent_id) tuples for structure
         root_ids: Node IDs that are roots in this path (no parents in path)
         total_tokens: Sum of all root nodes' total_tokens
     """
 
-    node_ids: list[str] = field(default_factory=list)
+    views: list[NodeView] = field(default_factory=list)
     edges: list[tuple[str, str]] = field(default_factory=list)
     root_ids: set[str] = field(default_factory=set)
     total_tokens: int = 0
 
     def __len__(self) -> int:
-        """Return number of nodes in path."""
-        return len(self.node_ids)
+        """Return number of views in path."""
+        return len(self.views)
 
     def __bool__(self) -> bool:
-        """Return True if path has nodes."""
-        return len(self.node_ids) > 0
+        """Return True if path has views."""
+        return len(self.views) > 0
 
 
 class ProjectionEngine:
@@ -130,10 +130,8 @@ class ProjectionEngine:
 
             # Render the path
             sections = self._render_path(
-                context_graph,
                 render_path,
                 text_buffers=text_buffers,
-                views=self._views,
                 content_registry=content_registry,
             )
 
@@ -196,9 +194,8 @@ class ProjectionEngine:
         Args:
             graph: The context graph
             node: Current node to process
-            path: RenderPath to append to
+            path: RenderPath to append views to
             seen: Set of already-seen node IDs
-            views: Optional dict mapping node_id -> NodeView for visibility
             depth: Current traversal depth (0 for roots)
 
         Returns:
@@ -216,7 +213,7 @@ class ProjectionEngine:
             view = self.views[node.node_id]
 
         seen.add(node.node_id)
-        path.node_ids.append(node.node_id)
+        path.views.append(view)
 
         # Track root status
         if not node.parent_ids:
@@ -248,20 +245,16 @@ class ProjectionEngine:
 
     def _render_path(
         self,
-        graph: ContextGraph,
         path: RenderPath,
         *,
         text_buffers: dict[str, Any] | None = None,
-        views: dict[str, NodeView],
         content_registry: ContentRegistry | None = None,
     ) -> list[ProjectionSection]:
         """Render the collected path into projection sections.
 
         Args:
-            graph: The context graph (for node lookup)
-            path: The render path to render
+            path: The render path (list of NodeViews in document order)
             text_buffers: Dict of buffer_id -> TextBuffer for markdown nodes
-            views: Dict mapping node_id -> NodeView for visibility/expansion (required)
             content_registry: Optional ContentRegistry for shared content
 
         Returns:
@@ -272,22 +265,13 @@ class ProjectionEngine:
 
         sections: list[ProjectionSection] = []
 
-        for node_id in path.node_ids:
-            node = graph.get_node(node_id)
-            if node is None:
-                continue
-
-            # Get view for this node (must exist - created in _collect_render_path)
-            view = views.get(node_id)
-            if view is None:
-                raise ValueError(f"No view found for node {node_id} - views must be created before rendering")
-
+        for view in path.views:
             # Skip if hidden via view
             if view.hidden:
                 continue
 
             section = self._render_node(
-                node,
+                view.node,
                 view=view,
                 text_buffers=text_buffers,
             )

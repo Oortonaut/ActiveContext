@@ -69,21 +69,29 @@ class TestRenderPath:
 
         assert len(path) == 0
         assert not path
-        assert path.node_ids == []
+        assert path.views == []
         assert path.edges == []
         assert path.root_ids == set()
 
-    def test_render_path_with_nodes(self):
-        """Test render path with nodes."""
+    def test_render_path_with_views(self):
+        """Test render path with views."""
+        from activecontext.context.view import NodeView
+
+        nodes = [
+            create_mock_context_node(nid, "view") for nid in ("a", "b", "c")
+        ]
+        views = [NodeView(n) for n in nodes]
+
         path = RenderPath(
-            node_ids=["a", "b", "c"],
+            views=views,
             edges=[("b", "a"), ("c", "a")],
             root_ids={"a"},
         )
 
         assert len(path) == 3
         assert path
-        assert "a" in path.node_ids
+        view_ids = [v.node_id for v in path.views]
+        assert "a" in view_ids
         assert ("b", "a") in path.edges
         assert "a" in path.root_ids
 
@@ -113,11 +121,12 @@ class TestCollectRenderPath:
         graph.link("c1", "r1")
 
         path = projection_engine._collect_render_path(graph)
+        view_ids = [v.node_id for v in path.views]
 
         # Both roots and child (via recursion) should be in path
-        assert "r1" in path.node_ids
-        assert "r2" in path.node_ids
-        assert "c1" in path.node_ids  # Included via parent's DETAILS state
+        assert "r1" in view_ids
+        assert "r2" in view_ids
+        assert "c1" in view_ids  # Included via parent's DETAILS state
 
     def test_collect_render_path_collapsed_still_recurses(self, projection_engine):
         """Test that COLLAPSED parents still recurse into children for token counting."""
@@ -132,17 +141,16 @@ class TestCollectRenderPath:
         graph.link("child", "root")
 
         path = projection_engine._collect_render_path(graph)
+        view_ids = [v.node_id for v in path.views]
 
         # Both root and child are collected - children always collected
         # for complete token information (expansion cost visibility)
-        assert "root" in path.node_ids
-        assert "child" in path.node_ids
+        assert "root" in view_ids
+        assert "child" in view_ids
         assert "root" in path.root_ids
 
     def test_collect_render_path_includes_hidden_nodes(self, projection_engine):
         """Test that hidden nodes are collected (filtering happens at render time)."""
-        from activecontext.context.view import NodeView
-
         graph = ContextGraph()
 
         hidden_node = create_mock_context_node("hidden", "view", mode="running")
@@ -157,10 +165,11 @@ class TestCollectRenderPath:
         graph.add_node(visible_node)
 
         path = projection_engine._collect_render_path(graph)
+        view_ids = [v.node_id for v in path.views]
 
         # Collect path includes all nodes (hidden filtering is in _render_path)
-        assert "visible" in path.node_ids
-        assert "hidden" in path.node_ids
+        assert "visible" in view_ids
+        assert "hidden" in view_ids
         # But the view is marked hidden
         assert projection_engine.views["hidden"].hidden is True
         assert projection_engine.views["visible"].hidden is False
@@ -177,10 +186,11 @@ class TestCollectRenderPath:
         graph.link("child", "parent")
 
         path = projection_engine._collect_render_path(graph)
+        view_ids = [v.node_id for v in path.views]
 
         # Both should be in path since both are running
-        assert "parent" in path.node_ids
-        assert "child" in path.node_ids
+        assert "parent" in view_ids
+        assert "child" in view_ids
 
     def test_collect_render_path_empty_graph(self, projection_engine):
         """Test collecting render path from empty graph."""
@@ -231,9 +241,7 @@ class TestRenderPathRendering:
     def test_render_path_basic(self, projection_engine, mock_graph):
         """Test basic path rendering."""
         path = projection_engine._collect_render_path(mock_graph)
-        sections = projection_engine._render_path(
-            mock_graph, path, views=projection_engine.views
-        )
+        sections = projection_engine._render_path(path)
 
         assert len(sections) == 2  # Running node + paused root
         section_ids = {s.source_id for s in sections}
@@ -259,14 +267,14 @@ class TestRenderPathRendering:
         graph.add_node(hidden_node)
         graph.add_node(visible_node)
 
-        # Create views dict with hidden node marked as hidden
-        views = {
-            "hidden": NodeView(hidden_node, hidden=True),
-            "visible": NodeView(visible_node, hidden=False),
-        }
-
+        # Build path with views (collect creates them on-demand)
         path = projection_engine._collect_render_path(graph)
-        sections = projection_engine._render_path(graph, path, views=views)
+
+        # Override the views to mark hidden node as hidden
+        projection_engine.views["hidden"].hidden = True
+        projection_engine.views["visible"].hidden = False
+
+        sections = projection_engine._render_path(path)
 
         # Only visible node should be rendered
         assert len(sections) == 1
@@ -275,9 +283,7 @@ class TestRenderPathRendering:
     def test_render_path_calls_render(self, projection_engine, mock_graph):
         """Test that render_content is called for each visible node."""
         path = projection_engine._collect_render_path(mock_graph)
-        projection_engine._render_path(
-            mock_graph, path, views=projection_engine.views,
-        )
+        projection_engine._render_path(path)
 
         running_node = mock_graph.get_node("running1")
         paused_node = mock_graph.get_node("paused_root")
@@ -292,10 +298,9 @@ class TestRenderPathRendering:
 
     def test_render_empty_path_returns_empty_sections(self, projection_engine):
         """Test rendering empty path returns no sections."""
-        graph = ContextGraph()
         path = RenderPath()
 
-        sections = projection_engine._render_path(graph, path, views={})
+        sections = projection_engine._render_path(path)
 
         assert sections == []
 
