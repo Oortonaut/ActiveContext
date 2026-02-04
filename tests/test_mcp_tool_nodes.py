@@ -446,7 +446,7 @@ class TestMCPToolNodeIntegration:
         mcp_server_node.default_expansion = Expansion.ALL  # DETAILS/ALL render children
 
         engine = ProjectionEngine()
-        projection = engine.build(context_graph=context_graph, cwd=".")
+        projection = engine.build(context_graph=context_graph)
 
         # Tool node content should appear in projection
         rendered = projection.render()

@@ -15,11 +15,12 @@ from typing import TYPE_CHECKING, Any
 from activecontext.core.tokens import MediaType, count_tokens
 from activecontext.session.protocols import Projection, ProjectionSection
 
+from activecontext.context.view import NodeView
+
 if TYPE_CHECKING:
     from activecontext.context.content import ContentRegistry
     from activecontext.context.graph import ContextGraph
     from activecontext.context.nodes import ContextNode
-    from activecontext.context.view import NodeView
 
 
 @dataclass
@@ -97,7 +98,6 @@ class ProjectionEngine:
         self,
         *,
         context_graph: ContextGraph | None = None,
-        cwd: str = ".",
         text_buffers: dict[str, Any] | None = None,
         content_registry: ContentRegistry | None = None,
     ) -> Projection:
@@ -110,7 +110,6 @@ class ProjectionEngine:
 
         Args:
             context_graph: ContextGraph (DAG of nodes)
-            cwd: Working directory for file access
             text_buffers: Dict of buffer_id -> TextBuffer for markdown nodes
             content_registry: Optional ContentRegistry for shared content
 
@@ -133,7 +132,6 @@ class ProjectionEngine:
             sections = self._render_path(
                 context_graph,
                 render_path,
-                cwd,
                 text_buffers=text_buffers,
                 views=self._views,
                 content_registry=content_registry,
@@ -252,7 +250,6 @@ class ProjectionEngine:
         self,
         graph: ContextGraph,
         path: RenderPath,
-        cwd: str,
         *,
         text_buffers: dict[str, Any] | None = None,
         views: dict[str, NodeView],
@@ -263,7 +260,6 @@ class ProjectionEngine:
         Args:
             graph: The context graph (for node lookup)
             path: The render path to render
-            cwd: Working directory for file access
             text_buffers: Dict of buffer_id -> TextBuffer for markdown nodes
             views: Dict mapping node_id -> NodeView for visibility/expansion (required)
             content_registry: Optional ContentRegistry for shared content
@@ -292,7 +288,6 @@ class ProjectionEngine:
 
             section = self._render_node(
                 node,
-                cwd,
                 view=view,
                 text_buffers=text_buffers,
             )
@@ -305,7 +300,6 @@ class ProjectionEngine:
     def _render_node(
         self,
         node: ContextNode,
-        cwd: str,
         *,
         view: NodeView,
         text_buffers: dict[str, Any] | None = None,
@@ -314,14 +308,13 @@ class ProjectionEngine:
 
         Args:
             node: The context node to render
-            cwd: Working directory for file access
             view: NodeView for expansion-aware rendering (required)
             text_buffers: Dict of buffer_id -> TextBuffer for markdown nodes
 
         Returns:
             ProjectionSection or None if node should be skipped
         """
-        content = view.render(cwd=cwd, text_buffers=text_buffers)
+        content = view.render(text_buffers=text_buffers)
 
         media_type = getattr(node, "media_type", MediaType.TEXT)
         tokens_used = count_tokens(content, media_type)

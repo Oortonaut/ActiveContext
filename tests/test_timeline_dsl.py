@@ -219,7 +219,6 @@ Content for section two.
             rendered_parts = []
             for node in all_nodes:
                 rendered = NodeView(node).render(
-                    cwd=str(temp_cwd),
                     text_buffers=timeline._text_buffers,
                 )
                 rendered_parts.append(rendered)

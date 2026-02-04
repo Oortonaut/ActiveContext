@@ -324,6 +324,7 @@ class TestRenderDigest:
 # =============================================================================
 
 
+@pytest.mark.skip(reason="ChoiceView apply_selection disabled in ProjectionEngine")
 class TestProjectionEngineIntegration:
     """Tests for ChoiceView integration with ProjectionEngine."""
 

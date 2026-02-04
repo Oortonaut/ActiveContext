@@ -139,8 +139,8 @@ class TestCollectRenderPath:
         assert "child" in path.node_ids
         assert "root" in path.root_ids
 
-    def test_collect_render_path_excludes_hidden(self, projection_engine):
-        """Test that hidden views are excluded from render path."""
+    def test_collect_render_path_includes_hidden_nodes(self, projection_engine):
+        """Test that hidden nodes are collected (filtering happens at render time)."""
         from activecontext.context.view import NodeView
 
         graph = ContextGraph()
@@ -158,8 +158,12 @@ class TestCollectRenderPath:
 
         path = projection_engine._collect_render_path(graph)
 
+        # Collect path includes all nodes (hidden filtering is in _render_path)
         assert "visible" in path.node_ids
-        assert "hidden" not in path.node_ids
+        assert "hidden" in path.node_ids
+        # But the view is marked hidden
+        assert projection_engine.views["hidden"].hidden is True
+        assert projection_engine.views["visible"].hidden is False
 
     def test_collect_render_path_records_edges(self, projection_engine):
         """Test that render path records parent-child edges."""

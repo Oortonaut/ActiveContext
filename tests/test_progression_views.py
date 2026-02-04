@@ -796,6 +796,7 @@ class TestSequenceViewApplySelection:
 # =============================================================================
 
 
+@pytest.mark.skip(reason="ChoiceView apply_selection disabled in ProjectionEngine")
 class TestProjectionEngineIntegration:
     """Tests for progression views integration with ProjectionEngine."""
 

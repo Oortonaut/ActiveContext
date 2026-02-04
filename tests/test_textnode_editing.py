@@ -354,7 +354,7 @@ class TestTextNodeExpansionStates:
         graph.add_node(node)
         node.default_expansion = Expansion.HEADER
 
-        result = NodeView(node, expansion=Expansion.HEADER).render(cwd=".")
+        result = NodeView(node, expansion=Expansion.HEADER).render()
 
         # Should have header but not content
         assert "txt1" in result or "Test File" in result
@@ -377,7 +377,7 @@ class TestTextNodeExpansionStates:
         node.cached_summary = "This is a test file summary."
         node.summary_stale = False
 
-        result = NodeView(node, expansion=Expansion.CONTENT).render(cwd=".")
+        result = NodeView(node, expansion=Expansion.CONTENT).render()
 
         # Should include summary
         assert "This is a test file summary." in result
@@ -396,7 +396,7 @@ class TestTextNodeExpansionStates:
         node.default_expansion = Expansion.CONTENT
         node.cached_summary = None
 
-        result = NodeView(node, expansion=Expansion.CONTENT).render(cwd=".")
+        result = NodeView(node, expansion=Expansion.CONTENT).render()
 
         # Should show header but no content
         assert "line 1" not in result
@@ -421,7 +421,7 @@ class TestTextNodeExpansionStates:
             graph.add_node(node)
             node.default_expansion = Expansion.ALL
 
-            result = NodeView(node, expansion=Expansion.ALL).render(cwd=tmpdir)
+            result = NodeView(node, expansion=Expansion.ALL).render()
 
             # Should include all content lines
             assert "line 1" in result
@@ -462,10 +462,10 @@ class TestTextNodeExpansionStates:
                 nodes[exp] = node
 
             # Render each and verify expected content
-            header_output = NodeView(nodes[Expansion.HEADER], expansion=Expansion.HEADER).render(cwd=tmpdir)
-            content_output = NodeView(nodes[Expansion.CONTENT], expansion=Expansion.CONTENT).render(cwd=tmpdir)
-            index_output = NodeView(nodes[Expansion.INDEX], expansion=Expansion.INDEX).render(cwd=tmpdir)
-            all_output = NodeView(nodes[Expansion.ALL], expansion=Expansion.ALL).render(cwd=tmpdir)
+            header_output = NodeView(nodes[Expansion.HEADER], expansion=Expansion.HEADER).render()
+            content_output = NodeView(nodes[Expansion.CONTENT], expansion=Expansion.CONTENT).render()
+            index_output = NodeView(nodes[Expansion.INDEX], expansion=Expansion.INDEX).render()
+            all_output = NodeView(nodes[Expansion.ALL], expansion=Expansion.ALL).render()
 
             # HEADER: Only metadata
             assert "def foo():" not in header_output
@@ -517,7 +517,7 @@ class TestTextNodeExpansionStates:
         node.default_expansion = Expansion.CONTENT
         graph.add_node(node)
 
-        result = NodeView(node, expansion=Expansion.CONTENT).render(cwd=".")
+        result = NodeView(node, expansion=Expansion.CONTENT).render()
 
         # Stale summary should not appear
         assert "Old stale summary" not in result

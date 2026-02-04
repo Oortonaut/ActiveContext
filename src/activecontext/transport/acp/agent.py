@@ -1368,6 +1368,14 @@ class ActiveContextAgent:
         else:
             log.warning("Session %s not found in manager during cancel", session_id)
 
+        # Signal all pending completion events so prompt() returns immediately
+        for msg_id, event in list(self._message_complete_events.items()):
+            event.set()
+        log.debug("Cancel [%s]: signaled completion events", session_id)
+
+        # Stop the agent loop task
+        self._stop_agent_loop(session_id)
+
         # Clean up session tracking (only for sessions we created, not the main IDE session)
         # This prevents unbounded growth of _closed_sessions for child agent sessions
         self._cleanup_closed_session(session_id)
@@ -2128,19 +2136,20 @@ class ActiveContextAgent:
                     if self._conn:
                         await self._emit_update(session_id, update)
 
-                    # Signal message completion when PROJECTION_READY
-                    if update.kind == UpdateKind.PROJECTION_READY:
+                    # Signal message completion on PROJECTION_READY or ERROR
+                    if update.kind in (UpdateKind.PROJECTION_READY, UpdateKind.ERROR):
                         message_id = update.payload.get("message_id")
                         if message_id and message_id in self._message_complete_events:
                             self._message_complete_events[message_id].set()
                             log.debug("Signaled completion for message %s", message_id)
 
-                        # Auto-save after each message completion
-                        try:
-                            session.save()
-                            log.debug("Auto-saved session %s", session_id)
-                        except Exception as e:
-                            log.warning("Failed to auto-save session: %s", e)
+                        # Auto-save after successful completion
+                        if update.kind == UpdateKind.PROJECTION_READY:
+                            try:
+                                session.save()
+                                log.debug("Auto-saved session %s", session_id)
+                            except Exception as e:
+                                log.warning("Failed to auto-save session: %s", e)
 
             except asyncio.CancelledError:
                 log.info("Agent loop cancelled for session %s", session_id)
