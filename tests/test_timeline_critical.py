@@ -450,7 +450,7 @@ class TestContextGraph:
         """Test linking nodes via DSL creates parent-child relationship."""
         timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
         try:
-            await timeline.execute_statement('g = group(summary="Test Group")')
+            await timeline.execute_statement("g = group()")
             await timeline.execute_statement('t = topic("Child Topic")')
 
             # Get node IDs before linking
@@ -475,7 +475,7 @@ class TestContextGraph:
         """Test unlinking nodes in the context graph."""
         timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
         try:
-            await timeline.execute_statement('g = group(summary="Test Group")')
+            await timeline.execute_statement("g = group()")
             await timeline.execute_statement('t = topic("Child Topic")')
             # link(child, parent)
             await timeline.execute_statement("link(t, g)")

@@ -852,26 +852,13 @@ class Session:
 
         return group.node_id
 
-    def end_tool_use(self, summary: str | None = None) -> str | None:
+    def end_tool_use(self) -> str | None:
         """End the current tool use scope.
-
-        Pops the group from the context stack and optionally sets its summary.
-        The summary becomes the collapsed representation of the tool use.
-
-        Args:
-            summary: Optional summary text for the group.
 
         Returns:
             The popped group ID, or None if no group was active.
         """
-        group_id = self.pop_group()
-
-        if group_id and summary:
-            group = self._timeline.context_graph.get_node(group_id)
-            if isinstance(group, GroupNode):
-                group.cached_summary = summary
-
-        return group_id
+        return self.pop_group()
 
     def begin_repl_call(self, source: str, language: str) -> str:
         """Begin a REPL execution scope.
@@ -2038,7 +2025,7 @@ class Session:
 
         - CRITICAL: Must connect, raise error if fails
         - AUTO: Try on startup, warn if fails
-        - MANUAL: Skip (user connects manually)
+        - MANUAL: Stub node only (user connects manually)
         - NEVER: Skip (disabled)
         """
         if not self._config or not self._config.mcp:
@@ -2075,6 +2062,9 @@ class Session:
                             "Failed to auto-connect to MCP server"
                             f" '{server_config.name}': {error_msg}"
                         )
+
+        # Create stub nodes for remaining configured servers (MANUAL mode)
+        self._timeline._mcp_integration.register_configured_servers()
 
 
 class SessionManager:

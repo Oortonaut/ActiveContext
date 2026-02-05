@@ -20,13 +20,11 @@ class GroupState:
     Attributes:
         node_id: The group node's ID
         summary_prompt: Custom summarization prompt
-        cached_summary: LLM-generated summary at checkpoint time
         last_child_versions: Version tracking for child nodes
     """
 
     node_id: str
     summary_prompt: str | None = None
-    cached_summary: str | None = None
     last_child_versions: dict[str, int] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -34,7 +32,6 @@ class GroupState:
         return {
             "node_id": self.node_id,
             "summary_prompt": self.summary_prompt,
-            "cached_summary": self.cached_summary,
             "last_child_versions": self.last_child_versions,
         }
 
@@ -44,7 +41,6 @@ class GroupState:
         return cls(
             node_id=data["node_id"],
             summary_prompt=data.get("summary_prompt"),
-            cached_summary=data.get("cached_summary"),
             last_child_versions=data.get("last_child_versions", {}),
         )
 

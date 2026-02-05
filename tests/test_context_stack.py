@@ -58,15 +58,8 @@ class MockSession:
         self.push_group(group.node_id)
         return group.node_id
 
-    def end_tool_use(self, summary: str | None = None) -> str | None:
-        group_id = self.pop_group()
-
-        if group_id and summary:
-            group = self._timeline.context_graph.get_node(group_id)
-            if isinstance(group, GroupNode):
-                group.cached_summary = summary
-
-        return group_id
+    def end_tool_use(self) -> str | None:
+        return self.pop_group()
 
 
 class TestContextStackBasics:
@@ -233,16 +226,6 @@ class TestBeginEndToolUse:
 
         assert session.current_group is None
 
-    def test_end_tool_use_sets_summary(self) -> None:
-        """Test that end_tool_use sets the group summary."""
-        session = MockSession()
-        group_id = session.begin_tool_use("view")
-        session.end_tool_use(summary="Opened main.py")
-
-        group = session._timeline.context_graph.get_node(group_id)
-        assert isinstance(group, GroupNode)
-        assert group.cached_summary == "Opened main.py"
-
     def test_end_tool_use_returns_group_id(self) -> None:
         """Test that end_tool_use returns the group ID."""
         session = MockSession()
@@ -273,11 +256,11 @@ class TestNestedToolUse:
         assert outer_id in inner_group.parent_ids
 
         # End inner
-        session.end_tool_use(summary="Inner done")
+        session.end_tool_use()
         assert session.current_group == outer_id
 
         # End outer
-        session.end_tool_use(summary="Outer done")
+        session.end_tool_use()
         assert session.current_group is None
 
     def test_nodes_in_nested_tool_go_to_inner_group(self) -> None:
@@ -312,7 +295,7 @@ class TestToolUseDAGStructure:
         view = TextNode(path="main.py")
         session.add_node(view)
 
-        session.end_tool_use(summary="Opened main.py")
+        session.end_tool_use()
 
         agent_msg = MessageNode(role=MessageRole.ASSISTANT, content="Here it is", originator="agent")
         session.add_node(agent_msg)

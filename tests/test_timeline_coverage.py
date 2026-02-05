@@ -771,7 +771,7 @@ class TestCurrentGroup:
         timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
         try:
             # Create a group
-            await timeline.execute_statement('g = group(summary="Test")')
+            await timeline.execute_statement("g = group()")
             ns = timeline.get_namespace()
             group_id = ns["g"].node_id
 
@@ -791,7 +791,7 @@ class TestCurrentGroup:
         timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
         try:
             # Create a group
-            await timeline.execute_statement('g = group(summary="Container")')
+            await timeline.execute_statement("g = group()")
             ns = timeline.get_namespace()
             group_id = ns["g"].node_id
 
@@ -1389,8 +1389,8 @@ class TestGroupWithCurrentGroupParent:
         timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
         try:
             # Create two groups
-            await timeline.execute_statement('g1 = group(summary="Group 1")')
-            await timeline.execute_statement('g2 = group(summary="Group 2")')
+            await timeline.execute_statement("g1 = group()")
+            await timeline.execute_statement("g2 = group()")
 
             ns = timeline.get_namespace()
             g1_id = ns["g1"].node_id

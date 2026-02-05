@@ -57,7 +57,7 @@ class TestTextNodeSummarization:
         tmp_path: Path,
         mock_llm_provider: AsyncMock,
     ) -> None:
-        """Test that summarize() generates and caches a summary."""
+        """Test that summarize() generates a summary."""
         # Create a test file
         test_file = tmp_path / "test.py"
         test_file.write_text("def foo():\n    return 42\n")
@@ -71,9 +71,6 @@ class TestTextNodeSummarization:
 
         # Verify summary was generated
         assert summary == "This is a test summary of the file."
-        assert node.cached_summary == summary
-        assert not node.summary_stale
-        assert node.content_hash is not None
 
         # Verify LLM was called
         mock_llm_provider.complete.assert_called_once()
@@ -82,67 +79,6 @@ class TestTextNodeSummarization:
         assert len(messages) == 1
         assert messages[0].role == Role.USER
         assert "test.py" in messages[0].content
-
-    @pytest.mark.asyncio
-    async def test_summarize_uses_cached_summary(
-        self,
-        timeline_with_llm: Timeline,
-        context_graph: ContextGraph,
-        tmp_path: Path,
-        mock_llm_provider: AsyncMock,
-    ) -> None:
-        """Test that summarize() uses cached summary when available."""
-        # Create a test file
-        test_file = tmp_path / "test.py"
-        test_file.write_text("def foo():\n    return 42\n")
-
-        # Create TextNode with cached summary
-        node = TextNode(path=str(test_file))
-        context_graph.add_node(node)
-
-        # First call to generate and cache
-        await timeline_with_llm._summarize(node)
-        first_summary = node.cached_summary
-
-        # Reset mock
-        mock_llm_provider.complete.reset_mock()
-
-        # Second call should use cache
-        summary = await timeline_with_llm._summarize(node)
-
-        # Verify cached summary was used (LLM not called again)
-        assert summary == "This is a test summary of the file."
-        assert summary == first_summary
-        assert not node.summary_stale
-        mock_llm_provider.complete.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_summarize_force_regenerates(
-        self,
-        timeline_with_llm: Timeline,
-        context_graph: ContextGraph,
-        tmp_path: Path,
-        mock_llm_provider: AsyncMock,
-    ) -> None:
-        """Test that summarize(force=True) regenerates summary."""
-        # Create a test file
-        test_file = tmp_path / "test.py"
-        test_file.write_text("def foo():\n    return 42\n")
-
-        # Create TextNode with cached summary
-        node = TextNode(path=str(test_file))
-        context_graph.add_node(node)
-
-        # First call
-        await timeline_with_llm._summarize(node)
-        mock_llm_provider.complete.reset_mock()
-
-        # Force regeneration
-        summary = await timeline_with_llm._summarize(node, force=True)
-
-        # Verify LLM was called again
-        assert summary == "This is a test summary of the file."
-        mock_llm_provider.complete.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_summarize_without_llm_provider(
@@ -182,69 +118,3 @@ class TestTextNodeSummarization:
 
         with pytest.raises(ValueError, match="only works with TextNode"):
             await timeline_with_llm._summarize(node)
-
-    @pytest.mark.asyncio
-    async def test_textnode_render_summary_uses_cache(
-        self,
-        context_graph: ContextGraph,
-        tmp_path: Path,
-    ) -> None:
-        """Test that TextNode.render_content() uses cached summary."""
-        # Create TextNode with cached summary
-        test_file = tmp_path / "test.py"
-        test_file.write_text("def foo():\n    return 42\n")
-        node = TextNode(path=str(test_file))
-        node.cached_summary = "Test summary"
-        node.summary_stale = False
-        context_graph.add_node(node)
-
-        # Render content
-        rendered = node.render_content(cwd=str(tmp_path))
-
-        # Should contain the cached summary
-        assert "Test summary" in rendered
-
-    @pytest.mark.asyncio
-    async def test_textnode_render_summary_stale(
-        self,
-        context_graph: ContextGraph,
-        tmp_path: Path,
-    ) -> None:
-        """Test that TextNode.render_content() does not use stale summary."""
-        # Create TextNode with stale summary
-        test_file = tmp_path / "test.py"
-        test_file.write_text("def foo():\n    return 42\n")
-        node = TextNode(path=str(test_file))
-        node.cached_summary = "Old summary"
-        node.summary_stale = True
-        context_graph.add_node(node)
-
-        # Render content
-        rendered = node.render_content(cwd=str(tmp_path))
-
-        # Should not use the stale summary text
-        assert "Old summary" not in rendered
-
-    @pytest.mark.asyncio
-    async def test_textnode_token_breakdown_includes_summary(
-        self,
-        context_graph: ContextGraph,
-        tmp_path: Path,
-    ) -> None:
-        """Test that TextNode.get_token_breakdown() includes summary tokens."""
-        test_file = tmp_path / "test.py"
-        test_file.write_text("def foo():\n    return 42\n")
-        node = TextNode(
-            path=str(test_file),
-            start_line=1,
-            end_line=2,
-        )
-        node.cached_summary = "This is a test summary with several words in it."
-        context_graph.add_node(node)
-
-        breakdown = node.get_token_breakdown()
-
-        # Content tokens should be non-zero when summary exists
-        assert breakdown.content > 0
-        assert breakdown.title > 0
-        assert breakdown.detail > 0

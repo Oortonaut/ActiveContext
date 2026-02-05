@@ -833,10 +833,6 @@ class TextNode(ContextNode):
     line_prefix: str | None = "numbers"  # None = no line numbers, "numbers" = show
     line_divider: str = " | "  # Separator between line number and content
 
-    # Summary caching (for LLM-generated summaries)
-    cached_summary: str | None = None
-    summary_stale: bool = True
-    content_hash: str | None = None  # Hash of content for staleness detection
 
     def __post_init__(self) -> None:
         """Auto-detect media type from file extension and set originator."""
@@ -886,10 +882,6 @@ class TextNode(ContextNode):
 
         output_parts: list[str] = []
 
-        # Prepend cached summary if available
-        if self.cached_summary and not self.summary_stale:
-            output_parts.append(f"\n{self.cached_summary}\n")
-
         # Get lines either from buffer or from file
         lines: list[str] = []
 
@@ -930,7 +922,7 @@ class TextNode(ContextNode):
             # Apply line range
             start_idx = max(0, start_line - 1)
             end_idx = end_line if end_line else len(file_lines)
-            lines = [line.rstrip("\n\r") for line in file_lines[start_idx:end_idx]]
+            lines = [*file_lines[start_idx:end_idx]]
 
         # Regular text rendering with line numbers
         # Calculate base line number
@@ -944,8 +936,7 @@ class TextNode(ContextNode):
 
         for i, line in enumerate(lines):
             line_num = base_line + i
-            # Ensure line doesn't have trailing newline for consistent formatting
-            line_content = line.rstrip("\n\r") if isinstance(line, str) else line
+            line_content = line.replace("\n", "\u2424").replace("\r", "\u240D")
             if self.line_prefix == "numbers":
                 output_parts.append(f"{line_num:4d}{self.line_divider}{line_content}\n")
             else:
@@ -1132,11 +1123,6 @@ class TextNode(ContextNode):
         collapsed_text = f"[{self.path}: lines, pending traces]\n"
         collapsed_tokens = count_tokens(collapsed_text)
 
-        # Summary: cached summary if present
-        summary_tokens = 0
-        if self.cached_summary:
-            summary_tokens = count_tokens(self.cached_summary)
-
         # Detail: estimate from line count (~10 tokens/line with line numbers)
         detail_tokens = 0
         if self.end_line and self.start_line:
@@ -1145,7 +1131,7 @@ class TextNode(ContextNode):
 
         return TokenInfo(
             title=collapsed_tokens,
-            content=summary_tokens,
+            content=0,
             detail=detail_tokens,
         )
 
@@ -1159,9 +1145,6 @@ class TextNode(ContextNode):
                 "end_pos": self.end_pos,
                 "media_type": self.media_type.value,
                 "indent": self.indent,
-                "cached_summary": self.cached_summary,
-                "summary_stale": self.summary_stale,
-                "content_hash": self.content_hash,
                 "start_line": self.start_line,
                 "end_line": self.end_line,
             }
@@ -1202,9 +1185,6 @@ class TextNode(ContextNode):
             end_pos=data.get("end_pos"),
             media_type=media_type,
             indent=data.get("indent", 0),
-            cached_summary=data.get("cached_summary"),
-            summary_stale=data.get("summary_stale", True),
-            content_hash=data.get("content_hash"),
             start_line=data.get("start_line", 1),
             end_line=data.get("end_line"),
         )
@@ -1218,14 +1198,10 @@ class GroupNode(ContextNode):
     Attributes:
         child_order: Ordered list of child node IDs (document order)
         summary_prompt: Custom prompt for LLM summarization
-        cached_summary: Cached LLM-generated summary
-        summary_stale: Whether summary needs regeneration
         last_child_versions: Version tracking for trace detection
     """
 
     summary_prompt: str | None = None
-    cached_summary: str | None = None
-    summary_stale: bool = True
     last_child_versions: dict[str, int] = field(default_factory=dict)
 
     @property
@@ -1241,7 +1217,6 @@ class GroupNode(ContextNode):
             "expansion": self.default_expansion.value,
             "mode": self.mode,
             "version": self.version,
-            "summary_stale": self.summary_stale,
         }
 
     def render_content(
@@ -1249,22 +1224,12 @@ class GroupNode(ContextNode):
         cwd: str = ".",
         text_buffers: dict[str, Any] | None = None,
     ) -> str:
-        """Render cached summary or empty string.
-
-        Children are rendered by the projection engine, not here.
-        """
-        if self.cached_summary and not self.summary_stale:
-            return self.cached_summary
+        """Empty — children are rendered by the projection engine."""
         return ""
 
     def on_child_changed(self, child: ContextNode, description: str = "") -> None:
-        """Handle child change: track version, mark summary stale, propagate."""
-        old_version = self.last_child_versions.get(child.node_id, 0)
-        new_version = child.version
-
-        if new_version != old_version:
-            self.summary_stale = True
-            self.last_child_versions[child.node_id] = new_version
+        """Handle child change: track version and propagate."""
+        self.last_child_versions[child.node_id] = child.version
 
         # Call hook if registered
         if self._on_child_changed_hook:
@@ -1272,10 +1237,6 @@ class GroupNode(ContextNode):
 
         # Propagate upward
         self.notify_parents(description)
-
-    def invalidate_summary(self) -> None:
-        """Mark summary as needing regeneration."""
-        self.summary_stale = True
 
     def render_digest(self) -> str:
         """Return 'Group (N members)' format."""
@@ -1294,11 +1255,6 @@ class GroupNode(ContextNode):
         collapsed_text = f"[Group: {len(ordered_children)} members]\n"
         collapsed_tokens = count_tokens(collapsed_text)
 
-        # Summary: cached summary if present
-        summary_tokens = 0
-        if self.cached_summary:
-            summary_tokens = count_tokens(self.cached_summary)
-
         # Detail: children total (recursive)
         child_total = 0
         if self._graph:
@@ -1310,9 +1266,9 @@ class GroupNode(ContextNode):
 
         return TokenInfo(
             title=collapsed_tokens,
-            content=summary_tokens,
-            detail=0,  # Group has no detail of its own
-            total=collapsed_tokens + summary_tokens + child_total if child_total else None,
+            content=0,
+            detail=0,
+            total=collapsed_tokens + child_total if child_total else None,
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -1321,8 +1277,6 @@ class GroupNode(ContextNode):
         data.update(
             {
                 "summary_prompt": self.summary_prompt,
-                "cached_summary": self.cached_summary,
-                "summary_stale": self.summary_stale,
                 "last_child_versions": self.last_child_versions,
             }
         )
@@ -1351,8 +1305,6 @@ class GroupNode(ContextNode):
             originator=data.get("originator"),
             title=data.get("title", ""),
             summary_prompt=data.get("summary_prompt"),
-            cached_summary=data.get("cached_summary"),
-            summary_stale=data.get("summary_stale", True),
             last_child_versions=data.get("last_child_versions", {}),
         )
         return node

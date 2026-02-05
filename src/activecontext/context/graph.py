@@ -626,7 +626,6 @@ class ContextGraph:
                 group_states[node.node_id] = GroupState(
                     node_id=node.node_id,
                     summary_prompt=node.summary_prompt,
-                    cached_summary=node.cached_summary,
                     last_child_versions=dict(node.last_child_versions),
                 )
 
@@ -685,7 +684,6 @@ class ContextGraph:
             group_node = self._nodes.get(node_id)
             if group_node is not None and isinstance(group_node, GroupNode):
                 group_node.summary_prompt = state.summary_prompt
-                group_node.cached_summary = state.cached_summary
                 group_node.last_child_versions = dict(state.last_child_versions)
 
     def get_checkpoints(self) -> list[Checkpoint]:

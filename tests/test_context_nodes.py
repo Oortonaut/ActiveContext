@@ -114,7 +114,6 @@ class TestGroupNodeSerialization:
             node_id="group1",
             summary_prompt="Summarize these files",
             default_expansion=Expansion.CONTENT,
-            cached_summary="A group of related files",
         )
 
         data = node.to_dict()
@@ -123,7 +122,6 @@ class TestGroupNodeSerialization:
         assert data["node_id"] == "group1"
         assert data["summary_prompt"] == "Summarize these files"
         assert data["expansion"] == "content"
-        assert data["cached_summary"] == "A group of related files"
 
     def test_from_dict_basic(self):
         """Test GroupNode deserialization from dict."""
@@ -132,7 +130,6 @@ class TestGroupNodeSerialization:
             "node_id": "group1",
             "summary_prompt": "Test prompt",
             "expansion": "content",
-            "cached_summary": "Test summary",
         }
 
         node = GroupNode._from_dict(data)
@@ -140,7 +137,6 @@ class TestGroupNodeSerialization:
         assert node.node_id == "group1"
         assert node.summary_prompt == "Test prompt"
         assert node.default_expansion == Expansion.CONTENT
-        assert node.cached_summary == "Test summary"
 
     def test_roundtrip(self):
         """Test GroupNode serialization round-trip."""
@@ -148,7 +144,6 @@ class TestGroupNodeSerialization:
             node_id="group1",
             summary_prompt="Summarize the auth module",
             default_expansion=Expansion.ALL,
-            cached_summary="Authentication implementation",
         )
 
         data = original.to_dict()
@@ -157,7 +152,6 @@ class TestGroupNodeSerialization:
         assert restored.node_id == original.node_id
         assert restored.summary_prompt == original.summary_prompt
         assert restored.default_expansion == original.default_expansion
-        assert restored.cached_summary == original.cached_summary
 
     def test_factory_dispatch(self):
         """Test that ContextNode.from_dict dispatches to GroupNode."""
@@ -907,7 +901,7 @@ class TestContextGraphSerialization:
         graph.add_node(view)
 
         group = GroupNode(
-            node_id="group1", default_expansion=Expansion.CONTENT, cached_summary="Code files"
+            node_id="group1", default_expansion=Expansion.CONTENT
         )
         graph.add_node(group)
 
@@ -933,7 +927,6 @@ class TestContextGraphSerialization:
         assert isinstance(restored.get_node("topic1"), TopicNode)
 
         # Verify content preserved
-        assert restored.get_node("group1").cached_summary == "Code files"
         assert restored.get_node("topic1").title == "Discussion"
 
         # Verify roots (view1 and group1 are roots, topic1 is not)

@@ -127,6 +127,43 @@ class MCPIntegration:
             self._roots_manager.add(path, name=name)
             _log.info("Registered CLI root '%s': %s", name, path)
 
+    def register_configured_servers(self) -> None:
+        """Create disconnected stub nodes for configured servers not yet connected.
+
+        Called during startup so MANUAL servers appear in the context graph
+        before the user explicitly connects them.
+        """
+        from activecontext.config.schema import MCPConnectMode
+
+        config = self._mcp_client_manager.config
+        if not config:
+            return
+
+        mcp_manager = self._context_graph.get_node("mcp_manager")
+
+        for server_config in config.servers:
+            if server_config.connect == MCPConnectMode.NEVER:
+                continue
+            if server_config.name in self._mcp_server_nodes:
+                continue
+
+            identifier = to_snake_identifier(server_config.name)
+            node = MCPServerNode(
+                node_id=identifier,
+                server_name=server_config.name,
+                default_expansion=Expansion.HEADER,
+            )
+            self._mcp_server_nodes[server_config.name] = node
+            self._context_graph.add_node(node)
+
+            node.set_on_result_callback(
+                lambda event_name, data: (self._fire_event(event_name, data), None)[1]
+            )
+
+            if mcp_manager and isinstance(mcp_manager, MCPManagerNode):
+                self._context_graph.link(node.node_id, mcp_manager.node_id)
+                mcp_manager.register_server(node)
+
     async def connect(
         self,
         name: str | None = None,

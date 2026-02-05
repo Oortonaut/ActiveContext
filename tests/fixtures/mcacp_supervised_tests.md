@@ -132,7 +132,7 @@ wait(s)
 Execute these statements:
 v1 = text("src/activecontext/__init__.py", expansion=Expansion.CONTENT)
 v2 = text("src/activecontext/session/protocols.py", expansion=Expansion.CONTENT)
-g = group(v1, v2, summary="Core API surface")
+g = group(v1, v2)
 g.expansion = Expansion.CONTENT
 ```
 

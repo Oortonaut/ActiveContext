@@ -597,8 +597,6 @@ class TestGroupSummarizationTriggers:
         group = GroupNode(
             node_id="group1",
             default_expansion=Expansion.CONTENT,
-            cached_summary="Initial summary",
-            summary_stale=False,
             last_child_versions={"child1": 1, "child2": 1},
         )
 
@@ -625,92 +623,16 @@ class TestGroupSummarizationTriggers:
 
         return graph, group, child1, child2
 
-    def test_child_version_change_marks_summary_stale(self, graph_with_group):
-        """Test that child version change marks group summary as stale."""
+    def test_child_version_change_tracked(self, graph_with_group):
+        """Test that child version change is tracked."""
         graph, group, child1, child2 = graph_with_group
-
-        # Initially not stale
-        assert group.summary_stale is False
 
         # Simulate child change by incrementing version
         child1.version = 2
-
-        # Call on_child_changed
         group.on_child_changed(child1, "Content updated")
-
-        # Summary should be marked stale
-        assert group.summary_stale is True
 
         # Version should be updated
         assert group.last_child_versions["child1"] == 2
-
-    def test_same_version_does_not_mark_stale(self, graph_with_group):
-        """Test that same version doesn't mark summary as stale."""
-        graph, group, child1, child2 = graph_with_group
-
-        # Manually set stale to False
-        group.summary_stale = False
-
-        # Call on_child_changed with same version
-        group.on_child_changed(child1, "No actual change")
-
-        # Should remain not stale
-        assert group.summary_stale is False
-
-    def test_invalidate_summary_explicit(self, graph_with_group):
-        """Test explicit invalidate_summary() call."""
-        graph, group, child1, child2 = graph_with_group
-
-        group.summary_stale = False
-        assert group.summary_stale is False
-
-        group.invalidate_summary()
-
-        assert group.summary_stale is True
-
-    def test_multiple_child_changes(self, graph_with_group):
-        """Test multiple child changes all trigger invalidation."""
-        graph, group, child1, child2 = graph_with_group
-
-        group.summary_stale = False
-
-        # Change first child
-        child1.version = 2
-        group.on_child_changed(child1, "First update")
-        assert group.summary_stale is True
-
-        # Reset stale flag (simulating summary regeneration)
-        group.summary_stale = False
-
-        # Change second child
-        child2.version = 2
-        group.on_child_changed(child2, "Second update")
-        assert group.summary_stale is True
-
-    def test_cached_summary_returned_when_not_stale(self, graph_with_group):
-        """Test that cached summary is returned when not stale."""
-        graph, group, child1, child2 = graph_with_group
-
-        group.summary_stale = False
-        group.cached_summary = "Cached test summary"
-
-        rendered = group.render_content()
-
-        # Should return cached summary
-        assert "Cached test summary" in rendered
-
-    def test_header_returned_when_stale(self, graph_with_group):
-        """Test that header is returned when summary is stale."""
-        graph, group, child1, child2 = graph_with_group
-
-        group.summary_stale = True
-        group.cached_summary = "Stale summary"
-
-        rendered = group.render_content()
-
-        # Should not return the stale cached summary content directly
-        # Instead returns header
-        assert "Stale summary" not in rendered or "Group" in rendered
 
     def test_on_child_changed_hook(self, graph_with_group):
         """Test that on_child_changed hook is called."""
@@ -729,12 +651,10 @@ class TestGroupSummarizationTriggers:
         assert len(hook_calls) == 1
         assert hook_calls[0] == ("group1", "child1", "Test update")
 
-    def test_group_serialization_preserves_summary_state(self, graph_with_group):
-        """Test that serialization preserves summary state."""
+    def test_group_serialization_preserves_state(self, graph_with_group):
+        """Test that serialization preserves group state."""
         graph, group, child1, child2 = graph_with_group
 
-        group.summary_stale = True
-        group.cached_summary = "Test summary"
         group.summary_prompt = "Summarize the auth module"
         group.last_child_versions = {"child1": 5, "child2": 3}
 
@@ -744,8 +664,6 @@ class TestGroupSummarizationTriggers:
         # Deserialize
         restored = GroupNode._from_dict(data)
 
-        assert restored.summary_stale is True
-        assert restored.cached_summary == "Test summary"
         assert restored.summary_prompt == "Summarize the auth module"
         assert restored.last_child_versions == {"child1": 5, "child2": 3}
 
@@ -848,8 +766,6 @@ class TestDAGEdgeCases:
             node_id="group1",
             default_expansion=Expansion.CONTENT,
             summary_prompt="Test prompt",
-            cached_summary="Test summary",
-            summary_stale=True,
             last_child_versions={"child1": 3},
         )
         graph.add_node(group)
@@ -859,7 +775,6 @@ class TestDAGEdgeCases:
         assert "group1" in cp.group_states
         state = cp.group_states["group1"]
         assert state.summary_prompt == "Test prompt"
-        assert state.cached_summary == "Test summary"
         assert state.last_child_versions == {"child1": 3}
 
     def test_clear_preserves_checkpoints(self, graph):

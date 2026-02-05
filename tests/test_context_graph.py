@@ -511,7 +511,6 @@ class TestCheckpoints:
         group.parent_ids = set()
         group.child_order = LinkedChildOrder()
         group.summary_prompt = "Custom prompt"
-        group.cached_summary = "Cached summary text"
         group.last_child_versions = {"child1": 5}
         group.GetDigest = Mock(return_value={"node_id": "group1"})
 
@@ -522,7 +521,6 @@ class TestCheckpoints:
         assert "group1" in cp.group_states
         state = cp.group_states["group1"]
         assert state.summary_prompt == "Custom prompt"
-        assert state.cached_summary == "Cached summary text"
         assert state.last_child_versions == {"child1": 5}
 
     def test_multiple_checkpoints(self, populated_graph):
@@ -558,7 +556,6 @@ class TestCheckpoints:
                 "g1": GroupState(
                     node_id="g1",
                     summary_prompt="prompt",
-                    cached_summary="summary",
                     last_child_versions={"child": 3},
                 )
             },

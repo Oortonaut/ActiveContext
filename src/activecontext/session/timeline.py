@@ -1413,7 +1413,6 @@ class Timeline:
         *members: ContextNode | NodeView | str,
         default_expansion: Expansion = Expansion.CONTENT,
         mode: str = "paused",
-        summary: str | None = None,
         parent: ContextNode | NodeView | str | None = None,
     ) -> NodeView:
         """Create a GroupNode that summarizes its members.
@@ -1422,7 +1421,6 @@ class Timeline:
             *members: Child nodes, views, or node IDs to include in the group
             default_expansion: Rendering expansion (HEADER, CONTENT, INDEX, ALL)
             mode: "paused" or "running"
-            summary: Optional pre-computed summary text
             parent: Optional parent node, view, or node ID (defaults to current_group if set)
 
         Returns:
@@ -1431,8 +1429,6 @@ class Timeline:
         node = GroupNode(
             default_expansion=default_expansion,
             mode=mode,
-            cached_summary=summary,
-            summary_stale=summary is None,  # Not stale if summary provided
         )
 
         # Add to graph
@@ -1990,14 +1986,12 @@ class Timeline:
         self,
         node_or_view: ContextNode | NodeView | str,
         *,
-        force: bool = False,
         max_tokens: int = 500,
     ) -> str:
         """Generate an LLM-based summary for a TextNode.
 
         Args:
             node_or_view: TextNode, NodeView, or node ID to summarize
-            force: Force regeneration even if cached summary exists
             max_tokens: Maximum tokens for the summary
 
         Returns:
@@ -2006,8 +2000,6 @@ class Timeline:
         Raises:
             ValueError: If node is not a TextNode or LLM provider is not available
         """
-        import hashlib
-
         from activecontext.core.llm.provider import Message, Role
 
         # Resolve to node
@@ -2028,26 +2020,6 @@ class Timeline:
         if self._llm_provider is None:
             raise ValueError("LLM provider not available for summarization")
 
-        # Get raw file lines for hashing (to detect actual content changes)
-        import os
-
-        file_path = (
-            os.path.join(self._cwd, node.path) if not os.path.isabs(node.path) else node.path
-        )
-        try:
-            with open(file_path, encoding="utf-8", errors="replace") as f:
-                raw_content = f.read()
-        except (FileNotFoundError, PermissionError):
-            raw_content = ""
-
-        # Compute content hash for staleness detection (based on raw file content)
-        content_hash = hashlib.sha256(raw_content.encode()).hexdigest()[:16]
-
-        # Use cached summary if available and not stale
-        if not force and node.cached_summary and not node.summary_stale:
-            if node.content_hash == content_hash:
-                return node.cached_summary
-
         # Get rendered content for LLM prompt
         content = node.render_content(cwd=self._cwd)
 
@@ -2065,15 +2037,7 @@ Provide a concise summary:"""
         messages = [Message(role=Role.USER, content=prompt)]
 
         result = await self._llm_provider.complete(messages, max_tokens=max_tokens)
-        summary = str(result.content.strip())
-
-        # Cache the summary
-        node.cached_summary = summary
-        node.summary_stale = False
-        node.content_hash = content_hash
-        node.mark_changed("Summary generated")
-
-        return summary
+        return str(result.content.strip())
 
     def _link(
         self,

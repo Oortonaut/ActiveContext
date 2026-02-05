@@ -361,8 +361,8 @@ class TestTextNodeExpansionStates:
         assert "line 1" not in result
         assert "line 2" not in result
 
-    def test_render_content(self):
-        """Test CONTENT rendering shows summary (or header if no summary)."""
+    def test_render_content_shows_header(self):
+        """Test CONTENT rendering shows header."""
         from activecontext.context.state import Expansion
 
         graph = ContextGraph()
@@ -371,35 +371,13 @@ class TestTextNodeExpansionStates:
             path="src/test.py",
             title="Test File",
         )
-        node._lines = ["line 1", "line 2", "line 3"]
         graph.add_node(node)
         node.default_expansion = Expansion.CONTENT
-        node.cached_summary = "This is a test file summary."
-        node.summary_stale = False
 
         result = NodeView(node, expansion=Expansion.CONTENT).render()
 
-        # Should include summary
-        assert "This is a test file summary." in result
-
-    def test_render_content_without_summary(self):
-        """Test CONTENT without cached summary shows header only."""
-        from activecontext.context.state import Expansion
-
-        graph = ContextGraph()
-        node = TextNode(
-            node_id="txt3",
-            path="src/test.py",
-        )
-        node._lines = ["line 1", "line 2", "line 3"]
-        graph.add_node(node)
-        node.default_expansion = Expansion.CONTENT
-        node.cached_summary = None
-
-        result = NodeView(node, expansion=Expansion.CONTENT).render()
-
-        # Should show header but no content
-        assert "line 1" not in result
+        # Should show header info
+        assert "txt2" in result or "Test File" in result
 
     def test_render_all_shows_detail(self):
         """Test ALL rendering shows full content."""
@@ -455,8 +433,6 @@ class TestTextNodeExpansionStates:
                     path=str(test_file),
                     title=f"Example {exp.value}",
                 )
-                node.cached_summary = f"Summary for {exp.value} state"
-                node.summary_stale = False
                 node.default_expansion = exp
                 graph.add_node(node)
                 nodes[exp] = node
@@ -469,10 +445,8 @@ class TestTextNodeExpansionStates:
 
             # HEADER: Only metadata
             assert "def foo():" not in header_output
-            assert "Summary for" not in header_output
 
-            # CONTENT: Summary + full content (CAP2: no content/detail split)
-            assert "Summary for content state" in content_output
+            # CONTENT: File content
             assert "def foo():" in content_output
 
             # INDEX: Same content as CONTENT for leaf nodes
@@ -502,22 +476,3 @@ class TestTextNodeExpansionStates:
         # Header should include node ID or title
         assert "hdr1" in header or "My Test File" in header
 
-    def test_stale_summary_not_shown(self):
-        """Test that stale cached summary is not rendered."""
-        from activecontext.context.state import Expansion
-
-        graph = ContextGraph()
-        node = TextNode(
-            node_id="stale1",
-            path="src/test.py",
-        )
-        node._lines = ["line 1"]
-        node.cached_summary = "Old stale summary"
-        node.summary_stale = True
-        node.default_expansion = Expansion.CONTENT
-        graph.add_node(node)
-
-        result = NodeView(node, expansion=Expansion.CONTENT).render()
-
-        # Stale summary should not appear
-        assert "Old stale summary" not in result
