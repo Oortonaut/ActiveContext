@@ -274,14 +274,15 @@ class Projection:
         Returns:
             Continuation prefix for content lines
         """
-        # Replace trailing branch chars with content marker
+        blank = " " * len(config.tree_detail)
+        # Replace trailing branch chars with detail/blank + content marker
         if tree_prefix.endswith(config.tree_child):
-            return tree_prefix[: -len(config.tree_child)] + config.tree_content
+            # Non-last child: detail continuation + content marker
+            return tree_prefix[: -len(config.tree_child)] + config.tree_detail + config.tree_content
         elif tree_prefix.endswith(config.tree_last_child):
-            # Under last child: use spaces + single dot
-            pad = " " * (len(config.tree_last_child) - 1) + "."
-            return tree_prefix[: -len(config.tree_last_child)] + pad
-        return tree_prefix + "."
+            # Last child: blank continuation + content marker
+            return tree_prefix[: -len(config.tree_last_child)] + blank + config.tree_content
+        return tree_prefix + config.tree_content
 
 
 # -----------------------------------------------------------------------------

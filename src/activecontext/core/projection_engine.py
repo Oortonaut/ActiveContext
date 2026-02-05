@@ -35,7 +35,7 @@ class ProjectionConfig:
 
     # Tree character set (always enabled)
     tree_detail: str = "| "  # Vertical continuation for non-last ancestors
-    tree_content: str = "|."  # Content line marker
+    tree_content: str = "|:"  # Content line marker
     tree_child: str = "+-"  # Branch prefix for non-last children
     tree_last_child: str = "\\-"  # Branch prefix for last child
 

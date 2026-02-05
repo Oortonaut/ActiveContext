@@ -417,7 +417,7 @@ class TestTreeCharacters:
         """Test default tree character configuration."""
         config = ProjectionConfig()
         assert config.tree_detail == "| "
-        assert config.tree_content == "|."
+        assert config.tree_content == "|:"
         assert config.tree_child == "+-"
         assert config.tree_last_child == "\\-"
 
@@ -425,12 +425,12 @@ class TestTreeCharacters:
         """Test custom tree character configuration."""
         config = ProjectionConfig(
             tree_detail="│ ",
-            tree_content="│·",
+            tree_content="│:",
             tree_child="├─",
             tree_last_child="└─",
         )
         assert config.tree_detail == "│ "
-        assert config.tree_content == "│·"
+        assert config.tree_content == "│:"
         assert config.tree_child == "├─"
         assert config.tree_last_child == "└─"
 
@@ -567,11 +567,11 @@ class TestTreeCharacters:
         # Find a content line under child (Line 2)
         line2_lines = [l for l in lines if "Line 2" in l]
         if line2_lines:
-            # Content under last child uses " ." (blank + dot)
-            assert line2_lines[0].startswith(" .")
+            # Content under last child uses "  |:" (blank + content marker)
+            assert line2_lines[0].startswith("  |:")
 
     def test_content_continuation_for_non_last_child(self, projection_engine):
-        """Test content continuation uses tree_content for non-last children."""
+        """Test content continuation uses tree_detail + tree_content for non-last children."""
         graph = ContextGraph()
         root = create_mock_context_node("root", "view")
         root.render_content = Mock(return_value="Root\n")
@@ -592,11 +592,11 @@ class TestTreeCharacters:
         rendered = projection.render()
 
         lines = rendered.split("\n")
-        # child1 is not last, so content uses "|." marker
+        # child1 is not last, so content uses "| |:" (detail + content marker)
         # Find the content line for child1
         content_lines = [l for l in lines if "Content line" in l]
         if content_lines:
-            assert content_lines[0].startswith("|.")
+            assert content_lines[0].startswith("| |:")
 
     def test_deeply_nested_tree_structure(self, projection_engine):
         """Test tree prefixes for deeply nested structure."""
