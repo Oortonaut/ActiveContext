@@ -77,7 +77,7 @@ class TokenInfo:
         breakdown: str = ""
         visible: int = 0
 
-        if self.index == 0:  # Assuming no children
+        if self.detail == 0:  # Assuming no children
             # Compute visible tokens based on expansion
             if expansion == Expansion.HEADER:
                 visible = title
@@ -104,4 +104,4 @@ class TokenInfo:
         if self.total is not None and self.total > 0:
             breakdown += f" of {self.total}"
 
-        return breakdown
+        return f"(toks: {breakdown})"

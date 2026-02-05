@@ -163,12 +163,14 @@ class RemoteNode(ContextNode):
             return TokenInfo(
                 title=ct.title,
                 content=ct.content,
+                index=ct.index,
                 detail=ct.detail,
             )
         # Fallback: estimate from cached render text
         return TokenInfo(
             title=_estimate_tokens(self._cached_renders.header),
             content=_estimate_tokens(self._cached_renders.content),
+            index=_estimate_tokens(self._cached_renders.index),
             detail=_estimate_tokens(self._cached_renders.detail),
         )
 

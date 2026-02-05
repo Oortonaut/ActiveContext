@@ -7,7 +7,7 @@ Configures reference documentation and mode scripts.
 
 ```python/acrepl
 markdown("@prompts/context_guide.md", expansion=Expansion.ALL)
-markdown("@prompts/dsl_reference.md", expansion=Expansion.ALL)
+# markdown("@prompts/dsl_reference.md", expansion=Expansion.ALL)
 markdown("@prompts/node_states.md", expansion=Expansion.ALL)
 markdown("@prompts/context_graph.md", expansion=Expansion.ALL)
 markdown("@prompts/work_coordination.md", expansion=Expansion.ALL)

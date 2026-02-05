@@ -246,6 +246,7 @@ class RenderSnapshot:
 
     header: str = ""
     content: str = ""
+    index: str = ""
     detail: str = ""
 
 
@@ -259,6 +260,7 @@ class TokenEstimate:
 
     title: int = 0
     content: int = 0
+    index: int = 0
     detail: int = 0
 
 
