@@ -2,6 +2,8 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+**If you see uncommitted changes in the working tree, they're not yours to touch. Don't modify, revert, or commit them unless explicitly asked.**
+
 ## Project Overview
 
 **ActiveContext** is an agent loop architecture where an LLM controls a structured, reversible working context through a Python statement timeline. The agent executes Python statements that manipulate "context objects" (views, groups, shells, MCP connections) with tick-driven updates.
