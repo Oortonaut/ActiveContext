@@ -3671,40 +3671,8 @@ class MCPManagerNode(ContextNode):
         cwd: str = ".",
         text_buffers: dict[str, Any] | None = None,
     ) -> str:
-        """Render server status, capabilities, and events."""
-        lines: list[str] = []
-
-        # Server status list
-        if self.server_states:
-            lines.append("Server Status:")
-            for name, status in sorted(self.server_states.items()):
-                emoji = {
-                    "connected": "[OK]",
-                    "connecting": "[...]",
-                    "error": "[ERR]",
-                    "disconnected": "[--]",
-                }.get(status, "[?]")
-                lines.append(f"- {name} {emoji}")
-        else:
-            lines.append("No MCP servers configured.")
-
-        # Capabilities
-        if self.tool_counts:
-            lines.append("")
-            lines.append("Capabilities:")
-            for name in sorted(self.server_states.keys()):
-                tools = self.tool_counts.get(name, 0)
-                resources = self.resource_counts.get(name, 0)
-                lines.append(f"- {name}: {tools} tools, {resources} resources")
-
-        # Recent events
-        if self.connection_events:
-            lines.append("")
-            lines.append("Recent Events:")
-            for event in self.connection_events[-5:]:
-                lines.append(f"- {event.get('time', '?')}: {event.get('message', '?')}")
-
-        return "\n".join(lines)
+        """Return empty - details are in child MCPServerNode headers, events are traces."""
+        return ""
 
     def on_child_changed(self, child: ContextNode, description: str = "") -> None:
         """Handle MCPServerNode changes - track state transitions."""
@@ -3763,29 +3731,26 @@ class MCPManagerNode(ContextNode):
         self.resource_counts.pop(server_name, None)
 
     def render_digest(self) -> str:
-        """Return 'MCP Manager' format."""
-        return f"MCP Manager ({len(self.server_states)} servers)"
+        """Return 'MCP Manager (N/M connected, X tools)' format."""
+        total = len(self.server_states)
+        connected = sum(1 for s in self.server_states.values() if s == "connected")
+        total_tools = sum(self.tool_counts.values())
+        return f"MCP Manager ({connected}/{total} connected, {total_tools} tools)"
 
     def get_token_breakdown(self) -> TokenInfo:
-        """Return token counts for collapsed/summary/detail."""
+        """Return token counts - content is always empty."""
         from activecontext.core.tokens import count_tokens
 
         from .headers import TokenInfo
 
-        # Collapsed: server count
+        # Title: digest line only
+        total = len(self.server_states)
+        connected = sum(1 for s in self.server_states.values() if s == "connected")
         total_tools = sum(self.tool_counts.values())
-        collapsed_text = f"[MCP Manager: {len(self.server_states)} servers, {total_tools} tools]\n"
-        collapsed_tokens = count_tokens(collapsed_text)
+        title_text = f"MCP Manager ({connected}/{total} connected, {total_tools} tools)\n"
+        title_tokens = count_tokens(title_text)
 
-        # Summary: server names and statuses
-        summary_lines = [f"{name}:{status}" for name, status in self.server_states.items()]
-        summary_tokens = count_tokens(" ".join(summary_lines)) if summary_lines else 0
-
-        return TokenInfo(
-            title=collapsed_tokens,
-            content=summary_tokens,
-            detail=0,
-        )
+        return TokenInfo(title=title_tokens, content=0, detail=0)
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize for persistence."""
