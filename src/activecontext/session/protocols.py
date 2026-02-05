@@ -17,7 +17,7 @@ from activecontext.context.state import IOMode as IOMode
 from activecontext.context.state import TaskStatus as TaskStatus
 
 if TYPE_CHECKING:
-    pass
+    from activecontext.core.projection_engine import ProjectionConfig
 
 # -----------------------------------------------------------------------------
 # Enums
@@ -216,6 +216,7 @@ class ProjectionSection:
     tokens_used: int
     expansion: Expansion = Expansion.ALL
     metadata: dict[str, Any] = field(default_factory=dict)
+    tree_prefix: str = ""  # Pre-computed tree prefix (e.g., "| +-")
 
 
 @dataclass(slots=True)
@@ -230,23 +231,57 @@ class Projection:
 
     handles: dict[str, dict[str, Any]] = field(default_factory=dict)
 
-    def render(self) -> str:
-        """Format a projection with framing headers for each section.
+    def render(self, config: ProjectionConfig | None = None) -> str:
+        """Format projection with tree characters.
 
-        Message sections (section_type == "message") get ``# **{Role}**`` (h1).
-        All other sections get ``## **{Type}**`` (h2).
+        Args:
+            config: Optional ProjectionConfig for tree character set.
+                    If None, uses defaults.
 
         Returns:
-            Markdown string with framing headers prepended to each section.
+            Markdown string with tree prefixes applied.
         """
+        from activecontext.core.projection_engine import ProjectionConfig
+
+        cfg = config if config is not None else ProjectionConfig()
         parts: list[str] = []
 
         for section in self.sections:
             if section.content:
-                for line in section.content.splitlines():
-                    parts.append(' ' * section.indent + line)
+                lines = section.content.splitlines()
+                for i, line in enumerate(lines):
+                    if section.tree_prefix:
+                        if i == 0:
+                            # Header line: use tree prefix directly
+                            parts.append(section.tree_prefix + line)
+                        else:
+                            # Content line: convert branch to content marker
+                            cont = self._content_continuation(section.tree_prefix, cfg)
+                            parts.append(cont + line)
+                    else:
+                        # Root node - no prefix, apply indent
+                        parts.append(" " * section.indent + line)
 
         return "\n".join(parts)
+
+    def _content_continuation(self, tree_prefix: str, config: ProjectionConfig) -> str:
+        """Convert header prefix to content line prefix.
+
+        Args:
+            tree_prefix: The tree prefix from the header line
+            config: ProjectionConfig with tree character definitions
+
+        Returns:
+            Continuation prefix for content lines
+        """
+        # Replace trailing branch chars with content marker
+        if tree_prefix.endswith(config.tree_child):
+            return tree_prefix[: -len(config.tree_child)] + config.tree_content
+        elif tree_prefix.endswith(config.tree_last_child):
+            # Under last child: use spaces + single dot
+            pad = " " * (len(config.tree_last_child) - 1) + "."
+            return tree_prefix[: -len(config.tree_last_child)] + pad
+        return tree_prefix + "."
 
 
 # -----------------------------------------------------------------------------

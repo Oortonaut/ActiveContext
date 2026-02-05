@@ -43,6 +43,7 @@ class NodeView:
     hidden: bool
     expansion: Expansion
     indent: int = 0
+    tree_prefix: str = ""  # Pre-computed tree prefix (e.g., "| +-")
 
     # Wake prompt template and notification queue
     notify_prompt: str | None = None
@@ -55,6 +56,7 @@ class NodeView:
         hidden: bool | None = None,
         expansion: Expansion | None = None,
         notify_prompt: str | None = None,
+        tree_prefix: str = "",
     ) -> None:
         """Create a view wrapping a node.
 
@@ -63,6 +65,7 @@ class NodeView:
             hidden: Whether the view is hidden (default: node.default_hidden)
             expansion: Expansion state (default: node.default_expansion)
             notify_prompt: Wake prompt template (default: None)
+            tree_prefix: Pre-computed tree prefix (default: "")
         """
         hidden = node.default_hidden if hidden is None else hidden
         expansion = node.default_expansion if expansion is None else expansion
@@ -71,6 +74,7 @@ class NodeView:
         object.__setattr__(self, "hidden", hidden)
         object.__setattr__(self, "expansion", expansion)
         object.__setattr__(self, "indent", indent)
+        object.__setattr__(self, "tree_prefix", tree_prefix)
         object.__setattr__(self, "notify_prompt", notify_prompt)
         object.__setattr__(self, "_notifications", [])
 
@@ -236,7 +240,7 @@ class NodeView:
             if not isinstance(value, bool):
                 raise TypeError(f"hidden must be bool, got {type(value).__name__}")
             object.__setattr__(self, name, value)
-        elif name in ("node", "notify_prompt", "_notifications", "indent"):
+        elif name in ("node", "notify_prompt", "_notifications", "indent", "tree_prefix"):
             object.__setattr__(self, name, value)
         else:
             setattr(self.node, name, value)

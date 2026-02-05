@@ -12,10 +12,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
+from activecontext.context.view import NodeView
 from activecontext.core.tokens import MediaType, count_tokens
 from activecontext.session.protocols import Projection, ProjectionSection
-
-from activecontext.context.view import NodeView
 
 if TYPE_CHECKING:
     from activecontext.context.content import ContentRegistry
@@ -25,9 +24,20 @@ if TYPE_CHECKING:
 
 @dataclass
 class ProjectionConfig:
-    """Configuration for projection building."""
+    """Configuration for projection building.
 
-    pass  # Budget removed - agent manages via node visibility and line ranges
+    Tree character set (always enabled) controls ASCII tree-drawing prefixes:
+    - tree_detail: Vertical continuation for non-last ancestors (e.g., "| ")
+    - tree_content: Content line marker (e.g., "|.")
+    - tree_child: Branch prefix for non-last children (e.g., "+-")
+    - tree_last_child: Branch prefix for last child (e.g., "\\-")
+    """
+
+    # Tree character set (always enabled)
+    tree_detail: str = "| "  # Vertical continuation for non-last ancestors
+    tree_content: str = "|."  # Content line marker
+    tree_child: str = "+-"  # Branch prefix for non-last children
+    tree_last_child: str = "\\-"  # Branch prefix for last child
 
 
 @dataclass
@@ -177,6 +187,30 @@ class ProjectionEngine:
 
         return path
 
+    def _compute_tree_prefix(self, ancestor_is_last: list[bool]) -> str:
+        """Compute tree prefix from ancestor last-sibling stack.
+
+        Args:
+            ancestor_is_last: List of booleans indicating if each ancestor
+                              is the last sibling at that level. Empty for roots.
+
+        Returns:
+            Tree prefix string (e.g., "| +-" or "  \\-")
+        """
+        if not ancestor_is_last:
+            return ""
+
+        cfg = self.config
+        blank = " " * len(cfg.tree_detail)
+
+        parts: list[str] = []
+        # All ancestors except the last one: show continuation or blank
+        for is_last in ancestor_is_last[:-1]:
+            parts.append(blank if is_last else cfg.tree_detail)
+        # Last entry: show branch character
+        parts.append(cfg.tree_last_child if ancestor_is_last[-1] else cfg.tree_child)
+        return "".join(parts)
+
     def _collect_from_node(
         self,
         graph: ContextGraph,
@@ -184,6 +218,7 @@ class ProjectionEngine:
         path: RenderPath,
         seen: set[str],
         depth: int = 0,
+        ancestor_is_last: list[bool] | None = None,
     ) -> int:
         """Recursively collect nodes in document order, computing token totals.
 
@@ -197,20 +232,36 @@ class ProjectionEngine:
             path: RenderPath to append views to
             seen: Set of already-seen node IDs
             depth: Current traversal depth (0 for roots)
+            ancestor_is_last: Stack of booleans tracking last-sibling status
+                              for tree prefix computation
 
         Returns:
             Total tokens for this subtree (used for parent's children_tokens)
         """
+        if ancestor_is_last is None:
+            ancestor_is_last = []
+
         # Check if hidden via view
         if node.node_id in seen:
             return 0
 
+        # Compute tree prefix for this node
+        tree_prefix = self._compute_tree_prefix(ancestor_is_last)
+
         view: NodeView
         # Ensure view exists for this node (create on-demand with correct indent)
         if node.node_id not in self.views:
-            view = self.views[node.node_id] = NodeView(node, indent=depth, expansion=node.default_expansion, hidden=node.default_hidden)
+            view = self.views[node.node_id] = NodeView(
+                node,
+                indent=depth,
+                expansion=node.default_expansion,
+                hidden=node.default_hidden,
+                tree_prefix=tree_prefix,
+            )
         else:
             view = self.views[node.node_id]
+            # Update tree_prefix even for existing views
+            view.tree_prefix = tree_prefix
 
         seen.add(node.node_id)
         path.views.append(view)
@@ -223,11 +274,17 @@ class ProjectionEngine:
         children_total = 0
         child_order = getattr(node, "child_order", None)
         if child_order:
-            for child_id in child_order:
+            child_ids = list(child_order)
+            child_count = len(child_ids)
+            for i, child_id in enumerate(child_ids):
                 child = graph.get_node(child_id)
                 if child:
                     path.edges.append((child_id, node.node_id))
-                    child_tokens = self._collect_from_node(graph, child, path, seen, depth + 1)
+                    # Build ancestor_is_last for child: append whether this child is last
+                    child_ancestor_is_last = ancestor_is_last + [i == child_count - 1]
+                    child_tokens = self._collect_from_node(
+                        graph, child, path, seen, depth + 1, child_ancestor_is_last
+                    )
                     if isinstance(child_tokens, int):
                         children_total += child_tokens
 
@@ -311,4 +368,5 @@ class ProjectionEngine:
             tokens_used=tokens_used,
             expansion=view.expansion,
             metadata=node.GetDigest(),
+            tree_prefix=view.tree_prefix,
         )

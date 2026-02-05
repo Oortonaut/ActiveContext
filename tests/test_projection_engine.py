@@ -403,3 +403,262 @@ class TestProjectionIntegration:
             assert section.source_id is not None
             assert section.content is not None
             assert section.tokens_used >= 0
+
+
+# =============================================================================
+# Tree Character Tests
+# =============================================================================
+
+
+class TestTreeCharacters:
+    """Tests for ASCII tree-drawing character functionality."""
+
+    def test_default_tree_config(self):
+        """Test default tree character configuration."""
+        config = ProjectionConfig()
+        assert config.tree_detail == "| "
+        assert config.tree_content == "|."
+        assert config.tree_child == "+-"
+        assert config.tree_last_child == "\\-"
+
+    def test_custom_tree_config(self):
+        """Test custom tree character configuration."""
+        config = ProjectionConfig(
+            tree_detail="│ ",
+            tree_content="│·",
+            tree_child="├─",
+            tree_last_child="└─",
+        )
+        assert config.tree_detail == "│ "
+        assert config.tree_content == "│·"
+        assert config.tree_child == "├─"
+        assert config.tree_last_child == "└─"
+
+    def test_root_node_has_empty_tree_prefix(self, projection_engine):
+        """Test that root nodes have empty tree prefix."""
+        graph = ContextGraph()
+        root = create_mock_context_node("root", "view")
+        graph.add_node(root)
+
+        projection_engine._collect_render_path(graph)
+
+        assert projection_engine.views["root"].tree_prefix == ""
+
+    def test_single_child_gets_last_child_prefix(self, projection_engine):
+        """Test that a single child uses last_child prefix."""
+        graph = ContextGraph()
+        root = create_mock_context_node("root", "view")
+        child = create_mock_context_node("child", "view")
+        graph.add_node(root)
+        graph.add_node(child)
+        graph.link("child", "root")
+
+        projection_engine._collect_render_path(graph)
+
+        # Single child is also last child
+        assert projection_engine.views["child"].tree_prefix == "\\-"
+
+    def test_multiple_children_get_correct_prefixes(self, projection_engine):
+        """Test that multiple children get correct branch prefixes."""
+        graph = ContextGraph()
+        root = create_mock_context_node("root", "view")
+        child1 = create_mock_context_node("child1", "view")
+        child2 = create_mock_context_node("child2", "view")
+        child3 = create_mock_context_node("child3", "view")
+        graph.add_node(root)
+        graph.add_node(child1)
+        graph.add_node(child2)
+        graph.add_node(child3)
+        graph.link("child1", "root")
+        graph.link("child2", "root")
+        graph.link("child3", "root")
+
+        projection_engine._collect_render_path(graph)
+
+        # First two children use tree_child, last uses tree_last_child
+        assert projection_engine.views["child1"].tree_prefix == "+-"
+        assert projection_engine.views["child2"].tree_prefix == "+-"
+        assert projection_engine.views["child3"].tree_prefix == "\\-"
+
+    def test_nested_children_propagate_tree_detail(self, projection_engine):
+        """Test that nested children propagate tree_detail correctly."""
+        graph = ContextGraph()
+        root = create_mock_context_node("root", "view")
+        child1 = create_mock_context_node("child1", "view")
+        child2 = create_mock_context_node("child2", "view")
+        grandchild = create_mock_context_node("grandchild", "view")
+        graph.add_node(root)
+        graph.add_node(child1)
+        graph.add_node(child2)
+        graph.add_node(grandchild)
+        graph.link("child1", "root")
+        graph.link("child2", "root")
+        graph.link("grandchild", "child1")
+
+        projection_engine._collect_render_path(graph)
+
+        # grandchild is under child1 (not last), so prefix is "| " + "\\-"
+        assert projection_engine.views["grandchild"].tree_prefix == "| \\-"
+
+    def test_nested_under_last_child_uses_blank(self, projection_engine):
+        """Test that children under last sibling use blank continuation."""
+        graph = ContextGraph()
+        root = create_mock_context_node("root", "view")
+        child1 = create_mock_context_node("child1", "view")
+        child2 = create_mock_context_node("child2", "view")
+        grandchild = create_mock_context_node("grandchild", "view")
+        graph.add_node(root)
+        graph.add_node(child1)
+        graph.add_node(child2)
+        graph.add_node(grandchild)
+        graph.link("child1", "root")
+        graph.link("child2", "root")
+        graph.link("grandchild", "child2")  # Under last child
+
+        projection_engine._collect_render_path(graph)
+
+        # grandchild is under child2 (last), so prefix is "  " + "\\-"
+        assert projection_engine.views["grandchild"].tree_prefix == "  \\-"
+
+    def test_tree_prefix_passed_to_projection_section(self, projection_engine):
+        """Test that tree_prefix is passed to ProjectionSection."""
+        graph = ContextGraph()
+        root = create_mock_context_node("root", "view")
+        root.Render = Mock(return_value="Root content")
+        root.clear_pending_traces = Mock()
+        child = create_mock_context_node("child", "view")
+        child.Render = Mock(return_value="Child content")
+        child.clear_pending_traces = Mock()
+        graph.add_node(root)
+        graph.add_node(child)
+        graph.link("child", "root")
+
+        projection = projection_engine.build(context_graph=graph)
+
+        # Find the child section
+        child_section = next(s for s in projection.sections if s.source_id == "child")
+        assert child_section.tree_prefix == "\\-"
+
+    def test_projection_render_with_tree_prefixes(self, projection_engine):
+        """Test that Projection.render() applies tree prefixes."""
+        graph = ContextGraph()
+        root = create_mock_context_node("root", "view")
+        root.render_content = Mock(return_value="Root content\n")
+        root.clear_pending_traces = Mock()
+        child = create_mock_context_node("child", "view")
+        child.render_content = Mock(return_value="Child content\nLine 2\n")
+        child.clear_pending_traces = Mock()
+        graph.add_node(root)
+        graph.add_node(child)
+        graph.link("child", "root")
+
+        projection = projection_engine.build(context_graph=graph)
+        rendered = projection.render()
+
+        lines = rendered.split("\n")
+        # Root lines should have no prefix (just indent from section.indent=0)
+        root_lines = [l for l in lines if "root" in l.lower()]
+        assert any(not l.startswith("\\-") and not l.startswith("+-") for l in root_lines)
+
+        # Child header should have tree prefix (first line with "child" in it)
+        child_lines = [l for l in lines if "child" in l.lower()]
+        assert any(l.startswith("\\-") for l in child_lines)
+
+        # Find a content line under child (Line 2)
+        line2_lines = [l for l in lines if "Line 2" in l]
+        if line2_lines:
+            # Content under last child uses " ." (blank + dot)
+            assert line2_lines[0].startswith(" .")
+
+    def test_content_continuation_for_non_last_child(self, projection_engine):
+        """Test content continuation uses tree_content for non-last children."""
+        graph = ContextGraph()
+        root = create_mock_context_node("root", "view")
+        root.render_content = Mock(return_value="Root\n")
+        root.clear_pending_traces = Mock()
+        child1 = create_mock_context_node("child1", "view")
+        child1.render_content = Mock(return_value="Child1 header\nContent line\n")
+        child1.clear_pending_traces = Mock()
+        child2 = create_mock_context_node("child2", "view")
+        child2.render_content = Mock(return_value="Child2\n")
+        child2.clear_pending_traces = Mock()
+        graph.add_node(root)
+        graph.add_node(child1)
+        graph.add_node(child2)
+        graph.link("child1", "root")
+        graph.link("child2", "root")
+
+        projection = projection_engine.build(context_graph=graph)
+        rendered = projection.render()
+
+        lines = rendered.split("\n")
+        # child1 is not last, so content uses "|." marker
+        # Find the content line for child1
+        content_lines = [l for l in lines if "Content line" in l]
+        if content_lines:
+            assert content_lines[0].startswith("|.")
+
+    def test_deeply_nested_tree_structure(self, projection_engine):
+        """Test tree prefixes for deeply nested structure."""
+        graph = ContextGraph()
+
+        # Create a deep hierarchy: root -> a -> b -> c
+        root = create_mock_context_node("root", "view")
+        a = create_mock_context_node("a", "view")
+        b = create_mock_context_node("b", "view")
+        c = create_mock_context_node("c", "view")
+
+        for node in [root, a, b, c]:
+            node.Render = Mock(return_value=f"# {node.node_id}")
+            node.clear_pending_traces = Mock()
+            graph.add_node(node)
+
+        graph.link("a", "root")
+        graph.link("b", "a")
+        graph.link("c", "b")
+
+        projection_engine._collect_render_path(graph)
+
+        # All are last children in their respective levels
+        assert projection_engine.views["root"].tree_prefix == ""
+        assert projection_engine.views["a"].tree_prefix == "\\-"
+        assert projection_engine.views["b"].tree_prefix == "  \\-"  # blank + last
+        assert projection_engine.views["c"].tree_prefix == "    \\-"  # blank + blank + last
+
+    def test_mixed_tree_structure(self, projection_engine):
+        """Test tree prefixes for mixed structure with multiple branches."""
+        graph = ContextGraph()
+
+        # Structure:
+        # root
+        # ├─ a
+        # │  ├─ a1
+        # │  └─ a2
+        # └─ b
+        #    └─ b1
+        root = create_mock_context_node("root", "view")
+        a = create_mock_context_node("a", "view")
+        a1 = create_mock_context_node("a1", "view")
+        a2 = create_mock_context_node("a2", "view")
+        b = create_mock_context_node("b", "view")
+        b1 = create_mock_context_node("b1", "view")
+
+        for node in [root, a, a1, a2, b, b1]:
+            node.Render = Mock(return_value=f"# {node.node_id}")
+            node.clear_pending_traces = Mock()
+            graph.add_node(node)
+
+        graph.link("a", "root")
+        graph.link("b", "root")
+        graph.link("a1", "a")
+        graph.link("a2", "a")
+        graph.link("b1", "b")
+
+        projection_engine._collect_render_path(graph)
+
+        assert projection_engine.views["root"].tree_prefix == ""
+        assert projection_engine.views["a"].tree_prefix == "+-"  # not last
+        assert projection_engine.views["a1"].tree_prefix == "| +-"  # under non-last, not last
+        assert projection_engine.views["a2"].tree_prefix == "| \\-"  # under non-last, last
+        assert projection_engine.views["b"].tree_prefix == "\\-"  # last
+        assert projection_engine.views["b1"].tree_prefix == "  \\-"  # under last, last
