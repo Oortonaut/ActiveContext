@@ -12,15 +12,14 @@ NodeView owns visibility state, ContextNode owns content data.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from activecontext.context import trace_all_fields
-from activecontext.context.state import Expansion
+from activecontext.context.state import Expansion, Notification, NotificationLevel
 
 if TYPE_CHECKING:
     from activecontext.context.nodes import ContextNode
-    from activecontext.context.state import NotificationLevel
 
 
 @trace_all_fields
@@ -36,6 +35,8 @@ class NodeView:
         node: The underlying ContextNode (content)
         hidden: Whether this view is hidden from projection
         expansion: Expansion state for rendering (HEADER, CONTENT, INDEX, ALL)
+        notify_prompt: Wake prompt template for formatting (e.g., "Command {command} completed")
+        _notifications: Queue of pending notifications for this view
     """
 
     node: ContextNode
@@ -43,12 +44,17 @@ class NodeView:
     expansion: Expansion
     indent: int = 0
 
+    # Wake prompt template and notification queue
+    notify_prompt: str | None = None
+    _notifications: list[Notification] = field(default_factory=list)
+
     def __init__(
         self,
         node: ContextNode,
         indent: int = 0,
         hidden: bool | None = None,
         expansion: Expansion | None = None,
+        notify_prompt: str | None = None,
     ) -> None:
         """Create a view wrapping a node.
 
@@ -56,6 +62,7 @@ class NodeView:
             node: The ContextNode to wrap
             hidden: Whether the view is hidden (default: node.default_hidden)
             expansion: Expansion state (default: node.default_expansion)
+            notify_prompt: Wake prompt template (default: None)
         """
         hidden = node.default_hidden if hidden is None else hidden
         expansion = node.default_expansion if expansion is None else expansion
@@ -64,6 +71,8 @@ class NodeView:
         object.__setattr__(self, "hidden", hidden)
         object.__setattr__(self, "expansion", expansion)
         object.__setattr__(self, "indent", indent)
+        object.__setattr__(self, "notify_prompt", notify_prompt)
+        object.__setattr__(self, "_notifications", [])
 
     # --- Rendering ---
 
@@ -139,6 +148,73 @@ class NodeView:
         self.node.notification_level = level
         return self
 
+    # --- Notification Queue ---
+
+    def queue_notification(self, notification: Notification) -> None:
+        """Add notification to queue based on level.
+
+        Notifications with IGNORE level are dropped.
+        HOLD and WAKE level notifications are queued.
+
+        Args:
+            notification: The notification to queue.
+        """
+        if notification.level == NotificationLevel.IGNORE:
+            return
+        self._notifications.append(notification)
+
+    def pop_notifications(self) -> list[Notification]:
+        """Return and clear queued notifications.
+
+        Returns:
+            List of all queued notifications.
+        """
+        notifications = self._notifications[:]
+        self._notifications.clear()
+        return notifications
+
+    def has_wake_notification(self) -> bool:
+        """Check if any notification is WAKE level.
+
+        Returns:
+            True if at least one notification has WAKE level.
+        """
+        return any(n.level == NotificationLevel.WAKE for n in self._notifications)
+
+    def format_wake_prompt(self) -> str | None:
+        """Build wake prompt from template and queued notifications.
+
+        Formats the notify_prompt template with node data from get_wake_data()
+        (if the node has that method), then appends notification summaries.
+
+        Returns:
+            Formatted wake prompt string, or None if no notify_prompt set
+            or no notifications queued.
+        """
+        if not self.notify_prompt or not self._notifications:
+            return None
+
+        # Format template with node data
+        node = self.node
+        data: dict[str, Any] = {}
+        if hasattr(node, "get_wake_data"):
+            data = node.get_wake_data()
+
+        try:
+            prompt = self.notify_prompt.format(**data) if data else self.notify_prompt
+        except KeyError:
+            # If template has keys not in data, use template as-is
+            prompt = self.notify_prompt
+
+        # Collect notification summaries
+        summaries = [n.header for n in self._notifications]
+        self._notifications.clear()
+
+        if summaries:
+            prompt += "\n\nChanges:\n" + "\n".join(f"- {s}" for s in summaries)
+
+        return prompt
+
     # --- Attribute Forwarding ---
 
     def __getattr__(self, name: str) -> Any:
@@ -148,7 +224,8 @@ class NodeView:
     def __setattr__(self, name: str, value: Any) -> None:
         """Set attributes with type checking for view fields.
 
-        View fields (hidden, expansion, node) are stored locally with type validation.
+        View fields (hidden, expansion, node, notify_prompt, _notifications)
+        are stored locally with type validation.
         Other attributes are forwarded to the underlying node.
         """
         if name == "expansion":
@@ -159,19 +236,22 @@ class NodeView:
             if not isinstance(value, bool):
                 raise TypeError(f"hidden must be bool, got {type(value).__name__}")
             object.__setattr__(self, name, value)
-        elif name == "node":
+        elif name in ("node", "notify_prompt", "_notifications", "indent"):
             object.__setattr__(self, name, value)
         else:
             setattr(self.node, name, value)
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize view state for session persistence."""
-        return {
+        result: dict[str, Any] = {
             "type": "NodeView",
             "node_id": self.node.node_id,
             "hidden": self.hidden,
             "expansion": self.expansion.value,
         }
+        if self.notify_prompt:
+            result["notify_prompt"] = self.notify_prompt
+        return result
 
     @classmethod
     def from_dict(cls, data: dict[str, Any], node: ContextNode) -> NodeView:
@@ -180,6 +260,7 @@ class NodeView:
             node,
             hidden=data.get("hidden", False),
             expansion=Expansion(data["expansion"]) if "expansion" in data else None,
+            notify_prompt=data.get("notify_prompt"),
         )
 
     def __repr__(self) -> str:

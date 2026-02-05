@@ -323,10 +323,25 @@ class ContextNode(ABC):
     _cached_children_tokens: int = field(default=0, init=False, repr=False)
 
     @property
-    @abstractmethod
     def node_type(self) -> str:
-        """Return the node type identifier."""
-        ...
+        """Return the node type identifier (class name).
+
+        Returns the Python class name (e.g., "TextNode", "GroupNode").
+        For display-friendly short names (e.g., "text"), use display_type.
+        """
+        return type(self).__name__
+
+    @property
+    def display_type(self) -> str:
+        """Return display-friendly type name for IDs and headers.
+
+        Derives from class name: TextNode -> text, GroupNode -> group.
+        """
+        name = type(self).__name__
+        # Remove "Node" suffix and lowercase
+        if name.endswith("Node"):
+            return name[:-4].lower()
+        return name.lower()
 
     @property
     def header_tokens(self) -> int:
@@ -515,6 +530,10 @@ class ContextNode(ABC):
                 ancestor._notified = True
                 if is_wake:
                     ancestor._wake_notified = True
+
+        # Notify graph of change (for view-based notification routing)
+        if self._graph:
+            self._graph.notify_change(self, trace_node)
 
         self.notify_parents(description)
 
@@ -843,10 +862,6 @@ class TextNode(ContextNode):
             self.originator = self.path
         # Auto-register with file watcher registry
         self.register_watcher()
-
-    @property
-    def node_type(self) -> str:
-        return "text"
 
     def GetDigest(self) -> dict[str, Any]:
         return {
@@ -1204,10 +1219,6 @@ class GroupNode(ContextNode):
     summary_prompt: str | None = None
     last_child_versions: dict[str, int] = field(default_factory=dict)
 
-    @property
-    def node_type(self) -> str:
-        return "group"
-
     def GetDigest(self) -> dict[str, Any]:
         return {
             "id": self.node_id,
@@ -1324,10 +1335,6 @@ class TopicNode(ContextNode):
     message_indices: list[int] = field(default_factory=list)
     status: str = "active"
 
-    @property
-    def node_type(self) -> str:
-        return "topic"
-
     def GetDigest(self) -> dict[str, Any]:
         return {
             "id": self.node_id,
@@ -1441,10 +1448,6 @@ class ArtifactNode(ContextNode):
     content: str = ""
     language: str | None = None
     source_statement_id: str | None = None
-
-    @property
-    def node_type(self) -> str:
-        return "artifact"
 
     def GetDigest(self) -> dict[str, Any]:
         return {
@@ -1578,10 +1581,6 @@ class ShellNode(ContextNode):
     started_at_exec: float | None = None
 
     @property
-    def node_type(self) -> str:
-        return "shell"
-
-    @property
     def is_complete(self) -> bool:
         """True if shell command has finished (success, failure, timeout, or cancelled)."""
         return self.shell_status in (
@@ -1709,6 +1708,16 @@ class ShellNode(ContextNode):
             self.full_command[:40] + "..." if len(self.full_command) > 40 else self.full_command
         )
         return f"Shell: {cmd_display} [{self.shell_status.value.upper()}]"
+
+    def get_wake_data(self) -> dict[str, Any]:
+        """Return data dict for wake prompt template formatting."""
+        return {
+            "node_id": self.node_id,
+            "command": self.full_command,
+            "exit_code": self.exit_code,
+            "output": self.output[:500] if self.output else "",
+            "status": self.shell_status.value,
+        }
 
     def get_token_breakdown(self) -> TokenInfo:
         """Return token counts for collapsed/summary/detail."""
@@ -1855,10 +1864,6 @@ class PtyNode(ContextNode):
     # -- Node identity --------------------------------------------------------
 
     @property
-    def node_type(self) -> str:
-        return "pty"
-
-    @property
     def is_complete(self) -> bool:
         """True when the PTY session has ended."""
         return self.pty_status in (PtyStatus.EXITED, PtyStatus.KILLED, PtyStatus.ERROR)
@@ -1967,6 +1972,15 @@ class PtyNode(ContextNode):
             self.full_command[:40] + "..." if len(self.full_command) > 40 else self.full_command
         )
         return f"PTY: {cmd_display} [{self.pty_status.value.upper()}]"
+
+    def get_wake_data(self) -> dict[str, Any]:
+        """Return data dict for wake prompt template formatting."""
+        return {
+            "node_id": self.node_id,
+            "command": self.full_command,
+            "exit_code": self.exit_code,
+            "status": self.pty_status.value,
+        }
 
     def render_content(
         self,
@@ -2102,10 +2116,6 @@ class LockNode(ContextNode):
     holder_pid: int | None = None
 
     @property
-    def node_type(self) -> str:
-        return "lock"
-
-    @property
     def is_complete(self) -> bool:
         """True if lock operation has finished (acquired, timeout, released, or error)."""
         return self.lock_status in (
@@ -2191,6 +2201,15 @@ class LockNode(ContextNode):
     def render_digest(self) -> str:
         """Return 'Lock: file [STATUS]' format."""
         return f"Lock: {self.lockfile} [{self.lock_status.value.upper()}]"
+
+    def get_wake_data(self) -> dict[str, Any]:
+        """Return data dict for wake prompt template formatting."""
+        return {
+            "node_id": self.node_id,
+            "lockfile": self.lockfile,
+            "status": self.lock_status.value,
+            "error": self.error_message or "",
+        }
 
     def get_token_breakdown(self) -> TokenInfo:
         """Return token counts for collapsed/summary/detail."""
@@ -2315,10 +2334,6 @@ class SessionNode(ContextNode):
 
     # Configuration
     history_depth: int = 10  # How many turns to track
-
-    @property
-    def node_type(self) -> str:
-        return "session"
 
     def GetDigest(self) -> dict[str, Any]:
         return {
@@ -2605,10 +2620,6 @@ class MessageNode(ContextNode):
     default_hidden: bool = True  # Hidden by default; segments carry visible content
 
     @property
-    def node_type(self) -> str:
-        return "message"
-
-    @property
     def effective_role(self) -> str:
         """Return the role for LLM alternation (USER or ASSISTANT)."""
         return "USER" if self.originator == "user" else "ASSISTANT"
@@ -2803,10 +2814,6 @@ class MessageSegmentNode(ContextNode):
     mime_type: str = "text/markdown"
     source_message_id: str | None = None
 
-    @property
-    def node_type(self) -> str:
-        return "segment"
-
     def GetDigest(self) -> dict[str, Any]:
         return {
             "id": self.node_id,
@@ -2938,10 +2945,6 @@ class WorkNode(ContextNode):
         default_factory=list
     )  # [{agent_id, file, their_mode, their_intent}]
     agent_id: str = ""
-
-    @property
-    def node_type(self) -> str:
-        return "work"
 
     def GetDigest(self) -> dict[str, Any]:
         return {
@@ -3150,10 +3153,6 @@ class MCPServerNode(ContextNode):
             except AttributeError:
                 pass
         raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
-
-    @property
-    def node_type(self) -> str:
-        return "mcp_server"
 
     def GetDigest(self) -> dict[str, Any]:
         return {
@@ -3507,10 +3506,6 @@ class MCPToolNode(ContextNode):
     description: str = ""
     input_schema: dict[str, Any] = field(default_factory=dict)
 
-    @property
-    def node_type(self) -> str:
-        return "mcp_tool"
-
     def GetDigest(self) -> dict[str, Any]:
         return {
             "id": self.node_id,
@@ -3649,10 +3644,6 @@ class MCPManagerNode(ContextNode):
     # Recent events for rendering
     connection_events: list[dict[str, Any]] = field(default_factory=list)
     max_events: int = 10
-
-    @property
-    def node_type(self) -> str:
-        return "mcp_manager"
 
     def GetDigest(self) -> dict[str, Any]:
         """Return metadata digest for this node."""
@@ -3833,10 +3824,6 @@ class PluginManagerNode(ContextNode):
     # Recent events for rendering
     connection_events: list[dict[str, Any]] = field(default_factory=list)
     max_events: int = 10
-
-    @property
-    def node_type(self) -> str:
-        return "plugin_manager"
 
     def GetDigest(self) -> dict[str, Any]:
         """Return metadata digest for this node."""
@@ -4030,10 +4017,6 @@ class AgentNode(ContextNode):
     session_id: str = ""
     message_count: int = 0
 
-    @property
-    def node_type(self) -> str:
-        return "agent"
-
     def GetDigest(self) -> dict[str, Any]:
         return {
             "id": self.node_id,
@@ -4193,10 +4176,6 @@ class TraceNode(ContextNode):
         default=None, repr=False
     )  # Target node for merge lookup
     child_traces: list[TraceNode] = field(default_factory=list)  # Child traces when merged
-
-    @property
-    def node_type(self) -> str:
-        return "trace"
 
     def GetDigest(self) -> dict[str, Any]:
         return {
@@ -4384,10 +4363,6 @@ class TaskNode(ContextNode):
     started_at: float | None = None
     completed_at: float | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
-
-    @property
-    def node_type(self) -> str:
-        return "task"
 
     def GetDigest(self) -> dict[str, Any]:
         """Return metadata digest for this task."""
@@ -4723,10 +4698,6 @@ class HelpNode(ContextNode):
     parent_node_type: str = ""
     _help_content: str = field(default="", repr=False)
 
-    @property
-    def node_type(self) -> str:
-        return "help"
-
     def _count_methods(self) -> int:
         """Count documented methods from help content.
 
@@ -4872,10 +4843,6 @@ class MarkdownListItemNode(ContextNode):
     indent_level: int = 0
     marker: str = "-"
 
-    @property
-    def node_type(self) -> str:
-        return "markdown_list_item"
-
     def GetDigest(self) -> dict[str, Any]:
         preview = self.content[:50] + "..." if len(self.content) > 50 else self.content
         return {
@@ -4977,10 +4944,6 @@ class MarkdownNode(ContextNode):
     content: str = ""
     buffer_id: str | None = None
     auto_parse: bool = True
-
-    @property
-    def node_type(self) -> str:
-        return "markdown"
 
     def GetDigest(self) -> dict[str, Any]:
         return {
@@ -5213,10 +5176,6 @@ class FileSystemNode(ContextNode):
     _cached_tree: str = field(default="", init=False, repr=False)
     _last_scan: float = field(default=0.0, init=False, repr=False)
 
-    @property
-    def node_type(self) -> str:
-        return "filesystem"
-
     def GetDigest(self) -> dict[str, Any]:
         return {
             "id": self.node_id,
@@ -5389,10 +5348,6 @@ class ClockNode(ContextNode):
     duration_seconds: float | None = None
     is_running: bool = True
     elapsed_seconds: float = 0.0
-
-    @property
-    def node_type(self) -> str:
-        return "clock"
 
     def GetDigest(self) -> dict[str, Any]:
         remaining = self.get_remaining()
@@ -5567,10 +5522,6 @@ class FunctionDocNode(ContextNode):
     docstring: str = ""
     source_lines: str = ""
 
-    @property
-    def node_type(self) -> str:
-        return "function_doc"
-
     def GetDigest(self) -> dict[str, Any]:
         return {
             "id": self.node_id,
@@ -5593,8 +5544,10 @@ class FunctionDocNode(ContextNode):
 
             # Find the function
             for node in ast.walk(tree):
-                is_func = isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-                if is_func and node.name == self.function_name:
+                # Type guard: narrow node to FunctionDef or AsyncFunctionDef
+                if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    continue
+                if node.name == self.function_name:
                     # Extract signature
                     args = []
                     for arg in node.args.args:

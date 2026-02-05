@@ -10,14 +10,14 @@ import re
 import time
 import uuid
 from collections import defaultdict
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from activecontext.context.checkpoint import Checkpoint, GroupState
 
 if TYPE_CHECKING:
-    from activecontext.context.nodes import ContextNode
+    from activecontext.context.nodes import ContextNode, TraceNode
 
 
 # Pattern to detect auto-generated UUID-style node_ids (8 hex chars)
@@ -202,6 +202,11 @@ class ContextGraph:
     # Root context node ID for document-ordered rendering
     _root_context_id: str | None = field(default=None)
 
+    # Callback for node changes (used by Timeline to route to views)
+    _on_nodes_changed: Callable[[list[ContextNode], TraceNode | None], None] | None = field(
+        default=None, repr=False
+    )
+
     def add_node(self, node: ContextNode) -> str:
         """Add a node to the graph.
 
@@ -214,20 +219,23 @@ class ContextGraph:
         # Set graph reference on node
         node._graph = self
 
+        # Use display_type for counters and IDs (e.g., "text", "group")
+        display_type = node.display_type
+
         # Assign display sequence if not already set
         if node.display_sequence is None:
-            self._type_counters[node.node_type] += 1
-            node.display_sequence = self._type_counters[node.node_type]
+            self._type_counters[display_type] += 1
+            node.display_sequence = self._type_counters[display_type]
 
         # Assign display-friendly node_id if current ID is auto-generated UUID
         # Explicit node_ids (like "context", "session") are preserved
         if _AUTO_ID_PATTERN.match(node.node_id):
-            node.node_id = f"{node.node_type}_{node.display_sequence}"
+            node.node_id = f"{display_type}_{node.display_sequence}"
 
         # Store node
         self._nodes[node.node_id] = node
 
-        # Update type index
+        # Update type index - use node_type (class name) for type lookups
         self._by_type[node.node_type].add(node.node_id)
 
         # Update running index
@@ -457,7 +465,7 @@ class ContextGraph:
         """Get all nodes of a specific type.
 
         Args:
-            node_type: Type identifier (e.g., "text", "group", "shell").
+            node_type: Type identifier (e.g., "TextNode", "GroupNode").
         """
         return [
             self._nodes[nid] for nid in self._by_type.get(node_type, set()) if nid in self._nodes
@@ -487,18 +495,27 @@ class ContextGraph:
             if parent:
                 for child_id in parent.child_order:
                     child: ContextNode | None = self._nodes.get(child_id)
-                    if (
-                        child
-                        and child.node_type == "trace"
-                        and getattr(child, "node", None) == node_id
-                    ):
-                        traces.append(child)
+                    if child is not None:
+                        # Import locally to avoid circular import
+                        from activecontext.context.nodes import TraceNode
+
+                        if (
+                            isinstance(child, TraceNode)
+                            and getattr(child, "node", None) == node_id
+                        ):
+                            traces.append(child)
 
         # Also check trace_sink if set
         if node.trace_sink and node.trace_sink.node_id in self._nodes:
+            from activecontext.context.nodes import TraceNode
+
             for child_id in node.trace_sink.child_order:
                 child_trace: ContextNode | None = self._nodes.get(child_id)
-                if child_trace and child_trace.node_type == "trace" and getattr(child_trace, "node", None) == node_id:
+                if (
+                    child_trace is not None
+                    and isinstance(child_trace, TraceNode)
+                    and getattr(child_trace, "node", None) == node_id
+                ):
                     traces.append(child_trace)
 
         # Sort by new_version descending (newest first)
@@ -529,6 +546,34 @@ class ContextGraph:
             return False
 
         return check(node_id)
+
+    def set_on_nodes_changed(
+        self,
+        callback: Callable[[list[ContextNode], TraceNode | None], None] | None,
+    ) -> None:
+        """Register callback for node changes.
+
+        Args:
+            callback: Called with (preorder_changed_nodes, trace) when nodes change.
+                      Pass None to unregister the callback.
+        """
+        self._on_nodes_changed = callback
+
+    def notify_change(self, node: ContextNode, trace: TraceNode | None = None) -> None:
+        """Notify that a node has changed.
+
+        Called by nodes when they change. Collects the affected node and its
+        ancestors in preorder (node first, then ancestors) and invokes the
+        registered callback.
+
+        Args:
+            node: The node that changed.
+            trace: The TraceNode for this change, if any.
+        """
+        if self._on_nodes_changed:
+            # Collect node and its ancestors in preorder (node first, then ancestors)
+            changed = [node] + list(node.find_ancestors())
+            self._on_nodes_changed(changed, trace)
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize graph for persistence.

@@ -36,8 +36,9 @@ from activecontext.context.nodes import (
     ShellStatus,
     TextNode,
     TopicNode,
+    TraceNode,
 )
-from activecontext.context.state import Expansion, NotificationLevel, TickFrequency
+from activecontext.context.state import Expansion, Notification, NotificationLevel, TickFrequency
 from activecontext.context.view import NodeView
 from activecontext.core.prompts import Segment
 from activecontext.plugins.connection import PluginConnection
@@ -663,6 +664,9 @@ class Timeline:
         # Text buffer storage - Session replaces this with its own dict
         # For standalone Timeline usage, this provides a default
         self._text_buffers: dict[str, TextBuffer] = {}
+
+        # Register callback for node changes (for view-based notification routing)
+        self._context_graph.set_on_nodes_changed(self._on_nodes_changed)
 
         # File watcher for detecting external file changes
         from activecontext.watching import FileWatcher
@@ -3227,6 +3231,37 @@ Provide a concise summary:"""
         self._done_called = True  # End turn to wait
 
     # =========================================================================
+    # Node Change Notification Routing
+    # =========================================================================
+
+    def _on_nodes_changed(
+        self,
+        changed_nodes: list[ContextNode],
+        trace: TraceNode | None,
+    ) -> None:
+        """Route node changes to their views for notification queuing.
+
+        Called by ContextGraph when a node changes. Creates Notification objects
+        and queues them in the corresponding views.
+
+        Args:
+            changed_nodes: List of affected nodes (changed node first, then ancestors)
+            trace: The TraceNode for this change, if any
+        """
+        for node in changed_nodes:
+            view = self._views.get(node.node_id)
+            if view and view.notify_prompt:
+                # Create notification from trace or node change
+                description = trace.description if trace else "changed"
+                notification = Notification(
+                    node_id=node.node_id,
+                    trace_id=trace.node_id if trace else f"{node.node_id}:{node.version}",
+                    header=node._format_notification_header(description),
+                    level=node.notification_level,
+                )
+                view.queue_notification(notification)
+
+    # =========================================================================
     # Multi-Agent DSL Functions
     # =========================================================================
 
@@ -3328,7 +3363,12 @@ Provide a concise summary:"""
             if len(completed_nodes) == len(nodes):
                 if len(nodes) == 1:
                     node = completed_nodes[0]
-                    prompt = self._format_wake_prompt(condition.wake_prompt, node)
+                    # Use view.format_wake_prompt() if available, else format directly
+                    view = self._views.get(node.node_id)
+                    if view and view.notify_prompt:
+                        prompt = view.format_wake_prompt() or condition.wake_prompt
+                    else:
+                        prompt = self._format_wake_prompt(condition.wake_prompt, node)
                 else:
                     prompt = condition.wake_prompt
                 return True, prompt
@@ -3337,7 +3377,12 @@ Provide a concise summary:"""
             # Need any node to complete
             if completed_nodes:
                 first_completed = completed_nodes[0]
-                prompt = self._format_wake_prompt(condition.wake_prompt, first_completed)
+                # Use view.format_wake_prompt() if available, else format directly
+                view = self._views.get(first_completed.node_id)
+                if view and view.notify_prompt:
+                    prompt = view.format_wake_prompt() or condition.wake_prompt
+                else:
+                    prompt = self._format_wake_prompt(condition.wake_prompt, first_completed)
 
                 # Cancel others if requested
                 if condition.cancel_others:
@@ -3409,30 +3454,18 @@ Provide a concise summary:"""
         return False, None
 
     def _format_wake_prompt(self, template: str, node: ShellNode | LockNode | PtyNode) -> str:
-        """Format a wake prompt template with node-specific attributes."""
-        if isinstance(node, ShellNode):
-            return template.format(
-                node=node,
-                node_id=node.node_id,
-                command=node.full_command,
-                exit_code=node.exit_code,
-                output=node.output[:500] if node.output else "",
-            )
-        elif isinstance(node, PtyNode):
-            return template.format(
-                node=node,
-                node_id=node.node_id,
-                command=node.full_command,
-                exit_code=node.exit_code,
-            )
-        else:  # LockNode
-            return template.format(
-                node=node,
-                node_id=node.node_id,
-                lockfile=node.lockfile,
-                status=node.lock_status.value,
-                error=node.error_message or "",
-            )
+        """Format a wake prompt template with node-specific attributes.
+
+        Uses node.get_wake_data() to get formatting data for the template.
+        Falls back to node object itself for template formatting.
+        """
+        data = node.get_wake_data()
+        data["node"] = node  # Keep node reference for legacy templates
+        try:
+            return template.format(**data)
+        except KeyError:
+            # If template has keys not in data, return template as-is
+            return template
 
     @property
     def session_id(self) -> str:
