@@ -298,7 +298,7 @@ class TestTopicAndArtifact:
             assert "t" in ns
 
             digest = ns["t"].GetDigest()
-            assert digest["type"] == "topic"
+            assert digest["type"] == "TopicNode"
             assert digest["title"] == "Authentication"
         finally:
             await timeline.close()
@@ -319,7 +319,7 @@ class TestTopicAndArtifact:
             assert "a" in ns
 
             digest = ns["a"].GetDigest()
-            assert digest["type"] == "artifact"
+            assert digest["type"] == "ArtifactNode"
             assert digest["artifact_type"] == "code"
         finally:
             await timeline.close()

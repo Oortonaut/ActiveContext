@@ -32,13 +32,13 @@ def empty_graph():
 @pytest.fixture
 def mock_text_node():
     """Create a mock TextNode for testing."""
-    return create_mock_context_node("text-1", "text", mode="idle")
+    return create_mock_context_node("text-1", "TextNode", mode="idle")
 
 
 @pytest.fixture
 def mock_running_node():
     """Create a mock node in running mode."""
-    return create_mock_context_node("running-1", "text", mode="running")
+    return create_mock_context_node("running-1", "TextNode", mode="running")
 
 
 @pytest.fixture
@@ -55,11 +55,11 @@ def populated_graph():
     graph = ContextGraph()
 
     # Create nodes
-    root1 = create_mock_context_node("root1", "text")
-    root2 = create_mock_context_node("root2", "group")
-    child1 = create_mock_context_node("child1", "text")
-    child2 = create_mock_context_node("child2", "text", mode="running")
-    grandchild1 = create_mock_context_node("grandchild1", "group")
+    root1 = create_mock_context_node("root1", "TextNode")
+    root2 = create_mock_context_node("root2", "GroupNode")
+    child1 = create_mock_context_node("child1", "TextNode")
+    child2 = create_mock_context_node("child2", "TextNode", mode="running")
+    grandchild1 = create_mock_context_node("grandchild1", "GroupNode")
 
     # Add nodes
     graph.add_node(root1)
@@ -86,7 +86,7 @@ class TestGraphOperations:
 
     def test_add_node(self, empty_graph):
         """Test adding a node to the graph."""
-        node = create_mock_context_node("node1", "text")
+        node = create_mock_context_node("node1", "TextNode")
 
         node_id = empty_graph.add_node(node)
 
@@ -97,23 +97,23 @@ class TestGraphOperations:
 
     def test_add_node_updates_type_index(self, empty_graph):
         """Test that adding nodes updates type index."""
-        text1 = create_mock_context_node("text1", "text")
-        text2 = create_mock_context_node("text2", "text")
-        group1 = create_mock_context_node("group1", "group")
+        text1 = create_mock_context_node("text1", "TextNode")
+        text2 = create_mock_context_node("text2", "TextNode")
+        group1 = create_mock_context_node("group1", "GroupNode")
 
         empty_graph.add_node(text1)
         empty_graph.add_node(text2)
         empty_graph.add_node(group1)
 
-        texts = empty_graph.get_nodes_by_type("text")
-        groups = empty_graph.get_nodes_by_type("group")
+        texts = empty_graph.get_nodes_by_type("TextNode")
+        groups = empty_graph.get_nodes_by_type("GroupNode")
 
         assert len(texts) == 2
         assert len(groups) == 1
 
     def test_add_node_as_root(self, empty_graph):
         """Test that nodes without parents become roots."""
-        node = create_mock_context_node("node1", "text")
+        node = create_mock_context_node("node1", "TextNode")
 
         empty_graph.add_node(node)
 
@@ -123,8 +123,8 @@ class TestGraphOperations:
 
     def test_add_running_node_updates_index(self, empty_graph):
         """Test that running nodes are indexed."""
-        running_node = create_mock_context_node("running1", "text", mode="running")
-        idle_node = create_mock_context_node("idle1", "text", mode="idle")
+        running_node = create_mock_context_node("running1", "TextNode", mode="running")
+        idle_node = create_mock_context_node("idle1", "TextNode", mode="idle")
 
         empty_graph.add_node(running_node)
         empty_graph.add_node(idle_node)
@@ -135,7 +135,7 @@ class TestGraphOperations:
 
     def test_remove_node(self, empty_graph):
         """Test removing a node from the graph."""
-        node = create_mock_context_node("node1", "text")
+        node = create_mock_context_node("node1", "TextNode")
         empty_graph.add_node(node)
 
         empty_graph.remove_node("node1")
@@ -170,8 +170,8 @@ class TestGraphOperations:
 
     def test_link_creates_parent_child_relationship(self, empty_graph):
         """Test linking two nodes creates parent-child relationship."""
-        parent = create_mock_context_node("parent", "text")
-        child = create_mock_context_node("child", "text")
+        parent = create_mock_context_node("parent", "TextNode")
+        child = create_mock_context_node("child", "TextNode")
 
         empty_graph.add_node(parent)
         empty_graph.add_node(child)
@@ -184,8 +184,8 @@ class TestGraphOperations:
 
     def test_link_removes_child_from_roots(self, empty_graph):
         """Test that linking a root node removes it from roots."""
-        parent = create_mock_context_node("parent", "text")
-        child = create_mock_context_node("child", "text")
+        parent = create_mock_context_node("parent", "TextNode")
+        child = create_mock_context_node("child", "TextNode")
 
         empty_graph.add_node(parent)
         empty_graph.add_node(child)
@@ -200,8 +200,8 @@ class TestGraphOperations:
 
     def test_link_cycle_detection(self, empty_graph):
         """Test that creating a cycle is rejected."""
-        node_a = create_mock_context_node("a", "text")
-        node_b = create_mock_context_node("b", "text")
+        node_a = create_mock_context_node("a", "TextNode")
+        node_b = create_mock_context_node("b", "TextNode")
 
         empty_graph.add_node(node_a)
         empty_graph.add_node(node_b)
@@ -217,7 +217,7 @@ class TestGraphOperations:
 
     def test_link_self_cycle_rejection(self, empty_graph):
         """Test that self-links are rejected."""
-        node = create_mock_context_node("node", "text")
+        node = create_mock_context_node("node", "TextNode")
         empty_graph.add_node(node)
 
         success = empty_graph.link("node", "node")
@@ -226,7 +226,7 @@ class TestGraphOperations:
 
     def test_link_nonexistent_nodes(self, empty_graph):
         """Test linking nonexistent nodes returns False."""
-        node = create_mock_context_node("node", "text")
+        node = create_mock_context_node("node", "TextNode")
         empty_graph.add_node(node)
 
         success1 = empty_graph.link("node", "nonexistent")
@@ -260,9 +260,9 @@ class TestGraphOperations:
 
     def test_multiple_parents(self, empty_graph):
         """Test nodes can have multiple parents (DAG structure)."""
-        parent1 = create_mock_context_node("parent1", "text")
-        parent2 = create_mock_context_node("parent2", "text")
-        child = create_mock_context_node("child", "text")
+        parent1 = create_mock_context_node("parent1", "TextNode")
+        parent2 = create_mock_context_node("parent2", "TextNode")
+        child = create_mock_context_node("child", "TextNode")
 
         empty_graph.add_node(parent1)
         empty_graph.add_node(parent2)
@@ -299,8 +299,8 @@ class TestGraphIndices:
 
     def test_get_nodes_by_type(self, populated_graph):
         """Test querying nodes by type."""
-        texts = populated_graph.get_nodes_by_type("text")
-        groups = populated_graph.get_nodes_by_type("group")
+        texts = populated_graph.get_nodes_by_type("TextNode")
+        groups = populated_graph.get_nodes_by_type("GroupNode")
 
         assert len(texts) == 3  # root1, child1, child2
         assert len(groups) == 2  # root2, grandchild1
@@ -398,10 +398,10 @@ class TestGraphTraversal:
     def test_traversal_with_dag(self, empty_graph):
         """Test traversal with DAG (multiple parents)."""
         # Create diamond structure: A -> B, A -> C, B -> D, C -> D
-        a = create_mock_context_node("a", "text")
-        b = create_mock_context_node("b", "text")
-        c = create_mock_context_node("c", "text")
-        d = create_mock_context_node("d", "text")
+        a = create_mock_context_node("a", "TextNode")
+        b = create_mock_context_node("b", "TextNode")
+        c = create_mock_context_node("c", "TextNode")
+        d = create_mock_context_node("d", "TextNode")
 
         for node in [a, b, c, d]:
             empty_graph.add_node(node)

@@ -16,29 +16,29 @@ class TestNodeTypeRegistryInit:
     def test_init_loads_builtin_types(self) -> None:
         """Test that __init__ loads all builtin types."""
         registry = NodeTypeRegistry()
-        # Should have all the builtin types
-        assert registry.get("text") is not None
-        assert registry.get("group") is not None
-        assert registry.get("topic") is not None
-        assert registry.get("artifact") is not None
-        assert registry.get("shell") is not None
-        assert registry.get("lock") is not None
-        assert registry.get("session") is not None
-        assert registry.get("message") is not None
-        assert registry.get("work") is not None
-        assert registry.get("mcp_server") is not None
-        assert registry.get("mcp_tool") is not None
-        assert registry.get("mcp_manager") is not None
-        assert registry.get("agent") is not None
-        assert registry.get("trace") is not None
-        assert registry.get("task") is not None
+        # Should have all the builtin types (by class name)
+        assert registry.get("TextNode") is not None
+        assert registry.get("GroupNode") is not None
+        assert registry.get("TopicNode") is not None
+        assert registry.get("ArtifactNode") is not None
+        assert registry.get("ShellNode") is not None
+        assert registry.get("LockNode") is not None
+        assert registry.get("SessionNode") is not None
+        assert registry.get("MessageNode") is not None
+        assert registry.get("WorkNode") is not None
+        assert registry.get("MCPServerNode") is not None
+        assert registry.get("MCPToolNode") is not None
+        assert registry.get("MCPManagerNode") is not None
+        assert registry.get("AgentNode") is not None
+        assert registry.get("TraceNode") is not None
+        assert registry.get("TaskNode") is not None
 
     def test_init_marks_builtins(self) -> None:
         """Test that builtin types are marked as builtin."""
         registry = NodeTypeRegistry()
-        assert registry.is_builtin("text")
-        assert registry.is_builtin("group")
-        assert registry.is_builtin("session")
+        assert registry.is_builtin("TextNode")
+        assert registry.is_builtin("GroupNode")
+        assert registry.is_builtin("SessionNode")
 
 
 class TestNodeTypeRegistryGet:
@@ -47,8 +47,8 @@ class TestNodeTypeRegistryGet:
     def test_get_returns_class(self) -> None:
         """Test that get() returns the correct class."""
         registry = NodeTypeRegistry()
-        assert registry.get("text") is TextNode
-        assert registry.get("group") is GroupNode
+        assert registry.get("TextNode") is TextNode
+        assert registry.get("GroupNode") is GroupNode
 
     def test_get_returns_none_for_unknown(self) -> None:
         """Test that get() returns None for unknown types."""
@@ -76,7 +76,7 @@ class TestNodeTypeRegistryRegister:
         """Test that registering over a builtin type raises ValueError."""
         registry = NodeTypeRegistry()
         with pytest.raises(ValueError, match="Cannot override builtin node type"):
-            registry.register("text", TextNode)
+            registry.register("TextNode", TextNode)
 
 
 class TestNodeTypeRegistryUnregister:
@@ -99,10 +99,10 @@ class TestNodeTypeRegistryUnregister:
     def test_unregister_builtin_returns_false(self) -> None:
         """Test that unregistering a builtin type returns False."""
         registry = NodeTypeRegistry()
-        result = registry.unregister("text")
+        result = registry.unregister("TextNode")
         assert result is False
         # Builtin should still exist
-        assert registry.get("text") is not None
+        assert registry.get("TextNode") is not None
 
     def test_unregister_nonexistent_returns_false(self) -> None:
         """Test that unregistering nonexistent type returns False."""
@@ -133,8 +133,8 @@ class TestNodeTypeRegistryIsBuiltin:
     def test_is_builtin_for_builtin(self) -> None:
         """Test is_builtin returns True for builtin types."""
         registry = NodeTypeRegistry()
-        assert registry.is_builtin("text") is True
-        assert registry.is_builtin("shell") is True
+        assert registry.is_builtin("TextNode") is True
+        assert registry.is_builtin("ShellNode") is True
 
     def test_is_builtin_for_plugin(self) -> None:
         """Test is_builtin returns False for plugin types."""
@@ -159,7 +159,7 @@ class TestNodeTypeRegistryFromDict:
         """Test that from_dict correctly deserializes a TextNode."""
         registry = NodeTypeRegistry()
         data = {
-            "node_type": "text",
+            "node_type": "TextNode",
             "node_id": "test_text",
             "path": "test.py",
             "pos": "1:0",
@@ -174,7 +174,7 @@ class TestNodeTypeRegistryFromDict:
         """Test that from_dict correctly deserializes a GroupNode."""
         registry = NodeTypeRegistry()
         data = {
-            "node_type": "group",
+            "node_type": "GroupNode",
             "node_id": "test_group",
             "name": "Test Group",
             "tokens": 500,
@@ -203,7 +203,7 @@ class TestGetNodeRegistry:
     def test_returns_functional_registry(self) -> None:
         """Test that the singleton registry is functional."""
         registry = get_node_registry()
-        assert registry.get("text") is TextNode
+        assert registry.get("TextNode") is TextNode
 
 
 class TestContextNodeFromDictIntegration:
@@ -212,7 +212,7 @@ class TestContextNodeFromDictIntegration:
     def test_from_dict_uses_registry(self) -> None:
         """Test that ContextNode.from_dict properly delegates to registry."""
         data = {
-            "node_type": "text",
+            "node_type": "TextNode",
             "node_id": "integration_test",
             "path": "test.py",
         }

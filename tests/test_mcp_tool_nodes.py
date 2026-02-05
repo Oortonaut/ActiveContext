@@ -92,7 +92,7 @@ class TestMCPToolNodeInit:
         assert node.description == ""
         assert node.input_schema == {}
         assert node.default_expansion == Expansion.ALL  # Inherited from ContextNode
-        assert node.node_type == "mcp_tool"
+        assert node.node_type == "MCPToolNode"
 
     def test_custom_values(self):
         """Test MCPToolNode with custom values."""
@@ -168,7 +168,7 @@ class TestMCPToolNodeDigest:
             default_expansion=Expansion.ALL,
         )
         digest = node.GetDigest()
-        assert digest["type"] == "mcp_tool"
+        assert digest["type"] == "MCPToolNode"
         assert digest["tool_name"] == "read_file"
         assert digest["server_name"] == "filesystem"
         assert digest["has_schema"] is True
@@ -193,7 +193,7 @@ class TestMCPToolNodeSerialization:
             input_schema={"type": "object"},
         )
         data = node.to_dict()
-        assert data["node_type"] == "mcp_tool"
+        assert data["node_type"] == "MCPToolNode"
         assert data["tool_name"] == "read_file"
         assert data["server_name"] == "filesystem"
         assert data["description"] == "Read a file"

@@ -66,35 +66,35 @@ class TestHelpNodeConstruction:
     def test_helpnode_default_fields(self) -> None:
         """HelpNode has correct default field values."""
         node = HelpNode()
-        assert node.node_type == "help"
+        assert node.node_type == "HelpNode"
         assert node.parent_node_type == ""
         assert node._help_content == ""
 
     def test_helpnode_with_content(self) -> None:
         """HelpNode stores parent_node_type and content."""
         node = HelpNode(
-            parent_node_type="shell",
+            parent_node_type="ShellNode",
             _help_content="# ShellNode\nAsync shell command.",
         )
-        assert node.parent_node_type == "shell"
+        assert node.parent_node_type == "ShellNode"
         assert "ShellNode" in node._help_content
 
     def test_helpnode_render_header(self, graph: ContextGraph) -> None:
         """Header rendering includes type info."""
         node = HelpNode(
-            parent_node_type="text",
+            parent_node_type="TextNode",
             _help_content="## Methods\n- `SetPos(self, pos)` -- Set position\n",
         )
         graph.add_node(node)
         rendered = NodeView(node).render_header()
-        # Should contain the display name
-        assert "text Help" in rendered
+        # Should contain the parent node type
+        assert "TextNode Help" in rendered
 
     def test_helpnode_render_content(self, graph: ContextGraph) -> None:
         """Content rendering includes full help content."""
         content = "# TextNode\nFile view node.\n\n## Methods\n- `SetPos(self, pos)` -- Set position\n- `SetEndPos(self, end)` -- Set end position\n"
         node = HelpNode(
-            parent_node_type="text",
+            parent_node_type="TextNode",
             _help_content=content,
         )
         graph.add_node(node)
@@ -107,7 +107,7 @@ class TestHelpNodeConstruction:
         """Content rendering includes full content with signatures."""
         content = "# TextNode\nFile view.\n\n## Methods\n- `SetPos(self, pos: str)` -- Set start position\n"
         node = HelpNode(
-            parent_node_type="text",
+            parent_node_type="TextNode",
             _help_content=content,
         )
         graph.add_node(node)
@@ -128,7 +128,7 @@ class TestHelpMethodCreation:
         """Calling .help() creates a HelpNode child of the node."""
         help_node = text_node.help()
         assert isinstance(help_node, HelpNode)
-        assert help_node.parent_node_type == "text"
+        assert help_node.parent_node_type == "TextNode"
         assert help_node.node_id in text_node.child_order
 
     def test_help_node_in_graph(self, text_node: TextNode, graph: ContextGraph) -> None:
@@ -402,7 +402,7 @@ class TestHelpTypeLookup:
     def test_extract_content_for_shell(self) -> None:
         """Extracting help content for ShellNode by class works."""
         registry = get_node_registry()
-        cls = registry.get("shell")
+        cls = registry.get("ShellNode")
         assert cls is not None
         content = _extract_help_content(cls)
         assert "ShellNode" in content
@@ -410,7 +410,7 @@ class TestHelpTypeLookup:
     def test_extract_content_for_text(self) -> None:
         """Extracting help content for TextNode by class works."""
         registry = get_node_registry()
-        cls = registry.get("text")
+        cls = registry.get("TextNode")
         assert cls is not None
         content = _extract_help_content(cls)
         assert "TextNode" in content
@@ -418,7 +418,7 @@ class TestHelpTypeLookup:
     def test_extract_content_for_group(self) -> None:
         """Extracting help content for GroupNode by class works."""
         registry = get_node_registry()
-        cls = registry.get("group")
+        cls = registry.get("GroupNode")
         assert cls is not None
         content = _extract_help_content(cls)
         assert "GroupNode" in content
@@ -426,7 +426,7 @@ class TestHelpTypeLookup:
     def test_registry_contains_help(self) -> None:
         """The help node type is registered."""
         registry = get_node_registry()
-        cls = registry.get("help")
+        cls = registry.get("HelpNode")
         assert cls is HelpNode
 
     def test_help_node_for_unknown_type(self) -> None:
@@ -458,7 +458,7 @@ class TestHelpNoArgs:
             default_expansion=Expansion.CONTENT,
         )
         graph.add_node(help_node)
-        assert help_node.node_type == "help"
+        assert help_node.node_type == "HelpNode"
         rendered = help_node.render_content()
         assert "DSL Reference" in rendered
 
@@ -479,7 +479,7 @@ class TestHelpNodeSerialization:
             _help_content="# ShellNode\nAsync shell.\n## Methods\n- `Run()` -- Start\n",
         )
         data = node.to_dict()
-        assert data["node_type"] == "help"
+        assert data["node_type"] == "HelpNode"
         assert data["node_id"] == "help_1"
         assert data["parent_node_type"] == "shell"
         assert "ShellNode" in data["_help_content"]
@@ -488,7 +488,7 @@ class TestHelpNodeSerialization:
         """HelpNode._from_dict() restores all fields."""
         original = HelpNode(
             node_id="help_2",
-            parent_node_type="text",
+            parent_node_type="TextNode",
             _help_content="# TextNode\nFile view.\n",
             default_expansion=Expansion.ALL,
         )
@@ -496,7 +496,7 @@ class TestHelpNodeSerialization:
         restored = HelpNode._from_dict(data)
 
         assert restored.node_id == "help_2"
-        assert restored.parent_node_type == "text"
+        assert restored.parent_node_type == "TextNode"
         assert restored._help_content == original._help_content
         assert restored.default_expansion == Expansion.ALL
 
@@ -504,7 +504,7 @@ class TestHelpNodeSerialization:
         """to_dict -> _from_dict preserves all data."""
         original = HelpNode(
             node_id="help_rt",
-            parent_node_type="group",
+            parent_node_type="GroupNode",
             _help_content="# GroupNode\nSummary facade.\n\n## Methods\n- `SetSummary(text)` -- Set summary\n",
             default_expansion=Expansion.CONTENT,
             title="Group Help",
@@ -522,20 +522,20 @@ class TestHelpNodeSerialization:
         """Registry-based deserialization works for HelpNode."""
         registry = get_node_registry()
         data = {
-            "node_type": "help",
+            "node_type": "HelpNode",
             "node_id": "help_reg",
-            "parent_node_type": "text",
+            "parent_node_type": "TextNode",
             "_help_content": "# TextNode\nHelp text.\n",
         }
         node = registry.from_dict(data)
         assert isinstance(node, HelpNode)
-        assert node.parent_node_type == "text"
+        assert node.parent_node_type == "TextNode"
 
     def test_to_dict_includes_node_type(self) -> None:
         """to_dict always includes the node_type field."""
         node = HelpNode(parent_node_type="artifact")
         data = node.to_dict()
-        assert data["node_type"] == "help"
+        assert data["node_type"] == "HelpNode"
 
 
 # ---------------------------------------------------------------------------
@@ -565,12 +565,12 @@ class TestHelpNodeMetadata:
     def test_get_digest(self) -> None:
         """GetDigest returns correct metadata dictionary."""
         node = HelpNode(
-            parent_node_type="text",
+            parent_node_type="TextNode",
             _help_content="## Methods\n- `SetPos(pos)` -- Set position\n",
         )
         digest = node.GetDigest()
-        assert digest["type"] == "help"
-        assert digest["parent_node_type"] == "text"
+        assert digest["type"] == "HelpNode"
+        assert digest["parent_node_type"] == "TextNode"
         assert digest["methods"] == 1
 
     def test_count_methods(self) -> None:

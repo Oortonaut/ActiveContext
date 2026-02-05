@@ -60,7 +60,7 @@ async def test_text_creation() -> None:
         ns = session.get_namespace()
         v = ns["v"]
         digest = v.GetDigest()
-        assert digest["type"] == "text"
+        assert digest["type"] == "TextNode"
         assert digest["path"] == "test.py"
         assert digest["expansion"] == "all"
 
@@ -106,7 +106,7 @@ async def test_group_creation() -> None:
         ns = session.get_namespace()
         g = ns["g"]
         digest = g.GetDigest()
-        assert digest["type"] == "group"
+        assert digest["type"] == "GroupNode"
         assert digest["member_count"] == 2
 
 
@@ -126,7 +126,7 @@ async def test_initial_context_and_projection() -> None:
 
         guide = ns["guide"]
         digest = guide.GetDigest()
-        assert digest["type"] == "text"  # TextNode type
+        assert digest["type"] == "TextNode"
         assert digest["media_type"] == "markdown"  # markdown media type
         assert "context_guide.md" in digest["path"]
 

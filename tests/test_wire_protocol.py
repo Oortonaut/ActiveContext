@@ -110,7 +110,7 @@ class TestNodeTypeSchema:
 
     def test_full_schema(self) -> None:
         schema = NodeTypeSchema(
-            node_type="shell",
+            node_type="ShellNode",
             description="Async shell command execution",
             constructor=ConstructorSchema(
                 positional=[ParamSchema(name="command")],
@@ -138,7 +138,7 @@ class TestNodeTypeSchema:
                 ),
             ],
         )
-        assert schema.node_type == "shell"
+        assert schema.node_type == "ShellNode"
         assert len(schema.constructor.positional) == 1
         assert schema.constructor.variadic is not None
         assert schema.constructor.variadic.name == "args"
@@ -214,12 +214,12 @@ class TestNodeManagement:
 
     def test_create_params(self) -> None:
         params = NodeCreateParams(
-            node_type="shell",
+            node_type="ShellNode",
             args=["pytest"],
             kwargs={"timeout": 120},
             node_id="sh_abc123",
         )
-        assert params.node_type == "shell"
+        assert params.node_type == "ShellNode"
         assert params.args == ["pytest"]
         assert params.node_id == "sh_abc123"
 
@@ -280,10 +280,10 @@ class TestNodeManagement:
     def test_serialize_roundtrip(self) -> None:
         params = NodeSerializeParams(node_id="sh_abc")
         result = NodeSerializeResult(
-            data={"node_type": "shell", "command": "pytest", "node_id": "sh_abc"},
+            data={"node_type": "ShellNode", "command": "pytest", "node_id": "sh_abc"},
         )
         assert params.node_id == "sh_abc"
-        assert result.data["node_type"] == "shell"
+        assert result.data["node_type"] == "ShellNode"
 
 
 class TestPushNotifications:
@@ -315,11 +315,11 @@ class TestHostAPI:
 
     def test_create_node_params(self) -> None:
         params = HostCreateNodeParams(
-            node_type="artifact",
+            node_type="ArtifactNode",
             kwargs={"content": "output", "artifact_type": "output"},
             parent_id="sh_abc",
         )
-        assert params.node_type == "artifact"
+        assert params.node_type == "ArtifactNode"
         assert params.parent_id == "sh_abc"
 
     def test_create_node_result(self) -> None:
@@ -366,12 +366,12 @@ class TestJsonRpcHelpers:
     """JSON-RPC 2.0 message construction."""
 
     def test_request_with_dataclass(self) -> None:
-        params = NodeCreateParams(node_type="shell", args=["pytest"])
+        params = NodeCreateParams(node_type="ShellNode", args=["pytest"])
         msg = to_jsonrpc_request(Methods.NODE_CREATE, params, id=1)
         assert msg["jsonrpc"] == "2.0"
         assert msg["method"] == "node/create"
         assert msg["id"] == 1
-        assert msg["params"]["node_type"] == "shell"
+        assert msg["params"]["node_type"] == "ShellNode"
         assert msg["params"]["args"] == ["pytest"]
 
     def test_request_with_dict(self) -> None:

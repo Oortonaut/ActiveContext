@@ -16,7 +16,7 @@ class TestMessageNodeBasics:
             content="Hello, world!",
             originator="user",
         )
-        assert node.node_type == "message"
+        assert node.node_type == "MessageNode"
         assert node.role == MessageRole.USER
         assert node.content == "Hello, world!"
         assert node.originator == "user"
@@ -81,7 +81,7 @@ class TestMessageNodeSerialization:
         )
         data = node.to_dict()
 
-        assert data["node_type"] == "message"
+        assert data["node_type"] == "MessageNode"
         assert data["node_id"] == "abc12345"
         assert data["role"] == "user"
         assert data["content"] == "Hello"
@@ -90,7 +90,7 @@ class TestMessageNodeSerialization:
     def test_from_dict(self) -> None:
         """Test deserialization from dict."""
         data = {
-            "node_type": "message",
+            "node_type": "MessageNode",
             "node_id": "test1234",
             "role": "assistant",
             "content": "Response",
@@ -205,5 +205,5 @@ class TestMessageNodeInGraph:
         graph.add_node(msg2)
         graph.add_node(msg3)
 
-        message_nodes = graph.get_nodes_by_type("message")
+        message_nodes = graph.get_nodes_by_type("MessageNode")
         assert len(message_nodes) == 3

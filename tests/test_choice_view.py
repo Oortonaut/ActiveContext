@@ -26,26 +26,26 @@ def mock_graph_with_children():
     graph = ContextGraph()
 
     # Create parent node
-    parent = create_mock_context_node("parent", "group")
+    parent = create_mock_context_node("parent", "GroupNode")
     parent.title = "Parent Group"
     parent.default_expansion = Expansion.ALL
     parent.child_order = LinkedChildOrder.from_list(["child-a", "child-b", "child-c"])
 
 
     # Create child nodes
-    child_a = create_mock_context_node("child-a", "text")
+    child_a = create_mock_context_node("child-a", "TextNode")
     child_a.title = "Option A"
     child_a.parent_ids = {"parent"}
     child_a.default_expansion = Expansion.ALL
 
 
-    child_b = create_mock_context_node("child-b", "text")
+    child_b = create_mock_context_node("child-b", "TextNode")
     child_b.title = "Option B"
     child_b.parent_ids = {"parent"}
     child_b.default_expansion = Expansion.ALL
 
 
-    child_c = create_mock_context_node("child-c", "text")
+    child_c = create_mock_context_node("child-c", "TextNode")
     child_c.title = "Option C"
     child_c.parent_ids = {"parent"}
     child_c.default_expansion = Expansion.ALL
@@ -366,15 +366,15 @@ class TestProjectionEngineIntegration:
         parent = mock_graph_with_children.get_node("parent")
 
         # Create a second parent node with children
-        parent2 = create_mock_context_node("parent2", "group")
+        parent2 = create_mock_context_node("parent2", "GroupNode")
         parent2.title = "Parent 2"
         parent2.default_expansion = Expansion.ALL
         parent2.child_order = LinkedChildOrder.from_list(["child-x", "child-y"])
-        child_x = create_mock_context_node("child-x", "text")
+        child_x = create_mock_context_node("child-x", "TextNode")
         child_x.title = "Option X"
         child_x.parent_ids = {"parent2"}
         child_x.default_expansion = Expansion.ALL
-        child_y = create_mock_context_node("child-y", "text")
+        child_y = create_mock_context_node("child-y", "TextNode")
         child_y.title = "Option Y"
         child_y.parent_ids = {"parent2"}
         child_y.default_expansion = Expansion.ALL

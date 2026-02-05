@@ -12,7 +12,7 @@ class TestFileSystemNode:
     def test_creation(self):
         """Test creating a filesystem node."""
         fs = FileSystemNode(root_path="/tmp")
-        assert fs.node_type == "filesystem"
+        assert fs.node_type == "FileSystemNode"
         assert fs.root_path == "/tmp"
         assert not fs.show_hidden
         assert fs.max_depth is None
@@ -134,7 +134,7 @@ class TestClockNode:
     def test_creation_stopwatch(self):
         """Test creating a stopwatch (no duration)."""
         clock = ClockNode()
-        assert clock.node_type == "clock"
+        assert clock.node_type == "ClockNode"
         assert clock.duration_seconds is None
         assert clock.is_running
 
@@ -260,7 +260,7 @@ class TestFunctionDocNode:
             file_path="test.py",
             function_name="my_function",
         )
-        assert doc.node_type == "function_doc"
+        assert doc.node_type == "FunctionDocNode"
         assert doc.file_path == "test.py"
         assert doc.function_name == "my_function"
 

@@ -34,10 +34,10 @@ class TestDAGLinkUnlinkOperations:
 
     def test_link_multiple_children_to_parent(self, graph):
         """Test linking multiple children to a single parent."""
-        parent = create_mock_context_node("parent", "group")
-        child1 = create_mock_context_node("child1", "text")
-        child2 = create_mock_context_node("child2", "text")
-        child3 = create_mock_context_node("child3", "text")
+        parent = create_mock_context_node("parent", "GroupNode")
+        child1 = create_mock_context_node("child1", "TextNode")
+        child2 = create_mock_context_node("child2", "TextNode")
+        child3 = create_mock_context_node("child3", "TextNode")
 
         for node in [parent, child1, child2, child3]:
             graph.add_node(node)
@@ -61,10 +61,10 @@ class TestDAGLinkUnlinkOperations:
 
     def test_diamond_dag_structure(self, graph):
         """Test diamond DAG: A->B, A->C, B->D, C->D (D has 2 parents)."""
-        a = create_mock_context_node("a", "group")
-        b = create_mock_context_node("b", "group")
-        c = create_mock_context_node("c", "group")
-        d = create_mock_context_node("d", "text")
+        a = create_mock_context_node("a", "GroupNode")
+        b = create_mock_context_node("b", "GroupNode")
+        c = create_mock_context_node("c", "GroupNode")
+        d = create_mock_context_node("d", "TextNode")
 
         for node in [a, b, c, d]:
             graph.add_node(node)
@@ -101,9 +101,9 @@ class TestDAGLinkUnlinkOperations:
 
     def test_unlink_preserves_other_relationships(self, graph):
         """Test that unlinking one edge preserves other edges."""
-        parent1 = create_mock_context_node("parent1", "group")
-        parent2 = create_mock_context_node("parent2", "group")
-        child = create_mock_context_node("child", "text")
+        parent1 = create_mock_context_node("parent1", "GroupNode")
+        parent2 = create_mock_context_node("parent2", "GroupNode")
+        child = create_mock_context_node("child", "TextNode")
 
         for node in [parent1, parent2, child]:
             graph.add_node(node)
@@ -128,8 +128,8 @@ class TestDAGLinkUnlinkOperations:
         Note: unlink() returns True as long as nodes exist, even if no edge exists.
         This is by design - discard is idempotent.
         """
-        node1 = create_mock_context_node("node1", "text")
-        node2 = create_mock_context_node("node2", "text")
+        node1 = create_mock_context_node("node1", "TextNode")
+        node2 = create_mock_context_node("node2", "TextNode")
 
         graph.add_node(node1)
         graph.add_node(node2)
@@ -143,7 +143,7 @@ class TestDAGLinkUnlinkOperations:
 
     def test_unlink_nonexistent_nodes_returns_false(self, graph):
         """Test unlinking with nonexistent nodes returns False."""
-        node1 = create_mock_context_node("node1", "text")
+        node1 = create_mock_context_node("node1", "TextNode")
         graph.add_node(node1)
 
         # Nonexistent parent
@@ -154,9 +154,9 @@ class TestDAGLinkUnlinkOperations:
 
     def test_link_after_unlink_cycle_detection(self, graph):
         """Test that cycle detection works after unlink/relink sequences."""
-        a = create_mock_context_node("a", "group")
-        b = create_mock_context_node("b", "group")
-        c = create_mock_context_node("c", "text")
+        a = create_mock_context_node("a", "GroupNode")
+        b = create_mock_context_node("b", "GroupNode")
+        c = create_mock_context_node("c", "TextNode")
 
         for node in [a, b, c]:
             graph.add_node(node)
@@ -185,9 +185,9 @@ class TestDAGLinkUnlinkOperations:
 
     def test_remove_node_orphans_children(self, graph):
         """Test that removing a parent orphans its children (makes them roots)."""
-        parent = create_mock_context_node("parent", "group")
-        child1 = create_mock_context_node("child1", "text")
-        child2 = create_mock_context_node("child2", "text")
+        parent = create_mock_context_node("parent", "GroupNode")
+        child1 = create_mock_context_node("child1", "TextNode")
+        child2 = create_mock_context_node("child2", "TextNode")
 
         for node in [parent, child1, child2]:
             graph.add_node(node)
@@ -220,7 +220,7 @@ class TestDAGLinkUnlinkOperations:
         #       leaf
 
         nodes = {
-            name: create_mock_context_node(name, "group" if name in ["root", "a", "b"] else "text")
+            name: create_mock_context_node(name, "GroupNode" if name in ["root", "a", "b"] else "TextNode")
             for name in ["root", "a", "b", "c", "d", "e", "f", "leaf"]
         }
 
@@ -251,10 +251,10 @@ class TestDAGLinkUnlinkOperations:
 
     def test_link_with_after_parameter(self, graph):
         """Test linking with ordering via after parameter."""
-        parent = create_mock_context_node("parent", "group")
-        child1 = create_mock_context_node("child1", "text")
-        child2 = create_mock_context_node("child2", "text")
-        child3 = create_mock_context_node("child3", "text")
+        parent = create_mock_context_node("parent", "GroupNode")
+        child1 = create_mock_context_node("child1", "TextNode")
+        child2 = create_mock_context_node("child2", "TextNode")
+        child3 = create_mock_context_node("child3", "TextNode")
 
         for node in [parent, child1, child2, child3]:
             graph.add_node(node)
@@ -289,10 +289,10 @@ class TestCheckpointRestoreBranchCycles:
         """Create a graph with nodes for checkpoint testing."""
         graph = ContextGraph()
 
-        root = create_mock_context_node("root", "group")
-        child1 = create_mock_context_node("child1", "text")
-        child2 = create_mock_context_node("child2", "text")
-        grandchild = create_mock_context_node("grandchild", "text")
+        root = create_mock_context_node("root", "GroupNode")
+        child1 = create_mock_context_node("child1", "TextNode")
+        child2 = create_mock_context_node("child2", "TextNode")
+        grandchild = create_mock_context_node("grandchild", "TextNode")
 
         for node in [root, child1, child2, grandchild]:
             graph.add_node(node)
@@ -406,7 +406,7 @@ class TestCheckpointRestoreBranchCycles:
     def test_checkpoint_preserves_roots(self, populated_graph):
         """Test that checkpoint preserves root node set."""
         # Add another root
-        new_root = create_mock_context_node("new_root", "text")
+        new_root = create_mock_context_node("new_root", "TextNode")
         populated_graph.add_node(new_root)
 
         # Now we have 2 roots
@@ -692,7 +692,7 @@ class TestDAGEdgeCases:
 
     def test_single_node_graph(self, graph):
         """Test single node graph operations."""
-        node = create_mock_context_node("solo", "text")
+        node = create_mock_context_node("solo", "TextNode")
         graph.add_node(node)
 
         assert len(graph) == 1
@@ -715,8 +715,8 @@ class TestDAGEdgeCases:
     def test_restore_adds_missing_edges_only(self, graph):
         """Test that restore only adds edges for existing nodes."""
         # Create nodes and checkpoint
-        parent = create_mock_context_node("parent", "group")
-        child = create_mock_context_node("child", "text")
+        parent = create_mock_context_node("parent", "GroupNode")
+        child = create_mock_context_node("child", "TextNode")
         graph.add_node(parent)
         graph.add_node(child)
         graph.link("child", "parent")
@@ -734,25 +734,25 @@ class TestDAGEdgeCases:
 
     def test_type_index_after_remove(self, graph):
         """Test that type index is updated after node removal."""
-        text1 = create_mock_context_node("text1", "text")
-        text2 = create_mock_context_node("text2", "text")
-        group1 = create_mock_context_node("group1", "group")
+        text1 = create_mock_context_node("text1", "TextNode")
+        text2 = create_mock_context_node("text2", "TextNode")
+        group1 = create_mock_context_node("group1", "GroupNode")
 
         graph.add_node(text1)
         graph.add_node(text2)
         graph.add_node(group1)
 
-        assert len(graph.get_nodes_by_type("text")) == 2
+        assert len(graph.get_nodes_by_type("TextNode")) == 2
 
         graph.remove_node("text1")
 
-        assert len(graph.get_nodes_by_type("text")) == 1
-        assert graph.get_nodes_by_type("text")[0].node_id == "text2"
+        assert len(graph.get_nodes_by_type("TextNode")) == 1
+        assert graph.get_nodes_by_type("TextNode")[0].node_id == "text2"
 
     def test_running_index_after_mode_change(self, graph):
         """Test that running nodes index reflects mode changes."""
-        running = create_mock_context_node("running", "text", mode="running")
-        idle = create_mock_context_node("idle", "text", mode="idle")
+        running = create_mock_context_node("running", "TextNode", mode="running")
+        idle = create_mock_context_node("idle", "TextNode", mode="idle")
 
         graph.add_node(running)
         graph.add_node(idle)
@@ -783,7 +783,7 @@ class TestDAGEdgeCases:
         Checkpoints are intentionally preserved so users can restore
         to previous states after clearing.
         """
-        node = create_mock_context_node("node", "text")
+        node = create_mock_context_node("node", "TextNode")
         graph.add_node(node)
         graph.checkpoint("cp1")
         graph.checkpoint("cp2")

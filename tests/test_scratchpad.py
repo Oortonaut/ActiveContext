@@ -309,7 +309,7 @@ class TestWorkNode:
 
     def test_node_type(self) -> None:
         node = WorkNode(node_id="work_123", intent="Test work")
-        assert node.node_type == "work"
+        assert node.node_type == "WorkNode"
 
     def test_get_digest(self) -> None:
         node = WorkNode(
@@ -328,7 +328,7 @@ class TestWorkNode:
             ],
         )
         digest = node.GetDigest()
-        assert digest["type"] == "work"
+        assert digest["type"] == "WorkNode"
         assert digest["intent"] == "Implementing feature"
         assert digest["status"] == "active"
         assert digest["file_count"] == 1
@@ -394,7 +394,7 @@ class TestWorkNode:
             agent_id="abc12345",
         )
         d = node.to_dict()
-        assert d["node_type"] == "work"
+        assert d["node_type"] == "WorkNode"
         assert d["intent"] == "Test"
         assert d["work_status"] == "paused"
         assert d["files"] == [{"path": "src/main.py", "mode": "write"}]
@@ -404,7 +404,7 @@ class TestWorkNode:
     def test_from_dict(self) -> None:
         d = {
             "node_id": "work_123",
-            "node_type": "work",
+            "node_type": "WorkNode",
             "intent": "Test",
             "work_status": "active",
             "files": [{"path": "src/main.py", "mode": "write"}],
@@ -426,7 +426,7 @@ class TestWorkNode:
 
         d = {
             "node_id": "work_123",
-            "node_type": "work",
+            "node_type": "WorkNode",
             "intent": "Test",
             "work_status": "active",
         }

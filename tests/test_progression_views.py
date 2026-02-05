@@ -33,23 +33,23 @@ def mock_graph_with_steps():
     graph = ContextGraph()
 
     # Create parent node (group for sequence)
-    parent = create_mock_context_node("parent", "group")
+    parent = create_mock_context_node("parent", "GroupNode")
     parent.title = "Workflow"
     parent.default_expansion = Expansion.ALL
     parent.child_order = LinkedChildOrder.from_list(["step-1", "step-2", "step-3"])
 
     # Create step nodes
-    step1 = create_mock_context_node("step-1", "text")
+    step1 = create_mock_context_node("step-1", "TextNode")
     step1.title = "Understand"
     step1.parent_ids = {"parent"}
     step1.default_expansion = Expansion.ALL
 
-    step2 = create_mock_context_node("step-2", "text")
+    step2 = create_mock_context_node("step-2", "TextNode")
     step2.title = "Analyze"
     step2.parent_ids = {"parent"}
     step2.default_expansion = Expansion.ALL
 
-    step3 = create_mock_context_node("step-3", "text")
+    step3 = create_mock_context_node("step-3", "TextNode")
     step3.title = "Suggest"
     step3.parent_ids = {"parent"}
     step3.default_expansion = Expansion.ALL
@@ -73,7 +73,7 @@ def mock_graph_with_loop_child():
     """Create ContextGraph with a single child node for looping."""
     graph = ContextGraph()
 
-    child = create_mock_context_node("review", "text")
+    child = create_mock_context_node("review", "TextNode")
     child.title = "Review"
     child.default_expansion = Expansion.ALL
     graph.add_node(child)
@@ -86,23 +86,23 @@ def mock_graph_with_states():
     graph = ContextGraph()
 
     # Create parent node (group for state machine)
-    parent = create_mock_context_node("parent", "group")
+    parent = create_mock_context_node("parent", "GroupNode")
     parent.title = "Task"
     parent.default_expansion = Expansion.ALL
     parent.child_order = LinkedChildOrder.from_list(["idle", "working", "done"])
 
     # Create state nodes
-    idle = create_mock_context_node("idle", "text")
+    idle = create_mock_context_node("idle", "TextNode")
     idle.title = "Idle"
     idle.parent_ids = {"parent"}
     idle.default_expansion = Expansion.ALL
 
-    working = create_mock_context_node("working", "text")
+    working = create_mock_context_node("working", "TextNode")
     working.title = "Working"
     working.parent_ids = {"parent"}
     working.default_expansion = Expansion.ALL
 
-    done = create_mock_context_node("done", "text")
+    done = create_mock_context_node("done", "TextNode")
     done.title = "Done"
     done.parent_ids = {"parent"}
     done.default_expansion = Expansion.ALL

@@ -49,7 +49,7 @@ class TestConstruction:
 
     def test_node_type(self):
         node = PtyNode(command="gdb")
-        assert node.node_type == "pty"
+        assert node.node_type == "PtyNode"
 
     def test_full_command_no_args(self):
         node = PtyNode(command="python")
@@ -258,7 +258,7 @@ class TestRendering:
     def test_get_digest_dict(self):
         node = PtyNode(command="gdb", args=["./a.out"], pty_status=PtyStatus.RUNNING)
         d = node.GetDigest()
-        assert d["type"] == "pty"
+        assert d["type"] == "PtyNode"
         assert d["command"] == "gdb ./a.out"
         assert d["status"] == "running"
 
@@ -303,7 +303,7 @@ class TestSerialization:
         node.record_input("break main\n")
 
         data = node.to_dict()
-        assert data["node_type"] == "pty"
+        assert data["node_type"] == "PtyNode"
         assert data["command"] == "gdb"
         assert data["args"] == ["./a.out"]
         assert data["pty_status"] == "running"
@@ -323,7 +323,7 @@ class TestSerialization:
 
     def test_from_dict_default_expansion(self):
         data = {
-            "node_type": "pty",
+            "node_type": "PtyNode",
             "node_id": "test1234",
             "command": "gdb",
         }
@@ -332,7 +332,7 @@ class TestSerialization:
 
     def test_from_dict_preserves_status(self):
         data = {
-            "node_type": "pty",
+            "node_type": "PtyNode",
             "node_id": "test1234",
             "command": "gdb",
             "pty_status": "exited",
@@ -347,7 +347,7 @@ class TestSerialization:
         from activecontext.context.registry import get_node_registry
 
         registry = get_node_registry()
-        cls = registry.get("pty")
+        cls = registry.get("PtyNode")
         assert cls is PtyNode
 
         node = PtyNode(command="ssh", args=["host"])

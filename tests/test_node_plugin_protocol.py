@@ -97,7 +97,7 @@ class TestAdapterMethods:
         """get_digest() calls GetDigest()."""
         node = ShellNode(command="pytest", args=["-v"])
         digest = node.get_digest()
-        assert digest["type"] == "shell"
+        assert digest["type"] == "ShellNode"
         assert digest["command"] == "pytest -v"
         assert "id" in digest
 

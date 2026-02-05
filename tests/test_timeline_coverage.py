@@ -375,7 +375,7 @@ class TestViewDispatcher:
             ns = timeline.get_namespace()
             assert "v" in ns
             # Should be a text node
-            assert ns["v"].GetDigest()["type"] == "text"
+            assert ns["v"].GetDigest()["type"] == "TextNode"
         finally:
             await timeline.close()
 
@@ -394,7 +394,7 @@ class TestViewDispatcher:
             ns = timeline.get_namespace()
             assert "v" in ns
             # Should be a text node with markdown media type
-            assert ns["v"].GetDigest()["type"] == "text"
+            assert ns["v"].GetDigest()["type"] == "TextNode"
             assert ns["v"].GetDigest()["media_type"] == "markdown"
         finally:
             await timeline.close()
@@ -1145,9 +1145,9 @@ class TestCheckWaitConditionModes:
             shell1 = ns["s1"].node if hasattr(ns["s1"], "node") else ns["s1"]
             shell2 = ns["s2"].node if hasattr(ns["s2"], "node") else ns["s2"]
 
-            # Mark only first as completed
+            # Mark first as completed, second as running (not completed)
             shell1.shell_status = ShellStatus.COMPLETED
-            # shell2 still pending
+            shell2.shell_status = ShellStatus.RUNNING  # Explicitly not completed
 
             # Set up ALL wait condition
             timeline._wait_condition = WaitCondition(

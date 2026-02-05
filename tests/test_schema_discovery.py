@@ -39,7 +39,7 @@ class TestIntrospection:
 
     def test_shell_node_type(self) -> None:
         schema = introspect_node_class(ShellNode)
-        assert schema.node_type == "shell"
+        assert schema.node_type == "ShellNode"
 
     def test_shell_constructor_has_command(self) -> None:
         schema = introspect_node_class(ShellNode)
@@ -68,11 +68,11 @@ class TestIntrospection:
 
     def test_topic_node_type(self) -> None:
         schema = introspect_node_class(TopicNode)
-        assert schema.node_type == "topic"
+        assert schema.node_type == "TopicNode"
 
     def test_artifact_node_type(self) -> None:
         schema = introspect_node_class(ArtifactNode)
-        assert schema.node_type == "artifact"
+        assert schema.node_type == "ArtifactNode"
 
     def test_description_from_docstring(self) -> None:
         schema = introspect_node_class(ShellNode)
@@ -154,8 +154,8 @@ class TestJsonSchemaConversion:
             },
             "required": ["command"],
         }
-        schema = from_json_schema("shell", js, description="Shell command")
-        assert schema.node_type == "shell"
+        schema = from_json_schema("ShellNode", js, description="Shell command")
+        assert schema.node_type == "ShellNode"
         assert schema.description == "Shell command"
         assert len(schema.constructor.positional) == 1
         assert schema.constructor.positional[0].name == "command"
@@ -375,7 +375,7 @@ class TestDSLGeneration:
         """Generate docs from a real introspected node."""
         schema = introspect_node_class(ShellNode)
         doc = generate_dsl_doc(schema)
-        assert doc.startswith("shell(")
+        assert doc.startswith("ShellNode(")
         assert len(doc) > 50  # should be non-trivial
 
 
@@ -459,11 +459,11 @@ class TestPluginDocsGeneration:
         artifact_schema = introspect_node_class(ArtifactNode)
 
         doc = generate_plugin_docs([shell_schema, topic_schema, artifact_schema])
-        assert "## artifact" in doc
-        assert "## shell" in doc
-        assert "## topic" in doc
+        assert "## ArtifactNode" in doc
+        assert "## ShellNode" in doc
+        assert "## TopicNode" in doc
         # Verify sorted order
-        assert doc.find("## artifact") < doc.find("## shell") < doc.find("## topic")
+        assert doc.find("## ArtifactNode") < doc.find("## ShellNode") < doc.find("## TopicNode")
 
 
 class TestSchemaDiscoveryIntegration:
@@ -500,7 +500,7 @@ class TestSchemaDiscoveryIntegration:
         sig = generate_dsl_signature(schema)
 
         # Should be a valid Python-like signature
-        assert sig.startswith("artifact(")
+        assert sig.startswith("ArtifactNode(")
         assert sig.endswith(")")
         # Should not have syntax errors (basic check)
         assert sig.count("(") == sig.count(")")
@@ -511,7 +511,7 @@ class TestSchemaDiscoveryIntegration:
         doc = generate_dsl_doc(schema)
 
         # Should have signature
-        assert "shell(" in doc
+        assert "ShellNode(" in doc
         # Should have description
         assert len(doc) > 100
         # Should be multi-line

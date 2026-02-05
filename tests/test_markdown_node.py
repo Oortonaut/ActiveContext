@@ -17,7 +17,7 @@ class TestMarkdownListItemNode:
             indent_level=0,
             marker="-",
         )
-        assert item.node_type == "markdown_list_item"
+        assert item.node_type == "MarkdownListItemNode"
         assert item.content == "First item"
         assert not item.is_ordered
         assert item.indent_level == 0
@@ -59,7 +59,7 @@ class TestMarkdownListItemNode:
         """Test digest generation."""
         item = MarkdownListItemNode(content="Short", is_ordered=False)
         digest = item.GetDigest()
-        assert digest["type"] == "markdown_list_item"
+        assert digest["type"] == "MarkdownListItemNode"
         assert digest["content_preview"] == "Short"
         assert not digest["is_ordered"]
         assert "indent_level" not in digest
@@ -86,7 +86,7 @@ class TestMarkdownNode:
     def test_creation(self):
         """Test creating a markdown node."""
         md = MarkdownNode(content="# Hello\n- Item 1\n- Item 2")
-        assert md.node_type == "markdown"
+        assert md.node_type == "MarkdownNode"
         assert md.auto_parse
 
     def test_parse_unordered_list(self):
@@ -265,7 +265,7 @@ class TestMarkdownNode:
         """Test digest generation."""
         md = MarkdownNode(content="Test content")
         digest = md.GetDigest()
-        assert digest["type"] == "markdown"
+        assert digest["type"] == "MarkdownNode"
         assert digest["content_length"] == 12
 
     def test_serialization(self):
@@ -323,7 +323,7 @@ class TestMarkdownNode:
         render2 = NodeView(children[2]).render()
 
         # HEADER should only show metadata, not content
-        assert "markdown_list_item" in render0
+        assert "markdownlistitem_" in render0  # display_type based ID
         assert "First item" not in render0
 
         # CONTENT and ALL should show the item content

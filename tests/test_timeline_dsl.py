@@ -51,8 +51,8 @@ class TestLsHandles:
 
             # Check structure (GetDigest format)
             types = [h["type"] for h in handles]
-            assert "text" in types
-            assert "topic" in types
+            assert "TextNode" in types
+            assert "TopicNode" in types
         finally:
             await timeline.close()
 
@@ -135,7 +135,7 @@ Run pip install"""
 
             # markdown() now returns a TextNode (root of tree)
             digest = ns["m"].GetDigest()
-            assert digest["type"] == "text"
+            assert digest["type"] == "TextNode"
             assert digest["media_type"] == "markdown"
 
             # Root should have children (the ## sections)
@@ -162,7 +162,7 @@ Run pip install"""
 
             # Should be a TextNode
             digest = ns["m"].GetDigest()
-            assert digest["type"] == "text"
+            assert digest["type"] == "TextNode"
         finally:
             await timeline.close()
 

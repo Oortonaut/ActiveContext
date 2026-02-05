@@ -86,7 +86,7 @@ class NodeView:
 
         # Build display_id: "text_1" or fallback to node_id
         seq = node.display_sequence
-        display_id = f"{node.node_type}_{seq}" if seq is not None else node.node_id
+        display_id = f"{node.display_type}_{seq}" if seq is not None else node.node_id
 
         name = node.render_digest()
 

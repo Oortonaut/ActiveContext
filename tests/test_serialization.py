@@ -69,12 +69,12 @@ class TestJsonSerializer:
     # -- encode_request --
 
     def test_encode_request_with_dict_params(self) -> None:
-        data = self.s.encode_request("node/create", {"node_type": "shell"}, id=1)
+        data = self.s.encode_request("node/create", {"node_type": "ShellNode"}, id=1)
         msg = json.loads(data)
         assert msg["jsonrpc"] == "2.0"
         assert msg["method"] == "node/create"
         assert msg["id"] == 1
-        assert msg["params"]["node_type"] == "shell"
+        assert msg["params"]["node_type"] == "ShellNode"
 
     def test_encode_request_with_dataclass_params(self) -> None:
         params = SampleParams(node_id="sh_42", calls=[])
@@ -204,7 +204,7 @@ class TestJsonRoundTrip:
         self.s = JsonSerializer()
 
     def test_round_trip_request(self) -> None:
-        original_params = {"node_type": "shell", "args": ["pytest", "-v"]}
+        original_params = {"node_type": "ShellNode", "args": ["pytest", "-v"]}
         encoded = self.s.encode_request("node/create", original_params, id=42)
         decoded = self.s.decode(encoded)
         assert decoded["jsonrpc"] == "2.0"

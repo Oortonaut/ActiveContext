@@ -389,13 +389,13 @@ class TestGrpcTransportDispatch:
                     "jsonrpc": "2.0",
                     "method": "host/create_node",
                     "id": 999,
-                    "params": {"node_type": "text"},
+                    "params": {"node_type": "TextNode"},
                 }
             )
 
         assert received_params is not None
         assert received_params["_request_id"] == 999
-        assert received_params["node_type"] == "text"
+        assert received_params["node_type"] == "TextNode"
 
 
 class TestGrpcTransportReconnection:

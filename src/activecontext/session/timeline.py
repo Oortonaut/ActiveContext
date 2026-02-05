@@ -3316,7 +3316,7 @@ Provide a concise summary:"""
         nodes: list[ShellNode | LockNode | PtyNode] = []
         for node_id in condition.node_ids:
             node = self._context_graph.get_node(node_id)
-            if node is not None and node.node_type in ("shell", "lock", "pty"):
+            if isinstance(node, (ShellNode, LockNode, PtyNode)):
                 nodes.append(node)  # type: ignore[arg-type]
 
         if not nodes:
