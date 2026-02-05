@@ -59,7 +59,7 @@ def is_pty_supported() -> bool:
     # Windows: requires pywinpty (ConPTY wrapper)
     if sys.platform == "win32":
         try:
-            from winpty import PtyProcess  # noqa: F401
+            from winpty import PtyProcess  # type: ignore[import-untyped]  # noqa: F401
 
             return True
         except ImportError:
@@ -186,7 +186,7 @@ async def _execute_unix_pty(
 
     try:
         # Create PTY
-        master_fd, slave_fd = pty.openpty()
+        master_fd, slave_fd = pty.openpty()  # type: ignore[attr-defined]
 
         # Set terminal size on the PTY
         try:
@@ -195,7 +195,7 @@ async def _execute_unix_pty(
             import termios
 
             winsize = struct.pack("HHHH", config.rows, config.columns, 0, 0)
-            fcntl.ioctl(master_fd, termios.TIOCSWINSZ, winsize)
+            fcntl.ioctl(master_fd, termios.TIOCSWINSZ, winsize)  # type: ignore[attr-defined]
         except Exception:
             pass  # Size setting is best-effort
 
@@ -221,8 +221,8 @@ async def _execute_unix_pty(
             # Set non-blocking
             import fcntl
 
-            flags = fcntl.fcntl(master_fd, fcntl.F_GETFL)
-            fcntl.fcntl(master_fd, fcntl.F_SETFL, flags | os.O_NONBLOCK)
+            flags = fcntl.fcntl(master_fd, fcntl.F_GETFL)  # type: ignore[attr-defined]
+            fcntl.fcntl(master_fd, fcntl.F_SETFL, flags | os.O_NONBLOCK)  # type: ignore[attr-defined]
 
             # Wait for process with timeout
             if timeout:

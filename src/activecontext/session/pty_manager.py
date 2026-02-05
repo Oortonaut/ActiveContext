@@ -156,7 +156,7 @@ class PtyManager:
                     # Exit code was set by _read_loop before sentinel.
                     stored = getattr(backend, "_exit_code", None)
                     if stored is not None:
-                        exit_code = stored  # type: ignore[assignment]
+                        exit_code = stored
 
                 if node.pty_status not in (PtyStatus.EXITED, PtyStatus.KILLED, PtyStatus.ERROR):
                     node.set_exited(exit_code)

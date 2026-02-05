@@ -14,25 +14,33 @@ import acp
 from acp import helpers
 from acp.schema import (
     AgentCapabilities,
+    AgentMessageChunk,
+    AgentPlanUpdate,
+    AgentThoughtChunk,
     AudioContentBlock,
     AvailableCommand,
     AvailableCommandInput,
     AvailableCommandsUpdate,
     ClientCapabilities,
+    CurrentModeUpdate,
     ImageContentBlock,
     Implementation,
     ModelInfo,
     PermissionOption,
     PromptCapabilities,
     SessionCapabilities,
+    SessionInfoUpdate,
     SessionMode,
     SessionModelState,
     SessionModeState,
     SetSessionModelResponse,
     SetSessionModeResponse,
     TextContentBlock,
+    ToolCallProgress,
+    ToolCallStart,
     ToolCallUpdate,
     UnstructuredCommandInput,
+    UserMessageChunk,
 )
 
 from activecontext.core.llm import (
@@ -103,7 +111,10 @@ def _find_jetbrains_chat_uuid() -> str | None:
     return None
 
 
-from activecontext.session.protocols import SessionUpdate, UpdateKind
+from activecontext.session.protocols import (
+    SessionUpdate as ActiveContextSessionUpdate,
+)
+from activecontext.session.protocols import UpdateKind
 from activecontext.session.session_manager import Session, SessionManager
 from activecontext.session.storage import list_sessions as list_sessions_from_disk
 from activecontext.terminal.acp_executor import ACPTerminalExecutor
@@ -113,6 +124,19 @@ log = get_logger("acp")
 if TYPE_CHECKING:
     from acp.interfaces import Client
     from activecontext.session.coordinator import SessionConversationTransport
+
+# Type alias for ACP session update union (to avoid confusion with activecontext's SessionUpdate)
+ACPSessionUpdate = (
+    UserMessageChunk
+    | AgentMessageChunk
+    | AgentThoughtChunk
+    | ToolCallStart
+    | ToolCallProgress
+    | AgentPlanUpdate
+    | AvailableCommandsUpdate
+    | CurrentModeUpdate
+    | SessionInfoUpdate
+)
 
 # Default session modes (used if no config or config has no modes)
 DEFAULT_SESSION_MODES = [
@@ -609,10 +633,10 @@ class ActiveContextAgent:
         receive permission requesters through the constructor.
         """
         tl = session.timeline
-        tl._permission_requester = self._request_file_permission
-        tl._shell_permission_requester = self._request_shell_permission
-        tl._website_permission_requester = self._request_website_permission
-        tl._import_permission_requester = self._request_import_permission
+        tl._permission_requester = self._request_file_permission  # type: ignore[assignment]
+        tl._shell_permission_requester = self._request_shell_permission  # type: ignore[assignment]
+        tl._website_permission_requester = self._request_website_permission  # type: ignore[assignment]
+        tl._import_permission_requester = self._request_import_permission  # type: ignore[assignment]
 
     def on_connect(self, conn: Client) -> None:
         """Called when a client connects."""
@@ -1416,7 +1440,7 @@ class ActiveContextAgent:
         """
 
         # Set update callback for SessionConversationTransport
-        async def emit_update(update: SessionUpdate) -> None:
+        async def emit_update(update: ActiveContextSessionUpdate) -> None:
             """Emit a SessionUpdate to the ACP client."""
             await self._emit_update(session.session_id, update)
 
@@ -1793,7 +1817,7 @@ class ActiveContextAgent:
         # Unknown command - let it pass through to LLM
         return False, ""
 
-    async def _send_session_update(self, session_id: str, update: SessionUpdate) -> None:
+    async def _send_session_update(self, session_id: str, update: ACPSessionUpdate) -> None:
         """Send a session update, checking if session is still open."""
         if not self._conn or session_id in self._closed_sessions:
             return
@@ -1971,14 +1995,14 @@ class ActiveContextAgent:
         for update in queued:
             await self._emit_update_internal(session_id, update)
 
-    def _queue_update(self, session_id: str, update: SessionUpdate) -> None:
+    def _queue_update(self, session_id: str, update: ActiveContextSessionUpdate) -> None:
         """Queue an update for later delivery."""
         if session_id not in self._queued_updates:
             self._queued_updates[session_id] = []
         self._queued_updates[session_id].append(update)
         log.debug("Queued update %s for session %s", update.kind, session_id)
 
-    async def _emit_update(self, session_id: str, update: SessionUpdate) -> None:
+    async def _emit_update(self, session_id: str, update: ActiveContextSessionUpdate) -> None:
         """Convert and emit a SessionUpdate as an ACP notification.
 
         When out_of_band_update=False and not in a prompt, queues the update
@@ -2001,7 +2025,7 @@ class ActiveContextAgent:
 
         await self._emit_update_internal(session_id, update)
 
-    async def _emit_update_internal(self, session_id: str, update: SessionUpdate) -> None:
+    async def _emit_update_internal(self, session_id: str, update: ActiveContextSessionUpdate) -> None:
         """Internal method to convert and emit a SessionUpdate as an ACP notification."""
         # Priority flush: non-RESPONSE_CHUNK updates flush any pending chunks first
         if (
@@ -2022,8 +2046,8 @@ class ActiveContextAgent:
                     await self._send_session_update(
                         session_id,
                         CurrentModeUpdate(
-                            currentModeId=mode_changed,
-                            sessionUpdate="current_mode_update",
+                            current_mode_id=mode_changed,
+                            session_update="current_mode_update",
                         ),
                     )
                     # Also update tracked mode for this session

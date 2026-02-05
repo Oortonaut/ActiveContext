@@ -108,7 +108,7 @@ class UnixPtyBackend:
     ) -> None:
         import pty
 
-        master_fd, slave_fd = pty.openpty()
+        master_fd, slave_fd = pty.openpty()  # type: ignore[attr-defined]
         self._master_fd = master_fd
 
         # Set terminal size
@@ -210,7 +210,7 @@ class UnixPtyBackend:
             import termios
 
             winsize = struct.pack("HHHH", rows, cols, 0, 0)
-            fcntl.ioctl(fd, termios.TIOCSWINSZ, winsize)
+            fcntl.ioctl(fd, termios.TIOCSWINSZ, winsize)  # type: ignore[attr-defined]
         except Exception:
             pass
 
@@ -225,7 +225,7 @@ class UnixPtyBackend:
 def _has_pywinpty() -> bool:
     """Check if pywinpty is importable."""
     try:
-        from winpty import PtyProcess  # noqa: F401
+        from winpty import PtyProcess  # type: ignore[import-untyped]  # noqa: F401
 
         return True
     except ImportError:
@@ -298,7 +298,7 @@ class WinPtyBackend:
         if self._proc is None:
             return ""
         try:
-            return self._proc.read(size)
+            return self._proc.read(size)  # type: ignore[no-any-return]
         except EOFError:
             raise
 
@@ -312,7 +312,7 @@ class WinPtyBackend:
     def is_alive(self) -> bool:
         if self._proc is None or self._closed:
             return False
-        return self._proc.isalive()
+        return self._proc.isalive()  # type: ignore[no-any-return]
 
     async def wait(self) -> int:
         if self._proc is None:
@@ -374,11 +374,11 @@ def create_pty_backend(columns: int = 80, rows: int = 24) -> PtyBackend:
     Raises ``NotImplementedError`` on unsupported platforms.
     """
     if sys.platform in ("linux", "darwin"):
-        return UnixPtyBackend(columns, rows)  # type: ignore[return-value]
+        return UnixPtyBackend(columns, rows)
     if sys.platform == "win32":
         if not _has_pywinpty():
             raise NotImplementedError(
                 "PTY on Windows requires pywinpty: pip install pywinpty"
             )
-        return WinPtyBackend(columns, rows)  # type: ignore[return-value]
+        return WinPtyBackend(columns, rows)
     raise NotImplementedError(f"No PTY backend for platform: {sys.platform}")

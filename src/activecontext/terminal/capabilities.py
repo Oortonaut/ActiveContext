@@ -167,9 +167,9 @@ def _detect_color_support(is_tty: bool) -> ColorSupport:
         # Windows 10+ supports ANSI colors
         try:
             # Check Windows version
-            version = sys.getwindowsversion()  # type: ignore[attr-defined]
+            version = sys.getwindowsversion()
             if version.major >= 10:
-                return ColorSupport.BASIC_16
+                return ColorSupport.TRUECOLOR
         except Exception:
             pass
 
@@ -195,9 +195,9 @@ def _detect_unicode_support() -> bool:
             return True
         # Check for UTF-8 code page
         try:
-            import ctypes  # type: ignore[import]
+            import ctypes
 
-            cp = ctypes.windll.kernel32.GetConsoleOutputCP()  # type: ignore[attr-defined]
+            cp = ctypes.windll.kernel32.GetConsoleOutputCP()
             if cp == 65001:  # UTF-8 code page
                 return True
         except Exception:

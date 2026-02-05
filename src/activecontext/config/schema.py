@@ -64,7 +64,7 @@ def _load_startup_statements() -> list[str]:
     return statements
 
 
-def _load_startup_segments() -> list:
+def _load_startup_segments() -> list[Any]:
     """Parse startup.md into a list of Segment objects.
 
     Returns all segments (prose, fenced, quoted) from the literate
@@ -83,7 +83,7 @@ def _load_startup_segments() -> list:
 PACKAGE_DEFAULT_STARTUP: list[str] = _load_startup_statements()
 
 # Segment-based startup for use with Timeline.ingest_segments()
-PACKAGE_DEFAULT_SEGMENTS: list = _load_startup_segments()
+PACKAGE_DEFAULT_SEGMENTS: list[Any] = _load_startup_segments()
 
 
 @dataclass
