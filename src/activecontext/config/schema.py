@@ -64,10 +64,26 @@ def _load_startup_statements() -> list[str]:
     return statements
 
 
+def _load_startup_segments() -> list:
+    """Parse startup.md into a list of Segment objects.
+
+    Returns all segments (prose, fenced, quoted) from the literate
+    startup.md document for use with ``Timeline.ingest_segments()``.
+    """
+    from activecontext.core.prompts import parse_response
+    from activecontext.resources import load_prompt
+
+    parsed = parse_response(load_prompt("startup"))
+    return parsed.segments
+
+
 # Package default startup statements - parsed from resources/prompts/startup.md
 # Note: context_guide is handled separately by _load_context_guide() which supports
 # project-specific overrides via CONTEXT_GUIDE.md in cwd
 PACKAGE_DEFAULT_STARTUP: list[str] = _load_startup_statements()
+
+# Segment-based startup for use with Timeline.ingest_segments()
+PACKAGE_DEFAULT_SEGMENTS: list = _load_startup_segments()
 
 
 @dataclass

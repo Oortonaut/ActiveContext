@@ -419,7 +419,7 @@ class TestSessionStartup:
 
     @pytest.mark.asyncio
     async def test_startup_yields_updates(self, mock_llm_provider):
-        """Test that startup() yields STATEMENT_EXECUTING and STATEMENT_EXECUTED updates."""
+        """Test that startup() yields STATEMENT_EXECUTED updates via segment pipeline."""
         from activecontext.session.protocols import UpdateKind
 
         manager = SessionManager(default_llm=mock_llm_provider)
@@ -431,13 +431,12 @@ class TestSessionStartup:
         async for update in session.startup():
             updates.append(update)
 
-        # Should have at least some updates (base statements from PACKAGE_DEFAULT_STARTUP)
+        # Should have at least some updates from default startup segments
         assert len(updates) > 0
 
-        # Updates should alternate between EXECUTING and EXECUTED
-        executing_count = sum(1 for u in updates if u.kind == UpdateKind.STATEMENT_EXECUTING)
+        # All updates should be STATEMENT_EXECUTED (segment pipeline)
         executed_count = sum(1 for u in updates if u.kind == UpdateKind.STATEMENT_EXECUTED)
-        assert executing_count == executed_count
+        assert executed_count > 0
 
         # Each update should have is_startup flag
         for update in updates:

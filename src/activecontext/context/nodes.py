@@ -309,7 +309,7 @@ class ContextNode(ABC):
     # When set, traces link to this node instead of being orphaned
     trace_sink: ContextNode | None = field(default=None, repr=False)
 
-    # Graph reference (set by ContextGraph.add_node)
+    # Graph reference: None during __init__, always set by ContextGraph.add_node() before use
     _graph: ContextGraph | None = field(default=None, init=False, repr=False)
 
     # Optional hook for child change notifications
@@ -1182,7 +1182,6 @@ class TextNode(ContextNode):
         except ValueError:
             media_type = MediaType.TEXT
 
-
         node = cls(
             node_id=data["node_id"],
             parent_ids=set(data.get("parent_ids", [])),
@@ -1335,7 +1334,6 @@ class GroupNode(ContextNode):
         tick_freq = None
         if data.get("tick_frequency"):
             tick_freq = TickFrequency.from_dict(data["tick_frequency"])
-
 
         node = cls(
             node_id=data["node_id"],
@@ -1945,8 +1943,7 @@ class PtyNode(ContextNode):
 
         # Trim ring buffer
         while (
-            len(self._scrollback_lines) > _PTY_MAX_LINES
-            or self._scrollback_bytes > _PTY_MAX_BYTES
+            len(self._scrollback_lines) > _PTY_MAX_LINES or self._scrollback_bytes > _PTY_MAX_BYTES
         ) and self._scrollback_lines:
             dropped = self._scrollback_lines.pop(0)
             self._scrollback_bytes -= len(dropped) + 1
@@ -2626,18 +2623,20 @@ class SessionNode(ContextNode):
 
 @dataclass(kw_only=True)
 class MessageNode(ContextNode):
-    """Represents a message in the conversation history.
+    """Metadata-only envelope for a conversation message.
 
-    MessageNodes are automatically created when messages are added to the
-    conversation. They enable:
-    - ID-based referencing of messages (e.g., [msg:abc123])
-    - Proper role alternation for LLM pretraining compatibility
-    - Block merging of adjacent same-role content
+    MessageNodes serve as hidden envelopes that anchor the message in
+    the conversation history.  The actual visible content lives in
+    ``MessageSegmentNode`` children created by ``Timeline.ingest_segments()``.
+
+    The ``content`` field is retained for backward compatibility with
+    ``_message_history`` and session serialization — old sessions with
+    content-bearing MessageNodes still load correctly.
 
     Attributes:
         role: Message role ("user", "assistant", "tool_call", "tool_result")
-        content: The message content
-        originator: (inherited) Who produced this message (e.g., "user", "agent", "tool:grep")
+        content: Full response text (kept for history/serialization)
+        originator: (inherited) Who produced this message
         tool_name: Tool name for tool_call/tool_result messages
         tool_args: Tool arguments (for tool_call messages)
         content_type: Content type ("text", "image", "audio", etc.)
@@ -2651,6 +2650,7 @@ class MessageNode(ContextNode):
     content_type: str = "text"  # "text", "image", "audio", etc.
     mime_type: str | None = None  # MIME type (e.g., "image/png")
     processed: bool = False  # Whether this message has been processed by the agent loop
+    default_hidden: bool = True  # Hidden by default; segments carry visible content
 
     @property
     def node_type(self) -> str:
@@ -2728,9 +2728,13 @@ class MessageNode(ContextNode):
         cwd: str = ".",
         text_buffers: dict[str, Any] | None = None,
     ) -> str:
-        """Render full message content."""
-        content = self._get_formatted_content()
-        return content + "\n"
+        """Render minimal metadata line.
+
+        The full message content is in child ``MessageSegmentNode`` objects.
+        This envelope renders only role and originator for debugging.
+        """
+        label = self.display_label
+        return f"[{self.role.value}: {label}]\n"
 
     def _format_tool_call(self) -> str:
         """Format a tool call message."""
@@ -2761,22 +2765,19 @@ class MessageNode(ContextNode):
         return f"{role_display} #{seq}"
 
     def get_token_breakdown(self) -> TokenInfo:
-        """Return token counts for collapsed/summary/detail."""
+        """Return token counts — detail is 0 since content lives in segments."""
         from activecontext.core.tokens import count_tokens
 
         from .headers import TokenInfo
 
-        # Collapsed: role and char count
-        collapsed_text = f"[{self.role.value.upper()}: {len(self.content)} chars]\n"
+        # Collapsed: role metadata line
+        collapsed_text = f"[{self.role.value.upper()}: {self.display_label}]\n"
         collapsed_tokens = count_tokens(collapsed_text)
-
-        # Detail: full message content
-        detail_tokens = count_tokens(self.content)
 
         return TokenInfo(
             title=collapsed_tokens,
             content=0,
-            detail=detail_tokens,
+            detail=0,
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -2820,6 +2821,142 @@ class MessageNode(ContextNode):
             content=data.get("content", ""),
             tool_name=data.get("tool_name"),
             tool_args=data.get("tool_args", {}),
+        )
+        return node
+
+
+@dataclass(kw_only=True)
+class MessageSegmentNode(ContextNode):
+    """A parsed segment of an LLM response, held as a context node.
+
+    Each segment represents one structural piece of a parsed response:
+    prose text, a fenced code block, or a blockquote.  Segments are
+    created by ``Timeline.ingest_segments()`` and linked to a parent
+    group or the root context.
+
+    Attributes:
+        kind: Structural type — ``"prose"``, ``"fenced"``, or ``"quoted"``.
+        content: The parsed text content.
+        language: For fenced blocks, the language tag
+            (e.g. ``"python/acrepl"``, ``"xml"``, ``"bash"``).
+            Empty string for non-fenced segments.
+        mime_type: Content format hint (e.g. ``"text/markdown"``).
+        source_message_id: Back-reference to the parent ``MessageNode``
+            that produced this segment (optional).
+    """
+
+    kind: str = "prose"
+    content: str = ""
+    language: str = ""
+    mime_type: str = "text/markdown"
+    source_message_id: str | None = None
+
+    @property
+    def node_type(self) -> str:
+        return "segment"
+
+    def GetDigest(self) -> dict[str, Any]:
+        return {
+            "id": self.node_id,
+            "type": self.node_type,
+            "kind": self.kind,
+            "language": self.language,
+            "content_length": len(self.content),
+            "source_message_id": self.source_message_id,
+            "expansion": self.default_expansion.value,
+            "mode": self.mode,
+            "version": self.version,
+        }
+
+    def render_content(
+        self,
+        cwd: str = ".",
+        text_buffers: dict[str, Any] | None = None,
+    ) -> str:
+        """Render segment content.
+
+        Fenced blocks are wrapped in triple-backtick markers with the
+        language tag.  Prose and quoted segments return content as-is.
+        """
+        if self.kind == "fenced" and self.language:
+            return f"```{self.language}\n{self.content}\n```\n"
+        return self.content + "\n"
+
+    def set_content(self, content: str) -> MessageSegmentNode:
+        """Update segment content."""
+        old_len = len(self.content)
+        self.content = content
+        self.mark_changed(
+            f"Segment content updated ({old_len} → {len(content)} chars)",
+        )
+        return self
+
+    def render_digest(self) -> str:
+        """Return a compact descriptor like ``prose``, ``python/acrepl``, etc."""
+        if self.kind == "fenced" and self.language:
+            return self.language
+        return self.kind
+
+    def get_token_breakdown(self) -> TokenInfo:
+        """Return token counts for collapsed/detail."""
+        from activecontext.core.tokens import count_tokens
+
+        from .headers import TokenInfo
+
+        # Collapsed: metadata line
+        collapsed_text = f"[{self.render_digest()}: {len(self.content)} chars]\n"
+        collapsed_tokens = count_tokens(collapsed_text)
+
+        # Detail: full content
+        detail_tokens = count_tokens(self.content)
+
+        return TokenInfo(
+            title=collapsed_tokens,
+            content=0,
+            detail=detail_tokens,
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize MessageSegmentNode to dict."""
+        data = super().to_dict()
+        data.update(
+            {
+                "kind": self.kind,
+                "content": self.content,
+                "language": self.language,
+                "mime_type": self.mime_type,
+                "source_message_id": self.source_message_id,
+            }
+        )
+        return data
+
+    @classmethod
+    def _from_dict(cls, data: dict[str, Any]) -> MessageSegmentNode:
+        """Deserialize MessageSegmentNode from dict."""
+        tick_freq = None
+        if data.get("tick_frequency"):
+            tick_freq = TickFrequency.from_dict(data["tick_frequency"])
+
+        node = cls(
+            node_id=data["node_id"],
+            parent_ids=set(data.get("parent_ids", [])),
+            child_order=LinkedChildOrder.from_list(
+                data.get("child_order") or data.get("children_ids") or []
+            ),
+            default_expansion=Expansion(data.get("expansion", "all")),
+            mode=data.get("mode", "paused"),
+            tick_frequency=tick_freq,
+            version=data.get("version", 0),
+            created_at=data.get("created_at", time.time()),
+            updated_at=data.get("updated_at", time.time()),
+            display_sequence=data.get("display_sequence"),
+            originator=data.get("originator"),
+            title=data.get("title", ""),
+            kind=data.get("kind", "prose"),
+            content=data.get("content", ""),
+            language=data.get("language", ""),
+            mime_type=data.get("mime_type", "text/markdown"),
+            source_message_id=data.get("source_message_id"),
         )
         return node
 
@@ -3365,7 +3502,6 @@ class MCPServerNode(ContextNode):
         tick_freq = None
         if data.get("tick_frequency"):
             tick_freq = TickFrequency.from_dict(data["tick_frequency"])
-
 
         node = cls(
             node_id=data["node_id"],

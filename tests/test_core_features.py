@@ -10,7 +10,11 @@ from activecontext.session.protocols import Projection, ProjectionSection
 
 def _executable(parsed: ParsedResponse) -> list[str]:
     """Extract executable segment contents (python/acrepl fenced + XML)."""
-    return [s.content for s in parsed.segments if s.language == "python/acrepl" or s.kind == "xml"]
+    return [
+        s.content
+        for s in parsed.segments
+        if s.language == "python/acrepl" or s.language == "xml"
+    ]
 
 
 class TestBlockSplitting:
@@ -206,13 +210,14 @@ echo hi
         assert parsed.segments[0].mime_type == "text/markdown"
 
     def test_xml_command_mime_type(self) -> None:
-        """XML DSL commands get application/xml mime type."""
+        """XML DSL commands are auto-fenced with application/xml mime type."""
         text = """I'll create a view.
 <view name="v" path="main.py"/>
 Done."""
         parsed = parse_response(text)
-        xml_segs = [s for s in parsed.segments if s.kind == "xml"]
+        xml_segs = [s for s in parsed.segments if s.language == "xml"]
         assert len(xml_segs) == 1
+        assert xml_segs[0].kind == "fenced"
         assert xml_segs[0].mime_type == "application/xml"
         assert "view" in xml_segs[0].content
 
@@ -301,56 +306,59 @@ class TestXmlCommandParsing:
     """Tests for XML DSL command detection in prose."""
 
     def test_self_closing_view(self) -> None:
-        """Self-closing <view/> tag detected as xml segment."""
+        """Self-closing <view/> tag auto-fenced as xml."""
         text = """I'll show you the file.
 <view name="v" path="main.py"/>
 Here it is."""
         parsed = parse_response(text)
-        xml = [s for s in parsed.segments if s.kind == "xml"]
+        xml = [s for s in parsed.segments if s.language == "xml"]
         assert len(xml) == 1
+        assert xml[0].kind == "fenced"
         assert "<view" in xml[0].content
 
     def test_self_closing_shell(self) -> None:
-        """Self-closing <shell/> tag detected as xml segment."""
+        """Self-closing <shell/> tag auto-fenced as xml."""
         text = """Running tests.
 <shell cmd="pytest -v"/>
 Done."""
         parsed = parse_response(text)
-        xml = [s for s in parsed.segments if s.kind == "xml"]
+        xml = [s for s in parsed.segments if s.language == "xml"]
         assert len(xml) == 1
+        assert xml[0].kind == "fenced"
         assert "<shell" in xml[0].content
 
     def test_done_tag(self) -> None:
-        """<done/> tag detected as xml segment."""
+        """<done/> tag auto-fenced as xml."""
         text = """Task complete.
 <done message="All finished"/>"""
         parsed = parse_response(text)
-        xml = [s for s in parsed.segments if s.kind == "xml"]
+        xml = [s for s in parsed.segments if s.language == "xml"]
         assert len(xml) == 1
+        assert xml[0].kind == "fenced"
         assert "<done" in xml[0].content
 
     def test_multiple_xml_commands(self) -> None:
-        """Multiple XML commands each become separate xml segments."""
+        """Multiple XML commands each become separate fenced xml segments."""
         text = """Setting up.
 <view name="v1" path="a.py"/>
 <view name="v2" path="b.py"/>
 Ready."""
         parsed = parse_response(text)
-        xml = [s for s in parsed.segments if s.kind == "xml"]
+        xml = [s for s in parsed.segments if s.language == "xml"]
         assert len(xml) == 2
 
     def test_html_tags_not_detected(self) -> None:
         """Regular HTML tags should not be treated as DSL commands."""
         text = """Here is some <em>emphasized</em> text and a <div> block."""
         parsed = parse_response(text)
-        xml = [s for s in parsed.segments if s.kind == "xml"]
+        xml = [s for s in parsed.segments if s.language == "xml"]
         assert len(xml) == 0
 
     def test_unknown_xml_tags_ignored(self) -> None:
         """XML tags not in the DSL set are ignored."""
         text = """Some <custom attr="val"/> tag."""
         parsed = parse_response(text)
-        xml = [s for s in parsed.segments if s.kind == "xml"]
+        xml = [s for s in parsed.segments if s.language == "xml"]
         assert len(xml) == 0
 
     def test_xml_mixed_with_fenced_code(self) -> None:
@@ -375,7 +383,7 @@ x = v.content
         text = """> <view name="v" path="old.py"/>
 Not code."""
         parsed = parse_response(text)
-        xml_segs = [s for s in parsed.segments if s.kind == "xml"]
+        xml_segs = [s for s in parsed.segments if s.language == "xml"]
         assert len(xml_segs) == 0
 
     def test_link_tag(self) -> None:
@@ -384,7 +392,7 @@ Not code."""
 <link parent="g1">child1</link>
 Done."""
         parsed = parse_response(text)
-        xml = [s for s in parsed.segments if s.kind == "xml"]
+        xml = [s for s in parsed.segments if s.language == "xml"]
         assert len(xml) == 1
         assert "<link" in xml[0].content
 

@@ -52,12 +52,16 @@ from activecontext.session.timeline import Timeline
 log = get_logger("session")
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Coroutine
+    from collections.abc import Awaitable, Callable, Coroutine
     from typing import Any
 
     from activecontext.config.schema import Config
     from activecontext.context.buffer import TextBuffer
+    from activecontext.context.nodes import ContextNode
+    from activecontext.context.view import ChoiceView
     from activecontext.core.llm.provider import LLMProvider, Message
+    from activecontext.protocols.conversation import ConversationHandler
+    from activecontext.session.coordinator import ConversationHandle, SessionConversationTransport
     from activecontext.terminal.protocol import TerminalExecutor
 
     # Type for file permission requester callback:
@@ -214,14 +218,16 @@ class Session:
 
         # Mode tracking for ChoiceView-based mode scripts
         self._mode_id: str = "normal"
-        self._mode_choice_view: Any | None = None  # ChoiceView for mode scripts
+        self._mode_choice_view: ChoiceView | None = None  # ChoiceView for mode scripts
         self._mode_node_ids: dict[str, str] = {}  # mode_id -> node_id mapping
 
         # Conversation delegation callbacks (Phase 2: ACP Integration)
         # Set by ACP agent to enable transport registration and update emission
-        self._emit_update_callback: Any | None = None  # async (SessionUpdate) -> None
-        self._register_transport_callback: Any | None = None  # (session_id, transport) -> None
-        self._unregister_transport_callback: Any | None = None  # (session_id) -> None
+        self._emit_update_callback: Callable[[SessionUpdate], Awaitable[None]] | None = None
+        self._register_transport_callback: (
+            Callable[[str, SessionConversationTransport], None] | None
+        ) = None
+        self._unregister_transport_callback: Callable[[str], None] | None = None
 
         # Set up Agent callbacks for LLM integration
         # Note: session_node is set later in _create_metadata_nodes
@@ -521,7 +527,7 @@ class Session:
             with contextlib.suppress(RuntimeError):
                 asyncio.create_task(self._emit_update_callback(update))
 
-    def set_mode_choice_view(self, choice_view: Any) -> None:
+    def set_mode_choice_view(self, choice_view: ChoiceView) -> None:
         """Register the ChoiceView that manages mode scripts.
 
         Called from startup statements to wire up mode switching.
@@ -788,7 +794,7 @@ class Session:
 
         return popped
 
-    def add_node(self, node: Any) -> str:
+    def add_node(self, node: ContextNode) -> str:
         """Add a node to the context graph, linking to current group if any.
 
         This is the primary method for adding context nodes. When a group
@@ -1226,10 +1232,11 @@ class Session:
     async def _prompt_with_llm(self, content: str) -> AsyncIterator[SessionUpdate]:
         """Process prompt using the LLM provider.
 
-        Runs an agent loop: LLM responds, response is split into per-segment
-        nodes (prose → MessageNode, executable → REPL call group, fenced →
-        ArtifactNode), executable segments are run, and results feed back to
-        the LLM until it calls done() or produces no code blocks.
+        Runs an agent loop: LLM responds, a hidden MessageNode envelope is
+        created, and the response is parsed into MessageSegmentNode children
+        via ``Timeline.ingest_segments()``.  Executable segments (python/acrepl,
+        xml) are run and results feed back to the LLM until it calls ``done()``
+        or produces no code blocks.
 
         The LLM only sees the projection — no system prompt.
         """
@@ -1293,25 +1300,35 @@ class Session:
                 Message(role=Role.ASSISTANT, content=full_response, originator="agent")
             )
 
-            # --- Per-segment node creation ---
-            parsed = parse_response(full_response)
-            had_executable = False
+            # Create metadata-only envelope (hidden by default)
+            msg_node = MessageNode(
+                role=MessageRole.ASSISTANT,
+                content=full_response,
+                originator="agent",
+            )
+            self.add_node(msg_node)
 
-            for segment in parsed.segments:
+            # Parse response and ingest segments via Timeline
+            parsed = parse_response(full_response)
+            segment_results = await self._timeline.ingest_segments(
+                parsed.segments,
+                source_message_id=msg_node.node_id,
+                parent_id=self.current_group,
+            )
+
+            had_executable = any(r.is_executable for r in segment_results)
+
+            # Wrap executable segments in REPL call groups and yield updates
+            for r in segment_results:
                 if self._cancelled:
                     return
 
-                is_executable = segment.language == "python/acrepl" or segment.kind == "xml"
+                if r.is_executable and r.execution_result is not None:
+                    result = r.execution_result
+                    lang = r.language if r.language else "xml"
+                    # Create REPL call visual grouping
+                    self.begin_repl_call(result.stdout or "", lang)
 
-                if is_executable:
-                    # Executable: wrap in REPL call group
-                    had_executable = True
-                    lang = segment.language if segment.language else "xml"
-                    self.begin_repl_call(segment.content, lang)
-
-                    result = await self._execute_code_inner(segment.content)
-
-                    # Yield transport updates for ACP consumers
                     yield SessionUpdate(
                         kind=UpdateKind.STATEMENT_EXECUTED,
                         session_id=self._session_id,
@@ -1334,25 +1351,6 @@ class Session:
 
                     self.end_repl_call(result)
 
-                elif segment.kind in ("prose", "quoted"):
-                    # Prose / blockquotes → assistant MessageNode
-                    if segment.content.strip():
-                        msg = MessageNode(
-                            role=MessageRole.ASSISTANT,
-                            content=segment.content,
-                            originator="agent",
-                        )
-                        self.add_node(msg)
-
-                elif segment.kind == "fenced":
-                    # Non-executable fenced block → ArtifactNode
-                    art = ArtifactNode(
-                        content=segment.content,
-                        artifact_type="code",
-                        language=segment.language or None,
-                    )
-                    self.add_node(art)
-
             # Run tick phase
             tick_updates = await self.tick()
             for update in tick_updates:
@@ -1363,9 +1361,7 @@ class Session:
             tokens_used = len(full_response) // 4  # Rough estimate
             action_desc = None
             if had_executable:
-                exec_count = sum(
-                    1 for s in parsed.segments if s.language == "python/acrepl" or s.kind == "xml"
-                )
+                exec_count = sum(1 for r in segment_results if r.is_executable)
                 action_desc = f"Executed {exec_count} code block(s)"
             if self._session_node:
                 self._session_node.record_turn(
@@ -1724,7 +1720,7 @@ class Session:
 
     async def delegate_conversation(
         self,
-        handler: Any,  # ConversationHandler protocol
+        handler: ConversationHandler,
         *,
         originator: str,
         pause_agent: bool = True,
@@ -1807,11 +1803,11 @@ class Session:
 
     def create_conversation_handle(
         self,
-        handler: Any,  # ConversationHandler protocol
+        handler: ConversationHandler,
         *,
         originator: str,
         forward_permissions: bool = True,
-    ) -> Any:  # Returns ConversationHandle
+    ) -> ConversationHandle:
         """Create a conversation handle for non-blocking manual operation.
 
         This is the non-blocking variant of delegate_conversation(). It creates
@@ -1878,7 +1874,10 @@ class Session:
         if self._startup_done:
             return
 
-        from activecontext.config.schema import PACKAGE_DEFAULT_STARTUP, StartupConfig
+        from activecontext.config.schema import (
+            PACKAGE_DEFAULT_SEGMENTS,
+            StartupConfig,
+        )
 
         startup_config = (
             self._config.session.startup
@@ -1886,42 +1885,59 @@ class Session:
             else StartupConfig()
         )
 
-        # Determine base statements: project override or package defaults
-        base_statements = (
-            startup_config.statements if startup_config.statements else PACKAGE_DEFAULT_STARTUP
-        )
-
-        # Execute base statements
-        for statement in base_statements:
-            yield SessionUpdate(
-                kind=UpdateKind.STATEMENT_EXECUTING,
-                session_id=self._session_id,
-                payload={"source": statement, "is_startup": True},
-                timestamp=time.time(),
+        # Use segment-based pipeline for default startup
+        if not startup_config.statements:
+            # Ingest default segments via Timeline
+            segment_results = await self._timeline.ingest_segments(
+                PACKAGE_DEFAULT_SEGMENTS,
+                source_message_id=None,
             )
-            try:
-                await self._timeline.execute_statement(statement)
+            for r in segment_results:
+                if r.execution_result is not None:
+                    result = r.execution_result
+                    yield SessionUpdate(
+                        kind=UpdateKind.STATEMENT_EXECUTED,
+                        session_id=self._session_id,
+                        payload={
+                            "source": "",
+                            "status": result.status.value,
+                            "is_startup": True,
+                            "execution_id": result.execution_id,
+                        },
+                        timestamp=time.time(),
+                    )
+        else:
+            # Project-provided statements: execute line by line
+            for statement in startup_config.statements:
                 yield SessionUpdate(
-                    kind=UpdateKind.STATEMENT_EXECUTED,
+                    kind=UpdateKind.STATEMENT_EXECUTING,
                     session_id=self._session_id,
-                    payload={"source": statement, "status": "ok", "is_startup": True},
+                    payload={"source": statement, "is_startup": True},
                     timestamp=time.time(),
                 )
-            except Exception as e:
-                log.warning(f"Startup statement failed: {statement!r}: {e}")
-                yield SessionUpdate(
-                    kind=UpdateKind.STATEMENT_EXECUTED,
-                    session_id=self._session_id,
-                    payload={
-                        "source": statement,
-                        "status": "error",
-                        "is_startup": True,
-                        "exception": {"message": str(e), "type": type(e).__name__},
-                    },
-                    timestamp=time.time(),
-                )
+                try:
+                    await self._timeline.execute_statement(statement)
+                    yield SessionUpdate(
+                        kind=UpdateKind.STATEMENT_EXECUTED,
+                        session_id=self._session_id,
+                        payload={"source": statement, "status": "ok", "is_startup": True},
+                        timestamp=time.time(),
+                    )
+                except Exception as e:
+                    log.warning(f"Startup statement failed: {statement!r}: {e}")
+                    yield SessionUpdate(
+                        kind=UpdateKind.STATEMENT_EXECUTED,
+                        session_id=self._session_id,
+                        payload={
+                            "source": statement,
+                            "status": "error",
+                            "is_startup": True,
+                            "exception": {"message": str(e), "type": type(e).__name__},
+                        },
+                        timestamp=time.time(),
+                    )
 
-        # Execute user additions last (always additive)
+        # Execute user additions last (always additive, line-by-line)
         for statement in startup_config.additional:
             yield SessionUpdate(
                 kind=UpdateKind.STATEMENT_EXECUTING,

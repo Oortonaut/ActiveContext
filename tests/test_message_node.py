@@ -128,14 +128,16 @@ class TestMessageNodeRender:
     """Test MessageNode rendering."""
 
     def test_render_basic_message(self) -> None:
-        """Test rendering a basic message."""
+        """Test rendering a message shows metadata only (content is in segments)."""
         node = MessageNode(
             role=MessageRole.USER,
             content="Hello, how are you?",
             originator="user",
         )
         rendered = NodeView(node).render()
-        assert "Hello, how are you?" in rendered
+        # MessageNode is now metadata-only — renders role and label
+        assert "user" in rendered
+        assert "User" in rendered
 
     def test_render_collapsed_state(self) -> None:
         """Test header state shows metadata only."""
@@ -150,7 +152,7 @@ class TestMessageNodeRender:
         assert "header" in rendered  # Expansion state shown in header
 
     def test_render_tool_call(self) -> None:
-        """Test rendering a tool call message."""
+        """Test rendering a tool call message shows role metadata."""
         node = MessageNode(
             role=MessageRole.TOOL_CALL,
             content="",
@@ -159,18 +161,21 @@ class TestMessageNodeRender:
             tool_args={"pattern": "test", "path": "src/"},
         )
         rendered = NodeView(node).render()
-        assert "[Tool: grep]" in rendered
-        assert 'pattern="test"' in rendered
+        # MessageNode now renders role and label only
+        assert "tool_call" in rendered
+        assert "Tool Call: grep" in rendered
 
     def test_render_tool_result(self) -> None:
-        """Test rendering a tool result message."""
+        """Test rendering a tool result message shows role metadata."""
         node = MessageNode(
             role=MessageRole.TOOL_RESULT,
             content="line1: test found\nline2: test again",
             originator="tool:grep",
         )
         rendered = NodeView(node).render()
-        assert "test found" in rendered
+        # MessageNode now renders role and label only
+        assert "tool_result" in rendered
+        assert "Tool Result" in rendered
 
 
 class TestMessageNodeInGraph:

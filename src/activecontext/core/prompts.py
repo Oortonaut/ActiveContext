@@ -43,11 +43,12 @@ class Segment:
     """A parsed segment of an LLM response.
 
     Attributes:
-        kind: Structural type — "prose", "fenced", "quoted", or "xml".
+        kind: Structural type — ``"prose"``, ``"fenced"``, or ``"quoted"``.
+            XML commands are auto-fenced as ``kind="fenced", language="xml"``.
         content: The text content of this segment.
-        mime_type: Content format hint (e.g. "text/markdown", "text/x-python").
-        language: For fenced blocks, the language tag (e.g. "python/acrepl",
-            "python", "bash"). Empty string for non-fenced segments.
+        mime_type: Content format hint (e.g. ``"text/markdown"``, ``"text/x-python"``).
+        language: For fenced blocks, the language tag (e.g. ``"python/acrepl"``,
+            ``"xml"``, ``"bash"``). Empty string for non-fenced segments.
     """
 
     kind: str
@@ -104,11 +105,12 @@ def _is_xml_command_line(line: str) -> bool:
 
 
 def _split_prose(text: str) -> list[Segment]:
-    """Split a prose block into sub-segments: prose, quoted, xml commands.
+    """Split a prose block into sub-segments: prose, quoted, fenced-xml.
 
     Recognizes:
     - Markdown blockquotes (consecutive lines starting with ``>``)
-    - DSL XML commands (``<view .../>``, ``<shell .../>`` etc.)
+    - DSL XML commands (``<view .../>``, ``<shell .../>`` etc.) — emitted as
+      ``kind="fenced", language="xml"`` so consumers treat them uniformly.
     """
     if not text.strip():
         return []
@@ -140,11 +142,18 @@ def _split_prose(text: str) -> list[Segment]:
                 current_kind = "quoted"
             current_lines.append(line)
         elif _is_xml_command_line(stripped):
-            # XML command — flush accumulated lines and emit as code
+            # XML command — flush accumulated lines and emit as fenced xml
             _flush(current_kind)
             current_lines = []
             current_kind = None
-            segments.append(Segment(kind="xml", content=stripped, mime_type="application/xml"))
+            segments.append(
+                Segment(
+                    kind="fenced",
+                    content=stripped,
+                    mime_type="application/xml",
+                    language="xml",
+                )
+            )
         else:
             # Regular prose line
             if current_kind == "quoted":
@@ -166,14 +175,15 @@ def parse_response(text: str) -> ParsedResponse:
     without making execution decisions.  Segment kinds:
 
     - ``"fenced"`` — fenced code blocks (any language). The ``language``
-      field contains the tag (e.g. ``"python/acrepl"``, ``"bash"``).
-    - ``"xml"`` — DSL XML commands (``<view/>``, ``<shell/>``, etc.)
+      field contains the tag (e.g. ``"python/acrepl"``, ``"xml"``,
+      ``"bash"``).  Standalone DSL XML commands are auto-fenced with
+      ``language="xml"``.
     - ``"quoted"`` — markdown blockquotes (lines starting with ``>``)
     - ``"prose"`` — everything else
 
     Consumers decide which segments are executable.  For ActiveContext,
-    the convention is: ``language == "python/acrepl"`` fenced blocks and
-    ``kind == "xml"`` segments.
+    the convention is: ``language == "python/acrepl"`` and
+    ``language == "xml"`` fenced blocks.
 
     Args:
         text: Raw LLM response text

@@ -30,6 +30,7 @@ from activecontext.context.nodes import (
     GroupNode,
     LockNode,
     LockStatus,
+    MessageSegmentNode,
     PtyNode,
     ShellNode,
     ShellStatus,
@@ -38,6 +39,7 @@ from activecontext.context.nodes import (
 )
 from activecontext.context.state import Expansion, NotificationLevel, TickFrequency
 from activecontext.context.view import NodeView
+from activecontext.core.prompts import Segment
 from activecontext.plugins.connection import PluginConnection
 from activecontext.plugins.manager import PluginConnectionInfo, PluginManager
 from activecontext.session.agent_spawner import AgentSpawner
@@ -130,6 +132,25 @@ class PluginInUseError(RuntimeError):
 
 
 @dataclass
+class SegmentResult:
+    """Result of ingesting one parsed segment.
+
+    Produced by ``Timeline.ingest_segments()`` for each ``Segment``.
+    """
+
+    segment_node_id: str
+    """Node ID of the created ``MessageSegmentNode``."""
+    kind: str
+    """Segment kind (``"prose"``, ``"fenced"``, ``"quoted"``)."""
+    language: str
+    """Language tag for fenced blocks, empty otherwise."""
+    is_executable: bool
+    """Whether the segment was classified as executable code."""
+    execution_result: ExecutionResult | None = None
+    """Populated when ``is_executable`` is True."""
+
+
+@dataclass
 class _ExecutionRecord:
     """Internal record of a statement execution."""
 
@@ -145,15 +166,16 @@ class _ExecutionRecord:
 
 
 class ScriptNamespace(dict[str, Any]):
-    """Dict subclass that falls back to graph/view lookup for node IDs.
+    """Dict subclass providing primary node access by display ID.
 
-    Allows direct access to nodes in the DSL namespace without explicit assignment.
-    Node IDs have the format {node_type}_{seq} (e.g., 'text_1', 'group_2').
+    Every node added to the graph is accessible here by its display ID
+    (e.g. ``text_1``, ``group_2``).  Variable binding via ``v = text(...)``
+    is optional — nodes are always reachable through their display ID.
 
-    Returns NodeView wrappers for nodes to enable view-based state management.
-    User-defined variables take precedence over node lookups.
+    Returns ``NodeView`` wrappers for nodes to enable view-based state
+    management.  Explicit variable bindings take precedence.
 
-    Lookup order: namespace → views dict → graph (by node_id) → KeyError
+    Lookup order: namespace dict → views dict → graph (by node_id) → KeyError
     """
 
     def __init__(
@@ -1464,7 +1486,9 @@ class Timeline:
         from activecontext.context.view import ChoiceView
 
         # Create the underlying group
-        group_view = self._make_group_node(*children, default_expansion=default_expansion, parent=parent)
+        group_view = self._make_group_node(
+            *children, default_expansion=default_expansion, parent=parent
+        )
 
         # Default to first child if no selection specified
         if selected is None and children:
@@ -1505,7 +1529,9 @@ class Timeline:
         from activecontext.context.view import SequenceView
 
         # Create the underlying group
-        group_view = self._make_group_node(*children, default_expansion=default_expansion, parent=parent)
+        group_view = self._make_group_node(
+            *children, default_expansion=default_expansion, parent=parent
+        )
 
         # Create SequenceView wrapping the group (starts at first child)
         seq_view = SequenceView(group_view.node, expansion=default_expansion)
@@ -1627,7 +1653,9 @@ class Timeline:
         # Create the underlying group with all state nodes as children
         if states:
             node_ids = list(states.values())
-            group_view = self._make_group_node(*node_ids, default_expansion=default_expansion, parent=parent)
+            group_view = self._make_group_node(
+                *node_ids, default_expansion=default_expansion, parent=parent
+            )
         else:
             # Empty state machine
             group_view = self._make_group_node(default_expansion=default_expansion, parent=parent)
@@ -3416,9 +3444,7 @@ Provide a concise summary:"""
 
         return False, None
 
-    def _format_wake_prompt(
-        self, template: str, node: ShellNode | LockNode | PtyNode
-    ) -> str:
+    def _format_wake_prompt(self, template: str, node: ShellNode | LockNode | PtyNode) -> str:
         """Format a wake prompt template with node-specific attributes."""
         if node.node_type == "shell":
             return template.format(
@@ -3719,6 +3745,87 @@ Provide a concise summary:"""
         # result is guaranteed to be set since max_permission_retries > 0
         assert result is not None, "Permission retry loop must execute at least once"
         return result
+
+    async def ingest_segments(
+        self,
+        segments: list[Segment],
+        source_message_id: str | None = None,
+        parent_id: str | None = None,
+    ) -> list[SegmentResult]:
+        """Create segment nodes and execute any executable segments.
+
+        For each ``Segment``:
+        1. Creates a ``MessageSegmentNode`` and adds it to the graph.
+        2. Links to *parent_id* (or ``source_message_id`` as fallback,
+           or the current group if neither is given).
+        3. Classifies executability:
+           - ``language == "python/acrepl"`` → executable Python
+           - ``language == "xml"`` → convert via ``parse_xml_to_python()``,
+             then execute as Python
+           - Otherwise → content only
+        4. For executable segments, calls ``execute_statement()``.
+
+        Args:
+            segments: Parsed segments from ``parse_response()``.
+            source_message_id: ID of the parent ``MessageNode`` (optional).
+            parent_id: Explicit parent node ID for linking (optional).
+
+        Returns:
+            A ``SegmentResult`` per segment with execution details.
+        """
+        results: list[SegmentResult] = []
+        link_parent = parent_id or source_message_id
+
+        for seg in segments:
+            # Skip empty prose
+            if not seg.content.strip():
+                continue
+
+            # Create segment node
+            node = MessageSegmentNode(
+                kind=seg.kind,
+                content=seg.content,
+                language=seg.language,
+                mime_type=seg.mime_type,
+                source_message_id=source_message_id,
+                originator="agent",
+            )
+            self._context_graph.add_node(node)
+
+            # Link to parent if available
+            if link_parent:
+                self._context_graph.link(node.node_id, link_parent)
+
+            # Classify executability
+            is_executable = seg.kind == "fenced" and seg.language in (
+                "python/acrepl",
+                "xml",
+            )
+
+            exec_result: ExecutionResult | None = None
+            if is_executable:
+                source = seg.content
+                # Convert XML to Python if needed
+                if seg.language == "xml":
+                    try:
+                        source = parse_xml_to_python(source)
+                    except ValueError:
+                        # Malformed XML — skip execution, treat as content-only
+                        is_executable = False
+                if is_executable:
+                    exec_result = await self.execute_statement(source)
+
+            results.append(
+                SegmentResult(
+                    segment_node_id=node.node_id,
+                    kind=seg.kind,
+                    language=seg.language,
+                    is_executable=is_executable,
+                    execution_result=exec_result,
+                )
+            )
+
+        return results
 
     async def _execute_statement_inner(
         self, source: str, statement_id: str, execution_id: str
