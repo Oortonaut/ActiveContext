@@ -243,9 +243,10 @@ class Projection:
 
         for section in self.sections:
             if section.content:
-                parts.append("  " * section.indent + section.content)
+                for line in section.content.splitlines():
+                    parts.append(' ' * section.indent + line)
 
-        return "".join(parts)
+        return "\n".join(parts)
 
 
 # -----------------------------------------------------------------------------
