@@ -47,20 +47,17 @@ def _load_startup_statements() -> list[str]:
     """Parse startup.md into a list of DSL statements.
 
     Extracts python/acrepl fenced blocks from the literate startup.md document
-    and returns individual lines as statements. This preserves the same list-of-strings
-    interface that Session.startup() consumes.
+    and splits them into individual statements using AST parsing. This handles
+    multi-line statements correctly (e.g., dicts, function calls with kwargs).
     """
-    from activecontext.core.prompts import parse_response
+    from activecontext.core.prompts import parse_response, split_statements
     from activecontext.resources import load_prompt
 
     parsed = parse_response(load_prompt("startup"))
     statements: list[str] = []
     for seg in parsed.segments:
         if seg.language == "python/acrepl":
-            for line in seg.content.strip().split("\n"):
-                line = line.strip()
-                if line and not line.startswith("#"):
-                    statements.append(line)
+            statements.extend(split_statements(seg.content))
     return statements
 
 

@@ -38,6 +38,7 @@ from activecontext.context.nodes import (
     TopicNode,
     TraceNode,
 )
+from activecontext.context.protocols import Waitable
 from activecontext.context.state import Expansion, Notification, NotificationLevel, TickFrequency
 from activecontext.context.view import NodeView
 from activecontext.core.prompts import Segment
@@ -1957,12 +1958,13 @@ class Timeline:
         """Import and execute a markdown script file.
 
         Parses the file with parse_response() and executes all
-        python/acrepl fenced blocks sequentially, one line at a time.
+        python/acrepl fenced blocks sequentially. Uses AST-based splitting
+        to correctly handle multi-line statements.
 
         Args:
             path: File path (supports @prompts/ prefix via path resolver)
         """
-        from activecontext.core.prompts import parse_response
+        from activecontext.core.prompts import parse_response, split_statements
 
         # Resolve path via callback (supports @prompts/ prefix)
         content: str | None = None
@@ -1981,10 +1983,8 @@ class Timeline:
         parsed = parse_response(content)
         for segment in parsed.segments:
             if segment.language == "python/acrepl":
-                for stmt in segment.content.strip().split("\n"):
-                    stmt = stmt.strip()
-                    if stmt and not stmt.startswith("#"):
-                        await self.execute_statement(stmt)
+                for stmt in split_statements(segment.content):
+                    await self.execute_statement(stmt)
 
     async def _summarize(
         self,
@@ -3312,21 +3312,22 @@ Provide a concise summary:"""
                         )
             return False, None
 
-        # Get nodes - support ShellNode, LockNode, and PtyNode
-        nodes: list[ShellNode | LockNode | PtyNode] = []
+        # Get nodes implementing Waitable protocol
+        nodes: list[Waitable] = []
         for node_id in condition.node_ids:
             node = self._context_graph.get_node(node_id)
-            if isinstance(node, (ShellNode, LockNode, PtyNode)):
-                nodes.append(node)  # type: ignore[arg-type]
+            if isinstance(node, Waitable):
+                nodes.append(node)
 
         if not nodes:
             # No valid nodes found - treat as satisfied with error
             return True, "Wait condition has no valid nodes."
 
         # Check for failures (ShellNode or LockNode)
+        # Separate branches needed for type narrowing (noqa: SIM114)
         failed_nodes: list[ShellNode | LockNode] = []
         for n in nodes:
-            if isinstance(n, ShellNode) and n.shell_status == ShellStatus.FAILED:
+            if isinstance(n, ShellNode) and n.shell_status == ShellStatus.FAILED:  # noqa: SIM114
                 failed_nodes.append(n)
             elif isinstance(n, LockNode) and n.lock_status in (
                 LockStatus.ERROR,
@@ -3362,13 +3363,13 @@ Provide a concise summary:"""
             # Need all nodes to complete
             if len(completed_nodes) == len(nodes):
                 if len(nodes) == 1:
-                    node = completed_nodes[0]
+                    completed = completed_nodes[0]
                     # Use view.format_wake_prompt() if available, else format directly
-                    view = self._views.get(node.node_id)
+                    view = self._views.get(completed.node_id)
                     if view and view.notify_prompt:
                         prompt = view.format_wake_prompt() or condition.wake_prompt
                     else:
-                        prompt = self._format_wake_prompt(condition.wake_prompt, node)
+                        prompt = self._format_wake_prompt(condition.wake_prompt, completed)
                 else:
                     prompt = condition.wake_prompt
                 return True, prompt
@@ -3453,7 +3454,7 @@ Provide a concise summary:"""
 
         return False, None
 
-    def _format_wake_prompt(self, template: str, node: ShellNode | LockNode | PtyNode) -> str:
+    def _format_wake_prompt(self, template: str, node: Waitable) -> str:
         """Format a wake prompt template with node-specific attributes.
 
         Uses node.get_wake_data() to get formatting data for the template.

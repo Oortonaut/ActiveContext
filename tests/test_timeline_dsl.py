@@ -1778,3 +1778,93 @@ class TestImportScript:
             assert "import_script" not in snapshot
         finally:
             await timeline.close()
+
+    @pytest.mark.asyncio
+    async def test_import_script_multiline_dict(self, temp_cwd: Path) -> None:
+        """import_script handles multi-line dict literals correctly."""
+        script = temp_cwd / "multiline.md"
+        script.write_text(
+            """# Multiline Test
+
+```python/acrepl
+config = {
+    "key1": "value1",
+    "key2": "value2",
+}
+t = topic("After Dict")
+```
+""",
+            encoding="utf-8",
+        )
+
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
+        try:
+            result = await timeline.execute_statement('await import_script("multiline.md")')
+            assert result.status.value == "ok"
+
+            ns = timeline.get_namespace()
+            assert "config" in ns
+            assert ns["config"] == {"key1": "value1", "key2": "value2"}
+            assert "t" in ns
+        finally:
+            await timeline.close()
+
+    @pytest.mark.asyncio
+    async def test_import_script_multiline_function_call(self, temp_cwd: Path) -> None:
+        """import_script handles multi-line function calls correctly."""
+        script = temp_cwd / "multiline_call.md"
+        script.write_text(
+            """# Multiline Function Call
+
+```python/acrepl
+t = topic(
+    "Multi-line",
+)
+x = 1
+```
+""",
+            encoding="utf-8",
+        )
+
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
+        try:
+            result = await timeline.execute_statement('await import_script("multiline_call.md")')
+            assert result.status.value == "ok"
+
+            ns = timeline.get_namespace()
+            assert "t" in ns
+            assert "x" in ns
+            assert ns["x"] == 1
+        finally:
+            await timeline.close()
+
+    @pytest.mark.asyncio
+    async def test_import_script_multiline_list(self, temp_cwd: Path) -> None:
+        """import_script handles multi-line list literals correctly."""
+        script = temp_cwd / "multiline_list.md"
+        script.write_text(
+            """# Multiline List
+
+```python/acrepl
+items = [
+    "a",
+    "b",
+    "c",
+]
+t = topic("After List")
+```
+""",
+            encoding="utf-8",
+        )
+
+        timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
+        try:
+            result = await timeline.execute_statement('await import_script("multiline_list.md")')
+            assert result.status.value == "ok"
+
+            ns = timeline.get_namespace()
+            assert "items" in ns
+            assert ns["items"] == ["a", "b", "c"]
+            assert "t" in ns
+        finally:
+            await timeline.close()

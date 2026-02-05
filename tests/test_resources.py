@@ -101,18 +101,21 @@ class TestStartupMdParsing:
     """Tests that startup.md parses to the expected statements."""
 
     def test_statement_count(self):
-        """startup.md should produce exactly 6 reference documentation statements."""
+        """startup.md should produce exactly 5 reference documentation statements.
+
+        Note: dsl_reference.md is commented out in startup.md.
+        """
         from activecontext.config.schema import PACKAGE_DEFAULT_STARTUP
 
-        assert len(PACKAGE_DEFAULT_STARTUP) == 6
+        assert len(PACKAGE_DEFAULT_STARTUP) == 5
 
     def test_reference_documentation_statements(self):
-        """All 6 statements should load reference documentation."""
+        """All statements should load reference documentation."""
         from activecontext.config.schema import PACKAGE_DEFAULT_STARTUP
 
+        # dsl_reference is commented out in startup.md
         expected_prompts = [
             "context_guide",
-            "dsl_reference",
             "node_states",
             "context_graph",
             "work_coordination",
@@ -126,9 +129,9 @@ class TestStartupMdParsing:
         """Parsed statements should exactly match the original hardcoded list."""
         from activecontext.config.schema import PACKAGE_DEFAULT_STARTUP
 
+        # Note: dsl_reference.md is commented out in startup.md
         original = [
             'markdown("@prompts/context_guide.md", expansion=Expansion.ALL)',
-            'markdown("@prompts/dsl_reference.md", expansion=Expansion.ALL)',
             'markdown("@prompts/node_states.md", expansion=Expansion.ALL)',
             'markdown("@prompts/context_graph.md", expansion=Expansion.ALL)',
             'markdown("@prompts/work_coordination.md", expansion=Expansion.ALL)',

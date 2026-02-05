@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import re
 from dataclasses import dataclass, field
 
@@ -223,3 +224,48 @@ def parse_response(text: str) -> ParsedResponse:
         segments.append(Segment(kind="prose", content=text.strip(), mime_type="text/markdown"))
 
     return ParsedResponse(segments=segments)
+
+
+def split_statements(source: str) -> list[str]:
+    """Split Python source into individual statements using AST.
+
+    Uses AST parsing to identify statement boundaries, then extracts
+    original source text (preserving formatting and inline comments).
+
+    Args:
+        source: Python source code (possibly multiple statements)
+
+    Returns:
+        List of individual statement strings. Empty list for empty/whitespace
+        input. Returns ``[source]`` for syntax errors (let caller handle).
+    """
+    source = source.strip()
+    if not source:
+        return []
+
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        # Return as single statement; execution will fail with clear error
+        return [source]
+
+    if not tree.body:
+        return []
+
+    if len(tree.body) == 1:
+        return [source]
+
+    lines = source.splitlines(keepends=True)
+    statements: list[str] = []
+
+    for node in tree.body:
+        # For decorated functions/classes, start from the first decorator
+        start = node.lineno - 1  # 0-indexed
+        if hasattr(node, "decorator_list") and node.decorator_list:
+            start = node.decorator_list[0].lineno - 1
+        end = node.end_lineno  # inclusive, but range exclusive
+        stmt_source = "".join(lines[start:end]).rstrip()
+        if stmt_source:
+            statements.append(stmt_source)
+
+    return statements
