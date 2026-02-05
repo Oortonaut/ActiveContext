@@ -4966,7 +4966,6 @@ class MarkdownListItemNode(ContextNode):
             "type": self.node_type,
             "content_preview": preview,
             "is_ordered": self.is_ordered,
-            "indent_level": self.indent_level,
             "expansion": self.default_expansion.value,
             "children_count": len(self.child_order),
         }
@@ -4976,13 +4975,12 @@ class MarkdownListItemNode(ContextNode):
         cwd: str = ".",
         text_buffers: dict[str, Any] | None = None,
     ) -> str:
-        """Render full list item with proper indentation."""
-        indent = "  " * self.indent_level
-        return f"{indent}{self.marker} {self.content}\n"
+        """Render list item content (indentation handled by projection)."""
+        return f"{self.marker} {self.content}\n"
 
     def render_digest(self) -> str:
         """Return list item type indicator."""
-        return f"{'OL' if self.is_ordered else 'UL'}-{self.indent_level}"
+        return f"{'OL' if self.is_ordered else 'UL'}"
 
     def get_token_breakdown(self) -> TokenInfo:
         """Return token counts for collapsed/summary/detail."""
@@ -4995,8 +4993,7 @@ class MarkdownListItemNode(ContextNode):
         collapsed_tokens = count_tokens(collapsed_text)
 
         # Detail: full content with marker
-        indent = "  " * self.indent_level
-        detail_text = f"{indent}{self.marker} {self.content}\n"
+        detail_text = f"{self.marker} {self.content}\n"
         detail_tokens = count_tokens(detail_text)
 
         return TokenInfo(

@@ -62,6 +62,7 @@ class TestMarkdownListItemNode:
         assert digest["type"] == "markdown_list_item"
         assert digest["content_preview"] == "Short"
         assert not digest["is_ordered"]
+        assert "indent_level" not in digest
 
     def test_serialization(self):
         """Test to_dict and from_dict."""
