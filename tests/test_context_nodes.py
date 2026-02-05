@@ -21,6 +21,8 @@ from activecontext.context.nodes import (
     PluginManagerNode,
     SessionNode,
     ShellNode,
+    StatementNode,
+    StatementResultNode,
     TextNode,
     TopicNode,
 )
@@ -45,7 +47,8 @@ class TestTextNodeSerialization:
 
         data = node.to_dict()
 
-        assert data["node_type"] == "text"
+        # node_type is now the class name
+        assert data["node_type"] == "TextNode"
         assert data["node_id"] == "view1"
         assert data["path"] == "src/main.py"
         assert data["expansion"] == "all"
@@ -54,7 +57,7 @@ class TestTextNodeSerialization:
     def test_from_dict_basic(self):
         """Test TextNode deserialization from dict."""
         data = {
-            "node_type": "text",
+            "node_type": "TextNode",
             "node_id": "view1",
             "path": "src/main.py",
             "expansion": "all",
@@ -88,7 +91,7 @@ class TestTextNodeSerialization:
     def test_factory_dispatch(self):
         """Test that ContextNode.from_dict dispatches to TextNode."""
         data = {
-            "node_type": "text",
+            "node_type": "TextNode",
             "node_id": "view1",
             "path": "test.py",
             "expansion": "header",
@@ -118,7 +121,7 @@ class TestGroupNodeSerialization:
 
         data = node.to_dict()
 
-        assert data["node_type"] == "group"
+        assert data["node_type"] == "GroupNode"
         assert data["node_id"] == "group1"
         assert data["summary_prompt"] == "Summarize these files"
         assert data["expansion"] == "content"
@@ -126,7 +129,7 @@ class TestGroupNodeSerialization:
     def test_from_dict_basic(self):
         """Test GroupNode deserialization from dict."""
         data = {
-            "node_type": "group",
+            "node_type": "GroupNode",
             "node_id": "group1",
             "summary_prompt": "Test prompt",
             "expansion": "content",
@@ -156,7 +159,7 @@ class TestGroupNodeSerialization:
     def test_factory_dispatch(self):
         """Test that ContextNode.from_dict dispatches to GroupNode."""
         data = {
-            "node_type": "group",
+            "node_type": "GroupNode",
             "node_id": "group1",
             "expansion": "header",
         }
@@ -184,7 +187,7 @@ class TestTopicNodeSerialization:
 
         data = node.to_dict()
 
-        assert data["node_type"] == "topic"
+        assert data["node_type"] == "TopicNode"
         assert data["node_id"] == "topic1"
         assert data["title"] == "Authentication Implementation"
 
@@ -206,7 +209,7 @@ class TestTopicNodeSerialization:
     def test_factory_dispatch(self):
         """Test that ContextNode.from_dict dispatches to TopicNode."""
         data = {
-            "node_type": "topic",
+            "node_type": "TopicNode",
             "node_id": "topic1",
             "title": "Test Topic",
             "expansion": "header",
@@ -237,7 +240,7 @@ class TestArtifactNodeSerialization:
 
         data = node.to_dict()
 
-        assert data["node_type"] == "artifact"
+        assert data["node_type"] == "ArtifactNode"
         assert data["node_id"] == "artifact1"
         assert data["content"] == "def foo(): pass"
         assert data["artifact_type"] == "code"
@@ -264,7 +267,7 @@ class TestArtifactNodeSerialization:
     def test_factory_dispatch(self):
         """Test that ContextNode.from_dict dispatches to ArtifactNode."""
         data = {
-            "node_type": "artifact",
+            "node_type": "ArtifactNode",
             "node_id": "artifact1",
             "content": "test",
             "artifact_type": "output",
@@ -297,7 +300,7 @@ class TestShellNodeSerialization:
 
         data = node.to_dict()
 
-        assert data["node_type"] == "shell"
+        assert data["node_type"] == "ShellNode"
         assert data["node_id"] == "shell1"
         assert data["command"] == "pytest"
         assert data["args"] == ["-v", "tests/"]
@@ -327,7 +330,7 @@ class TestShellNodeSerialization:
     def test_factory_dispatch(self):
         """Test that ContextNode.from_dict dispatches to ShellNode."""
         data = {
-            "node_type": "shell",
+            "node_type": "ShellNode",
             "node_id": "shell1",
             "command": "ls",
             "args": ["-la"],
@@ -357,7 +360,7 @@ class TestLockNodeSerialization:
 
         data = node.to_dict()
 
-        assert data["node_type"] == "lock"
+        assert data["node_type"] == "LockNode"
         assert data["node_id"] == "lock1"
         assert data["lockfile"] == "src/config.py.lock"
 
@@ -380,7 +383,7 @@ class TestLockNodeSerialization:
     def test_factory_dispatch(self):
         """Test that ContextNode.from_dict dispatches to LockNode."""
         data = {
-            "node_type": "lock",
+            "node_type": "LockNode",
             "node_id": "lock1",
             "lockfile": "test.py.lock",
             "expansion": "header",
@@ -410,7 +413,7 @@ class TestSessionNodeSerialization:
 
         data = node.to_dict()
 
-        assert data["node_type"] == "session"
+        assert data["node_type"] == "SessionNode"
         assert data["node_id"] == "session1"
         assert data["turn_count"] == 5
         assert data["total_statements_executed"] == 25
@@ -433,7 +436,7 @@ class TestSessionNodeSerialization:
     def test_factory_dispatch(self):
         """Test that ContextNode.from_dict dispatches to SessionNode."""
         data = {
-            "node_type": "session",
+            "node_type": "SessionNode",
             "node_id": "session1",
             "expansion": "header",
         }
@@ -462,7 +465,7 @@ class TestMCPServerNodeSerialization:
 
         data = node.to_dict()
 
-        assert data["node_type"] == "mcp_server"
+        assert data["node_type"] == "MCPServerNode"
         assert data["node_id"] == "mcp1"
         assert data["server_name"] == "filesystem"
         assert len(data["tools"]) == 1
@@ -489,7 +492,7 @@ class TestMCPServerNodeSerialization:
     def test_factory_dispatch(self):
         """Test that ContextNode.from_dict dispatches to MCPServerNode."""
         data = {
-            "node_type": "mcp_server",
+            "node_type": "MCPServerNode",
             "node_id": "mcp1",
             "server_name": "test",
             "expansion": "header",
@@ -569,7 +572,7 @@ class TestMCPManagerNodeSerialization:
 
         data = node.to_dict()
 
-        assert data["node_type"] == "mcp_manager"
+        assert data["node_type"] == "MCPManagerNode"
         assert data["node_id"] == "mcp_manager"
 
     def test_roundtrip(self):
@@ -588,7 +591,7 @@ class TestMCPManagerNodeSerialization:
     def test_factory_dispatch(self):
         """Test that ContextNode.from_dict dispatches to MCPManagerNode."""
         data = {
-            "node_type": "mcp_manager",
+            "node_type": "MCPManagerNode",
             "node_id": "mcp_manager",
             "expansion": "header",
         }
@@ -617,7 +620,7 @@ class TestPluginManagerNodeSerialization:
 
         data = node.to_dict()
 
-        assert data["node_type"] == "plugin_manager"
+        assert data["node_type"] == "PluginManagerNode"
         assert data["node_id"] == "plugin_manager"
         assert data["builtin_count"] == 16
         assert data["loaded_count"] == 2
@@ -647,7 +650,7 @@ class TestPluginManagerNodeSerialization:
     def test_factory_dispatch(self):
         """Test that ContextNode.from_dict dispatches to PluginManagerNode."""
         data = {
-            "node_type": "plugin_manager",
+            "node_type": "PluginManagerNode",
             "node_id": "plugin_manager",
             "expansion": "header",
             "builtin_count": 16,
@@ -840,7 +843,7 @@ class TestAgentNodeSerialization:
 
         data = node.to_dict()
 
-        assert data["node_type"] == "agent"
+        assert data["node_type"] == "AgentNode"
         assert data["node_id"] == "agent1"
         assert data["agent_id"] == "child-agent-123"
         assert data["agent_type"] == "researcher"
@@ -870,7 +873,7 @@ class TestAgentNodeSerialization:
     def test_factory_dispatch(self):
         """Test that ContextNode.from_dict dispatches to AgentNode."""
         data = {
-            "node_type": "agent",
+            "node_type": "AgentNode",
             "node_id": "agent1",
             "agent_id": "test-agent",
             "agent_type": "helper",
@@ -880,6 +883,239 @@ class TestAgentNodeSerialization:
         node = ContextNode.from_dict(data)
 
         assert isinstance(node, AgentNode)
+
+
+# =============================================================================
+# StatementNode Serialization Tests
+# =============================================================================
+
+
+class TestStatementNodeSerialization:
+    """Tests for StatementNode to_dict/from_dict."""
+
+    def test_to_dict_basic(self):
+        """Test StatementNode serialization to dict."""
+        node = StatementNode(
+            node_id="stmt1",
+            statement_id="uuid-123",
+            source="v = text('main.py')",
+            index=0,
+            timestamp=1234567890.0,
+            status="ok",
+            default_expansion=Expansion.ALL,
+        )
+
+        data = node.to_dict()
+
+        assert data["node_type"] == "StatementNode"
+        assert data["node_id"] == "stmt1"
+        assert data["statement_id"] == "uuid-123"
+        assert data["source"] == "v = text('main.py')"
+        assert data["index"] == 0
+        assert data["timestamp"] == 1234567890.0
+        assert data["status"] == "ok"
+
+    def test_roundtrip(self):
+        """Test StatementNode serialization round-trip."""
+        original = StatementNode(
+            node_id="stmt1",
+            statement_id="uuid-456",
+            source="g = group(v1, v2)",
+            index=5,
+            timestamp=1234567890.5,
+            status="error",
+            default_expansion=Expansion.CONTENT,
+        )
+        original._result_nodes["exec-1"] = "result-node-1"
+
+        data = original.to_dict()
+        restored = StatementNode._from_dict(data)
+
+        assert restored.node_id == original.node_id
+        assert restored.statement_id == original.statement_id
+        assert restored.source == original.source
+        assert restored.index == original.index
+        assert restored.timestamp == original.timestamp
+        assert restored.status == original.status
+        assert restored._result_nodes == original._result_nodes
+
+    def test_factory_dispatch(self):
+        """Test that ContextNode.from_dict dispatches to StatementNode."""
+        data = {
+            "node_type": "StatementNode",
+            "node_id": "stmt1",
+            "statement_id": "test-stmt",
+            "source": "x = 1",
+            "expansion": "header",
+        }
+
+        node = ContextNode.from_dict(data)
+
+        assert isinstance(node, StatementNode)
+
+    def test_render_content(self):
+        """Test StatementNode renders source in fenced code block."""
+        node = StatementNode(
+            node_id="stmt1",
+            source="v = text('main.py')",
+        )
+
+        content = node.render_content()
+
+        assert "```python" in content
+        assert "v = text('main.py')" in content
+        assert "```" in content
+
+    def test_render_digest(self):
+        """Test StatementNode digest format."""
+        node = StatementNode(
+            node_id="stmt1",
+            source="some_long_function_call_that_exceeds_forty_characters()",
+            status="ok",
+        )
+
+        digest = node.render_digest()
+
+        assert "[ok]" in digest
+        assert "..." in digest  # Long source should be truncated
+
+    def test_add_result_tracking(self):
+        """Test StatementNode tracks result children."""
+        node = StatementNode(node_id="stmt1")
+
+        node.add_result("result-1", "exec-uuid-1")
+        node.add_result("result-2", "exec-uuid-2")
+
+        assert "exec-uuid-1" in node._result_nodes
+        assert "exec-uuid-2" in node._result_nodes
+        assert node._result_nodes["exec-uuid-1"] == "result-1"
+
+
+# =============================================================================
+# StatementResultNode Serialization Tests
+# =============================================================================
+
+
+class TestStatementResultNodeSerialization:
+    """Tests for StatementResultNode to_dict/from_dict."""
+
+    def test_to_dict_basic(self):
+        """Test StatementResultNode serialization to dict."""
+        node = StatementResultNode(
+            node_id="result1",
+            execution_id="exec-uuid-1",
+            statement_id="stmt-uuid-1",
+            status="ok",
+            stdout="hello\n",
+            stderr="",
+            duration_ms=15.5,
+            default_expansion=Expansion.ALL,
+        )
+
+        data = node.to_dict()
+
+        assert data["node_type"] == "StatementResultNode"
+        assert data["node_id"] == "result1"
+        assert data["execution_id"] == "exec-uuid-1"
+        assert data["statement_id"] == "stmt-uuid-1"
+        assert data["status"] == "ok"
+        assert data["stdout"] == "hello\n"
+        assert data["duration_ms"] == 15.5
+
+    def test_roundtrip(self):
+        """Test StatementResultNode serialization round-trip."""
+        original = StatementResultNode(
+            node_id="result1",
+            execution_id="exec-uuid-2",
+            statement_id="stmt-uuid-2",
+            status="error",
+            stdout="",
+            stderr="syntax error",
+            exception={"type": "SyntaxError", "message": "invalid syntax"},
+            state_trace={"added": {"v": "TextNode"}, "changed": {}, "deleted": []},
+            duration_ms=25.0,
+            default_expansion=Expansion.CONTENT,
+        )
+
+        data = original.to_dict()
+        restored = StatementResultNode._from_dict(data)
+
+        assert restored.node_id == original.node_id
+        assert restored.execution_id == original.execution_id
+        assert restored.statement_id == original.statement_id
+        assert restored.status == original.status
+        assert restored.stdout == original.stdout
+        assert restored.stderr == original.stderr
+        assert restored.exception == original.exception
+        assert restored.state_trace == original.state_trace
+        assert restored.duration_ms == original.duration_ms
+
+    def test_factory_dispatch(self):
+        """Test that ContextNode.from_dict dispatches to StatementResultNode."""
+        data = {
+            "node_type": "StatementResultNode",
+            "node_id": "result1",
+            "execution_id": "test-exec",
+            "statement_id": "test-stmt",
+            "status": "ok",
+            "expansion": "header",
+        }
+
+        node = ContextNode.from_dict(data)
+
+        assert isinstance(node, StatementResultNode)
+
+    def test_render_content_success(self):
+        """Test StatementResultNode renders success output."""
+        node = StatementResultNode(
+            node_id="result1",
+            status="ok",
+            stdout="output text",
+            state_trace={"added": {"v": "TextNode"}, "changed": {}, "deleted": []},
+        )
+
+        content = node.render_content()
+
+        assert "stdout: output text" in content
+        assert "created: v" in content
+
+    def test_render_content_error(self):
+        """Test StatementResultNode renders error details."""
+        node = StatementResultNode(
+            node_id="result1",
+            status="error",
+            stderr="error output",
+            exception={"type": "ValueError", "message": "invalid value"},
+        )
+
+        content = node.render_content()
+
+        assert "stderr: error output" in content
+        assert "ValueError: invalid value" in content
+
+    def test_render_content_minimal(self):
+        """Test StatementResultNode renders 'ok' when no output."""
+        node = StatementResultNode(
+            node_id="result1",
+            status="ok",
+        )
+
+        content = node.render_content()
+
+        assert content == "ok"
+
+    def test_render_digest(self):
+        """Test StatementResultNode digest format with timing."""
+        node = StatementResultNode(
+            node_id="result1",
+            status="ok",
+            duration_ms=42.5,
+        )
+
+        digest = node.render_digest()
+
+        assert "[ok]" in digest
+        assert "42.5ms" in digest
 
 
 # =============================================================================

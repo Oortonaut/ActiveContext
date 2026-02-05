@@ -159,7 +159,7 @@ class TestRegistryPluginAPI:
 
     def test_cannot_override_builtin(self) -> None:
         reg = NodeTypeRegistry()
-        desc = _make_local_descriptor(node_type="shell")
+        desc = _make_local_descriptor(node_type="ShellNode")
         with pytest.raises(ValueError, match="Cannot override builtin"):
             reg.register_plugin(desc)
 
@@ -175,7 +175,7 @@ class TestRegistryPluginAPI:
 
     def test_unregister_builtin_fails(self) -> None:
         reg = NodeTypeRegistry()
-        assert reg.unregister_plugin("shell") is False
+        assert reg.unregister_plugin("ShellNode") is False
 
     def test_unregister_nonexistent(self) -> None:
         reg = NodeTypeRegistry()
@@ -205,7 +205,7 @@ class TestRegistryPluginAPI:
 
     def test_is_remote_for_builtin(self) -> None:
         reg = NodeTypeRegistry()
-        assert not reg.is_remote("shell")
+        assert not reg.is_remote("ShellNode")
 
     def test_get_server_name_for_local(self) -> None:
         reg = NodeTypeRegistry()
@@ -219,16 +219,16 @@ class TestRegistryPluginAPI:
     def test_get_descriptor_for_builtin(self) -> None:
         """Builtins registered before descriptor system have no descriptor."""
         reg = NodeTypeRegistry()
-        assert reg.get_descriptor("shell") is None
+        assert reg.get_descriptor("ShellNode") is None
 
     def test_existing_api_still_works(self) -> None:
         """Old register/unregister/get API is preserved."""
         reg = NodeTypeRegistry()
 
         # Existing API
-        assert reg.get("shell") is ShellNode
-        assert reg.is_builtin("shell")
-        assert len(reg.list_types()) == 19  # all builtins (including MessageSegmentNode)
+        assert reg.get("ShellNode") is ShellNode
+        assert reg.is_builtin("ShellNode")
+        assert len(reg.list_types()) == 21  # all builtins (including MessageSegmentNode, Statement*)
 
         # Old register still works
         reg.register("custom_old", TopicNode)
@@ -302,7 +302,7 @@ class TestPluginLifecycleManagement:
         reg = NodeTypeRegistry()
 
         with pytest.raises(ValueError, match="Cannot unload builtin"):
-            reg.unload_plugin("shell")
+            reg.unload_plugin("ShellNode")
 
     def test_unload_nonexistent_returns_false(self) -> None:
         """Test that unloading nonexistent plugin returns False."""
@@ -334,7 +334,7 @@ class TestPluginLifecycleManagement:
         reg = NodeTypeRegistry()
 
         with pytest.raises(ValueError, match="Cannot reload builtin"):
-            reg.reload_plugin("shell")
+            reg.reload_plugin("ShellNode")
 
     def test_reload_nonexistent_returns_false(self) -> None:
         """Test that reloading nonexistent plugin returns False."""
@@ -346,9 +346,9 @@ class TestPluginLifecycleManagement:
         """Test getting info for a builtin type."""
         reg = NodeTypeRegistry()
 
-        info = reg.get_plugin_info("shell")
+        info = reg.get_plugin_info("ShellNode")
         assert info is not None
-        assert info.node_type == "shell"
+        assert info.node_type == "ShellNode"
         assert info.is_builtin is True
         assert info.is_loaded is True
 
@@ -567,19 +567,19 @@ from dataclasses import dataclass
 class ShellClone(ContextNode):
     @property
     def node_type(self) -> str:
-        return "shell"  # Builtin type
+        return "ShellNode"  # Builtin type (class name)
 
     @classmethod
     def _from_dict(cls, data):
         return cls()
 
     def to_dict(self):
-        return {"node_type": "shell"}
+        return {"node_type": "ShellNode"}
 
     def GetDigest(self):
-        return {"type": "shell"}
+        return {"type": "ShellNode"}
 
-plugin_info = {"node_type": "shell"}
+plugin_info = {"node_type": "ShellNode"}
 """
         plugin_file = tmp_path / "builtin_conflict.py"
         plugin_file.write_text(plugin_code)

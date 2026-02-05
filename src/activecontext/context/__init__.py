@@ -51,6 +51,8 @@ from activecontext.context.nodes import (
     SessionNode,
     ShellNode,
     ShellStatus,
+    StatementNode,
+    StatementResultNode,
     TaskNode,
     TextNode,
     TopicNode,
@@ -136,6 +138,8 @@ __all__ = [
     "AgentRelation",
     "MessageRole",
     "TaskNode",
+    "StatementNode",
+    "StatementResultNode",
     # File change tracking
     "LineChange",
     "register_file_watcher",

@@ -91,6 +91,8 @@ class NodeTypeRegistry:
             PtyNode,
             SessionNode,
             ShellNode,
+            StatementNode,
+            StatementResultNode,
             TaskNode,
             TextNode,
             TopicNode,
@@ -118,6 +120,8 @@ class NodeTypeRegistry:
             TraceNode,
             TaskNode,
             HelpNode,
+            StatementNode,
+            StatementResultNode,
         ]
 
         for cls in builtin_types:
@@ -131,39 +135,15 @@ class NodeTypeRegistry:
     def _get_node_type_from_class(self, cls: type[ContextNode]) -> str:
         """Extract node_type string from a ContextNode subclass.
 
-        Uses the class's node_type property by creating a minimal instance
-        or inferring from class name.
+        Returns the class name directly (e.g., "TextNode", "GroupNode").
         """
-        # Map class names to their node_type strings
-        # This avoids instantiation issues with dataclass required fields
-        type_map = {
-            "TextNode": "text",
-            "GroupNode": "group",
-            "TopicNode": "topic",
-            "ArtifactNode": "artifact",
-            "ShellNode": "shell",
-            "PtyNode": "pty",
-            "LockNode": "lock",
-            "SessionNode": "session",
-            "MessageNode": "message",
-            "MessageSegmentNode": "segment",
-            "WorkNode": "work",
-            "MCPServerNode": "mcp_server",
-            "MCPToolNode": "mcp_tool",
-            "MCPManagerNode": "mcp_manager",
-            "PluginManagerNode": "plugin_manager",
-            "AgentNode": "agent",
-            "TraceNode": "trace",
-            "TaskNode": "task",
-            "HelpNode": "help",
-        }
-        return type_map.get(cls.__name__, cls.__name__.lower().replace("node", ""))
+        return cls.__name__
 
     def get(self, node_type: str) -> type[ContextNode] | None:
         """Get a node class by type identifier.
 
         Args:
-            node_type: The node type string (e.g., "text", "group")
+            node_type: The node type string (e.g., "TextNode", "GroupNode")
 
         Returns:
             The node class, or None if not found
@@ -371,7 +351,7 @@ class NodeTypeRegistry:
             RuntimeError: If there are active nodes and force=False.
         """
         # Cannot unload builtin types
-        if node_type in self._builtin_types:
+        if self.is_builtin(node_type):
             raise ValueError(f"Cannot unload builtin node type: {node_type}")
 
         # Check if type is even registered
@@ -404,7 +384,7 @@ class NodeTypeRegistry:
             ValueError: If attempting to reload a builtin type.
         """
         # Cannot reload builtin types
-        if node_type in self._builtin_types:
+        if self.is_builtin(node_type):
             raise ValueError(f"Cannot reload builtin node type: {node_type}")
 
         # Get the descriptor to check source
@@ -452,7 +432,6 @@ class NodeTypeRegistry:
         Returns:
             PluginInfo if the type is registered, None otherwise.
         """
-        # Check if type exists
         cls: type[ContextNode] | None = self._types.get(node_type)
         desc: NodePluginDescriptor | None = self._descriptors.get(node_type)
 
@@ -622,7 +601,7 @@ class NodeTypeRegistry:
                 node_type = class_name.lower()
 
         # Validate node_type is unique
-        if node_type in self._builtin_types:
+        if self.is_builtin(node_type):
             raise ValueError(
                 f"Cannot register plugin '{module_path}': node_type '{node_type}' "
                 "conflicts with builtin type."
