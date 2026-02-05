@@ -1596,6 +1596,17 @@ class ShellNode(ContextNode):
         return self.shell_status == ShellStatus.COMPLETED and self.exit_code == 0
 
     @property
+    def error(self) -> str | None:
+        """Error message if command failed, None otherwise."""
+        if self.shell_status == ShellStatus.FAILED:
+            return f"Exit code {self.exit_code}"
+        if self.shell_status == ShellStatus.TIMEOUT:
+            return "Command timed out"
+        if self.shell_status == ShellStatus.CANCELLED:
+            return "Command cancelled"
+        return None
+
+    @property
     def full_command(self) -> str:
         """Full command string with arguments."""
         if self.args:
@@ -1869,6 +1880,15 @@ class PtyNode(ContextNode):
         return self.pty_status in (PtyStatus.EXITED, PtyStatus.KILLED, PtyStatus.ERROR)
 
     @property
+    def error(self) -> str | None:
+        """Error message if PTY failed, None otherwise."""
+        if self.pty_status == PtyStatus.ERROR:
+            return "PTY error"
+        if self.pty_status == PtyStatus.KILLED and self.signal:
+            return f"Killed by {self.signal}"
+        return None
+
+    @property
     def full_command(self) -> str:
         if self.args:
             return f"{self.command} {' '.join(self.args)}"
@@ -2129,6 +2149,15 @@ class LockNode(ContextNode):
     def is_held(self) -> bool:
         """True if lock is currently held by this process."""
         return self.lock_status == LockStatus.ACQUIRED
+
+    @property
+    def error(self) -> str | None:
+        """Error message if lock failed, None otherwise."""
+        if self.lock_status == LockStatus.TIMEOUT:
+            return self.error_message or f"Timed out after {self.timeout}s"
+        if self.lock_status == LockStatus.ERROR:
+            return self.error_message or "Lock error"
+        return None
 
     def GetDigest(self) -> dict[str, Any]:
         return {

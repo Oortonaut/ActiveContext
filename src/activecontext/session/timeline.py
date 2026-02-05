@@ -28,12 +28,8 @@ from activecontext.context.nodes import (
     ArtifactNode,
     ContextNode,
     GroupNode,
-    LockNode,
-    LockStatus,
     MessageSegmentNode,
     PtyNode,
-    ShellNode,
-    ShellStatus,
     TextNode,
     TopicNode,
     TraceNode,
@@ -3323,37 +3319,19 @@ Provide a concise summary:"""
             # No valid nodes found - treat as satisfied with error
             return True, "Wait condition has no valid nodes."
 
-        # Check for failures (ShellNode or LockNode)
-        # Separate branches needed for type narrowing (noqa: SIM114)
-        failed_nodes: list[ShellNode | LockNode] = []
-        for n in nodes:
-            if isinstance(n, ShellNode) and n.shell_status == ShellStatus.FAILED:  # noqa: SIM114
-                failed_nodes.append(n)
-            elif isinstance(n, LockNode) and n.lock_status in (
-                LockStatus.ERROR,
-                LockStatus.TIMEOUT,
-            ):
-                failed_nodes.append(n)
+        # Check for failures using Waitable.error
+        failed_nodes = [n for n in nodes if n.error]
 
         if failed_nodes and condition.failure_prompt:
             failed = failed_nodes[0]
-            # Build prompt based on node type
-            if isinstance(failed, ShellNode):
-                prompt = condition.failure_prompt.format(
-                    node=failed,
-                    node_id=failed.node_id,
-                    command=failed.full_command,
-                    exit_code=failed.exit_code,
-                    output=failed.output[:500] if failed.output else "",
-                )
-            else:  # LockNode
-                prompt = condition.failure_prompt.format(
-                    node=failed,
-                    node_id=failed.node_id,
-                    lockfile=failed.lockfile,
-                    status=failed.lock_status.value,
-                    error=failed.error_message or "",
-                )
+            # Use get_wake_data() for type-specific template fields
+            data = failed.get_wake_data()
+            data["node"] = failed
+            data["error"] = failed.error
+            try:
+                prompt = condition.failure_prompt.format(**data)
+            except KeyError:
+                prompt = condition.failure_prompt
             return True, prompt
 
         # Check completion based on mode

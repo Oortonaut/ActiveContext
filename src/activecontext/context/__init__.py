@@ -63,6 +63,7 @@ from activecontext.context.nodes import (
     register_file_watcher,
     unregister_file_watcher,
 )
+from activecontext.context.protocols import Waitable
 from activecontext.context.registry import NodeTypeRegistry, get_node_registry
 from activecontext.context.traceable import (
     format_value,
@@ -75,6 +76,8 @@ from activecontext.context.traceable import (
 from activecontext.context.view import ChoiceView, NodeView
 
 __all__ = [
+    # Protocols
+    "Waitable",
     # Registry
     "NodeTypeRegistry",
     "get_node_registry",
