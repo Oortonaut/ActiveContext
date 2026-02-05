@@ -103,8 +103,8 @@ class ScratchpadManager:
             self._agent_id = uuid.uuid4().hex[:8]
         self._session_id = session_id
 
-        now = datetime.now(timezone.utc)
-        entry = WorkEntry(
+        now: datetime = datetime.now(timezone.utc)
+        entry: WorkEntry = WorkEntry(
             id=self._agent_id,
             session_id=session_id,
             intent=intent,
@@ -118,7 +118,7 @@ class ScratchpadManager:
 
         def modifier(scratchpad: Scratchpad) -> Scratchpad:
             # Remove stale entries
-            threshold = now - timedelta(seconds=300)
+            threshold: datetime = now - timedelta(seconds=300)
             scratchpad.entries = [e for e in scratchpad.entries if e.heartbeat_at > threshold]
             # Remove existing entry for this agent
             scratchpad.entries = [e for e in scratchpad.entries if e.id != self._agent_id]
@@ -221,7 +221,7 @@ class ScratchpadManager:
         Returns:
             List of conflicts with other agents
         """
-        scratchpad = self._load()
+        scratchpad: Scratchpad = self._load()
         conflicts: list[Conflict] = []
 
         # Build indexes for O(1) exact-match lookups
@@ -241,10 +241,10 @@ class ScratchpadManager:
                     exact_files.setdefault(normalized, []).append((entry, file_access))
 
         # Normalize query paths once
-        normalized_paths = [(p, Path(p).as_posix()) for p in paths]
+        normalized_paths: list[tuple[str, str]] = [(p, Path(p).as_posix()) for p in paths]
 
         for original_path, norm_path in normalized_paths:
-            is_glob = "*" in norm_path or "?" in norm_path
+            is_glob: bool = "*" in norm_path or "?" in norm_path
 
             # O(1) exact match lookup for non-glob query paths
             if not is_glob and norm_path in exact_files:

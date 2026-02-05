@@ -219,14 +219,17 @@ class MCPIntegration:
                         raise ValueError(f"MCP server '{name}' is disabled (connect=never)")
                     break
 
+        from activecontext.mcp.client import MCPConnection
+
         # Connect via MCPClientManager
-        connection = await self._mcp_client_manager.connect(name=name, config=config)
+        connection: MCPConnection = await self._mcp_client_manager.connect(name=name, config=config)
 
         # Create or update MCPServerNode
+        node: MCPServerNode
         if name in self._mcp_server_nodes:
             node = self._mcp_server_nodes[name]
         else:
-            identifier = to_snake_identifier(name)
+            identifier: str = to_snake_identifier(name)
             node = MCPServerNode(
                 node_id=identifier,
                 server_name=name,

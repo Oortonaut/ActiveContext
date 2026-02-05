@@ -3291,18 +3291,18 @@ Provide a concise summary:"""
         # Check for failures (ShellNode or LockNode)
         failed_nodes: list[ShellNode | LockNode] = []
         for n in nodes:
-            if (
-                n.node_type == "shell"
-                and n.shell_status == ShellStatus.FAILED
-                or n.node_type == "lock"
-                and n.lock_status in (LockStatus.ERROR, LockStatus.TIMEOUT)
+            if isinstance(n, ShellNode) and n.shell_status == ShellStatus.FAILED:
+                failed_nodes.append(n)
+            elif isinstance(n, LockNode) and n.lock_status in (
+                LockStatus.ERROR,
+                LockStatus.TIMEOUT,
             ):
                 failed_nodes.append(n)
 
         if failed_nodes and condition.failure_prompt:
             failed = failed_nodes[0]
             # Build prompt based on node type
-            if failed.node_type == "shell":
+            if isinstance(failed, ShellNode):
                 prompt = condition.failure_prompt.format(
                     node=failed,
                     node_id=failed.node_id,
@@ -3410,7 +3410,7 @@ Provide a concise summary:"""
 
     def _format_wake_prompt(self, template: str, node: ShellNode | LockNode | PtyNode) -> str:
         """Format a wake prompt template with node-specific attributes."""
-        if node.node_type == "shell":
+        if isinstance(node, ShellNode):
             return template.format(
                 node=node,
                 node_id=node.node_id,
@@ -3418,12 +3418,12 @@ Provide a concise summary:"""
                 exit_code=node.exit_code,
                 output=node.output[:500] if node.output else "",
             )
-        elif node.node_type == "pty":
+        elif isinstance(node, PtyNode):
             return template.format(
                 node=node,
                 node_id=node.node_id,
-                command=node.full_command,  # type: ignore[union-attr]
-                exit_code=node.exit_code,  # type: ignore[union-attr]
+                command=node.full_command,
+                exit_code=node.exit_code,
             )
         else:  # LockNode
             return template.format(

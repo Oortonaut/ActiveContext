@@ -118,7 +118,7 @@ class ProjectionEngine:
         """
         if context_graph and len(context_graph) > 0:
             # Collect the render path (creates views on-demand)
-            render_path = self._collect_render_path(context_graph)
+            render_path: RenderPath = self._collect_render_path(context_graph)
 
             # TODO: move this somewhere good.
             #  # Apply ChoiceView selection filters
@@ -129,14 +129,14 @@ class ProjectionEngine:
             #          view.apply_selection(self._views)
 
             # Render the path
-            sections = self._render_path(
+            sections: list[ProjectionSection] = self._render_path(
                 render_path,
                 text_buffers=text_buffers,
                 content_registry=content_registry,
             )
 
             # Build handles dict from graph
-            handles = {node.node_id: node.GetDigest() for node in context_graph}
+            handles: dict[str, Any] = {node.node_id: node.GetDigest() for node in context_graph}
         else:
             sections = []
             handles = {}
@@ -163,11 +163,11 @@ class ProjectionEngine:
         Returns:
             RenderPath capturing nodes in document order with token totals
         """
-        path = RenderPath()
+        path: RenderPath = RenderPath()
         seen: set[str] = set()
 
         # Start from root context if set, otherwise collect all root nodes
-        root = graph.get_root()
+        root: ContextNode | None = graph.get_root()
         if root is not None:
             path.total_tokens = self._collect_from_node(graph, root, path, seen)
         else:
@@ -298,10 +298,10 @@ class ProjectionEngine:
         Returns:
             ProjectionSection or None if node should be skipped
         """
-        content = view.render(text_buffers=text_buffers)
+        content: str = view.render(text_buffers=text_buffers)
 
-        media_type = getattr(node, "media_type", MediaType.TEXT)
-        tokens_used = count_tokens(content, media_type)
+        media_type: MediaType = getattr(node, "media_type", MediaType.TEXT)
+        tokens_used: int = count_tokens(content, media_type)
 
         return ProjectionSection(
             section_type=node.node_type,

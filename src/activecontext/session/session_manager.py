@@ -252,12 +252,12 @@ class Session:
         Note: Only the base system prompt is loaded here. Reference prompts
         (dsl_reference, node_states, etc.) are loaded via startup statements.
         """
-        from activecontext.prompts import SYSTEM_PROMPT
+        from activecontext.resources import load_prompt
 
         # Use timeline's markdown parsing to create TextNode tree
         root = self._timeline._make_markdown_node(
             path="system_prompt",
-            content=SYSTEM_PROMPT,
+            content=load_prompt("system"),
             default_expansion=Expansion.ALL,  # Fully expanded
         )
 
@@ -274,7 +274,7 @@ class Session:
         Also handles @prompts/ paths which are resolved via resolve_path().
         """
         from activecontext.context.buffer import TextBuffer
-        from activecontext.prompts import SYSTEM_PROMPT
+        from activecontext.resources import load_prompt
 
         # Track paths we need to restore (path -> nodes using that path)
         paths_to_restore: dict[str, list[TextNode]] = {}
@@ -290,7 +290,7 @@ class Session:
         if "system_prompt" in paths_to_restore:
             buffer = TextBuffer(
                 path="system_prompt",
-                lines=SYSTEM_PROMPT.split("\n"),
+                lines=load_prompt("system").split("\n"),
             )
             self._text_buffers[buffer.buffer_id] = buffer
             for node in paths_to_restore["system_prompt"]:
@@ -525,7 +525,7 @@ class Session:
             )
             # Schedule the callback to run in the event loop
             with contextlib.suppress(RuntimeError):
-                asyncio.create_task(self._emit_update_callback(update))
+                asyncio.ensure_future(self._emit_update_callback(update))
 
     def set_mode_choice_view(self, choice_view: ChoiceView) -> None:
         """Register the ChoiceView that manages mode scripts.

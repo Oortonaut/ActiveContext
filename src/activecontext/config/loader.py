@@ -69,7 +69,7 @@ def load_yaml_file(path: Path) -> dict[str, Any]:
 
     try:
         with open(path, encoding="utf-8") as f:
-            data = yaml.safe_load(f)
+            data: Any = yaml.safe_load(f)
             return data if isinstance(data, dict) else {}
     except yaml.YAMLError as e:
         _log.warning("Invalid YAML in %s: %s", path, e)
@@ -94,15 +94,15 @@ def env_overrides() -> dict[str, Any]:
     overrides: dict[str, Any] = {}
 
     # Logging from AC_LOG
-    log_path = os.environ.get("AC_LOG")
+    log_path: str | None = os.environ.get("AC_LOG")
     if log_path:
         overrides.setdefault("logging", {})["file"] = log_path
 
     # Context dump from AC_LOG_CONTEXT / AC_LOG_CONTEXT_N
-    context_dir = os.environ.get("AC_LOG_CONTEXT")
+    context_dir: str | None = os.environ.get("AC_LOG_CONTEXT")
     if context_dir:
         overrides.setdefault("logging", {})["context_dir"] = context_dir
-    context_n = os.environ.get("AC_LOG_CONTEXT_N")
+    context_n: str | None = os.environ.get("AC_LOG_CONTEXT_N")
     if context_n:
         overrides.setdefault("logging", {})["context_n"] = int(context_n)
 
@@ -387,15 +387,15 @@ def load_config(session_root: str | None = None, reload: bool = False) -> Config
             configs.append(config_data)
 
     # Environment overrides (highest priority)
-    env_config = env_overrides()
+    env_config: dict[str, Any] = env_overrides()
     if env_config:
         configs.append(env_config)
 
     # Merge all configs
-    merged = merge_configs(*configs)
+    merged: dict[str, Any] = merge_configs(*configs)
 
     # Convert to typed Config
-    config = dict_to_config(merged)
+    config: Config = dict_to_config(merged)
 
     # Cache only global config (no session_root)
     if session_root is None:

@@ -231,8 +231,8 @@ class NodeTypeRegistry:
         Raises:
             ValueError: If the node_type is unknown
         """
-        node_type = data.get("node_type")
-        cls = self._types.get(node_type)  # type: ignore[arg-type]
+        node_type: str | None = data.get("node_type")
+        cls: type[ContextNode] | None = self._types.get(node_type)  # type: ignore[arg-type]
         if cls is None:
             raise ValueError(f"Unknown node type: {node_type}")
         # All ContextNode subclasses implement _from_dict as a classmethod
@@ -332,7 +332,7 @@ class NodeTypeRegistry:
         """
         from activecontext.plugins.descriptor import PluginSource
 
-        desc = self._descriptors.get(node_type)
+        desc: NodePluginDescriptor | None = self._descriptors.get(node_type)
         return desc is not None and desc.source == PluginSource.REMOTE
 
     def get_server_name(self, node_type: str) -> str | None:
@@ -344,7 +344,7 @@ class NodeTypeRegistry:
         Returns:
             Server name string, or None if not a remote plugin.
         """
-        desc = self._descriptors.get(node_type)
+        desc: NodePluginDescriptor | None = self._descriptors.get(node_type)
         if desc is not None:
             return desc.server_name
         return None
@@ -408,7 +408,7 @@ class NodeTypeRegistry:
             raise ValueError(f"Cannot reload builtin node type: {node_type}")
 
         # Get the descriptor to check source
-        desc = self._descriptors.get(node_type)
+        desc: NodePluginDescriptor | None = self._descriptors.get(node_type)
         if desc is None:
             return False
 
@@ -453,14 +453,14 @@ class NodeTypeRegistry:
             PluginInfo if the type is registered, None otherwise.
         """
         # Check if type exists
-        cls = self._types.get(node_type)
-        desc = self._descriptors.get(node_type)
+        cls: type[ContextNode] | None = self._types.get(node_type)
+        desc: NodePluginDescriptor | None = self._descriptors.get(node_type)
 
         if cls is None and desc is None:
             return None
 
-        is_builtin = node_type in self._builtin_types
-        is_loaded = node_type in self._types
+        is_builtin: bool = node_type in self._builtin_types
+        is_loaded: bool = node_type in self._types
 
         # Extract metadata from descriptor or class
         if desc is not None:
@@ -528,9 +528,11 @@ class NodeTypeRegistry:
                        node_type, missing required methods).
             ImportError: If the module cannot be imported.
         """
+        from types import ModuleType
+
         try:
             # Import the module
-            module = importlib.import_module(module_path)
+            module: ModuleType = importlib.import_module(module_path)
         except ImportError as e:
             raise ImportError(f"Failed to import plugin module '{module_path}': {e}") from e
 

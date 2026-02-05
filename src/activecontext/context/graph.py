@@ -73,12 +73,12 @@ class LinkedChildOrder:
         if node_id in self._index:
             return  # Already exists
 
-        after_node = self._index.get(after_id)
+        after_node: _ChildOrderNode | None = self._index.get(after_id)
         if not after_node:
             self.append(node_id)
             return
 
-        new_node = _ChildOrderNode(
+        new_node: _ChildOrderNode = _ChildOrderNode(
             node_id=node_id,
             prev=after_node,
             next=after_node.next,
@@ -98,10 +98,10 @@ class LinkedChildOrder:
         if node_id in self._index:
             return  # Already exists
 
-        before_node = self._index.get(before_id)
+        before_node: _ChildOrderNode | None = self._index.get(before_id)
         if not before_node:
             # Prepend to beginning
-            new_node = _ChildOrderNode(node_id=node_id, next=self._head)
+            new_node: _ChildOrderNode = _ChildOrderNode(node_id=node_id, next=self._head)
             if self._head:
                 self._head.prev = new_node
             else:
@@ -146,7 +146,7 @@ class LinkedChildOrder:
 
     def __iter__(self) -> Iterator[str]:
         """Iterate in order. O(n)."""
-        current = self._head
+        current: _ChildOrderNode | None = self._head
         while current:
             yield current.node_id
             current = current.next
@@ -247,7 +247,7 @@ class ContextGraph:
             node_id: ID of node to remove
             recursive: If True, also remove all descendants
         """
-        node = self._nodes.get(node_id)
+        node: ContextNode | None = self._nodes.get(node_id)
         if not node:
             return
 
@@ -295,8 +295,8 @@ class ContextGraph:
         Returns:
             True if link was created, False if nodes don't exist or would create cycle
         """
-        child = self._nodes.get(child_id)
-        parent = self._nodes.get(parent_id)
+        child: ContextNode | None = self._nodes.get(child_id)
+        parent: ContextNode | None = self._nodes.get(parent_id)
 
         if not child or not parent:
             return False
@@ -333,8 +333,8 @@ class ContextGraph:
         Returns:
             True if link was removed, False if nodes don't exist
         """
-        child = self._nodes.get(child_id)
-        parent = self._nodes.get(parent_id)
+        child: ContextNode | None = self._nodes.get(child_id)
+        parent: ContextNode | None = self._nodes.get(parent_id)
 
         if not child or not parent:
             return False
@@ -363,7 +363,7 @@ class ContextGraph:
         Args:
             node_id: Unique identifier of the parent node.
         """
-        node = self._nodes.get(node_id)
+        node: ContextNode | None = self._nodes.get(node_id)
         if not node:
             return []
         return [self._nodes[cid] for cid in node.child_order if cid in self._nodes]
@@ -374,7 +374,7 @@ class ContextGraph:
         Args:
             node_id: Unique identifier of the child node.
         """
-        node = self._nodes.get(node_id)
+        node: ContextNode | None = self._nodes.get(node_id)
         if not node:
             return []
         return [self._nodes[pid] for pid in node.parent_ids if pid in self._nodes]
@@ -389,13 +389,13 @@ class ContextGraph:
         visited: set[str] = set()
 
         def collect(nid: str) -> None:
-            node = self._nodes.get(nid)
+            node: ContextNode | None = self._nodes.get(nid)
             if not node:
                 return
             for parent_id in node.parent_ids:
                 if parent_id not in visited:
                     visited.add(parent_id)
-                    parent = self._nodes.get(parent_id)
+                    parent: ContextNode | None = self._nodes.get(parent_id)
                     if parent:
                         ancestors.append(parent)
                         collect(parent_id)
@@ -413,13 +413,13 @@ class ContextGraph:
         visited: set[str] = set()
 
         def collect(nid: str) -> None:
-            node = self._nodes.get(nid)
+            node: ContextNode | None = self._nodes.get(nid)
             if not node:
                 return
             for child_id in node.child_order:
                 if child_id not in visited:
                     visited.add(child_id)
-                    child = self._nodes.get(child_id)
+                    child: ContextNode | None = self._nodes.get(child_id)
                     if child:
                         descendants.append(child)
                         collect(child_id)
@@ -475,7 +475,7 @@ class ContextGraph:
         Returns:
             List of TraceNodes, sorted by version (newest first)
         """
-        node = self._nodes.get(node_id)
+        node: ContextNode | None = self._nodes.get(node_id)
         if not node:
             return []
 
@@ -483,10 +483,10 @@ class ContextGraph:
 
         # Find traces among siblings (same parent)
         for parent_id in node.parent_ids:
-            parent = self._nodes.get(parent_id)
+            parent: ContextNode | None = self._nodes.get(parent_id)
             if parent:
                 for child_id in parent.child_order:
-                    child = self._nodes.get(child_id)
+                    child: ContextNode | None = self._nodes.get(child_id)
                     if (
                         child
                         and child.node_type == "trace"
@@ -497,9 +497,9 @@ class ContextGraph:
         # Also check trace_sink if set
         if node.trace_sink and node.trace_sink.node_id in self._nodes:
             for child_id in node.trace_sink.child_order:
-                child = self._nodes.get(child_id)
-                if child and child.node_type == "trace" and getattr(child, "node", None) == node_id:
-                    traces.append(child)
+                child_trace: ContextNode | None = self._nodes.get(child_id)
+                if child_trace and child_trace.node_type == "trace" and getattr(child_trace, "node", None) == node_id:
+                    traces.append(child_trace)
 
         # Sort by new_version descending (newest first)
         traces.sort(key=lambda t: getattr(t, "new_version", 0), reverse=True)
@@ -517,7 +517,7 @@ class ContextGraph:
                 return False
             visited.add(nid)
 
-            node = self._nodes.get(nid)
+            node: ContextNode | None = self._nodes.get(nid)
             if not node:
                 return False
 
@@ -681,7 +681,7 @@ class ContextGraph:
 
         # Restore group states
         for node_id, state in cp.group_states.items():
-            group_node = self._nodes.get(node_id)
+            group_node: ContextNode | None = self._nodes.get(node_id)
             if group_node is not None and isinstance(group_node, GroupNode):
                 group_node.summary_prompt = state.summary_prompt
                 group_node.last_child_versions = dict(state.last_child_versions)

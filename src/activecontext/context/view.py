@@ -330,11 +330,11 @@ class ChoiceView(NodeView):
         child_ids = node.child_order.to_list()
 
         # Get titles for each child
-        titles = []
+        titles: list[str] = []
         for child_id in child_ids:
-            child = graph.get_node(child_id)
+            child: ContextNode | None = graph.get_node(child_id)
             if child:
-                title = getattr(child, "title", None) or child_id
+                title: str = getattr(child, "title", None) or child_id
                 titles.append(title)
         return titles
 
@@ -349,10 +349,10 @@ class ChoiceView(NodeView):
         if graph is None:
             return ""
 
-        child_ids = self._get_child_ids()
-        lines = []
+        child_ids: list[str] = self._get_child_ids()
+        lines: list[str] = []
         for child_id in child_ids:
-            child = graph.get_node(child_id)
+            child: ContextNode | None = graph.get_node(child_id)
             if child:
                 lines.append(child.render_digest())
         return "\n".join(lines)
@@ -368,12 +368,12 @@ class ChoiceView(NodeView):
             return "[No options]"
 
         # Get the selected child's title
-        selected_title = None
+        selected_title: str | None = None
         if self._selected_id:
-            node = self.node
-            graph = getattr(node, "_graph", None)
+            node: ContextNode = self.node
+            graph: Any = getattr(node, "_graph", None)
             if graph:
-                selected_child = graph.get_node(self._selected_id)
+                selected_child: ContextNode | None = graph.get_node(self._selected_id)
                 if selected_child:
                     selected_title = getattr(selected_child, "title", None) or self._selected_id
 
@@ -625,9 +625,9 @@ class SequenceView(ChoiceView):
                 marker = "[ ]"
 
             # Get child title
-            title = child_id
+            title: str = child_id
             if graph:
-                child = graph.get_node(child_id)
+                child: ContextNode | None = graph.get_node(child_id)
                 if child:
                     title = getattr(child, "title", None) or child_id
 

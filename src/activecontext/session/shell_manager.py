@@ -107,7 +107,7 @@ class ShellManager:
         self._context_graph.add_node(node)
 
         # Start background execution
-        task = asyncio.create_task(
+        task: asyncio.Task[None] = asyncio.create_task(
             self._background_task(
                 node_id=node.node_id,
                 command=command,
