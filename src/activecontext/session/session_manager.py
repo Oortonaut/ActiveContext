@@ -137,6 +137,9 @@ class Session:
         self._primary_script = self._primary_agent  # Alias for Script API
         self._timeline = timeline  # Backward compat alias
 
+        # Register primary agent ID with Timeline for tracking
+        self._timeline.set_primary_agent_id(session_id)
+
         # Expose session to namespace for DSL access (e.g., __session__.set_mode_choice_view())
         self._timeline._namespace["__session__"] = self
 
@@ -145,38 +148,19 @@ class Session:
             session_id: self._primary_agent
         }
 
-        # Check if we're restoring from a saved session (context graph already has nodes)
-        existing_context = self._timeline.context_graph.get_node("context")
-        is_restore = existing_context is not None
+        # Timeline owns ContextGraph and creates structural nodes.
+        # Session accesses them via timeline.context_graph.get_node().
 
-        if is_restore:
-            # Restoring: use the existing root context node
-            if isinstance(existing_context, GroupNode):
-                self._root_context = existing_context
-            else:
-                # Shouldn't happen, but create fresh if somehow wrong type
-                self._root_context = GroupNode(
-                    node_id="context",
-                    default_expansion=Expansion.ALL,
-                    mode="running",
-                    tick_frequency=TickFrequency.turn(),
-                )
-                self._root_context.is_subscription_point = True
-                self._timeline.context_graph.add_node(self._root_context)
-                self._timeline.context_graph.set_root("context")
-        else:
-            # Fresh session: create root Context node for document-ordered rendering
-            # All other nodes become children of this root
-            self._root_context = GroupNode(
-                node_id="context",
-                default_expansion=Expansion.ALL,
-                mode="running",
-                tick_frequency=TickFrequency.turn(),
-            )
-            # Root is auto-subscribed to collect all notifications from subtree
-            self._root_context.is_subscription_point = True
-            self._timeline.context_graph.add_node(self._root_context)
-            self._timeline.context_graph.set_root("context")
+        # Get root context node from graph (created by Timeline)
+        root_context = self._timeline.context_graph.get_node("context")
+        if not isinstance(root_context, GroupNode):
+            raise RuntimeError("Timeline did not create root 'context' node")
+        self._root_context = root_context
+
+        # Check if we're restoring from a saved session
+        # Restored sessions have system_prompt node already
+        existing_system_prompt = self._timeline.context_graph.get_node("system_prompt")
+        is_restore = existing_system_prompt is not None
 
         self._context_stack.append("context")  # All nodes go inside root
         self._timeline.set_current_group("context")
@@ -185,11 +169,17 @@ class Session:
         if not is_restore:
             self._add_system_prompt_node()
 
-        # SessionNode and MCPManagerNode are created in _create_metadata_nodes()
-        # Called after context guide to maintain document order:
-        # System Prompt -> Guide -> Session -> MCP -> Messages
-        self._session_node: SessionNode | None = None
-        self._mcp_manager_node: MCPManagerNode | None = None
+        # Get structural nodes from Timeline's graph
+        # SessionNode and MCPManagerNode are created by Timeline._create_structural_nodes()
+        session_node = self._timeline.context_graph.get_node("session")
+        self._session_node: SessionNode | None = (
+            session_node if isinstance(session_node, SessionNode) else None
+        )
+
+        mcp_manager = self._timeline.context_graph.get_node("mcp_manager")
+        self._mcp_manager_node: MCPManagerNode | None = (
+            mcp_manager if isinstance(mcp_manager, MCPManagerNode) else None
+        )
 
         # Register set_title callback with timeline (via Script)
         self._primary_script.set_title_callback(self.set_title)
@@ -210,8 +200,11 @@ class Session:
         self._running = False
         self._agent_task: asyncio.Task[Any] | None = None
 
-        # User messages group - created in _create_metadata_nodes
-        self._user_messages_group: GroupNode | None = None
+        # User messages group - created by Timeline._create_structural_nodes()
+        user_messages = self._timeline.context_graph.get_node("user_messages")
+        self._user_messages_group: GroupNode | None = (
+            user_messages if isinstance(user_messages, GroupNode) else None
+        )
 
         # Track whether startup() has been called
         self._startup_done: bool = is_restore  # Restored sessions skip startup
@@ -312,47 +305,23 @@ class Session:
             # If they're default values (1/None), the node renders the whole buffer
 
     def _create_metadata_nodes(self) -> None:
-        """Create SessionNode and MCPManagerNode.
+        """Set up references to structural nodes created by Timeline.
+
+        Timeline._create_structural_nodes() creates the core nodes during
+        Timeline construction. This method:
+        1. Updates the session_start_time on the SessionNode
+        2. Sets the Agent's session_node reference for recording statistics
 
         Called after context guide is loaded to maintain document order:
         System Prompt -> Guide -> Session -> MCP -> Messages
         """
-        # Create SessionNode for agent situational awareness
-        self._session_node = SessionNode(
-            node_id="session",
-            mode="running",
-            tick_frequency=TickFrequency.turn(),
-            session_start_time=self._created_at.timestamp(),
-        )
-        self._timeline.context_graph.add_node(self._session_node)
-        self._timeline.context_graph.link("session", "context")
+        # Update session_start_time on the SessionNode (Timeline creates it with datetime.now())
+        if self._session_node:
+            self._session_node.session_start_time = self._created_at.timestamp()
 
         # Set Agent's session_node reference for recording statistics
-        self._primary_agent.set_session_node(self._session_node)
-
-        # Create MCPManagerNode singleton for tracking MCP server connections
-        self._mcp_manager_node = MCPManagerNode(
-            node_id="mcp_manager",
-            default_expansion=Expansion.CONTENT,
-            mode="running",
-            tick_frequency=TickFrequency.turn(),
-        )
-        self._timeline.context_graph.add_node(self._mcp_manager_node)
-        self._timeline.context_graph.link("mcp_manager", "context")
-
-        # Create User Messages group for queued async messages
-        # Document order: System Prompt -> Guide -> Session -> MCP -> User Messages
-        # HEADER expansion: queued messages are invisible in projection.
-        # They are consumed by _process_next_message and re-created as
-        # canonical conversation nodes via _add_message / per-segment creation.
-        self._user_messages_group = GroupNode(
-            node_id="user_messages",
-            default_expansion=Expansion.HEADER,  # Queued messages don't render
-            mode="running",
-            tick_frequency=TickFrequency.turn(),
-        )
-        self._timeline.context_graph.add_node(self._user_messages_group)
-        self._timeline.context_graph.link("user_messages", "context")
+        if self._session_node:
+            self._primary_agent.set_session_node(self._session_node)
 
     @property
     def session_id(self) -> str:
@@ -722,6 +691,9 @@ class Session:
     def get_or_create_text_buffer(self, path: str) -> TextBuffer:
         """Get an existing TextBuffer for a path, or create one.
 
+        Uses TextBuffer's class-level cache to ensure the same file
+        returns the same buffer across sessions.
+
         Args:
             path: File path to load
 
@@ -730,14 +702,13 @@ class Session:
         """
         from activecontext.context.buffer import TextBuffer
 
-        # Check if we already have a buffer for this path
-        for buffer in self._text_buffers.values():
-            if buffer.path == path:
-                return buffer
+        # Use the class-level cache for deduplication
+        buffer = TextBuffer.get_or_create(path, cwd=self._cwd)
 
-        # Create new buffer from file
-        buffer = TextBuffer.from_file(path, cwd=self._cwd)
-        self._text_buffers[buffer.buffer_id] = buffer
+        # Also keep in session-local index for enumeration
+        if buffer.buffer_id not in self._text_buffers:
+            self._text_buffers[buffer.buffer_id] = buffer
+
         return buffer
 
     @property
@@ -1011,11 +982,12 @@ class Session:
         # Reconstruct the context graph
         context_graph = ContextGraph.from_dict(data.context_graph)
 
-        # Create timeline with the restored graph
+        # Create timeline with the restored graph (skip structural node creation)
         timeline = Timeline(
             session_id=session_id,
             cwd=cwd,
             context_graph=context_graph,
+            create_structural_nodes=False,  # Graph already has structural nodes
         )
 
         # Restore timeline statement history (for replay tracking)
@@ -1053,33 +1025,18 @@ class Session:
             )
             session._message_history.append(msg)
 
-        # Link session's SessionNode to the restored graph's session node (if exists)
-        restored_session_node = context_graph.get_node("session")
-        if isinstance(restored_session_node, SessionNode):
-            session._session_node = restored_session_node
-        # If no session node was saved, one was already created in __init__
-
-        # Link session's MCPManagerNode to the restored graph's node (if exists)
-        restored_mcp_manager = context_graph.get_node("mcp_manager")
-        if isinstance(restored_mcp_manager, MCPManagerNode):
-            session._mcp_manager_node = restored_mcp_manager
-        # If no mcp_manager node was saved, one was already created in __init__
-
-        # Link session's user_messages group to the restored graph's node (if exists)
-        # Or create it if missing (backward compat for sessions saved before startup completed)
-        restored_user_messages = context_graph.get_node("user_messages")
-        if isinstance(restored_user_messages, GroupNode):
-            session._user_messages_group = restored_user_messages
-        else:
-            # Create missing user_messages group for backward compatibility
-            session._user_messages_group = GroupNode(
+        # Session.__init__ already accesses structural nodes from timeline.context_graph.
+        # For backward compatibility, create missing user_messages group if needed.
+        if session._user_messages_group is None:
+            user_messages = GroupNode(
                 node_id="user_messages",
                 default_expansion=Expansion.HEADER,
                 mode="running",
                 tick_frequency=TickFrequency.turn(),
             )
-            session._timeline.context_graph.add_node(session._user_messages_group)
+            session._timeline.context_graph.add_node(user_messages)
             session._timeline.context_graph.link("user_messages", "context")
+            session._user_messages_group = user_messages
             log.debug("Created missing user_messages group for restored session")
 
         # Restore text buffers for virtual content (system prompts)
@@ -2152,12 +2109,9 @@ class SessionManager:
         # Get MCP config if available
         mcp_config = project_config.mcp if project_config else None
 
-        # Create context graph - Session owns this, Timeline uses it
-        context_graph = ContextGraph()
-
+        # Timeline owns the ContextGraph and creates structural nodes
         timeline = Timeline(
             session_id,
-            context_graph=context_graph,
             cwd=cwd,
             permission_manager=permission_manager,
             terminal_executor=terminal_executor,

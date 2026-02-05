@@ -98,17 +98,21 @@ class TestReplayFrom:
         """Test that replay properly clears and rebuilds state."""
         timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
         try:
+            # Timeline creates structural nodes by default (context, session, mcp_manager, user_messages)
+            initial_count = len(timeline.get_context_objects())
+            assert initial_count == 4  # Structural nodes
+
             await timeline.execute_statement('t = topic("Original")')
 
-            # Verify we have context objects
-            assert len(timeline.get_context_objects()) == 1
+            # Verify we have structural + user context objects
+            assert len(timeline.get_context_objects()) == initial_count + 1
 
             # Replay - should clear and rebuild
             async for _ in timeline.replay_from(0):
                 pass
 
-            # Should still have context objects
-            assert len(timeline.get_context_objects()) == 1
+            # Should still have structural + user context objects
+            assert len(timeline.get_context_objects()) == initial_count + 1
         finally:
             await timeline.close()
 
@@ -520,12 +524,16 @@ class TestCheckpoints:
         """Test restoring from a checkpoint."""
         timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
         try:
+            # Timeline creates structural nodes (context, session, mcp_manager, user_messages)
+            initial_count = len(timeline.get_context_objects())
+            assert initial_count == 4
+
             await timeline.execute_statement('t1 = topic("First")')
             await timeline.execute_statement('checkpoint("before_second")')
             await timeline.execute_statement('t2 = topic("Second")')
 
-            # Have two topics
-            assert len(timeline.get_context_objects()) == 2
+            # Have structural nodes + two topics
+            assert len(timeline.get_context_objects()) == initial_count + 2
 
             # Restore should work without error
             result = await timeline.execute_statement('restore("before_second")')

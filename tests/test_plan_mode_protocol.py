@@ -13,39 +13,41 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from activecontext.context.graph import ContextGraph
 from activecontext.session.protocols import SessionUpdate, UpdateKind
 from activecontext.session.session_manager import Session
+from activecontext.session.timeline import Timeline
 
 
 class TestSessionModeTracking:
     """Test session mode property and set_mode method."""
 
-    def test_session_mode_default(self):
+    def test_session_mode_default(self, tmp_path):
         """Test that session has default mode."""
-        # Create minimal session mock
-        graph = ContextGraph()
-        timeline = MagicMock()
-        timeline.context_graph = graph
+        # Create real Timeline that creates structural nodes
+        timeline = Timeline(
+            session_id="test-123",
+            cwd=str(tmp_path),
+        )
 
         session = Session(
             session_id="test-123",
             timeline=timeline,
-            cwd="/test",
+            cwd=str(tmp_path),
         )
 
         assert session.mode == "normal"  # Default mode
 
-    def test_session_set_mode(self):
+    def test_session_set_mode(self, tmp_path):
         """Test setting session mode."""
-        graph = ContextGraph()
-        timeline = MagicMock()
-        timeline.context_graph = graph
+        timeline = Timeline(
+            session_id="test-123",
+            cwd=str(tmp_path),
+        )
 
         session = Session(
             session_id="test-123",
             timeline=timeline,
-            cwd="/test",
+            cwd=str(tmp_path),
         )
 
         session.set_mode("plan")
@@ -54,16 +56,17 @@ class TestSessionModeTracking:
         session.set_mode("brave")
         assert session.mode == "brave"
 
-    def test_session_set_mode_emits_update(self):
+    def test_session_set_mode_emits_update(self, tmp_path):
         """Test that set_mode emits SessionUpdate when callback is set."""
-        graph = ContextGraph()
-        timeline = MagicMock()
-        timeline.context_graph = graph
+        timeline = Timeline(
+            session_id="test-123",
+            cwd=str(tmp_path),
+        )
 
         session = Session(
             session_id="test-123",
             timeline=timeline,
-            cwd="/test",
+            cwd=str(tmp_path),
         )
 
         # Set up callback
@@ -77,16 +80,17 @@ class TestSessionModeTracking:
         # We can't easily test asyncio.create_task in sync test without event loop
         # This is tested in integration tests
 
-    def test_session_set_mode_no_update_when_same(self):
+    def test_session_set_mode_no_update_when_same(self, tmp_path):
         """Test that set_mode doesn't emit update if mode unchanged."""
-        graph = ContextGraph()
-        timeline = MagicMock()
-        timeline.context_graph = graph
+        timeline = Timeline(
+            session_id="test-123",
+            cwd=str(tmp_path),
+        )
 
         session = Session(
             session_id="test-123",
             timeline=timeline,
-            cwd="/test",
+            cwd=str(tmp_path),
         )
 
         # Mode is already "normal" by default
@@ -176,20 +180,18 @@ class TestACPModeChangeNotification:
 class TestModeChangeIntegration:
     """Integration tests for mode changes through the full stack."""
 
-    async def test_session_mode_change_triggers_acp_notification(self):
+    async def test_session_mode_change_triggers_acp_notification(self, tmp_path):
         """Test that changing session mode triggers ACP notification."""
-
-        from activecontext.context.graph import ContextGraph
-
-        # Create session with mocked components
-        graph = ContextGraph()
-        timeline = MagicMock()
-        timeline.context_graph = graph
+        # Create real Timeline that creates structural nodes
+        timeline = Timeline(
+            session_id="test-123",
+            cwd=str(tmp_path),
+        )
 
         session = Session(
             session_id="test-123",
             timeline=timeline,
-            cwd="/test",
+            cwd=str(tmp_path),
         )
 
         # Track emitted updates

@@ -28,26 +28,27 @@ class TestLsHandles:
         timeline = Timeline("test-session", context_graph=ContextGraph(), cwd=str(temp_cwd))
 
         try:
-            # Initially empty
+            # Timeline creates structural nodes by default (context, session, mcp_manager, user_messages)
             result = await timeline.execute_statement("handles = ls()")
             assert result.status.value == "ok"
 
             ns = timeline.get_namespace()
             handles = ns["handles"]
             assert isinstance(handles, list)
-            assert len(handles) == 0
+            initial_count = len(handles)
+            assert initial_count == 4  # Structural nodes: context, session, mcp_manager, user_messages
 
             # Create some objects
             await timeline.execute_statement('v = text("test.py")')
             await timeline.execute_statement('t = topic("Test Topic")')
 
-            # Now ls() should return them
+            # Now ls() should return them plus structural nodes
             result = await timeline.execute_statement("handles = ls()")
             assert result.status.value == "ok"
 
             ns = timeline.get_namespace()
             handles = ns["handles"]
-            assert len(handles) == 2
+            assert len(handles) == initial_count + 2
 
             # Check structure (GetDigest format)
             types = [h["type"] for h in handles]

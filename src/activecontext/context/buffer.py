@@ -9,7 +9,7 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 
 @dataclass
@@ -23,10 +23,40 @@ class TextBuffer:
         metadata: Optional metadata (encoding, modification time, etc.)
     """
 
+    # Class-level cache: (resolved_cwd, path) -> TextBuffer
+    _cache: ClassVar[dict[tuple[str, str], TextBuffer]] = {}
+
     buffer_id: str = field(default_factory=lambda: str(uuid.uuid4())[:8])
     path: str = ""
     lines: list[str] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
+
+    @classmethod
+    def get_or_create(cls, path: str, cwd: str = ".") -> TextBuffer:
+        """Get cached buffer or create from file.
+
+        Uses a class-level cache keyed by (resolved_cwd, path) to ensure
+        the same file loaded from the same directory returns the same buffer.
+
+        Args:
+            path: Path to the file (can be relative or absolute)
+            cwd: Working directory for relative paths
+
+        Returns:
+            Existing or newly created TextBuffer
+        """
+        key = (str(Path(cwd).resolve()), path)
+        if key not in cls._cache:
+            cls._cache[key] = cls.from_file(path, cwd)
+        return cls._cache[key]
+
+    @classmethod
+    def clear_cache(cls) -> None:
+        """Clear the class-level buffer cache.
+
+        Useful for testing to ensure clean state between tests.
+        """
+        cls._cache.clear()
 
     @classmethod
     def from_file(cls, path: str | Path, cwd: str = ".") -> TextBuffer:

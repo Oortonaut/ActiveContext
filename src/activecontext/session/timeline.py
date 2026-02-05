@@ -28,8 +28,10 @@ from activecontext.context.nodes import (
     ArtifactNode,
     ContextNode,
     GroupNode,
+    MCPManagerNode,
     MessageSegmentNode,
     PtyNode,
+    SessionNode,
     TextNode,
     TopicNode,
     TraceNode,
@@ -482,13 +484,18 @@ class Timeline:
 
     Each session has one Timeline that tracks all executed statements
     and maintains the Python namespace.
+
+    Timeline owns the ContextGraph and creates structural nodes when
+    `create_structural_nodes=True` (the default). For restored sessions,
+    pass an existing graph with `create_structural_nodes=False`.
     """
 
     def __init__(
         self,
         session_id: str,
-        context_graph: ContextGraph,
         cwd: str = ".",
+        context_graph: ContextGraph | None = None,
+        create_structural_nodes: bool = True,
         permission_manager: PermissionManager | None = None,
         terminal_executor: TerminalExecutor | None = None,
         permission_requester: PermissionRequester | None = None,
@@ -508,8 +515,13 @@ class Timeline:
         self._statements: list[Statement] = []
         self._executions: dict[str, list[_ExecutionRecord]] = {}  # statement_id -> executions
 
-        # Context graph (DAG of context nodes) - injected by Session
-        self._context_graph = context_graph
+        # Context graph (DAG of context nodes) - Timeline owns this
+        # Note: Use explicit None check since empty ContextGraph is falsy
+        self._context_graph = context_graph if context_graph is not None else ContextGraph()
+
+        # Create structural nodes for fresh sessions
+        if create_structural_nodes and "context" not in self._context_graph:
+            self._create_structural_nodes()
 
         # Permission manager for file access control
         self._permission_manager = permission_manager
@@ -687,6 +699,63 @@ class Timeline:
         # Signature: (handler, originator, forward_permissions) -> ConversationHandle
         self._create_conversation_handle: Callable[..., Any] | None = None
 
+        # Primary agent ID for tracking (set by Session after creating the Agent)
+        self._primary_agent_id: str | None = None
+
+    def _create_structural_nodes(self) -> None:
+        """Create structural nodes for a fresh session.
+
+        Creates the core structural nodes that form the skeleton of the context:
+        - context: Root GroupNode for document-ordered rendering
+        - session: SessionNode for agent situational awareness
+        - mcp_manager: MCPManagerNode for MCP server tracking
+        - user_messages: GroupNode for queued async messages
+
+        Session accesses these via `timeline.context_graph.get_node()`.
+        """
+        from datetime import datetime
+
+        # Root context node - all other nodes become children of this
+        root = GroupNode(
+            node_id="context",
+            default_expansion=Expansion.ALL,
+            mode="running",
+            tick_frequency=TickFrequency.turn(),
+        )
+        root.is_subscription_point = True
+        self._context_graph.add_node(root)
+        self._context_graph.set_root("context")
+
+        # SessionNode for agent situational awareness
+        session_node = SessionNode(
+            node_id="session",
+            mode="running",
+            tick_frequency=TickFrequency.turn(),
+            session_start_time=datetime.now().timestamp(),
+        )
+        self._context_graph.add_node(session_node)
+        self._context_graph.link("session", "context")
+
+        # MCPManagerNode for tracking MCP server connections
+        mcp_manager = MCPManagerNode(
+            node_id="mcp_manager",
+            default_expansion=Expansion.CONTENT,
+            mode="running",
+            tick_frequency=TickFrequency.turn(),
+        )
+        self._context_graph.add_node(mcp_manager)
+        self._context_graph.link("mcp_manager", "context")
+
+        # User Messages group for queued async messages
+        user_messages = GroupNode(
+            node_id="user_messages",
+            default_expansion=Expansion.HEADER,  # Queued messages don't render
+            mode="running",
+            tick_frequency=TickFrequency.turn(),
+        )
+        self._context_graph.add_node(user_messages)
+        self._context_graph.link("user_messages", "context")
+
     def configure_file_watcher(self, config: FileWatchConfig | None) -> None:
         """Configure the file watcher from config.
 
@@ -718,6 +787,22 @@ class Timeline:
     @property
     def cwd(self) -> str:
         return self._cwd
+
+    @property
+    def primary_agent_id(self) -> str | None:
+        """Get the primary agent ID for this timeline."""
+        return self._primary_agent_id
+
+    def set_primary_agent_id(self, agent_id: str) -> None:
+        """Set the primary agent ID.
+
+        Called by Session after creating the primary Agent to track which
+        agent owns this timeline.
+
+        Args:
+            agent_id: The agent's unique identifier
+        """
+        self._primary_agent_id = agent_id
 
     @property
     def views(self) -> dict[str, NodeView]:
@@ -4016,6 +4101,10 @@ Provide a concise summary:"""
         # Reset namespace and context
         self._namespace.clear()
         self._context_graph.clear()
+
+        # Recreate structural nodes (context, session, mcp_manager, user_messages)
+        self._create_structural_nodes()
+
         self._setup_namespace()
 
         # Replay statements from start to get to clean state, then from index
