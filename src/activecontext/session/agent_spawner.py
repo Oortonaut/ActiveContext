@@ -121,7 +121,7 @@ class AgentSpawner:
 
     def send_message(
         self,
-        target: Any,  # AgentHandle or str (agent_id)
+        target: AgentHandle | str,
         content: str,
         *node_refs: ContextNode,
     ) -> str:
@@ -295,7 +295,7 @@ class AgentSpawner:
             for e in entries
         ]
 
-    def get_agent_status(self, agent: Any) -> dict[str, Any]:
+    def get_agent_status(self, agent: AgentHandle | str) -> dict[str, Any]:
         """Get status of a specific agent.
 
         DSL function: agent_status(agent)
@@ -334,7 +334,7 @@ class AgentSpawner:
             "updated_at": entry.updated_at.isoformat(),
         }
 
-    def pause_agent(self, agent: Any) -> None:
+    def pause_agent(self, agent: AgentHandle | str) -> None:
         """Pause an agent.
 
         DSL function: pause_agent(agent)
@@ -356,7 +356,7 @@ class AgentSpawner:
 
         asyncio.ensure_future(self._agent_manager.pause_agent(agent_id))
 
-    def resume_agent(self, agent: Any) -> None:
+    def resume_agent(self, agent: AgentHandle | str) -> None:
         """Resume a paused agent.
 
         DSL function: resume_agent(agent)
@@ -378,7 +378,7 @@ class AgentSpawner:
 
         asyncio.ensure_future(self._agent_manager.resume_agent(agent_id))
 
-    def terminate_agent(self, agent: Any) -> None:
+    def terminate_agent(self, agent: AgentHandle | str) -> None:
         """Terminate an agent.
 
         DSL function: terminate_agent(agent)

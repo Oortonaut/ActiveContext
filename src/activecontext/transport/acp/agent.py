@@ -103,7 +103,7 @@ def _find_jetbrains_chat_uuid() -> str | None:
     return None
 
 
-from activecontext.session.protocols import UpdateKind
+from activecontext.session.protocols import SessionUpdate, UpdateKind
 from activecontext.session.session_manager import Session, SessionManager
 from activecontext.session.storage import list_sessions as list_sessions_from_disk
 from activecontext.terminal.acp_executor import ACPTerminalExecutor
@@ -112,6 +112,7 @@ log = get_logger("acp")
 
 if TYPE_CHECKING:
     from acp.interfaces import Client
+    from activecontext.session.coordinator import SessionConversationTransport
 
 # Default session modes (used if no config or config has no modes)
 DEFAULT_SESSION_MODES = [
@@ -1404,7 +1405,7 @@ class ActiveContextAgent:
 
     # --- Conversation delegation methods (Phase 2: ACP Integration) ---
 
-    def _setup_conversation_callbacks(self, session: Any) -> None:
+    def _setup_conversation_callbacks(self, session: Session) -> None:
         """Set up conversation delegation callbacks for a session.
 
         Called after session creation/loading to wire the session to the ACP agent
@@ -1415,7 +1416,7 @@ class ActiveContextAgent:
         """
 
         # Set update callback for SessionConversationTransport
-        async def emit_update(update: Any) -> None:
+        async def emit_update(update: SessionUpdate) -> None:
             """Emit a SessionUpdate to the ACP client."""
             await self._emit_update(session.session_id, update)
 
@@ -1430,7 +1431,7 @@ class ActiveContextAgent:
     def register_conversation_transport(
         self,
         session_id: str,
-        transport: Any,  # SessionConversationTransport (avoid circular import)
+        transport: SessionConversationTransport,
     ) -> None:
         """Register a conversation transport for input response routing.
 
@@ -1792,7 +1793,7 @@ class ActiveContextAgent:
         # Unknown command - let it pass through to LLM
         return False, ""
 
-    async def _send_session_update(self, session_id: str, update: Any) -> None:
+    async def _send_session_update(self, session_id: str, update: SessionUpdate) -> None:
         """Send a session update, checking if session is still open."""
         if not self._conn or session_id in self._closed_sessions:
             return
@@ -1970,14 +1971,14 @@ class ActiveContextAgent:
         for update in queued:
             await self._emit_update_internal(session_id, update)
 
-    def _queue_update(self, session_id: str, update: Any) -> None:
+    def _queue_update(self, session_id: str, update: SessionUpdate) -> None:
         """Queue an update for later delivery."""
         if session_id not in self._queued_updates:
             self._queued_updates[session_id] = []
         self._queued_updates[session_id].append(update)
         log.debug("Queued update %s for session %s", update.kind, session_id)
 
-    async def _emit_update(self, session_id: str, update: Any) -> None:
+    async def _emit_update(self, session_id: str, update: SessionUpdate) -> None:
         """Convert and emit a SessionUpdate as an ACP notification.
 
         When out_of_band_update=False and not in a prompt, queues the update
@@ -2000,7 +2001,7 @@ class ActiveContextAgent:
 
         await self._emit_update_internal(session_id, update)
 
-    async def _emit_update_internal(self, session_id: str, update: Any) -> None:
+    async def _emit_update_internal(self, session_id: str, update: SessionUpdate) -> None:
         """Internal method to convert and emit a SessionUpdate as an ACP notification."""
         # Priority flush: non-RESPONSE_CHUNK updates flush any pending chunks first
         if (

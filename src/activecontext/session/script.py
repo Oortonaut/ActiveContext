@@ -23,9 +23,12 @@ from activecontext.session.timeline import Timeline
 log = get_logger("script")
 
 if TYPE_CHECKING:
-    from activecontext.config.schema import Config, MCPConfig
+    from collections.abc import Awaitable, Callable
+
+    from activecontext.config.schema import Config, FileWatchConfig, MCPConfig
     from activecontext.context.graph import ContextGraph
     from activecontext.coordination import ScratchpadManager
+    from activecontext.core.llm.provider import LLMProvider
     from activecontext.session.permissions import (
         ImportGuard,
         PermissionManager,
@@ -71,7 +74,7 @@ class Script(TaskProtocol):
         website_permission_requester: WebsitePermissionRequester | None = None,
         scratchpad_manager: ScratchpadManager | None = None,
         mcp_config: MCPConfig | None = None,
-        llm_provider: Any | None = None,
+        llm_provider: LLMProvider | None = None,
     ) -> None:
         """Initialize the Script.
 
@@ -287,23 +290,23 @@ class Script(TaskProtocol):
     # Configuration callbacks (set by Session)
     # -------------------------------------------------------------------------
 
-    def set_title_callback(self, callback: Any) -> None:
+    def set_title_callback(self, callback: Callable[[str], None] | None) -> None:
         """Set the callback for title changes."""
         self._timeline.set_title_callback(callback)
 
-    def set_path_resolver(self, resolver: Any) -> None:
+    def set_path_resolver(self, resolver: Callable[[str], tuple[str, str | None]] | None) -> None:
         """Set the path resolver callback for @prompts/ etc."""
         self._timeline._path_resolver = resolver
 
-    def set_delegate_conversation(self, callback: Any) -> None:
+    def set_delegate_conversation(self, callback: Callable[..., Awaitable[Any]] | None) -> None:
         """Set the conversation delegation callback."""
         self._timeline._delegate_conversation = callback
 
-    def set_create_conversation_handle(self, callback: Any) -> None:
+    def set_create_conversation_handle(self, callback: Callable[..., Any] | None) -> None:
         """Set the conversation handle creation callback."""
         self._timeline._create_conversation_handle = callback
 
-    def configure_file_watcher(self, file_watch_config: Any) -> None:
+    def configure_file_watcher(self, file_watch_config: FileWatchConfig | None) -> None:
         """Configure the file watcher from config."""
         self._timeline.configure_file_watcher(file_watch_config)
 

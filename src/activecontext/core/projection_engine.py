@@ -97,7 +97,7 @@ class ProjectionEngine:
     def build(
         self,
         *,
-        context_graph: ContextGraph | None = None,
+        context_graph: ContextGraph | None = None,  # Optional: returns empty projection when None
         text_buffers: dict[str, Any] | None = None,
         content_registry: ContentRegistry | None = None,
     ) -> Projection:

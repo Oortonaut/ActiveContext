@@ -14,7 +14,10 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from activecontext.context.registry import NodeTypeRegistry
 
 from activecontext.plugins.cap_transport import CAPTransport
 from activecontext.plugins.connection import PluginConnection
@@ -63,7 +66,7 @@ class PluginManager:
 
     def __init__(
         self,
-        registry: Any,  # NodeTypeRegistry - use Any to avoid circular import
+        registry: NodeTypeRegistry,
         session_id: str = "",
         cwd: str = "",
         fire_event: Callable[..., None] | None = None,

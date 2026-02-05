@@ -11,7 +11,10 @@ import json
 import logging
 import time
 from dataclasses import dataclass, field
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
+
+if TYPE_CHECKING:
+    from activecontext.mcp.client import MCPClientManager
 
 _log = logging.getLogger("activecontext.coordination.task_bridge")
 
@@ -98,7 +101,7 @@ class TaskGraphBridge:
     @classmethod
     def from_mcp_manager(
         cls,
-        mcp_client_manager: Any,
+        mcp_client_manager: MCPClientManager,
         agent_id: str | None = None,
     ) -> TaskGraphBridge:
         """Create a bridge from an MCPClientManager (legacy API).
@@ -509,7 +512,7 @@ class _MCPManagerAdapter:
     (for backward compatibility with WorkCoordinator/Timeline).
     """
 
-    def __init__(self, mcp_client_manager: Any) -> None:
+    def __init__(self, mcp_client_manager: MCPClientManager) -> None:
         self._mgr = mcp_client_manager
 
     def is_connected(self, server_name: str) -> bool:

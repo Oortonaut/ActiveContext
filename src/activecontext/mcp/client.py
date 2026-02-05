@@ -21,6 +21,11 @@ from activecontext.mcp.types import (
 )
 
 if TYPE_CHECKING:
+    from contextlib import AbstractAsyncContextManager
+
+    from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
+    from mcp.shared.message import SessionMessage
+
     from activecontext.config.schema import MCPConfig, MCPServerConfig
 
 _log = logging.getLogger("activecontext.mcp.client")
@@ -39,9 +44,9 @@ class MCPConnection:
     prompts: list[MCPPromptInfo] = field(default_factory=list)
     error_message: str | None = None
     _roots_manager: RootsManager | None = None
-    _transport_context: Any = None
-    _read_stream: Any = None
-    _write_stream: Any = None
+    _transport_context: AbstractAsyncContextManager[Any] | None = None
+    _read_stream: MemoryObjectReceiveStream[SessionMessage | Exception] | None = None
+    _write_stream: MemoryObjectSendStream[SessionMessage] | None = None
 
     async def connect(self) -> None:
         """Establish connection to the MCP server."""

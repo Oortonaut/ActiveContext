@@ -25,8 +25,12 @@ from activecontext.session.script import Script
 log = get_logger("agent")
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
     from activecontext.config.schema import Config, MCPConfig
+    from activecontext.context.dump import ContextDumpWriter
     from activecontext.context.graph import ContextGraph
+    from activecontext.context.nodes import ContextNode, SessionNode
     from activecontext.coordination import ScratchpadManager
     from activecontext.core.llm.provider import LLMProvider, Message
     from activecontext.session.permissions import (
@@ -35,6 +39,7 @@ if TYPE_CHECKING:
         ShellPermissionManager,
         WebsitePermissionManager,
     )
+    from activecontext.session.protocols import Projection
     from activecontext.session.timeline import Timeline
     from activecontext.terminal.protocol import TerminalExecutor
 
@@ -135,19 +140,19 @@ class Agent(Script):
         self._agent_task: asyncio.Task[Any] | None = None
 
         # Session node reference (set by Session)
-        self._session_node: Any = None
+        self._session_node: SessionNode | None = None
 
         # Tick callback (set by Session)
-        self._tick_callback: Any = None
+        self._tick_callback: Callable[[], Awaitable[list[SessionUpdate]]] | None = None
 
         # Projection callback (set by Session)
-        self._get_projection_callback: Any = None
+        self._get_projection_callback: Callable[[], Projection] | None = None
 
         # Add node callback (set by Session)
-        self._add_node_callback: Any = None
+        self._add_node_callback: Callable[[ContextNode], str] | None = None
 
         # Context dump writer (set by Session)
-        self._context_dump: Any = None
+        self._context_dump: ContextDumpWriter | None = None
 
     # -------------------------------------------------------------------------
     # TaskProtocol overrides
@@ -338,38 +343,56 @@ class Agent(Script):
                         timestamp=time.time(),
                     )
 
-            # Add assistant response to context graph and message history
-            self.add_message(
+            # Record response as metadata-only MessageNode
+            msg_node = self.add_message(
                 Message(role=Role.ASSISTANT, content=full_response, originator="agent")
             )
 
-            # Parse response and execute executable segments
+            # Parse and ingest segments via Timeline
             parsed = parse_response(full_response)
-            executable = [
-                s.content
-                for s in parsed.segments
-                if s.language == "python/acrepl" or s.kind == "xml"
-            ]
+            segment_results = await self._timeline.ingest_segments(
+                parsed.segments,
+                source_message_id=msg_node.node_id,
+            )
+
+            had_executable = any(r.is_executable for r in segment_results)
             execution_results: list[str] = []
 
-            for code in executable:
+            # Yield execution updates and collect output for feedback
+            for r in segment_results:
                 if self._cancelled:
                     return
-                async for update in self._execute_code(code):
-                    yield update
+                if r.is_executable and r.execution_result is not None:
+                    result = r.execution_result
+                    yield SessionUpdate(
+                        kind=UpdateKind.STATEMENT_EXECUTED,
+                        session_id=self._script_id,
+                        payload={
+                            "execution_id": result.execution_id,
+                            "statement_id": result.statement_id,
+                            "status": result.status.value,
+                            "stdout": result.stdout,
+                            "stderr": result.stderr,
+                            "exception": result.exception,
+                            "state_trace": {
+                                "added": result.state_trace.added,
+                                "changed": result.state_trace.changed,
+                                "deleted": result.state_trace.deleted,
+                            },
+                            "duration_ms": result.duration_ms,
+                        },
+                        timestamp=time.time(),
+                    )
                     # Collect execution output for feedback
-                    if update.kind == UpdateKind.STATEMENT_EXECUTED:
-                        stdout = update.payload.get("stdout", "")
-                        stderr = update.payload.get("stderr", "")
-                        exception = update.payload.get("exception")
-                        if stdout:
-                            execution_results.append(f"Output:\n{stdout}")
-                        if stderr:
-                            execution_results.append(f"Stderr:\n{stderr}")
-                        if exception:
-                            execution_results.append(
-                                f"Error: {exception.get('type')}: {exception.get('message')}"
-                            )
+                    if result.stdout:
+                        execution_results.append(f"Output:\n{result.stdout}")
+                    if result.stderr:
+                        execution_results.append(f"Stderr:\n{result.stderr}")
+                    if result.exception:
+                        execution_results.append(
+                            f"Error: {result.exception.get('type')}: "
+                            f"{result.exception.get('message')}"
+                        )
 
             # Run tick phase
             if self._tick_callback:
@@ -381,8 +404,9 @@ class Agent(Script):
             turn_duration_ms = (time.time() - turn_start) * 1000
             tokens_used = len(full_response) // 4  # Rough estimate
             action_desc = None
-            if executable:
-                action_desc = f"Executed {len(executable)} code block(s)"
+            if had_executable:
+                exec_count = sum(1 for r in segment_results if r.is_executable)
+                action_desc = f"Executed {exec_count} code block(s)"
             if self._session_node:
                 self._session_node.record_turn(
                     tokens_used=tokens_used,
@@ -396,7 +420,7 @@ class Agent(Script):
                 break
 
             # If no code was executed, the agent is done (legacy behavior)
-            if not executable:
+            if not had_executable:
                 log.debug("No code blocks, stopping loop")
                 break
 
@@ -477,8 +501,8 @@ class Agent(Script):
 
     async def run_agent_loop(
         self,
-        has_pending_work: Any = None,
-        process_next_message: Any = None,
+        has_pending_work: Callable[[], bool] | None = None,
+        process_next_message: Callable[[], AsyncIterator[SessionUpdate]] | None = None,
     ) -> AsyncIterator[SessionUpdate]:
         """Event-driven agent loop. Idle until wake, process until queue empty.
 
@@ -542,22 +566,24 @@ class Agent(Script):
     # Configuration (set by Session)
     # -------------------------------------------------------------------------
 
-    def set_session_node(self, node: Any) -> None:
+    def set_session_node(self, node: SessionNode) -> None:
         """Set the session node reference for recording statistics."""
         self._session_node = node
 
-    def set_tick_callback(self, callback: Any) -> None:
+    def set_tick_callback(
+        self, callback: Callable[[], Awaitable[list[SessionUpdate]]] | None
+    ) -> None:
         """Set the tick callback."""
         self._tick_callback = callback
 
-    def set_projection_callback(self, callback: Any) -> None:
+    def set_projection_callback(self, callback: Callable[[], Projection] | None) -> None:
         """Set the projection callback."""
         self._get_projection_callback = callback
 
-    def set_add_node_callback(self, callback: Any) -> None:
+    def set_add_node_callback(self, callback: Callable[[ContextNode], str] | None) -> None:
         """Set the add node callback."""
         self._add_node_callback = callback
 
-    def set_context_dump(self, dump_writer: Any) -> None:
+    def set_context_dump(self, dump_writer: ContextDumpWriter | None) -> None:
         """Set the context dump writer."""
         self._context_dump = dump_writer
