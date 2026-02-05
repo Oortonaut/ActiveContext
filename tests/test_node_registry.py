@@ -122,8 +122,9 @@ class TestNodeTypeRegistryListTypes:
         assert len(types) >= 15
         # Should be tuples of (node_type, class)
         type_names = [t[0] for t in types]
-        assert "text" in type_names
-        assert "group" in type_names
+        # Registry uses class names internally
+        assert "TextNode" in type_names
+        assert "GroupNode" in type_names
 
 
 class TestNodeTypeRegistryIsBuiltin:

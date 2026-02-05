@@ -97,58 +97,21 @@ class TestListPrompts:
         assert not any(p.endswith(".md") for p in prompts)
 
 
-class TestCompatibilityShim:
-    """Tests that activecontext.prompts still works as before."""
-
-    def test_module_constants(self):
-        """Verify all module-level constants are present and non-empty."""
-        from activecontext.prompts import (
-            CONTEXT_GRAPH,
-            CONTEXT_GUIDE,
-            DSL_REFERENCE,
-            MCP_REFERENCE,
-            NODE_STATES,
-            SYSTEM_PROMPT,
-            WORK_COORDINATION,
-        )
-
-        assert len(SYSTEM_PROMPT) > 0
-        assert len(CONTEXT_GUIDE) > 0
-        assert len(DSL_REFERENCE) > 0
-        assert len(NODE_STATES) > 0
-        assert len(CONTEXT_GRAPH) > 0
-        assert len(WORK_COORDINATION) > 0
-        assert len(MCP_REFERENCE) > 0
-
-    def test_load_prompt_function(self):
-        """Verify load_prompt is re-exported and works."""
-        from activecontext.prompts import load_prompt as shim_load
-
-        content = shim_load("system")
-        assert "ActiveContext" in content
-
-    def test_list_prompts_function(self):
-        """Verify list_prompts is re-exported and works."""
-        from activecontext.prompts import list_prompts as shim_list
-
-        prompts = shim_list()
-        assert "system" in prompts
-
-
 class TestStartupMdParsing:
     """Tests that startup.md parses to the expected statements."""
 
     def test_statement_count(self):
-        """startup.md should produce exactly 10 statements."""
+        """startup.md should produce exactly 6 reference documentation statements."""
         from activecontext.config.schema import PACKAGE_DEFAULT_STARTUP
 
-        assert len(PACKAGE_DEFAULT_STARTUP) == 10
+        assert len(PACKAGE_DEFAULT_STARTUP) == 6
 
     def test_reference_documentation_statements(self):
-        """First 5 statements should load reference documentation."""
+        """All 6 statements should load reference documentation."""
         from activecontext.config.schema import PACKAGE_DEFAULT_STARTUP
 
         expected_prompts = [
+            "context_guide",
             "dsl_reference",
             "node_states",
             "context_graph",
@@ -159,34 +122,16 @@ class TestStartupMdParsing:
             assert f"@prompts/{prompt_name}.md" in PACKAGE_DEFAULT_STARTUP[i]
             assert "Expansion.ALL" in PACKAGE_DEFAULT_STARTUP[i]
 
-    def test_mode_script_statements(self):
-        """Statements 5-9 should set up mode scripts."""
-        from activecontext.config.schema import PACKAGE_DEFAULT_STARTUP
-
-        assert "_mode_normal = markdown" in PACKAGE_DEFAULT_STARTUP[5]
-        assert "_mode_plan = markdown" in PACKAGE_DEFAULT_STARTUP[6]
-        assert "_mode_brave = markdown" in PACKAGE_DEFAULT_STARTUP[7]
-        assert "_mode_scripts = choice" in PACKAGE_DEFAULT_STARTUP[8]
-        assert "set_mode_choice_view" in PACKAGE_DEFAULT_STARTUP[9]
-
     def test_roundtrip_matches_original(self):
         """Parsed statements should exactly match the original hardcoded list."""
         from activecontext.config.schema import PACKAGE_DEFAULT_STARTUP
 
         original = [
+            'markdown("@prompts/context_guide.md", expansion=Expansion.ALL)',
             'markdown("@prompts/dsl_reference.md", expansion=Expansion.ALL)',
             'markdown("@prompts/node_states.md", expansion=Expansion.ALL)',
             'markdown("@prompts/context_graph.md", expansion=Expansion.ALL)',
             'markdown("@prompts/work_coordination.md", expansion=Expansion.ALL)',
             'markdown("@prompts/mcp.md", expansion=Expansion.ALL)',
-            '_mode_normal = markdown("@prompts/modes/normal.md")',
-            '_mode_plan = markdown("@prompts/modes/plan.md")',
-            '_mode_brave = markdown("@prompts/modes/brave.md")',
-            (
-                "_mode_scripts = choice("
-                "_mode_normal, _mode_plan, _mode_brave, "
-                "selected=_mode_normal.node_id)"
-            ),
-            "__session__.set_mode_choice_view(_mode_scripts)",
         ]
         assert original == PACKAGE_DEFAULT_STARTUP
