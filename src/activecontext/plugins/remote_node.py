@@ -159,7 +159,7 @@ class RemoteNode(ContextNode):
     def get_token_breakdown(self) -> TokenInfo:
         """Return cached token info, with fallback estimation."""
         ct = self._cached_tokens
-        if ct.title > 0 or ct.content > 0 or ct.detail > 0:
+        if ct.title > 0 or ct.content > 0 or ct.index > 0 or ct.detail > 0:
             return TokenInfo(
                 title=ct.title,
                 content=ct.content,
@@ -472,7 +472,6 @@ class RemoteNode(ContextNode):
         node.updated_at = data.get("updated_at", 0.0)
         node.originator = data.get("originator")
         node.title = data.get("title", "")
-        node.content_id = data.get("content_id")
         node.display_sequence = data.get("display_sequence")
 
         return node

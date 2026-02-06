@@ -289,10 +289,6 @@ class ContextNode(ABC):
     # Assigned by ContextGraph.add_node() using per-type counters
     display_sequence: int | None = field(default=None)
 
-    # Split architecture: optional reference to shared ContentData
-    # When set, nodes can delegate content storage to ContentRegistry
-    content_id: str | None = field(default=None)
-
     # Notification configuration
     # Controls how changes to this node are communicated to the agent
     notification_level: NotificationLevel = NotificationLevel.IGNORE
@@ -381,6 +377,24 @@ class ContextNode(ABC):
         return total
 
     @property
+    def detail_tokens(self) -> int:
+        """Sum of children's tokens beyond their headers.
+
+        Represents additional tokens when expanding from INDEX to ALL.
+        For each child: content + index + detail (everything except title).
+        Returns 0 for leaf nodes or when no graph reference.
+        """
+        if not self._graph:
+            return 0
+        total = 0
+        for child_id in self.child_order:
+            child = self._graph.get_node(child_id)
+            if child:
+                info = child.get_token_breakdown()
+                total += info.content + info.index + info.detail
+        return total
+
+    @property
     def children_tokens(self) -> int:
         """Sum of children's total_tokens.
 
@@ -402,30 +416,40 @@ class ContextNode(ABC):
         """Alias for all_tokens. Total tokens for this subtree."""
         return self.all_tokens
 
-    @abstractmethod
-    def GetDigest(self) -> dict[str, Any]:
-        """Return metadata digest for this node."""
-        ...
-
-    @abstractmethod
     def get_token_breakdown(self) -> TokenInfo:
         """Return token counts for different visibility levels.
+
+        Uses render_digest() for title tokens and render_content() for content tokens.
+        Subclasses should override render_digest() and render_content() instead of this.
 
         Returns:
             TokenInfo with title, content, index, detail, and total token counts.
         """
-        ...
+        from activecontext.core.tokens import count_tokens
 
-    @abstractmethod
+        from .headers import TokenInfo
+
+        title_tokens = count_tokens(self.render_digest())
+        content_tokens = count_tokens(self.render_content() or "")
+
+        return TokenInfo(
+            title=title_tokens,
+            content=content_tokens,
+            index=self.index_tokens,
+            detail=self.detail_tokens,
+        )
+
     def render_digest(self) -> str:
         """Render node metadata — the framework prepends the title line.
 
+        Default returns "[node_type] title". Subclasses can override to add
+        type-specific info via super().render_digest() + extra.
+
         Examples:
-            TextNode: "main.py:1-50"
-            ShellNode: "Shell: pytest [COMPLETED]"
-            MessageNode: "User"
+            TextNode: "[TextNode] main.py" + " (lines 1-50)"
+            ShellNode: "[ShellNode] pytest" + " [COMPLETED]"
         """
-        ...
+        return f"[{self.node_type}] {self.title}"
 
     def Recompute(self) -> None:
         """Recompute this node's content. Called during tick for running nodes.
@@ -737,7 +761,6 @@ class ContextNode(ABC):
             "updated_at": self.updated_at,
             "originator": self.originator,
             "title": self.title,
-            "content_id": self.content_id,
             "display_sequence": self.display_sequence,
             "notification_level": self.notification_level.value,
             "is_subscription_point": self.is_subscription_point,
@@ -819,6 +842,54 @@ class ContextNode(ABC):
         self._graph.link(help_node.node_id, self.node_id)
         return help_node
 
+@dataclass(kw_only=True)
+class SimpleNode(ContextNode):
+    """Simple node with string content."""
+
+    content: str = ""
+
+    @property
+    def node_type(self) -> str:
+        return "SimpleNode"
+
+    def render_content(
+            self,
+            cwd: str = ".",
+            text_buffers: dict[str, Any] | None = None,
+    ) -> str:
+        return self.content
+
+    def render_digest(self) -> str:
+        return super().render_digest()
+
+    def append(self, content: str, sep: str = "\n\n") -> None:
+        if self.content:
+            self.content += sep
+        self.content += content
+
+    def to_dict(self) -> dict[str, Any]:
+        data = super().to_dict()
+        data["content"] = self.content
+        return data
+
+    @classmethod
+    def _from_dict(cls, data: dict[str, Any]) -> SimpleNode:
+        return cls(
+            node_id=data["node_id"],
+            parent_ids=set(data.get("parent_ids", [])),
+            child_order=LinkedChildOrder.from_list(
+                data.get("child_order") or data.get("children_ids") or []
+            ),
+            default_expansion=Expansion(data.get("expansion", "content")),
+            mode=data.get("mode", "paused"),
+            version=data.get("version", 0),
+            created_at=data.get("created_at", time.time()),
+            updated_at=data.get("updated_at", time.time()),
+            display_sequence=data.get("display_sequence"),
+            originator=data.get("originator"),
+            title=data.get("title", ""),
+            content=data.get("content", ""),
+        )
 
 @dataclass(kw_only=True)
 class TextNode(ContextNode):
@@ -876,6 +947,7 @@ class TextNode(ContextNode):
             "media_type": self.media_type.value,
             "indent": self.indent,
         }
+
 
     def render_content(
         self,
@@ -1129,25 +1201,26 @@ class TextNode(ContextNode):
         return f"{line_range}"
 
     def get_token_breakdown(self) -> TokenInfo:
-        """Return token counts for collapsed/summary/detail."""
+        """Return token counts for collapsed/content/index/detail."""
         from activecontext.core.tokens import count_tokens
 
         from .headers import TokenInfo
 
-        # Collapsed: just metadata line
+        # Title: just metadata line
         collapsed_text = f"[{self.path}: lines, pending traces]\n"
         collapsed_tokens = count_tokens(collapsed_text)
 
-        # Detail: estimate from line count (~10 tokens/line with line numbers)
-        detail_tokens = 0
+        # Content: estimate from line count (~10 tokens/line with line numbers)
+        content_tokens = 0
         if self.end_line and self.start_line:
             line_count = max(0, self.end_line - self.start_line + 1)
-            detail_tokens = line_count * 10
+            content_tokens = line_count * 10
 
         return TokenInfo(
             title=collapsed_tokens,
-            content=0,
-            detail=detail_tokens,
+            content=content_tokens,
+            index=self.index_tokens,
+            detail=self.detail_tokens,
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -1251,7 +1324,7 @@ class GroupNode(ContextNode):
 
     def render_digest(self) -> str:
         """Return 'Group (N members)' format."""
-        return f"Group ({len(self.child_order)} members)"
+        return super().render_digest() + f" ({len(self.child_order)} members)"
 
     def get_token_breakdown(self) -> TokenInfo:
         """Return token counts for collapsed/summary/detail."""
@@ -1273,11 +1346,15 @@ class GroupNode(ContextNode):
                 child = self._graph.get_node(child_id)
                 if child:
                     child_info = child.get_token_breakdown()
-                    child_total += child_info.title + child_info.content + child_info.detail
+                    child_total += (
+                        child_info.title + child_info.content +
+                        child_info.index + child_info.detail
+                    )
 
         return TokenInfo(
             title=collapsed_tokens,
             content=0,
+            index=self.index_tokens,
             detail=0,
             total=collapsed_tokens + child_total if child_total else None,
         )
@@ -1373,25 +1450,8 @@ class TopicNode(ContextNode):
         return self
 
     def render_digest(self) -> str:
-        """Return 'Topic: title' format."""
-        return f"Topic: {self.title}"
-
-    def get_token_breakdown(self) -> TokenInfo:
-        """Return token counts for collapsed/summary/detail."""
-        from activecontext.core.tokens import count_tokens
-
-        from .headers import TokenInfo
-
-        # Collapsed: topic metadata
-        collapsed_text = f"[Topic: {self.title} [{self.status}]]\n"
-        collapsed_tokens = count_tokens(collapsed_text)
-
-        # Topics don't have summary vs detail distinction
-        return TokenInfo(
-            title=collapsed_tokens,
-            content=0,
-            detail=0,
-        )
+        """Return 'Topic: title [status]' format."""
+        return f"Topic: {self.title} [{self.status}]"
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize TopicNode to dict."""
@@ -1483,29 +1543,9 @@ class ArtifactNode(ContextNode):
         return self
 
     def render_digest(self) -> str:
-        """Return 'TYPE:language' format."""
+        """Return 'TYPE:language (N chars)' format."""
         lang_suffix = f":{self.language}" if self.language else ""
-        return f"{self.artifact_type.upper()}{lang_suffix}"
-
-    def get_token_breakdown(self) -> TokenInfo:
-        """Return token counts for collapsed/summary/detail."""
-        from activecontext.core.tokens import count_tokens
-
-        from .headers import TokenInfo
-
-        # Collapsed: artifact metadata
-        lang_info = f":{self.language}" if self.language else ""
-        collapsed_text = f"[{self.artifact_type}{lang_info}: {len(self.content)} chars]\n"
-        collapsed_tokens = count_tokens(collapsed_text)
-
-        # Detail: full content
-        detail_tokens = count_tokens(self.content)
-
-        return TokenInfo(
-            title=collapsed_tokens,
-            content=0,
-            detail=detail_tokens,
-        )
+        return f"{self.artifact_type.upper()}{lang_suffix} ({len(self.content)} chars)"
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize ArtifactNode to dict."""
@@ -1729,25 +1769,6 @@ class ShellNode(ContextNode):
             "output": self.output[:500] if self.output else "",
             "status": self.shell_status.value,
         }
-
-    def get_token_breakdown(self) -> TokenInfo:
-        """Return token counts for collapsed/summary/detail."""
-        from activecontext.core.tokens import count_tokens
-
-        from .headers import TokenInfo
-
-        # Collapsed: command and status
-        collapsed_text = f"[Shell: {self.full_command} [{self.shell_status.value}]]\n"
-        collapsed_tokens = count_tokens(collapsed_text)
-
-        # Detail: output content
-        detail_tokens = count_tokens(self.output) if self.output else 0
-
-        return TokenInfo(
-            title=collapsed_tokens,
-            content=0,
-            detail=detail_tokens,
-        )
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize ShellNode to dict."""
@@ -2028,30 +2049,6 @@ class PtyNode(ContextNode):
 
         return content
 
-    def get_token_breakdown(self) -> TokenInfo:
-        from activecontext.core.tokens import count_tokens
-
-        from .headers import TokenInfo
-
-        collapsed_text = f"[PTY: {self.full_command} [{self.pty_status.value}]]\n"
-        collapsed_tokens = count_tokens(collapsed_text)
-
-        # Summary: last 10 lines
-        summary_lines = self._scrollback_lines[-10:]
-        summary_text = "\n".join(_strip_ansi(line) for line in summary_lines)
-        summary_tokens = count_tokens(summary_text) if summary_text else 0
-
-        # Detail: remaining scrollback beyond summary
-        detail_lines = self._scrollback_lines[:-10] if len(self._scrollback_lines) > 10 else []
-        detail_text = "\n".join(_strip_ansi(line) for line in detail_lines[-40:])
-        detail_tokens = count_tokens(detail_text) if detail_text else 0
-
-        return TokenInfo(
-            title=collapsed_tokens,
-            content=summary_tokens,
-            detail=detail_tokens,
-        )
-
     # -- Serialization --------------------------------------------------------
 
     def to_dict(self) -> dict[str, Any]:
@@ -2239,25 +2236,6 @@ class LockNode(ContextNode):
             "status": self.lock_status.value,
             "error": self.error_message or "",
         }
-
-    def get_token_breakdown(self) -> TokenInfo:
-        """Return token counts for collapsed/summary/detail."""
-        from activecontext.core.tokens import count_tokens
-
-        from .headers import TokenInfo
-
-        # Collapsed: lock info
-        collapsed_text = f"[Lock: {self.lockfile} [{self.lock_status.value}]]\n"
-        collapsed_tokens = count_tokens(collapsed_text)
-
-        # Detail: error message if present
-        detail_tokens = count_tokens(self.error_message) if self.error_message else 0
-
-        return TokenInfo(
-            title=collapsed_tokens,
-            content=0,
-            detail=detail_tokens,
-        )
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize LockNode to dict."""
@@ -2528,27 +2506,8 @@ class SessionNode(ContextNode):
         super().Recompute()
 
     def render_digest(self) -> str:
-        """Return 'Session' format."""
-        return "Session"
-
-    def get_token_breakdown(self) -> TokenInfo:
-        """Return token counts for collapsed/summary/detail."""
-        from activecontext.core.tokens import count_tokens
-
-        from .headers import TokenInfo
-
-        # Collapsed: session metadata line
-        collapsed_text = (
-            f"[Session: Turn {self.turn_count} | {self.total_tokens_consumed:,} tokens]\n"
-        )
-        collapsed_tokens = count_tokens(collapsed_text)
-
-        # Session node has statistics as detail
-        return TokenInfo(
-            title=collapsed_tokens,
-            content=0,
-            detail=0,
-        )
+        """Return 'Session: Turn N | N tokens' format."""
+        return f"Session: Turn {self.turn_count} | {self.total_tokens_consumed:,} tokens"
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize SessionNode to dict."""
@@ -2769,6 +2728,7 @@ class MessageNode(ContextNode):
         return TokenInfo(
             title=collapsed_tokens,
             content=0,
+            index=self.index_tokens,
             detail=0,
         )
 
@@ -2880,29 +2840,9 @@ class MessageSegmentNode(ContextNode):
         return self
 
     def render_digest(self) -> str:
-        """Return a compact descriptor like ``prose``, ``python/acrepl``, etc."""
-        if self.kind == "fenced" and self.language:
-            return self.language
-        return self.kind
-
-    def get_token_breakdown(self) -> TokenInfo:
-        """Return token counts for collapsed/detail."""
-        from activecontext.core.tokens import count_tokens
-
-        from .headers import TokenInfo
-
-        # Collapsed: metadata line
-        collapsed_text = f"[{self.render_digest()}: {len(self.content)} chars]\n"
-        collapsed_tokens = count_tokens(collapsed_text)
-
-        # Detail: full content
-        detail_tokens = count_tokens(self.content)
-
-        return TokenInfo(
-            title=collapsed_tokens,
-            content=0,
-            detail=detail_tokens,
-        )
+        """Return a compact descriptor like ``prose (N chars)``, ``python (N chars)``, etc."""
+        kind_display = self.language if (self.kind == "fenced" and self.language) else self.kind
+        return f"{kind_display} ({len(self.content)} chars)"
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize MessageSegmentNode to dict."""
@@ -3049,34 +2989,10 @@ class WorkNode(ContextNode):
         return self
 
     def render_digest(self) -> str:
-        """Return 'Work: intent [status]' format."""
+        """Return 'Work: intent [status] Nf Nc' format."""
         intent_display = self.intent[:30] + "..." if len(self.intent) > 30 else self.intent
-        return f"Work: {intent_display} [{self.work_status.value}]"
-
-    def get_token_breakdown(self) -> TokenInfo:
-        """Return token counts for collapsed/summary/detail."""
-        from activecontext.core.tokens import count_tokens
-
-        from .headers import TokenInfo
-
-        # Collapsed: work metadata
         nf, nc = len(self.files), len(self.conflicts)
-        collapsed_text = f"[Work: {self.intent} [{self.work_status.value}] {nf}f {nc}c]\n"
-        collapsed_tokens = count_tokens(collapsed_text)
-
-        # Detail: file list and conflict details
-        detail_parts: list[str] = []
-        for f in self.files:
-            detail_parts.append(f"  {f.get('path', '?')} ({f.get('access', '?')})")
-        for c in self.conflicts:
-            detail_parts.append(f"  CONFLICT: {c}")
-        detail_tokens = count_tokens("\n".join(detail_parts)) if detail_parts else 0
-
-        return TokenInfo(
-            title=collapsed_tokens,
-            content=0,
-            detail=detail_tokens,
-        )
+        return f"Work: {intent_display} [{self.work_status.value}] {nf}f {nc}c"
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize WorkNode to dict."""
@@ -3424,41 +3340,8 @@ class MCPServerNode(ContextNode):
         self._on_result_callback = callback
 
     def render_digest(self) -> str:
-        """Return 'MCP: name [status]' format."""
-        return f"MCP: {self.server_name} [{self.status.upper()}]"
-
-    def get_token_breakdown(self) -> TokenInfo:
-        """Return token counts for collapsed/summary/detail."""
-        from activecontext.core.tokens import count_tokens
-
-        from .headers import TokenInfo
-
-        # Collapsed: server info
-        collapsed_text = f"[MCP: {self.server_name} [{self.status}] {len(self.tools)} tools]\n"
-        collapsed_tokens = count_tokens(collapsed_text)
-
-        # Summary: tool names
-        summary_text = ", ".join(t.get("name", "?") for t in self.tools)
-        summary_tokens = count_tokens(summary_text) if summary_text else 0
-
-        # Detail: full tool documentation (descriptions + schemas)
-        detail_parts: list[str] = []
-        for t in self.tools:
-            name = t.get("name", "?")
-            desc = t.get("description", "")
-            detail_parts.append(f"  {name}: {desc}")
-            schema = t.get("inputSchema") or t.get("input_schema")
-            if schema:
-                import json
-
-                detail_parts.append(f"    {json.dumps(schema)}")
-        detail_tokens = count_tokens("\n".join(detail_parts)) if detail_parts else 0
-
-        return TokenInfo(
-            title=collapsed_tokens,
-            content=summary_tokens,
-            detail=detail_tokens,
-        )
+        """Return 'MCP: name [STATUS] N tools' format."""
+        return f"MCP: {self.server_name} [{self.status.upper()}] {len(self.tools)} tools"
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize MCPServerNode to dict."""
@@ -3573,31 +3456,6 @@ class MCPToolNode(ContextNode):
     def render_digest(self) -> str:
         """Return tool name for display."""
         return f"{self.server_name}.{self.tool_name}"
-
-    def get_token_breakdown(self) -> TokenInfo:
-        """Return token counts for collapsed/summary/detail."""
-        from activecontext.core.tokens import count_tokens
-
-        from .headers import TokenInfo
-
-        collapsed_tokens = count_tokens(f"`{self.tool_name}`\n")
-
-        desc = self.description[:80] if len(self.description) > 80 else self.description
-        summary_tokens = count_tokens(f"**{self.tool_name}**: {desc}\n")
-
-        # Detail: full description + input schema
-        detail_parts: list[str] = [self.description]
-        if self.input_schema:
-            import json
-
-            detail_parts.append(json.dumps(self.input_schema))
-        detail_tokens = count_tokens("\n".join(detail_parts))
-
-        return TokenInfo(
-            title=collapsed_tokens,
-            content=summary_tokens,
-            detail=detail_tokens,
-        )
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize MCPToolNode to dict."""
@@ -3770,7 +3628,7 @@ class MCPManagerNode(ContextNode):
         title_text = f"MCP Manager ({connected}/{total} connected, {total_tools} tools)\n"
         title_tokens = count_tokens(title_text)
 
-        return TokenInfo(title=title_tokens, content=0, detail=0)
+        return TokenInfo(title=title_tokens, content=0, index=self.index_tokens, detail=0)
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize for persistence."""
@@ -3948,30 +3806,8 @@ class PluginManagerNode(ContextNode):
         self.mark_changed(f"Plugin '{name}' unregistered")
 
     def render_digest(self) -> str:
-        """Return 'Plugin Manager' format."""
+        """Return 'Plugin Manager (N builtin, M loaded)' format."""
         return f"Plugin Manager ({self.builtin_count} builtin, {self.loaded_count} loaded)"
-
-    def get_token_breakdown(self) -> TokenInfo:
-        """Return token counts for collapsed/summary/detail."""
-        from activecontext.core.tokens import count_tokens
-
-        from .headers import TokenInfo
-
-        # Collapsed: counts
-        collapsed_text = (
-            f"[Plugin Manager: {self.builtin_count} builtin, {self.loaded_count} loaded]\n"
-        )
-        collapsed_tokens = count_tokens(collapsed_text)
-
-        # Summary: plugin names and types
-        summary_lines = [f"{name}: {', '.join(types)}" for name, types in self.plugin_types.items()]
-        summary_tokens = count_tokens(" ".join(summary_lines)) if summary_lines else 0
-
-        return TokenInfo(
-            title=collapsed_tokens,
-            content=summary_tokens,
-            detail=0,
-        )
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize for persistence."""
@@ -4096,28 +3932,8 @@ class AgentNode(ContextNode):
         return self
 
     def render_digest(self) -> str:
-        """Return 'Agent: id [state]' format."""
-        return f"Agent: {self.agent_id} [{self.agent_state.value.upper()}]"
-
-    def get_token_breakdown(self) -> TokenInfo:
-        """Return token counts for collapsed/summary/detail."""
-        from activecontext.core.tokens import count_tokens
-
-        from .headers import TokenInfo
-
-        # Collapsed: agent info
-        state = self.agent_state.value
-        collapsed_text = f"[Agent: {self.agent_id} [{state}] {self.message_count}m]\n"
-        collapsed_tokens = count_tokens(collapsed_text)
-
-        # Detail: task and session info
-        detail_tokens = count_tokens(self.task) if self.task else 0
-
-        return TokenInfo(
-            title=collapsed_tokens,
-            content=0,
-            detail=detail_tokens,
-        )
+        """Return 'Agent: id [STATE] Nm' format."""
+        return f"Agent: {self.agent_id} [{self.agent_state.value.upper()}] {self.message_count}m"
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize AgentNode to dict."""
@@ -4274,6 +4090,7 @@ class TraceNode(ContextNode):
         return TokenInfo(
             title=collapsed_tokens,
             content=0,
+            index=self.index_tokens,
             detail=0,
         )
 
@@ -4468,28 +4285,8 @@ class TaskNode(ContextNode):
         self.mark_changed(f"status: {old_status.value} -> {status.value}")
 
     def render_digest(self) -> str:
-        """Display name for the task."""
-        return f"Task[{self.task_type}:{self.task_id[:8]}]"
-
-    def get_token_breakdown(self) -> TokenInfo:
-        """Return token counts for collapsed/summary/detail."""
-        from activecontext.core.tokens import count_tokens
-
-        from .headers import TokenInfo
-
-        # Collapsed: task status line
-        collapsed_text = f"[Task: {self.task_type} | {self.status.value}]\n"
-        collapsed_tokens = count_tokens(collapsed_text)
-
-        # Content includes basic info
-        summary_text = self.render_content()
-        summary_tokens = count_tokens(summary_text)
-
-        return TokenInfo(
-            title=collapsed_tokens,
-            content=summary_tokens,
-            detail=0,
-        )
+        """Display name for the task with type and status."""
+        return f"Task: {self.task_type} | {self.status.value}"
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to dictionary."""
@@ -4773,51 +4570,6 @@ class HelpNode(ContextNode):
             parts.append(f"  {line}\n")
         return "".join(parts)
 
-    def _build_summary_text(self) -> str:
-        """Build summary text from help content without calling Render methods.
-
-        Avoids the recursion: get_token_breakdown -> render_content -> render_header
-        -> get_token_breakdown.
-        """
-        parts: list[str] = []
-        in_methods = False
-        method_names: list[str] = []
-        for line in self._help_content.split("\n"):
-            if line.startswith("# "):
-                parts.append(line[2:])
-            elif line and not line.startswith("#") and not line.startswith("-"):
-                if not in_methods:
-                    parts.append(line)
-            elif line.startswith("## Methods"):
-                in_methods = True
-            elif in_methods and line.startswith("- `"):
-                name = line[3:].split("(")[0].split("`")[0]
-                method_names.append(name)
-            elif line.startswith("## ") and in_methods:
-                in_methods = False
-        if method_names:
-            parts.append(f"Methods: {', '.join(method_names)}")
-        return "\n".join(parts)
-
-    def get_token_breakdown(self) -> TokenInfo:
-        """Return token counts for collapsed/summary/detail."""
-        from activecontext.core.tokens import count_tokens
-
-        from .headers import TokenInfo
-
-        collapsed_text = f"[{self.parent_node_type} Help]\n"
-        collapsed_tokens = count_tokens(collapsed_text)
-
-        # Use _build_summary_text to avoid recursion
-        summary_tokens = count_tokens(self._build_summary_text())
-        detail_tokens = count_tokens(self._help_content)
-
-        return TokenInfo(
-            title=collapsed_tokens,
-            content=summary_tokens,
-            detail=detail_tokens,
-        )
-
     def to_dict(self) -> dict[str, Any]:
         """Serialize HelpNode to dict."""
         data = super().to_dict()
@@ -4892,28 +4644,8 @@ class MarkdownListItemNode(ContextNode):
         return f"{self.marker} {self.content}\n"
 
     def render_digest(self) -> str:
-        """Return list item type indicator."""
-        return f"{'OL' if self.is_ordered else 'UL'}"
-
-    def get_token_breakdown(self) -> TokenInfo:
-        """Return token counts for collapsed/summary/detail."""
-        from activecontext.core.tokens import count_tokens
-
-        from .headers import TokenInfo
-
-        # Collapsed: just metadata
-        collapsed_text = f"[List item: {len(self.content)} chars]\n"
-        collapsed_tokens = count_tokens(collapsed_text)
-
-        # Detail: full content with marker
-        detail_text = f"{self.marker} {self.content}\n"
-        detail_tokens = count_tokens(detail_text)
-
-        return TokenInfo(
-            title=collapsed_tokens,
-            content=0,
-            detail=detail_tokens,
-        )
+        """Return list item type indicator with char count."""
+        return f"{'OL' if self.is_ordered else 'UL'} ({len(self.content)} chars)"
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize MarkdownListItemNode to dict."""
@@ -5121,29 +4853,9 @@ class MarkdownNode(ContextNode):
         return self.content
 
     def render_digest(self) -> str:
-        """Return markdown document indicator."""
-        if self.buffer_id:
-            return f"MD:{self.buffer_id}"
-        return "MARKDOWN"
-
-    def get_token_breakdown(self) -> TokenInfo:
-        """Return token counts for collapsed/summary/detail."""
-        from activecontext.core.tokens import count_tokens
-
-        from .headers import TokenInfo
-
-        # Collapsed: metadata only
-        collapsed_text = f"[Markdown: {len(self.content)} chars, {len(self.child_order)} items]\n"
-        collapsed_tokens = count_tokens(collapsed_text)
-
-        # Detail: full content
-        detail_tokens = count_tokens(self.content)
-
-        return TokenInfo(
-            title=collapsed_tokens,
-            content=0,
-            detail=detail_tokens,
-        )
+        """Return markdown document indicator with size info."""
+        prefix = f"MD:{self.buffer_id}" if self.buffer_id else "MARKDOWN"
+        return f"{prefix} ({len(self.content)} chars, {len(self.child_order)} items)"
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize MarkdownNode to dict."""
@@ -5297,26 +5009,8 @@ class FileSystemNode(ContextNode):
         return f"Root: {self.root_path}\n{self._cached_tree}"
 
     def render_digest(self) -> str:
-        """Return filesystem node indicator."""
-        return f"FS:{Path(self.root_path).name}"
-
-    def get_token_breakdown(self) -> TokenInfo:
-        """Return token counts for collapsed/summary/detail."""
-        from activecontext.context.headers import TokenInfo
-        from activecontext.core.tokens import count_tokens
-
-        collapsed_text = f"[FileSystem: {self.root_path}]\n"
-        collapsed_tokens = count_tokens(collapsed_text)
-
-        if not self._cached_tree:
-            self._cached_tree = self._scan_directory()
-        detail_tokens = count_tokens(self._cached_tree)
-
-        return TokenInfo(
-            title=collapsed_tokens,
-            content=0,
-            detail=detail_tokens,
-        )
+        """Return filesystem node indicator with full path."""
+        return f"FS: {self.root_path}"
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize FileSystemNode to dict."""
@@ -5467,29 +5161,12 @@ class ClockNode(ContextNode):
             return f"{status} {self._format_time(elapsed)}\n"
 
     def render_digest(self) -> str:
-        """Return clock type indicator."""
+        """Return clock type indicator with elapsed time."""
+        elapsed = self._format_time(self.get_elapsed())
         if self.duration_seconds:
-            return f"COUNTDOWN:{self._format_time(self.duration_seconds)}"
-        return "STOPWATCH"
-
-    def get_token_breakdown(self) -> TokenInfo:
-        """Return token counts for collapsed/summary/detail."""
-        from activecontext.context.headers import TokenInfo
-        from activecontext.core.tokens import count_tokens
-
-        collapsed_text = f"[Clock: {self.get_elapsed():.1f}s]\n"
-        collapsed_tokens = count_tokens(collapsed_text)
-
-        # Build summary text without calling render_content to avoid recursion
-        elapsed = self.get_elapsed()
-        elapsed_str = self._format_time(elapsed)
-        summary_tokens = count_tokens(elapsed_str)
-
-        return TokenInfo(
-            title=collapsed_tokens,
-            content=summary_tokens,
-            detail=0,
-        )
+            duration = self._format_time(self.duration_seconds)
+            return f"COUNTDOWN: {elapsed} / {duration}"
+        return f"STOPWATCH: {elapsed}"
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize ClockNode to dict."""
@@ -5624,27 +5301,7 @@ class FunctionDocNode(ContextNode):
 
     def render_digest(self) -> str:
         """Return function doc indicator."""
-        return f"DOC:{self.function_name}"
-
-    def get_token_breakdown(self) -> TokenInfo:
-        """Return token counts for collapsed/summary/detail."""
-        from activecontext.context.headers import TokenInfo
-        from activecontext.core.tokens import count_tokens
-
-        collapsed_text = f"[FunctionDoc: {self.function_name}]\n"
-        collapsed_tokens = count_tokens(collapsed_text)
-
-        summary_text = f"{self.signature}\n"
-        summary_tokens = count_tokens(summary_text)
-
-        detail_text = f"{self.signature}\n{self.docstring}\n"
-        detail_tokens = count_tokens(detail_text)
-
-        return TokenInfo(
-            title=collapsed_tokens,
-            content=summary_tokens,
-            detail=detail_tokens,
-        )
+        return f"DOC: {self.function_name}"
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize FunctionDocNode to dict."""
@@ -5745,32 +5402,12 @@ class StatementNode(ContextNode):
         return "\n".join(lines)
 
     def render_digest(self) -> str:
-        """Return 'statement[INDEX]: STATUS' format."""
+        """Return 'statement #N: STATUS: source_preview' format."""
         # Truncate long source for digest
         source_preview = self.source[:40]
         if len(self.source) > 40:
             source_preview += "..."
-        return f"[{self.status}] {source_preview}"
-
-    def get_token_breakdown(self) -> TokenInfo:
-        """Return token counts for collapsed/summary/detail."""
-        from activecontext.core.tokens import count_tokens
-
-        from .headers import TokenInfo
-
-        # Collapsed: statement metadata
-        collapsed_text = f"[statement #{self.index}: {self.status}]\n"
-        collapsed_tokens = count_tokens(collapsed_text)
-
-        # Content: source code in fenced block
-        content_text = f"```python\n{self.source}\n```\n"
-        content_tokens = count_tokens(content_text)
-
-        return TokenInfo(
-            title=collapsed_tokens,
-            content=content_tokens,
-            detail=0,
-        )
+        return f"statement #{self.index}: [{self.status}] {source_preview}"
 
     def add_result(self, result_node_id: str, execution_id: str) -> None:
         """Track a result node as a child.
@@ -5899,34 +5536,9 @@ class StatementResultNode(ContextNode):
         return "\n".join(lines) or "ok"
 
     def render_digest(self) -> str:
-        """Return 'result: STATUS' format."""
+        """Return 'result: STATUS (duration)' format."""
         duration_str = f" ({self.duration_ms:.1f}ms)" if self.duration_ms > 0 else ""
-        return f"[{self.status}]{duration_str}"
-
-    def get_token_breakdown(self) -> TokenInfo:
-        """Return token counts for collapsed/summary/detail."""
-        from activecontext.core.tokens import count_tokens
-
-        from .headers import TokenInfo
-
-        # Collapsed: status and timing
-        collapsed_text = f"[result: {self.status}]\n"
-        collapsed_tokens = count_tokens(collapsed_text)
-
-        # Content: rendered result
-        content_text = self.render_content() + "\n"
-        content_tokens = count_tokens(content_text)
-
-        # Detail: full exception traceback if present
-        detail_tokens = 0
-        if self.exception and self.exception.get("traceback"):
-            detail_tokens = count_tokens(self.exception["traceback"])
-
-        return TokenInfo(
-            title=collapsed_tokens,
-            content=content_tokens,
-            detail=detail_tokens,
-        )
+        return f"result: [{self.status}]{duration_str}"
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize StatementResultNode to dict."""

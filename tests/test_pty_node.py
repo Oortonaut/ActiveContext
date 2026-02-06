@@ -282,8 +282,9 @@ class TestTokenBreakdown:
             node.append_output(f"line {i}\n")
         info = node.get_token_breakdown()
         assert info.title > 0
-        assert info.content > 0  # last 10 lines
-        assert info.detail > 0  # remaining lines
+        assert info.content > 0  # all scrollback content
+        # detail is sum of children's tokens (PtyNode has no children)
+        assert info.detail == 0
 
 
 # ---------------------------------------------------------------------------

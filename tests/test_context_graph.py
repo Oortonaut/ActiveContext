@@ -512,7 +512,6 @@ class TestCheckpoints:
         group.child_order = LinkedChildOrder()
         group.summary_prompt = "Custom prompt"
         group.last_child_versions = {"child1": 5}
-        group.GetDigest = Mock(return_value={"node_id": "group1"})
 
         empty_graph.add_node(group)
 
