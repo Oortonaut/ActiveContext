@@ -381,81 +381,68 @@ class TestTextNodeExpansionStates:
 
     def test_render_all_shows_detail(self):
         """Test ALL rendering shows full content."""
-        import tempfile
-        from pathlib import Path
-
+        from activecontext.context.nodes import SimpleNode
         from activecontext.context.state import Expansion
 
-        # Create a temporary file for testing
-        with tempfile.TemporaryDirectory() as tmpdir:
-            test_file = Path(tmpdir) / "test.py"
-            test_file.write_text("line 1\nline 2\nline 3\n")
+        graph = ContextGraph()
+        node = SimpleNode(
+            node_id="simple1",
+            content="line 1\nline 2\nline 3",
+        )
+        graph.add_node(node)
+        node.default_expansion = Expansion.ALL
 
-            graph = ContextGraph()
-            node = TextNode(
-                node_id="txt4",
-                path=str(test_file),
-            )
-            graph.add_node(node)
-            node.default_expansion = Expansion.ALL
+        result = NodeView(node, expansion=Expansion.ALL).render()
 
-            result = NodeView(node, expansion=Expansion.ALL).render()
-
-            # Should include all content lines
-            assert "line 1" in result
-            assert "line 2" in result
-            assert "line 3" in result
+        # Should include all content lines
+        assert "line 1" in result
+        assert "line 2" in result
+        assert "line 3" in result
 
     def test_all_expansion_states_side_by_side(self):
-        """Demonstrate all TextNode visibility states side-by-side."""
-        import tempfile
-        from pathlib import Path
-
+        """Demonstrate all expansion states side-by-side using SimpleNode."""
+        from activecontext.context.nodes import SimpleNode
         from activecontext.context.state import Expansion
 
-        # Create a temporary file for testing
-        with tempfile.TemporaryDirectory() as tmpdir:
-            test_file = Path(tmpdir) / "example.py"
-            test_file.write_text("def foo():\n    return 42\n")
+        graph = ContextGraph()
+        content = "def foo():\n    return 42"
 
-            graph = ContextGraph()
+        # Create identical nodes with different expansion states
+        nodes = {}
+        for exp in [
+            Expansion.HEADER,
+            Expansion.CONTENT,
+            Expansion.INDEX,
+            Expansion.ALL,
+        ]:
+            node = SimpleNode(
+                node_id=f"node_{exp.value}",
+                content=content,
+                title=f"Example {exp.value}",
+            )
+            node.default_expansion = exp
+            graph.add_node(node)
+            nodes[exp] = node
 
-            # Create identical nodes with different expansion states
-            nodes = {}
-            for exp in [
-                Expansion.HEADER,
-                Expansion.CONTENT,
-                Expansion.INDEX,
-                Expansion.ALL,
-            ]:
-                node = TextNode(
-                    node_id=f"node_{exp.value}",
-                    path=str(test_file),
-                    title=f"Example {exp.value}",
-                )
-                node.default_expansion = exp
-                graph.add_node(node)
-                nodes[exp] = node
+        # Render each and verify expected content
+        header_output = NodeView(nodes[Expansion.HEADER], expansion=Expansion.HEADER).render()
+        content_output = NodeView(nodes[Expansion.CONTENT], expansion=Expansion.CONTENT).render()
+        index_output = NodeView(nodes[Expansion.INDEX], expansion=Expansion.INDEX).render()
+        all_output = NodeView(nodes[Expansion.ALL], expansion=Expansion.ALL).render()
 
-            # Render each and verify expected content
-            header_output = NodeView(nodes[Expansion.HEADER], expansion=Expansion.HEADER).render()
-            content_output = NodeView(nodes[Expansion.CONTENT], expansion=Expansion.CONTENT).render()
-            index_output = NodeView(nodes[Expansion.INDEX], expansion=Expansion.INDEX).render()
-            all_output = NodeView(nodes[Expansion.ALL], expansion=Expansion.ALL).render()
+        # HEADER: Only metadata
+        assert "def foo():" not in header_output
 
-            # HEADER: Only metadata
-            assert "def foo():" not in header_output
+        # CONTENT: Node content
+        assert "def foo():" in content_output
 
-            # CONTENT: File content
-            assert "def foo():" in content_output
+        # INDEX: Same content as CONTENT for leaf nodes
+        assert "def foo():" in index_output
+        assert "return 42" in index_output
 
-            # INDEX: Same content as CONTENT for leaf nodes
-            assert "def foo():" in index_output
-            assert "return 42" in index_output
-
-            # ALL: Same content as CONTENT for leaf nodes
-            assert "def foo():" in all_output
-            assert "return 42" in all_output
+        # ALL: Same content as CONTENT for leaf nodes
+        assert "def foo():" in all_output
+        assert "return 42" in all_output
 
     def test_render_header_format(self):
         """Verify NodeView.render_header() produces expected format."""

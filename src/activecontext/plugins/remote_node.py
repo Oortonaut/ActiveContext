@@ -140,11 +140,7 @@ class RemoteNode(ContextNode):
             return self.title
         return f"{self._actual_node_type} (remote)"
 
-    def render_content(
-        self,
-        cwd: str = ".",
-        text_buffers: dict[str, Any] | None = None,
-    ) -> str:
+    def render_content(self) -> str:
         """Return merged cached content + detail sections."""
         content = self._cached_renders.content
         detail = self._cached_renders.detail

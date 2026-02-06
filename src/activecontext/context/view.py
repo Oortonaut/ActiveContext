@@ -92,21 +92,21 @@ class NodeView:
         seq = node.display_sequence
         display_id = f"{node.display_type}_{seq}" if seq is not None else node.node_id
 
-        name = node.render_digest()
+        digest: str = node.render_digest()
 
-        brief = self.expansion.value
+        tail: str = f"{digest} expansion={self.expansion.value}, "
         nl = node.notification_level
         if nl and nl != NotificationLevel.IGNORE:
-            brief = f"{brief} {nl.value}"
+            tail += f" notification_level={nl.value}, "
 
-        return f"{name} | {{#{display_id}}} {brief} {token_str}\n"
+        return f"{node.title} {digest} [{node.node_type} {{#{node.node_id}}}] | {{#{display_id}}} {tail} {token_str}\n"
 
-    def render(self, text_buffers: dict[str, Any] | None = None) -> str:
+    def render(self) -> str:
         """Render this view at current expansion level."""
         if self.expansion == Expansion.HEADER:
             return self.render_header()
         header = self.render_header()
-        content = self.node.render_content(text_buffers=text_buffers)
+        content = self.node.render_content()
         return header + content
 
     # --- Token Calculations ---

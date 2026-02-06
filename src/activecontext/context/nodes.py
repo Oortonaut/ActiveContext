@@ -40,7 +40,6 @@ from activecontext.context.traceable import trace_all_fields
 if TYPE_CHECKING:
     pass  # Moved to runtime import below
 
-import contextlib
 import re as _re
 
 from activecontext.context.graph import LinkedChildOrder
@@ -448,7 +447,7 @@ class ContextNode:
             TextNode: "[TextNode] main.py" + " (lines 1-50)"
             ShellNode: "[ShellNode] pytest" + " [COMPLETED]"
         """
-        return f"[{self.node_type}] {self.title}"
+        return ""
 
     def Recompute(self) -> None:
         """Recompute this node's content. Called during tick for running nodes.
@@ -461,15 +460,14 @@ class ContextNode:
         """
         pass
 
-    def render_content(
-        self,
-        cwd: str = ".",
-        text_buffers: dict[str, Any] | None = None,
-    ) -> str:
+    def render_content(self) -> str:
         """Render the content section — the actual content of this node.
 
         Subclasses override this to provide node-specific content.
         Base returns empty string (header-only nodes).
+
+        Note: Nodes that need TextBuffer access (like TextNode) should
+        use TextBuffer.get_by_id() to look up their buffer.
         """
         return ""
 
@@ -851,15 +849,8 @@ class SimpleNode(ContextNode):
     def node_type(self) -> str:
         return "SimpleNode"
 
-    def render_content(
-            self,
-            cwd: str = ".",
-            text_buffers: dict[str, Any] | None = None,
-    ) -> str:
+    def render_content(self) -> str:
         return self.content
-
-    def render_digest(self) -> str:
-        return super().render_digest()
 
     def append(self, content: str, sep: str = "\n\n") -> None:
         if self.content:
@@ -948,77 +939,34 @@ class TextNode(ContextNode):
         }
 
 
-    def render_content(
-        self,
-        cwd: str = ".",
-        text_buffers: dict[str, Any] | None = None,
-    ) -> str:
+    def render_content(self) -> str:
         """Render file content with line numbers.
 
-        If a cached LLM summary exists, it is prepended before the file lines.
-
-        Args:
-            cwd: Working directory for resolving paths
-            text_buffers: Optional dict of buffer_id -> TextBuffer for markdown nodes
+        TextNode requires a TextBuffer to render content. The buffer_id
+        must be set and the buffer must exist in TextBuffer's class-level cache.
 
         Returns:
             Rendered content string (without header — Render() prepends it)
         """
-        import os
+        from activecontext.context.buffer import TextBuffer
 
         output_parts: list[str] = []
-
-        # Get lines either from buffer or from file
         lines: list[str] = []
 
-        if self.buffer_id and text_buffers:
-            # Use TextBuffer if available
-            buffer = text_buffers.get(self.buffer_id)
-            if buffer:
-                # Get lines from buffer using start_line/end_line
-                start_idx = max(0, self.start_line - 1)
-                end_idx = self.end_line if self.end_line else len(buffer.lines)
-                lines = buffer.lines[start_idx:end_idx]
-        else:
-            # Fall back to reading from file
-            # Parse start position
-            try:
-                start_line = int(self.pos.split(":")[0])
-            except (ValueError, IndexError):
-                start_line = 1
+        if not self.buffer_id:
+            return "[TextNode requires buffer_id to be set]"
 
-            # Parse end position
-            end_line: int | None = None
-            if self.end_pos:
-                with contextlib.suppress(ValueError, IndexError):
-                    end_line = int(self.end_pos.split(":")[0])
+        buffer = TextBuffer.get_by_id(self.buffer_id)
+        if not buffer:
+            return f"[Buffer not found: {self.buffer_id}]"
 
-            # Read file
-            file_path = os.path.join(cwd, self.path)
-            try:
-                with open(file_path, encoding="utf-8", errors="replace") as f:
-                    file_lines = f.readlines()
-            except FileNotFoundError:
-                prefix = "".join(output_parts)
-                return f"{prefix}[File not found: {self.path}]"
-            except OSError as e:
-                prefix = "".join(output_parts)
-                return f"{prefix}[Error reading {self.path}: {e}]"
+        # Get lines from buffer using start_line/end_line
+        start_idx = max(0, self.start_line - 1)
+        end_idx = self.end_line if self.end_line else len(buffer.lines)
+        lines = buffer.lines[start_idx:end_idx]
 
-            # Apply line range
-            start_idx = max(0, start_line - 1)
-            end_idx = end_line if end_line else len(file_lines)
-            lines = [*file_lines[start_idx:end_idx]]
-
-        # Regular text rendering with line numbers
-        # Calculate base line number
-        if self.buffer_id:
-            base_line = self.start_line
-        else:
-            try:
-                base_line = int(self.pos.split(":")[0])
-            except (ValueError, IndexError):
-                base_line = 1
+        # Render with line numbers
+        base_line = self.start_line
 
         for i, line in enumerate(lines):
             line_num = base_line + i
@@ -1177,27 +1125,22 @@ class TextNode(ContextNode):
         return None
 
     def render_digest(self) -> str:
-        """Return title if set, otherwise 'path:start-end' format."""
+        """Return title if set, otherwise 'path (lines N-M)' format."""
         if self.title:
             return self.title
 
-        start_line = self._parse_start_line()
-
-        if self.end_pos:
-            end_line = self._parse_end_line()
-            if end_line is not None:
-                return f"{self.path}:{start_line}-{end_line}"
-
         # Build line range caption
-        line_range = ""
         start = self.start_line if self.buffer_id else self._parse_start_line()
         end = self.end_line if self.buffer_id else self._parse_end_line()
-        if start and end:
-            line_range = f"(lines {start}-{end})"
-        elif start and start > 1:
-            line_range = f"(line {start})"
 
-        return f"{line_range}"
+        if start and end:
+            line_range = f" (lines {start}-{end})"
+        elif start and start > 1:
+            line_range = f" (line {start}+)"
+        else:
+            line_range = ""
+
+        return f"{self.path}{line_range}"
 
     def get_token_breakdown(self) -> TokenInfo:
         """Return token counts for collapsed/content/index/detail."""
@@ -1302,11 +1245,7 @@ class GroupNode(ContextNode):
             "version": self.version,
         }
 
-    def render_content(
-        self,
-        cwd: str = ".",
-        text_buffers: dict[str, Any] | None = None,
-    ) -> str:
+    def render_content(self) -> str:
         """Empty — children are rendered by the projection engine."""
         return ""
 
@@ -1423,11 +1362,7 @@ class TopicNode(ContextNode):
             "version": self.version,
         }
 
-    def render_content(
-        self,
-        cwd: str = ".",
-        text_buffers: dict[str, Any] | None = None,
-    ) -> str:
+    def render_content(self) -> str:
         """Render message range and artifact count."""
         parts: list[str] = []
         if self.message_indices:
@@ -1520,11 +1455,7 @@ class ArtifactNode(ContextNode):
             "version": self.version,
         }
 
-    def render_content(
-        self,
-        cwd: str = ".",
-        text_buffers: dict[str, Any] | None = None,
-    ) -> str:
+    def render_content(self) -> str:
         """Render full artifact content."""
         return self.content
 
@@ -1665,11 +1596,7 @@ class ShellNode(ContextNode):
             "version": self.version,
         }
 
-    def render_content(
-        self,
-        cwd: str = ".",
-        text_buffers: dict[str, Any] | None = None,
-    ) -> str:
+    def render_content(self) -> str:
         """Render full output with timing details."""
         result = self.output
         if result and not result.endswith("\n"):
@@ -2022,11 +1949,7 @@ class PtyNode(ContextNode):
             "status": self.pty_status.value,
         }
 
-    def render_content(
-        self,
-        cwd: str = ".",
-        text_buffers: dict[str, Any] | None = None,
-    ) -> str:
+    def render_content(self) -> str:
         """Render the most recent scrollback lines (ANSI-stripped)."""
         # Show last 50 lines of scrollback
         tail = self._scrollback_lines[-50:]
@@ -2167,11 +2090,7 @@ class LockNode(ContextNode):
             "version": self.version,
         }
 
-    def render_content(
-        self,
-        cwd: str = ".",
-        text_buffers: dict[str, Any] | None = None,
-    ) -> str:
+    def render_content(self) -> str:
         """Render timeout, holder, error, and acquired_at."""
         parts: list[str] = []
         parts.append(f"Timeout: {self.timeout}s\n")
@@ -2355,11 +2274,7 @@ class SessionNode(ContextNode):
             "version": self.version,
         }
 
-    def render_content(
-        self,
-        cwd: str = ".",
-        text_buffers: dict[str, Any] | None = None,
-    ) -> str:
+    def render_content(self) -> str:
         """Render turn info, token info, graph stats, and recent actions."""
         parts: list[str] = []
 
@@ -2673,11 +2588,7 @@ class MessageNode(ContextNode):
             return self._format_tool_result()
         return self.content
 
-    def render_content(
-        self,
-        cwd: str = ".",
-        text_buffers: dict[str, Any] | None = None,
-    ) -> str:
+    def render_content(self) -> str:
         """Render minimal metadata line.
 
         The full message content is in child ``MessageSegmentNode`` objects.
@@ -2815,11 +2726,7 @@ class MessageSegmentNode(ContextNode):
             "version": self.version,
         }
 
-    def render_content(
-        self,
-        cwd: str = ".",
-        text_buffers: dict[str, Any] | None = None,
-    ) -> str:
+    def render_content(self) -> str:
         """Render segment content.
 
         Fenced blocks are wrapped in triple-backtick markers with the
@@ -2928,11 +2835,7 @@ class WorkNode(ContextNode):
             "version": self.version,
         }
 
-    def render_content(
-        self,
-        cwd: str = ".",
-        text_buffers: dict[str, Any] | None = None,
-    ) -> str:
+    def render_content(self) -> str:
         """Render agent, files, dependencies, and conflicts."""
         parts: list[str] = []
         parts.append(f"Agent: {self.agent_id}\n")
@@ -3148,11 +3051,7 @@ class MCPServerNode(ContextNode):
             return f"Status: {self.status}\n"
         return None
 
-    def render_content(
-        self,
-        cwd: str = ".",
-        text_buffers: dict[str, Any] | None = None,
-    ) -> str:
+    def render_content(self) -> str:
         """Render tool names, usage hint, resources, and prompts."""
         status = self._render_status_message()
         if status:
@@ -3428,11 +3327,7 @@ class MCPToolNode(ContextNode):
             "version": self.version,
         }
 
-    def render_content(
-        self,
-        cwd: str = ".",
-        text_buffers: dict[str, Any] | None = None,
-    ) -> str:
+    def render_content(self) -> str:
         """Render description and parameters (no headings — header via Render())."""
         parts: list[str] = []
 
@@ -3543,11 +3438,7 @@ class MCPManagerNode(ContextNode):
             "server_states": dict(self.server_states),
         }
 
-    def render_content(
-        self,
-        cwd: str = ".",
-        text_buffers: dict[str, Any] | None = None,
-    ) -> str:
+    def render_content(self) -> str:
         """Return empty - details are in child MCPServerNode headers, events are traces."""
         return ""
 
@@ -3721,11 +3612,7 @@ class PluginManagerNode(ContextNode):
             "plugin_states": dict(self.plugin_states),
         }
 
-    def render_content(
-        self,
-        cwd: str = ".",
-        text_buffers: dict[str, Any] | None = None,
-    ) -> str:
+    def render_content(self) -> str:
         """Render overview, plugin list, and events."""
         lines: list[str] = []
 
@@ -3896,11 +3783,7 @@ class AgentNode(ContextNode):
             "version": self.version,
         }
 
-    def render_content(
-        self,
-        cwd: str = ".",
-        text_buffers: dict[str, Any] | None = None,
-    ) -> str:
+    def render_content(self) -> str:
         """Render type, state, task, and messages."""
         parts: list[str] = []
         parts.append(f"  Type: {self.agent_type}\n")
@@ -4093,11 +3976,7 @@ class TraceNode(ContextNode):
             detail=0,
         )
 
-    def render_content(
-        self,
-        cwd: str = ".",
-        text_buffers: dict[str, Any] | None = None,
-    ) -> str:
+    def render_content(self) -> str:
         """Render originator and content."""
         parts: list[str] = []
 
@@ -4230,11 +4109,7 @@ class TaskNode(ContextNode):
             "mode": self.mode,
         }
 
-    def render_content(
-        self,
-        cwd: str = ".",
-        text_buffers: dict[str, Any] | None = None,
-    ) -> str:
+    def render_content(self) -> str:
         """Render full task info with timing and metadata."""
         lines = [f"Task: {self.task_id}"]
         lines.append(f"  Type: {self.task_type}")
@@ -4558,11 +4433,7 @@ class HelpNode(ContextNode):
         methods = self._count_methods()
         return f"{self.parent_node_type} Help -- {methods} methods"
 
-    def render_content(
-        self,
-        cwd: str = ".",
-        text_buffers: dict[str, Any] | None = None,
-    ) -> str:
+    def render_content(self) -> str:
         """Render full documentation."""
         parts: list[str] = []
         for line in self._help_content.split("\n"):
@@ -4634,11 +4505,7 @@ class MarkdownListItemNode(ContextNode):
             "children_count": len(self.child_order),
         }
 
-    def render_content(
-        self,
-        cwd: str = ".",
-        text_buffers: dict[str, Any] | None = None,
-    ) -> str:
+    def render_content(self) -> str:
         """Render list item content (indentation handled by projection)."""
         return f"{self.marker} {self.content}\n"
 
@@ -4843,11 +4710,7 @@ class MarkdownNode(ContextNode):
         self.mark_changed(f"Content updated ({len(old_content)} → {len(content)} chars)")
         return self
 
-    def render_content(
-        self,
-        cwd: str = ".",
-        text_buffers: dict[str, Any] | None = None,
-    ) -> str:
+    def render_content(self) -> str:
         """Render full markdown content."""
         return self.content
 
@@ -4997,11 +4860,7 @@ class FileSystemNode(ContextNode):
             self._cached_tree = self._scan_directory()
             self._last_scan = current_time
 
-    def render_content(
-        self,
-        cwd: str = ".",
-        text_buffers: dict[str, Any] | None = None,
-    ) -> str:
+    def render_content(self) -> str:
         """Render root path and directory tree."""
         if not self._cached_tree:
             self._cached_tree = self._scan_directory()
@@ -5141,11 +5000,7 @@ class ClockNode(ContextNode):
             return f"{hours:02d}:{minutes:02d}:{secs:02d}"
         return f"{minutes:02d}:{secs:02d}"
 
-    def render_content(
-        self,
-        cwd: str = ".",
-        text_buffers: dict[str, Any] | None = None,
-    ) -> str:
+    def render_content(self) -> str:
         """Render time and status."""
         elapsed = self.get_elapsed()
         status = "⏸" if not self.is_running else "▶"
@@ -5284,11 +5139,7 @@ class FunctionDocNode(ContextNode):
 
         return self
 
-    def render_content(
-        self,
-        cwd: str = ".",
-        text_buffers: dict[str, Any] | None = None,
-    ) -> str:
+    def render_content(self) -> str:
         """Render content: signature + docstring."""
         if not self.signature:
             self.extract_function_info()
@@ -5391,11 +5242,7 @@ class StatementNode(ContextNode):
             "version": self.version,
         }
 
-    def render_content(
-        self,
-        cwd: str = ".",
-        text_buffers: dict[str, Any] | None = None,
-    ) -> str:
+    def render_content(self) -> str:
         """Render statement source code."""
         lines = ["```python", self.source, "```"]
         return "\n".join(lines)
@@ -5508,11 +5355,7 @@ class StatementResultNode(ContextNode):
             "version": self.version,
         }
 
-    def render_content(
-        self,
-        cwd: str = ".",
-        text_buffers: dict[str, Any] | None = None,
-    ) -> str:
+    def render_content(self) -> str:
         """Render execution result."""
         lines: list[str] = []
 

@@ -26,10 +26,17 @@ class TextBuffer:
     # Class-level cache: (resolved_cwd, path) -> TextBuffer
     _cache: ClassVar[dict[tuple[str, str], TextBuffer]] = {}
 
+    # Class-level cache: buffer_id -> TextBuffer (for render_content lookup)
+    _by_id: ClassVar[dict[str, TextBuffer]] = {}
+
     buffer_id: str = field(default_factory=lambda: str(uuid.uuid4())[:8])
     path: str = ""
     lines: list[str] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        """Register buffer in the ID lookup cache."""
+        TextBuffer._by_id[self.buffer_id] = self
 
     @classmethod
     def get_or_create(cls, path: str, cwd: str = ".") -> TextBuffer:
@@ -51,12 +58,25 @@ class TextBuffer:
         return cls._cache[key]
 
     @classmethod
+    def get_by_id(cls, buffer_id: str) -> TextBuffer | None:
+        """Get a buffer by its unique ID.
+
+        Args:
+            buffer_id: The buffer's unique identifier
+
+        Returns:
+            TextBuffer if found, None otherwise
+        """
+        return cls._by_id.get(buffer_id)
+
+    @classmethod
     def clear_cache(cls) -> None:
         """Clear the class-level buffer cache.
 
         Useful for testing to ensure clean state between tests.
         """
         cls._cache.clear()
+        cls._by_id.clear()
 
     @classmethod
     def from_file(cls, path: str | Path, cwd: str = ".") -> TextBuffer:

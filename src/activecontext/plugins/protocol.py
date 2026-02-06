@@ -94,7 +94,7 @@ class NodePlugin(Protocol):
         """
         ...
 
-    def render_content(self, cwd: str = ".") -> str:
+    def render_content(self) -> str:
         """Render the content section — the actual content of this node.
 
         Shown at CONTENT expansion and above. Contains the primary
@@ -102,6 +102,9 @@ class NodePlugin(Protocol):
 
         Return empty string if the node has no content beyond its header
         (e.g., TopicNode has minimal content).
+
+        Note: Nodes that need TextBuffer access (like TextNode) should
+        use TextBuffer.get_by_id() to look up their buffer.
         """
         ...
 

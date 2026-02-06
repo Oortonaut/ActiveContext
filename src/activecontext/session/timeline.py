@@ -1462,11 +1462,43 @@ class Timeline:
         Returns:
             NodeView wrapping the created TextNode
         """
+        import os
+
+        from activecontext.context.buffer import TextBuffer
+
+        # Get or create text buffer for the file
+        full_path = os.path.join(self._cwd, path)
+        buffer = None
+
+        # Check if we already have a buffer for this path
+        for existing in self._text_buffers.values():
+            if existing.path == full_path or existing.path == path:
+                buffer = existing
+                break
+
+        if buffer is None:
+            # Create new buffer from file
+            try:
+                buffer = TextBuffer.from_file(path, cwd=self._cwd)
+            except FileNotFoundError:
+                # Create empty buffer for non-existent file
+                buffer = TextBuffer(path=path, lines=[])
+            self._text_buffers[buffer.buffer_id] = buffer
+
+        # Parse start position
+        try:
+            start_line = int(pos.split(":")[0])
+        except (ValueError, IndexError):
+            start_line = 1
+
         node = TextNode(
             path=path,
             pos=pos,
             default_expansion=default_expansion,
             mode=mode,
+            buffer_id=buffer.buffer_id,
+            start_line=start_line,
+            end_line=len(buffer.lines) if buffer.lines else None,
         )
 
         # Add to graph
@@ -2106,7 +2138,7 @@ class Timeline:
             raise ValueError("LLM provider not available for summarization")
 
         # Get rendered content for LLM prompt
-        content = node.render_content(cwd=self._cwd)
+        content = node.render_content()
 
         # Generate summary via LLM
         prompt = f"""Summarize the following file content in {max_tokens} tokens or less.

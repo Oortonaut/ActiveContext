@@ -219,9 +219,7 @@ Content for section two.
             # Render all nodes and verify content
             rendered_parts = []
             for node in all_nodes:
-                rendered = NodeView(node).render(
-                    text_buffers=timeline._text_buffers,
-                )
+                rendered = NodeView(node).render()
                 rendered_parts.append(rendered)
 
             full_rendered = "\n".join(rendered_parts)
