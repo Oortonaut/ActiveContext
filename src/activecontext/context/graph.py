@@ -15,6 +15,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from activecontext.context.checkpoint import Checkpoint, GroupState
+from activecontext.context.exposed import exposed
 
 if TYPE_CHECKING:
     from activecontext.context.nodes import ContextNode, TraceNode
@@ -280,6 +281,7 @@ class ContextGraph:
         # Remove node
         del self._nodes[node_id]
 
+    @exposed
     def link(
         self,
         child_id: str,
@@ -329,6 +331,7 @@ class ContextGraph:
 
         return True
 
+    @exposed
     def unlink(self, child_id: str, parent_id: str) -> bool:
         """Remove link between child and parent.
 
@@ -642,6 +645,7 @@ class ContextGraph:
     # Checkpointing
     # -------------------------------------------------------------------------
 
+    @exposed
     def checkpoint(self, name: str) -> Checkpoint:
         """Capture current edge structure as a named checkpoint.
 
@@ -686,6 +690,7 @@ class ContextGraph:
         self._checkpoints[name] = cp
         return cp
 
+    @exposed
     def restore(self, name_or_checkpoint: str | Checkpoint) -> None:
         """Restore edge structure from a checkpoint.
 

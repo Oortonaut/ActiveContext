@@ -23,6 +23,7 @@ from types import FunctionType
 from typing import TYPE_CHECKING, Any
 
 from activecontext.agents.schema import MessageStatus
+from activecontext.context.exposed import exposed, get_exposed
 from activecontext.context.graph import ContextGraph
 from activecontext.context.nodes import (
     ArtifactNode,
@@ -840,108 +841,13 @@ class Timeline:
                 "Expansion": Expansion,
                 "TickFrequency": TickFrequency,
                 "NotificationLevel": NotificationLevel,
-                # Context node constructors
-                "text": self._make_text_node,
-                "group": self._make_group_node,
-                "topic": self._make_topic_node,
-                "artifact": self._make_artifact_node,
-                "markdown": self._make_markdown_node,
-                "view": self._make_view,
-                "choice": self._make_choice_view,
-                # Progression views
-                "sequence": self._make_sequence_view,
-                "loop_view": self._make_loop_view,
-                "state_machine": self._make_state_machine,
-                # Script import
-                "import_script": self._import_script,
-                # DAG manipulation
-                "link": self._link,
-                "unlink": self._unlink,
-                # Checkpointing
-                "checkpoint": self._checkpoint,
-                "restore": self._restore,
-                "checkpoints": self._list_checkpoints,
-                "branch": self._branch,
-                # Utility functions
-                "ls": self._ls_handles,
-                "show": self._show_handle,
-                # Node lookup
-                "get": self._get_node,
+                # Dynamic node lookup (computed at call time)
                 "nodes": self._create_node_lookup(),
-                "ls_permissions": self._ls_permissions,
-                "ls_imports": self._ls_imports,
-                "ls_shell_permissions": self._ls_shell_permissions,
-                "ls_website_permissions": self._ls_website_permissions,
-                # Shell execution
-                "shell": self._shell_manager.execute,
-                # PTY sessions
-                "pty": self._pty_manager.spawn,
-                "pty_send": self._pty_send,
-                "pty_close": self._pty_close,
-                "wait_for_output": self._wait_for_output,
-                # HTTP/HTTPS requests
-                "fetch": self._fetch,
-                # Agent control
-                "done": self._done,
-                # Session title
-                "set_title": self._set_title,
-                # Notification control
-                "notify": self._set_notify,
-                # Async wait control
-                "wait": self._wait,
-                "wait_all": self._wait_all,
-                "wait_any": self._wait_any,
-                # Conversation delegation
-                "interact": self._interact,
-                "connect": self._connect,
-                # File locking
-                "lock_file": self._lock_manager.acquire,
-                "lock_release": self._lock_manager.release,
-                # LLM summarization
-                "summarize": self._summarize,
-                # Help system
-                "help": self._help,
             },
         )
 
-        # Add work coordination functions if scratchpad manager is available
-        if self._scratchpad_manager:
-            self._namespace.update(
-                {
-                    "work_on": self._work_coordinator.work_on,
-                    "work_check": self._work_coordinator.work_check,
-                    "work_update": self._work_coordinator.work_update,
-                    "work_done": self._work_coordinator.work_done,
-                    "work_list": self._work_coordinator.work_list,
-                }
-            )
-
-        # Add MCP functions
-        self._namespace.update(
-            {
-                "mcp_connect": self._mcp_integration.connect,
-                "mcp_disconnect": self._mcp_integration.disconnect,
-                "mcp_list": self._mcp_integration.list_connections,
-                "mcp_tools": self._mcp_integration.list_tools,
-                "mcp_roots_add": self._mcp_integration.add_root,
-                "mcp_roots_remove": self._mcp_integration.remove_root,
-                "mcp_roots_list": self._mcp_integration.list_roots,
-            }
-        )
-
-        # Add plugin functions
-        self._namespace.update(
-            {
-                "plugin_connect": self._plugin_connect,
-                "plugin_disconnect": self._plugin_disconnect,
-                "plugin_list": self._plugin_list,
-                "plugin_load": self._plugin_load,
-                "plugin_unload": self._plugin_unload,
-                "plugin_available": self._plugin_available,
-                "plugin_info": self._plugin_info,
-                "plugin_docs": self.plugin_docs,
-            }
-        )
+        # Auto-register @exposed methods from Timeline and ContextGraph
+        self._register_exposed_methods()
 
         # Register node type constructors from already-connected plugins
         self._register_all_plugin_node_types()
@@ -1041,6 +947,567 @@ class Timeline:
                         e,
                     )
                     continue
+
+    def _register_exposed_methods(self) -> None:
+        """Auto-register @exposed methods and properties from Timeline and ContextGraph.
+
+        Discovers all members marked with @exposed and registers them
+        as DSL functions. This replaces manual registration in _setup_namespace.
+
+        - Methods are registered as bound methods (callable)
+        - Properties are registered as getter functions that return current value
+        - ContextGraph is registered first, then Timeline, so Timeline methods
+          take precedence for shared names (link, unlink, checkpoint, restore)
+        """
+        self._register_exposed_from(self._context_graph)
+        self._register_exposed_from(self)
+
+    def _register_exposed_from(self, obj: Any) -> None:
+        """Register @exposed members from an object into the namespace.
+
+        Args:
+            obj: Object to extract @exposed members from
+        """
+        cls = type(obj)
+        for name in get_exposed(cls):
+            # Check if it's a property on the class
+            class_attr = getattr(cls, name, None)
+            if isinstance(class_attr, property):
+                # Create a getter function for the property
+                # Capture obj and name in closure
+                def make_getter(o: Any, n: str, doc: str | None) -> Any:
+                    def getter() -> Any:
+                        return getattr(o, n)
+
+                    getter.__name__ = n
+                    getter.__doc__ = doc
+                    return getter
+
+                prop_doc = class_attr.fget.__doc__ if class_attr.fget else None
+                self._namespace[name] = make_getter(obj, name, prop_doc)
+            else:
+                # Regular method - get the bound method
+                method = getattr(obj, name, None)
+                if method is not None and callable(method):
+                    self._namespace[name] = method
+
+    # -------------------------------------------------------------------------
+    # DSL Functions (@exposed methods auto-registered into namespace)
+    # -------------------------------------------------------------------------
+
+    # --- Node Constructors ---
+
+    @exposed
+    def text(
+        self,
+        path: str,
+        *,
+        pos: str = "1:0",
+        default_expansion: Expansion = Expansion.ALL,
+        mode: str = "paused",
+        parent: ContextNode | str | None = None,
+    ) -> NodeView:
+        """Create a TextNode for viewing file content."""
+        return self._make_text_node(
+            path, pos=pos, default_expansion=default_expansion, mode=mode, parent=parent
+        )
+
+    @exposed
+    def group(
+        self,
+        *members: ContextNode | NodeView | str,
+        default_expansion: Expansion = Expansion.CONTENT,
+        mode: str = "paused",
+        parent: ContextNode | NodeView | str | None = None,
+    ) -> NodeView:
+        """Create a GroupNode that summarizes its members."""
+        return self._make_group_node(
+            *members, default_expansion=default_expansion, mode=mode, parent=parent
+        )
+
+    @exposed
+    def topic(
+        self,
+        title: str,
+        *,
+        status: str = "active",
+        parent: ContextNode | NodeView | str | None = None,
+    ) -> NodeView:
+        """Create a TopicNode for conversation segments."""
+        return self._make_topic_node(title, status=status, parent=parent)
+
+    @exposed
+    def artifact(
+        self,
+        artifact_type: str = "code",
+        *,
+        content: str = "",
+        language: str | None = None,
+        parent: ContextNode | NodeView | str | None = None,
+    ) -> NodeView:
+        """Create an ArtifactNode for code snippets and outputs."""
+        return self._make_artifact_node(
+            artifact_type, content=content, language=language, parent=parent
+        )
+
+    @exposed
+    def markdown(
+        self,
+        path: str,
+        *,
+        content: str | None = None,
+        default_expansion: Expansion = Expansion.ALL,
+        parent: ContextNode | NodeView | str | None = None,
+    ) -> NodeView:
+        """Create a MarkdownNode from a file or content."""
+        return self._make_markdown_node(
+            path, content=content, default_expansion=default_expansion, parent=parent
+        )
+
+    @exposed
+    def choice(
+        self,
+        *children: ContextNode | NodeView | str,
+        selected: str | None = None,
+        default_expansion: Expansion = Expansion.ALL,
+        parent: ContextNode | NodeView | str | None = None,
+    ) -> "ChoiceView":
+        """Create a ChoiceView for dropdown-like selection."""
+        return self._make_choice_view(
+            *children, selected=selected, default_expansion=default_expansion, parent=parent
+        )
+
+    @exposed
+    def sequence(
+        self,
+        *children: ContextNode | NodeView | str,
+        default_expansion: Expansion = Expansion.ALL,
+        parent: ContextNode | NodeView | str | None = None,
+    ) -> "SequenceView":
+        """Create a SequenceView for ordered progression."""
+        return self._make_sequence_view(
+            *children, default_expansion=default_expansion, parent=parent
+        )
+
+    @exposed
+    def loop_view(
+        self,
+        child: ContextNode | NodeView | str,
+        max_iterations: int | None = None,
+        default_expansion: Expansion = Expansion.ALL,
+        parent: ContextNode | NodeView | str | None = None,
+    ) -> "LoopView":
+        """Create a LoopView for iterative processing."""
+        return self._make_loop_view(
+            child, max_iterations, default_expansion=default_expansion, parent=parent
+        )
+
+    @exposed
+    def state_machine(
+        self,
+        *children: ContextNode | NodeView | str,
+        states: dict[str, str] | None = None,
+        transitions: dict[str, list[str]] | None = None,
+        initial: str | None = None,
+        default_expansion: Expansion = Expansion.ALL,
+        parent: ContextNode | NodeView | str | None = None,
+    ) -> "StateView":
+        """Create a StateView for state machine patterns."""
+        return self._make_state_machine(
+            *children,
+            states=states,
+            transitions=transitions,
+            initial=initial,
+            default_expansion=default_expansion,
+            parent=parent,
+        )
+
+    @exposed
+    def view(
+        self,
+        media_type: str,
+        path: str,
+        *,
+        default_expansion: Expansion = Expansion.ALL,
+        **kwargs: Any,
+    ) -> NodeView:
+        """Create a view based on media type (text or markdown)."""
+        return self._make_view(media_type, path, default_expansion=default_expansion, **kwargs)
+
+    # --- DAG Manipulation ---
+
+    @exposed
+    def link(
+        self,
+        child: ContextNode | NodeView | str,
+        parent: ContextNode | NodeView | str,
+    ) -> bool:
+        """Link a child node to a parent node."""
+        return self._link(child, parent)
+
+    @exposed
+    def unlink(
+        self,
+        child: ContextNode | NodeView | str,
+        parent: ContextNode | NodeView | str,
+    ) -> bool:
+        """Remove link between child and parent."""
+        return self._unlink(child, parent)
+
+    # --- Script Import ---
+
+    @exposed
+    def import_script(self, script_path: str) -> Any:
+        """Import and execute a Python script file."""
+        return self._import_script(script_path)
+
+    # --- Checkpointing ---
+
+    @exposed
+    def checkpoint(self, name: str) -> Any:
+        """Create a checkpoint of the current DAG structure."""
+        return self._checkpoint(name)
+
+    @exposed
+    def restore(self, name_or_checkpoint: str | Any) -> None:
+        """Restore DAG structure from a checkpoint."""
+        return self._restore(name_or_checkpoint)
+
+    @exposed
+    def checkpoints(self) -> list[dict[str, Any]]:
+        """List all checkpoints with metadata."""
+        return self._list_checkpoints()
+
+    @exposed
+    def branch(self, name: str) -> Any:
+        """Create a checkpoint and continue from it."""
+        return self._branch(name)
+
+    # --- Utility Functions ---
+
+    @exposed
+    def ls(self) -> list[dict[str, Any]]:
+        """List all node handles with digests."""
+        return self._ls_handles()
+
+    @exposed
+    def show(self, obj: Any) -> str:
+        """Show details about a handle."""
+        return self._show_handle(obj)
+
+    @exposed
+    def get(self, name: str) -> NodeView | None:
+        """Get a node by name with fuzzy matching."""
+        return self._get_node(name)
+
+    @exposed
+    def ls_permissions(self) -> list[dict[str, Any]]:
+        """List file permissions."""
+        return self._ls_permissions()
+
+    @exposed
+    def ls_imports(self) -> dict[str, Any]:
+        """List import whitelist configuration."""
+        return self._ls_imports()
+
+    @exposed
+    def ls_shell_permissions(self) -> dict[str, Any]:
+        """List shell permission configuration."""
+        return self._ls_shell_permissions()
+
+    @exposed
+    def ls_website_permissions(self) -> dict[str, Any]:
+        """List website permission configuration."""
+        return self._ls_website_permissions()
+
+    # --- Shell Execution ---
+
+    @exposed
+    def shell(
+        self,
+        command: str,
+        args: list[str] | None = None,
+        cwd: str | None = None,
+        env: dict[str, str] | None = None,
+        timeout: float | None = 30.0,
+    ) -> Any:
+        """Execute a shell command asynchronously."""
+        return self._shell_manager.execute(command, args, cwd, env, timeout)
+
+    @exposed
+    def pty(
+        self,
+        command: str,
+        args: list[str] | None = None,
+        cwd: str | None = None,
+        env: dict[str, str] | None = None,
+        columns: int = 80,
+        rows: int = 24,
+    ) -> Any:
+        """Spawn an interactive PTY session."""
+        return self._pty_manager.spawn(
+            command, args, cwd, env, columns, rows
+        )
+
+    @exposed
+    def pty_send(self, node: PtyNode | str, text: str) -> bool:
+        """Send input to a PTY session."""
+        return self._pty_send(node, text)
+
+    @exposed
+    def pty_close(self, node: PtyNode | str) -> None:
+        """Close a PTY session."""
+        return self._pty_close(node)
+
+    @exposed
+    def wait_for_output(
+        self,
+        node: PtyNode | str,
+        pattern: str,
+        *,
+        timeout: float = 30.0,
+    ) -> None:
+        """Wait for PTY output matching a pattern."""
+        return self._wait_for_output(node, pattern, timeout=timeout)
+
+    # --- HTTP Requests ---
+
+    @exposed
+    def fetch(
+        self,
+        url: str,
+        *,
+        method: str = "GET",
+        headers: dict[str, str] | None = None,
+        data: Any = None,
+        json: Any = None,
+        timeout: float = 30.0,
+    ) -> Any:
+        """Fetch content from a URL."""
+        return self._fetch(url, method=method, headers=headers, data=data, json=json, timeout=timeout)
+
+    # --- Agent Control ---
+
+    @exposed
+    def done(self, message: str = "") -> None:
+        """Signal that the agent is done with its current task."""
+        self._done(message)
+
+    @exposed
+    def set_title(self, title: str) -> None:
+        """Set the session title."""
+        self._set_title(title)
+
+    @exposed
+    def notify(
+        self,
+        node: ContextNode | str,
+        level: NotificationLevel | str = NotificationLevel.WAKE,
+    ) -> ContextNode:
+        """Set notification level for a node."""
+        return self._set_notify(node, level)
+
+    # --- Async Wait Control ---
+
+    @exposed
+    def wait(
+        self,
+        node: ContextNode | str,
+        *,
+        wake_prompt: str = "Node completed.",
+        timeout: float | None = None,
+    ) -> None:
+        """Wait for a single node to complete."""
+        self._wait(node, wake_prompt=wake_prompt, timeout=timeout)
+
+    @exposed
+    def wait_all(
+        self,
+        *nodes: ContextNode | str,
+        wake_prompt: str = "All nodes completed.",
+        timeout: float | None = None,
+    ) -> None:
+        """Wait for all specified nodes to complete."""
+        self._wait_all(*nodes, wake_prompt=wake_prompt, timeout=timeout)
+
+    @exposed
+    def wait_any(
+        self,
+        *nodes: ContextNode | str,
+        wake_prompt: str = "A node completed: {node}",
+        timeout: float | None = None,
+    ) -> None:
+        """Wait for any of the specified nodes to complete."""
+        self._wait_any(*nodes, wake_prompt=wake_prompt, timeout=timeout)
+
+    # --- Conversation Delegation ---
+
+    @exposed
+    def interact(
+        self,
+        command: str | Any,
+        *args: str,
+        originator: str | None = None,
+        cwd: str | None = None,
+        **kwargs: Any,
+    ) -> Any:
+        """Execute an interactive command with conversation delegation."""
+        return self._interact(command, *args, originator=originator, cwd=cwd, **kwargs)
+
+    @exposed
+    def connect(
+        self,
+        command: str | Any,
+        *args: str,
+        originator: str | None = None,
+        cwd: str | None = None,
+        **kwargs: Any,
+    ) -> Any:
+        """Create a non-blocking conversation connection."""
+        return self._connect(command, *args, originator=originator, cwd=cwd, **kwargs)
+
+    # --- File Locking ---
+
+    @exposed
+    def lock_file(
+        self,
+        lockfile: str,
+        timeout: float = 30.0,
+        *,
+        expansion: Expansion = Expansion.HEADER,
+    ) -> Any:
+        """Acquire an exclusive file lock."""
+        return self._lock_manager.acquire(lockfile, timeout, expansion=expansion)
+
+    @exposed
+    def lock_release(self, lock: Any) -> bool:
+        """Release a file lock."""
+        return self._lock_manager.release(lock)
+
+    # --- LLM Summarization ---
+
+    @exposed
+    def summarize(self, content: str, *, max_tokens: int = 500) -> Any:
+        """Summarize content using LLM."""
+        return self._summarize(content, max_tokens=max_tokens)
+
+    # --- Help System ---
+
+    @exposed
+    def help(self, target: Any = None) -> Any:
+        """Get help on DSL functions or topics."""
+        return self._help(target)
+
+    # --- Work Coordination ---
+
+    @exposed
+    def work_on(self, intent: str, *files: str) -> Any:
+        """Register work on files."""
+        return self._work_coordinator.work_on(intent, *files)
+
+    @exposed
+    def work_check(self, *files: str) -> Any:
+        """Check for conflicts on files."""
+        return self._work_coordinator.work_check(*files)
+
+    @exposed
+    def work_update(self, *, intent: str | None = None) -> Any:
+        """Update current work registration."""
+        return self._work_coordinator.work_update(intent=intent)
+
+    @exposed
+    def work_done(self) -> Any:
+        """Mark current work as complete."""
+        return self._work_coordinator.work_done()
+
+    @exposed
+    def work_list(self) -> Any:
+        """List all active work registrations."""
+        return self._work_coordinator.work_list()
+
+    # --- MCP Integration ---
+
+    @exposed
+    def mcp_connect(
+        self,
+        name: str,
+        *,
+        command: list[str] | None = None,
+        url: str | None = None,
+    ) -> Any:
+        """Connect to an MCP server."""
+        return self._mcp_integration.connect(name, command=command, url=url)
+
+    @exposed
+    def mcp_disconnect(self, name: str) -> Any:
+        """Disconnect from an MCP server."""
+        return self._mcp_integration.disconnect(name)
+
+    @exposed
+    def mcp_list(self) -> Any:
+        """List connected MCP servers."""
+        return self._mcp_integration.list_connections()
+
+    @exposed
+    def mcp_tools(self, server: str | None = None) -> Any:
+        """List tools from MCP servers."""
+        return self._mcp_integration.list_tools(server)
+
+    @exposed
+    def mcp_roots_add(self, path: str) -> Any:
+        """Add a filesystem root."""
+        return self._mcp_integration.add_root(path)
+
+    @exposed
+    def mcp_roots_remove(self, path: str) -> Any:
+        """Remove a filesystem root."""
+        return self._mcp_integration.remove_root(path)
+
+    @exposed
+    def mcp_roots_list(self) -> Any:
+        """List all registered MCP roots."""
+        return self._mcp_integration.list_roots()
+
+    # --- Plugin Management ---
+
+    @exposed
+    def plugin_connect(self, name: str) -> Any:
+        """Connect to a plugin server."""
+        return self._plugin_connect(name)
+
+    @exposed
+    def plugin_disconnect(self, name: str) -> Any:
+        """Disconnect from a plugin server."""
+        return self._plugin_disconnect(name)
+
+    @exposed
+    def plugin_list(self) -> Any:
+        """List connected plugin servers."""
+        return self._plugin_list()
+
+    @exposed
+    def plugin_load(self, name: str) -> Any:
+        """Load a plugin."""
+        return self._plugin_load(name)
+
+    @exposed
+    def plugin_unload(self, name: str) -> Any:
+        """Unload a plugin."""
+        return self._plugin_unload(name)
+
+    @exposed
+    def plugin_available(self) -> Any:
+        """List available plugins."""
+        return self._plugin_available()
+
+    @exposed
+    def plugin_info(self, name: str) -> Any:
+        """Get plugin information."""
+        return self._plugin_info(name)
+
+    # -------------------------------------------------------------------------
+    # End of DSL Functions
+    # -------------------------------------------------------------------------
 
     def _setup_agent_namespace(self) -> None:
         """Add agent functions to namespace when agent manager is available.
@@ -2699,6 +3166,7 @@ Provide a concise summary:"""
         for conn_name in list(self._plugin_manager._connections):
             self._register_plugin_node_types(conn_name)
 
+    @exposed
     def plugin_docs(self) -> str:
         """Generate markdown documentation for all registered plugin node types.
 
