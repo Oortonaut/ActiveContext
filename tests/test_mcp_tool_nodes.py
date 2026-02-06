@@ -9,10 +9,10 @@ import pytest
 from activecontext.context.graph import ContextGraph
 from activecontext.context.nodes import (
     ContextNode,
-    Expansion,
     MCPServerNode,
     MCPToolNode,
 )
+from activecontext.context.state import Expansion
 from activecontext.context.view import NodeView
 from activecontext.mcp.types import MCPConnectionStatus, MCPToolInfo
 

@@ -402,10 +402,10 @@ class NodeTypeRegistry:
         if desc.node_cls is not None:
             module = sys.modules.get(desc.node_cls.__module__)
             if module is not None:
-                # Guard: never reload the core nodes module -- doing so
+                # Guard: never reload the core nodes module/package -- doing so
                 # re-creates all class objects (breaking isinstance checks)
                 # and resets module-level state like _file_watchers.
-                if module.__name__ == "activecontext.context.nodes":
+                if module.__name__.startswith("activecontext.context.nodes"):
                     return True
                 try:
                     importlib.reload(module)
