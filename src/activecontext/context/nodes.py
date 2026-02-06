@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import time
 import uuid
-from abc import ABC, abstractmethod
 from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -242,7 +241,7 @@ OnChildChangedHook = Callable[["ContextNode", "ContextNode", str], None]
 
 @trace_all_fields
 @dataclass(kw_only=True)
-class ContextNode(ABC):
+class ContextNode:
     """Base class for all context DAG nodes.
 
     Attributes:
