@@ -249,14 +249,18 @@ class Projection:
         for section in self.sections:
             if section.content:
                 lines = section.content.splitlines()
+                line_count = len(lines)
                 for i, line in enumerate(lines):
                     if section.tree_prefix:
                         if i == 0:
                             # Header line: use tree prefix directly
                             parts.append(section.tree_prefix + line)
                         else:
-                            # Content line: convert branch to content marker
-                            cont = self._content_continuation(section.tree_prefix, cfg)
+                            # Content line: use last marker for final line
+                            is_last = i == line_count - 1
+                            cont = self._content_continuation(
+                                section.tree_prefix, cfg, is_last=is_last
+                            )
                             parts.append(cont + line)
                     else:
                         # Root node - no prefix, apply indent
@@ -264,25 +268,29 @@ class Projection:
 
         return "\n".join(parts)
 
-    def _content_continuation(self, tree_prefix: str, config: ProjectionConfig) -> str:
+    def _content_continuation(
+        self, tree_prefix: str, config: ProjectionConfig, *, is_last: bool = False
+    ) -> str:
         """Convert header prefix to content line prefix.
 
         Args:
             tree_prefix: The tree prefix from the header line
             config: ProjectionConfig with tree character definitions
+            is_last: True if this is the last content line (uses terminal marker)
 
         Returns:
             Continuation prefix for content lines
         """
         blank = " " * len(config.tree_detail)
+        marker = config.tree_content_last if is_last else config.tree_content
         # Replace trailing branch chars with detail/blank + content marker
         if tree_prefix.endswith(config.tree_child):
             # Non-last child: detail continuation + content marker
-            return tree_prefix[: -len(config.tree_child)] + config.tree_detail + config.tree_content
+            return tree_prefix[: -len(config.tree_child)] + config.tree_detail + marker
         elif tree_prefix.endswith(config.tree_last_child):
             # Last child: blank continuation + content marker
-            return tree_prefix[: -len(config.tree_last_child)] + blank + config.tree_content
-        return tree_prefix + config.tree_content
+            return tree_prefix[: -len(config.tree_last_child)] + blank + marker
+        return tree_prefix + marker
 
 
 # -----------------------------------------------------------------------------

@@ -28,14 +28,16 @@ class ProjectionConfig:
 
     Tree character set (always enabled) controls ASCII tree-drawing prefixes:
     - tree_detail: Vertical continuation for non-last ancestors (e.g., "| ")
-    - tree_content: Content line marker (e.g., "|.")
+    - tree_content: Content line marker (e.g., "|:")
+    - tree_content_last: Last content line marker (e.g., "\\:")
     - tree_child: Branch prefix for non-last children (e.g., "+-")
     - tree_last_child: Branch prefix for last child (e.g., "\\-")
     """
 
     # Tree character set (always enabled)
     tree_detail: str = "| "  # Vertical continuation for non-last ancestors
-    tree_content: str = "|:"  # Content line marker
+    tree_content: str = "|:"  # Content line marker (more content follows)
+    tree_content_last: str = "\\:"  # Last content line marker (terminal)
     tree_child: str = "+-"  # Branch prefix for non-last children
     tree_last_child: str = "\\-"  # Branch prefix for last child
 
@@ -108,7 +110,6 @@ class ProjectionEngine:
         self,
         *,
         context_graph: ContextGraph | None = None,  # Optional: returns empty projection when None
-        text_buffers: dict[str, Any] | None = None,
         content_registry: ContentRegistry | None = None,
     ) -> Projection:
         """Build a projection from current session state.
@@ -120,7 +121,6 @@ class ProjectionEngine:
 
         Args:
             context_graph: ContextGraph (DAG of nodes)
-            text_buffers: Dict of buffer_id -> TextBuffer for markdown nodes
             content_registry: Optional ContentRegistry for shared content
 
         Returns:
@@ -141,7 +141,6 @@ class ProjectionEngine:
             # Render the path
             sections: list[ProjectionSection] = self._render_path(
                 render_path,
-                text_buffers=text_buffers,
                 content_registry=content_registry,
             )
 
@@ -304,14 +303,12 @@ class ProjectionEngine:
         self,
         path: RenderPath,
         *,
-        text_buffers: dict[str, Any] | None = None,
         content_registry: ContentRegistry | None = None,
     ) -> list[ProjectionSection]:
         """Render the collected path into projection sections.
 
         Args:
             path: The render path (list of NodeViews in document order)
-            text_buffers: Dict of buffer_id -> TextBuffer for markdown nodes
             content_registry: Optional ContentRegistry for shared content
 
         Returns:
@@ -330,7 +327,6 @@ class ProjectionEngine:
             section = self._render_node(
                 view.node,
                 view=view,
-                text_buffers=text_buffers,
             )
 
             if section:
@@ -343,19 +339,17 @@ class ProjectionEngine:
         node: ContextNode,
         *,
         view: NodeView,
-        text_buffers: dict[str, Any] | None = None,
     ) -> ProjectionSection | None:
         """Render a single node.
 
         Args:
             node: The context node to render
             view: NodeView for expansion-aware rendering (required)
-            text_buffers: Dict of buffer_id -> TextBuffer for markdown nodes
 
         Returns:
             ProjectionSection or None if node should be skipped
         """
-        content: str = view.render(text_buffers=text_buffers)
+        content: str = view.render()
 
         media_type: MediaType = getattr(node, "media_type", MediaType.TEXT)
         tokens_used: int = count_tokens(content, media_type)

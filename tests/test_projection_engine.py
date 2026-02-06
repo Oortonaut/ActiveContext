@@ -77,9 +77,7 @@ class TestRenderPath:
         """Test render path with views."""
         from activecontext.context.view import NodeView
 
-        nodes = [
-            create_mock_context_node(nid, "view") for nid in ("a", "b", "c")
-        ]
+        nodes = [create_mock_context_node(nid, "view") for nid in ("a", "b", "c")]
         views = [NodeView(n) for n in nodes]
 
         path = RenderPath(
@@ -289,12 +287,8 @@ class TestRenderPathRendering:
         paused_node = mock_graph.get_node("paused_root")
 
         # render_content is called via NodeView.render()
-        running_node.render_content.assert_called_once_with(
-            text_buffers=None
-        )
-        paused_node.render_content.assert_called_once_with(
-            text_buffers=None
-        )
+        running_node.render_content.assert_called_once()
+        paused_node.render_content.assert_called_once()
 
     def test_render_empty_path_returns_empty_sections(self, projection_engine):
         """Test rendering empty path returns no sections."""
@@ -418,6 +412,7 @@ class TestTreeCharacters:
         config = ProjectionConfig()
         assert config.tree_detail == "| "
         assert config.tree_content == "|:"
+        assert config.tree_content_last == "\\:"
         assert config.tree_child == "+-"
         assert config.tree_last_child == "\\-"
 
@@ -426,11 +421,13 @@ class TestTreeCharacters:
         config = ProjectionConfig(
             tree_detail="│ ",
             tree_content="│:",
+            tree_content_last="└:",
             tree_child="├─",
             tree_last_child="└─",
         )
         assert config.tree_detail == "│ "
         assert config.tree_content == "│:"
+        assert config.tree_content_last == "└:"
         assert config.tree_child == "├─"
         assert config.tree_last_child == "└─"
 
@@ -567,8 +564,8 @@ class TestTreeCharacters:
         # Find a content line under child (Line 2)
         line2_lines = [l for l in lines if "Line 2" in l]
         if line2_lines:
-            # Content under last child uses "  |:" (blank + content marker)
-            assert line2_lines[0].startswith("  |:")
+            # Last content line under last child uses "  \:" (blank + last marker)
+            assert line2_lines[0].startswith("  \\:")
 
     def test_content_continuation_for_non_last_child(self, projection_engine):
         """Test content continuation uses tree_detail + tree_content for non-last children."""
@@ -592,11 +589,11 @@ class TestTreeCharacters:
         rendered = projection.render()
 
         lines = rendered.split("\n")
-        # child1 is not last, so content uses "| |:" (detail + content marker)
-        # Find the content line for child1
+        # child1 is not last, so content uses "| |:" for continuation
+        # But "Content line" is the LAST content line, so it uses "| \:"
         content_lines = [l for l in lines if "Content line" in l]
         if content_lines:
-            assert content_lines[0].startswith("| |:")
+            assert content_lines[0].startswith("| \\:")
 
     def test_deeply_nested_tree_structure(self, projection_engine):
         """Test tree prefixes for deeply nested structure."""
