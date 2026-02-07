@@ -553,6 +553,60 @@ class ContextNode:
         result: bool = self._graph.link(child.node_id, self.node_id, after=after)
         return result
 
+    def add_to(self, graph: ContextGraph) -> str:
+        """Add this node to a graph.
+
+        This is the preferred way to add nodes to a graph. It encapsulates
+        the graph mutation and returns the node's assigned ID.
+
+        Args:
+            graph: The graph to add this node to.
+
+        Returns:
+            The node's ID (display-friendly format like "text_1").
+        """
+        return graph._add_node(self)
+
+    def remove(self, recursive: bool = False) -> None:
+        """Remove this node from its graph.
+
+        Unlinks from all parents and children. If recursive=True, also
+        removes all descendants.
+
+        Args:
+            recursive: If True, also remove all descendants.
+
+        Raises:
+            RuntimeError: If this node is not in a graph.
+        """
+        if not self._graph:
+            raise RuntimeError(f"Cannot remove: node {self.node_id} is not in a graph")
+        self._graph._remove_node(self.node_id, recursive=recursive)
+
+    def link_child(
+        self, child: ContextNode, *, after: str | None = None, before: str | None = None
+    ) -> bool:
+        """Link a child node to this node.
+
+        Both nodes must be in the same graph. The child is linked as a
+        child of this node.
+
+        Args:
+            child: The child node to link.
+            after: Insert after this sibling node_id.
+            before: Insert before this sibling node_id (takes precedence).
+
+        Returns:
+            True if link was created, False if would create cycle.
+
+        Raises:
+            RuntimeError: If this node is not in a graph.
+        """
+        if not self._graph:
+            raise RuntimeError(f"Cannot link_child: node {self.node_id} is not in a graph")
+        result: bool = self._graph.link(child.node_id, self.node_id, after=after, before=before)
+        return result
+
     def to_dict(self) -> dict[str, Any]:
         """Serialize node to dict for persistence.
 
@@ -617,10 +671,12 @@ class ContextNode:
         """Get or create a documentation node for this node type.
 
         Returns the existing HelpNode child if one has already been created,
-        otherwise creates a new HelpNode, links it as a child, and returns it.
+        otherwise creates a new HelpNode with FunctionDocNode children for
+        each @exposed method, links it as a child, and returns it.
 
         The HelpNode extracts documentation from this node's class: docstrings,
-        method signatures, @exposed members, and properties.
+        method signatures, @exposed members, and properties. Each @exposed
+        method gets its own FunctionDocNode child for detailed documentation.
 
         Returns:
             HelpNode documenting this node type's API.
@@ -632,6 +688,8 @@ class ContextNode:
             raise RuntimeError(f"Cannot create help: node {self.node_id} is not in a graph")
 
         # Import here to avoid circular imports
+        from activecontext.context.exposed import get_exposed
+        from activecontext.context.nodes.function_doc import FunctionDocNode
         from activecontext.context.nodes.help import HelpNode, _extract_help_content
 
         # Check if a HelpNode child already exists
@@ -653,6 +711,32 @@ class ContextNode:
         )
         self._graph.add_node(help_node)
         self._graph.link(help_node.node_id, self.node_id)
+
+        # Create FunctionDocNode children for each @exposed method
+        cls = type(self)
+        exposed_names = get_exposed(cls)
+        for name in sorted(exposed_names):
+            # Get the method from the class
+            method = None
+            for klass in cls.__mro__:
+                if name in klass.__dict__:
+                    member = klass.__dict__[name]
+                    # Handle property objects
+                    if isinstance(member, property):
+                        method = member.fget
+                    elif callable(member):
+                        method = member
+                    break
+
+            if method is not None:
+                # Create FunctionDocNode from the method
+                func_doc = FunctionDocNode.from_method(
+                    method,
+                    default_expansion=Expansion.HEADER,
+                )
+                self._graph.add_node(func_doc)
+                self._graph.link(func_doc.node_id, help_node.node_id)
+
         return help_node
 
 

@@ -10,9 +10,10 @@ from __future__ import annotations
 import fnmatch
 import logging
 import re
+from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Generic, Literal, TypeVar
 
 import yaml
 
@@ -20,6 +21,149 @@ if TYPE_CHECKING:
     from activecontext.config.schema import ImportConfig, SandboxConfig
 
 _log = logging.getLogger("activecontext.session.permissions")
+
+
+# =============================================================================
+# Base Permission Manager
+# =============================================================================
+
+# Type variables for generic BasePermissionManager
+ResourceT = TypeVar("ResourceT")  # Resource type (Path, str, tuple, etc.)
+ModeT = TypeVar("ModeT")  # Mode type (Literal["read", "write"], str, etc.)
+RuleT = TypeVar("RuleT")  # Rule type (PermissionRule, ShellPermissionRule, etc.)
+ConfigT = TypeVar("ConfigT")  # Config type (SandboxConfig, ImportConfig, etc.)
+
+
+class BasePermissionManager(ABC, Generic[ResourceT, ModeT, RuleT, ConfigT]):
+    """Abstract base implementing common permission logic.
+
+    Provides default implementations for:
+    - Temporary grant management (grant_temporary, clear_temporary_grants)
+    - Access checking with temporary grants
+    - Permission listing
+
+    Subclasses must implement:
+    - _make_grant_key(): Convert resource/mode to hashable key
+    - _normalize_resource(): Validate and normalize resource
+    - _check_rule_match(): Check if a rule matches the resource
+    """
+
+    # These must be defined by subclasses as dataclass fields
+    rules: list[RuleT]
+    deny_by_default: bool
+    _temporary_grants: set[tuple[str, ...]]
+
+    @abstractmethod
+    def _make_grant_key(self, resource: ResourceT, mode: ModeT) -> tuple[str, ...]:
+        """Convert resource and mode to a hashable key for temporary grants.
+
+        Args:
+            resource: The resource being accessed.
+            mode: The access mode (if applicable).
+
+        Returns:
+            Tuple of strings suitable for set membership.
+        """
+        ...
+
+    @abstractmethod
+    def _normalize_resource(self, resource: ResourceT) -> Any | None:
+        """Normalize and validate a resource.
+
+        Args:
+            resource: The resource to normalize.
+
+        Returns:
+            Normalized resource, or None if invalid.
+        """
+        ...
+
+    @abstractmethod
+    def _check_rule_match(
+        self, rule: RuleT, normalized: Any, mode: ModeT
+    ) -> bool | None:
+        """Check if a rule matches the normalized resource.
+
+        Args:
+            rule: The rule to check.
+            normalized: Normalized resource from _normalize_resource().
+            mode: The access mode.
+
+        Returns:
+            True if allowed, False if denied, None if no match.
+        """
+        ...
+
+    @abstractmethod
+    def reload(self, config: ConfigT | None) -> None:
+        """Reload configuration.
+
+        Args:
+            config: New configuration to apply.
+        """
+        ...
+
+    def grant_temporary(self, resource: ResourceT, mode: ModeT = None) -> None:  # type: ignore[assignment]
+        """Grant temporary access for this session.
+
+        Temporary grants are not persisted and are cleared when the
+        session ends or the manager is recreated.
+
+        Args:
+            resource: Resource to grant access to.
+            mode: Access mode (if applicable).
+        """
+        key = self._make_grant_key(resource, mode)
+        self._temporary_grants.add(key)
+        _log.debug("Temporary grant added: %s", key)
+
+    def clear_temporary_grants(self) -> None:
+        """Clear all temporary grants."""
+        self._temporary_grants.clear()
+        _log.debug("Temporary grants cleared")
+
+    def check_access(self, resource: ResourceT, mode: ModeT = None) -> bool:  # type: ignore[assignment]
+        """Check if access to a resource is permitted.
+
+        Checks temporary grants first, then rule matching.
+
+        Args:
+            resource: Resource to check access for.
+            mode: Access mode (if applicable).
+
+        Returns:
+            True if access is permitted.
+        """
+        # Normalize resource
+        normalized = self._normalize_resource(resource)
+        if normalized is None:
+            return False
+
+        # Check temporary grants first
+        key = self._make_grant_key(resource, mode)
+        if key in self._temporary_grants:
+            return True
+
+        # Check rules (first match wins)
+        for rule in self.rules:
+            result = self._check_rule_match(rule, normalized, mode)
+            if result is not None:
+                return result
+
+        # No matching rule - use default policy
+        if self.deny_by_default:
+            _log.debug("Access denied (no matching rule): %s", resource)
+            return False
+        return True
+
+    def list_permissions(self) -> list[dict[str, Any]]:
+        """List all permission rules for inspection.
+
+        Returns:
+            List of rule dictionaries. Format depends on subclass.
+        """
+        # Default implementation - subclasses should override for specific formats
+        return [{"rule": str(rule)} for rule in self.rules]
 
 
 @dataclass
@@ -1606,3 +1750,227 @@ def write_website_permission_to_config(cwd: Path, url: str, method: str = "GET")
         yaml.safe_dump(data, f, default_flow_style=False, sort_keys=False)
 
     _log.info("Added website permission to %s: %s (%s)", config_path, url, method)
+
+
+# =============================================================================
+# Unified Permission Types
+# =============================================================================
+
+
+@dataclass(frozen=True)
+class PermissionRequest:
+    """Unified permission request with resource_type discriminator.
+
+    Use factory methods to construct type-specific requests:
+    - PermissionRequest.for_file(...)
+    - PermissionRequest.for_shell(...)
+    - PermissionRequest.for_website(...)
+    - PermissionRequest.for_import(...)
+    """
+
+    session_id: str
+    resource_type: Literal["file", "shell", "website", "import"]
+
+    # File-specific fields
+    path: str | None = None
+    file_mode: Literal["read", "write"] | None = None
+    original_path: str | None = None
+
+    # Shell-specific fields
+    command: str | None = None
+    args: list[str] | None = None
+
+    # Website-specific fields
+    url: str | None = None
+    http_method: str | None = None
+
+    # Import-specific fields
+    module: str | None = None
+
+    @classmethod
+    def for_file(
+        cls,
+        session_id: str,
+        path: str,
+        mode: Literal["read", "write"],
+        original_path: str,
+    ) -> "PermissionRequest":
+        """Create a file permission request.
+
+        Args:
+            session_id: Session requesting permission.
+            path: Resolved absolute path.
+            mode: "read" or "write".
+            original_path: Path as provided by code.
+
+        Returns:
+            PermissionRequest for file access.
+        """
+        return cls(
+            session_id=session_id,
+            resource_type="file",
+            path=path,
+            file_mode=mode,
+            original_path=original_path,
+        )
+
+    @classmethod
+    def for_shell(
+        cls,
+        session_id: str,
+        command: str,
+        args: list[str] | None = None,
+    ) -> "PermissionRequest":
+        """Create a shell permission request.
+
+        Args:
+            session_id: Session requesting permission.
+            command: The command to execute.
+            args: Command arguments.
+
+        Returns:
+            PermissionRequest for shell execution.
+        """
+        return cls(
+            session_id=session_id,
+            resource_type="shell",
+            command=command,
+            args=args,
+        )
+
+    @classmethod
+    def for_website(
+        cls,
+        session_id: str,
+        url: str,
+        method: str = "GET",
+    ) -> "PermissionRequest":
+        """Create a website permission request.
+
+        Args:
+            session_id: Session requesting permission.
+            url: The URL to access.
+            method: HTTP method.
+
+        Returns:
+            PermissionRequest for website access.
+        """
+        return cls(
+            session_id=session_id,
+            resource_type="website",
+            url=url,
+            http_method=method.upper(),
+        )
+
+    @classmethod
+    def for_import(
+        cls,
+        session_id: str,
+        module: str,
+    ) -> "PermissionRequest":
+        """Create an import permission request.
+
+        Args:
+            session_id: Session requesting permission.
+            module: Module name to import.
+
+        Returns:
+            PermissionRequest for module import.
+        """
+        return cls(
+            session_id=session_id,
+            resource_type="import",
+            module=module,
+        )
+
+
+@dataclass(frozen=True)
+class PermissionGrant:
+    """Response to a permission request.
+
+    Use factory methods for common responses:
+    - PermissionGrant.denied()
+    - PermissionGrant.allow_once()
+    - PermissionGrant.allow_always(...)
+    """
+
+    granted: bool
+    persist: bool = False
+    include_submodules: bool = False  # import-specific
+
+    @classmethod
+    def denied(cls) -> "PermissionGrant":
+        """Create a denial response."""
+        return cls(granted=False, persist=False)
+
+    @classmethod
+    def allow_once(cls) -> "PermissionGrant":
+        """Create a one-time grant (temporary, not persisted)."""
+        return cls(granted=True, persist=False)
+
+    @classmethod
+    def allow_always(cls, include_submodules: bool = False) -> "PermissionGrant":
+        """Create a persistent grant (saved to config).
+
+        Args:
+            include_submodules: For imports, also allow submodules.
+
+        Returns:
+            PermissionGrant that persists to config.
+        """
+        return cls(granted=True, persist=True, include_submodules=include_submodules)
+
+
+@dataclass
+class PermissionBundle:
+    """All permission managers and requesters in one object.
+
+    Groups all permission-related dependencies together for cleaner
+    parameter passing to Timeline and its managers.
+
+    Each manager handles access control checks; each requester is
+    a callback to prompt the user for permission when access is denied.
+    """
+
+    file: PermissionManager | None = None
+    file_requester: Any | None = None  # async (PermissionRequest) -> PermissionGrant
+
+    shell: ShellPermissionManager | None = None
+    shell_requester: Any | None = None  # async (PermissionRequest) -> PermissionGrant
+
+    imports: ImportGuard | None = None
+    import_requester: Any | None = None  # async (PermissionRequest) -> PermissionGrant
+
+    website: WebsitePermissionManager | None = None
+    website_requester: Any | None = None  # async (PermissionRequest) -> PermissionGrant
+
+    def reload_all(
+        self,
+        sandbox_config: "SandboxConfig | None",
+        import_config: "ImportConfig | None",
+    ) -> None:
+        """Reload all permission managers from new config.
+
+        Args:
+            sandbox_config: New sandbox configuration.
+            import_config: New import configuration.
+        """
+        if self.file:
+            self.file.reload(sandbox_config)
+        if self.shell:
+            self.shell.reload(sandbox_config)
+        if self.website:
+            self.website.reload(sandbox_config)
+        if self.imports:
+            self.imports.reload(import_config)
+
+    def clear_all_temporary_grants(self) -> None:
+        """Clear temporary grants from all managers."""
+        if self.file:
+            self.file.clear_temporary_grants()
+        if self.shell:
+            self.shell.clear_temporary_grants()
+        if self.website:
+            self.website.clear_temporary_grants()
+        if self.imports:
+            self.imports.clear_temporary_grants()

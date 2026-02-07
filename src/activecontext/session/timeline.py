@@ -49,6 +49,7 @@ from activecontext.session.mcp_integration import MCPIntegration
 from activecontext.session.permissions import (
     ImportDenied,
     ImportGuard,
+    PermissionBundle,
     PermissionDenied,
     PermissionManager,
     ShellPermissionManager,
@@ -111,6 +112,56 @@ if TYPE_CHECKING:
 # they corrupt each other's contexts because sys.stdout is a global.
 # This lock ensures only one task at a time can capture output.
 _stdout_redirect_lock = asyncio.Lock()
+
+
+# =============================================================================
+# Timeline Configuration Types
+# =============================================================================
+
+
+@dataclass(frozen=True)
+class TimelineConfig:
+    """Immutable configuration for Timeline.
+
+    Contains the minimal set of values needed to initialize a Timeline.
+    These are typically derived from session configuration and don't change.
+    """
+
+    session_id: str
+    """Unique identifier for this session."""
+
+    cwd: str = "."
+    """Working directory for the session."""
+
+    mcp_config: "MCPConfig | None" = None
+    """MCP server configuration (optional)."""
+
+    plugins_config: "PluginsConfig | None" = None
+    """Plugin configuration (optional)."""
+
+
+@dataclass
+class TimelineDeps:
+    """Injectable dependencies for Timeline.
+
+    Contains optional external dependencies that can be injected.
+    Allows Timeline to be tested with mock dependencies.
+    """
+
+    context_graph: ContextGraph | None = None
+    """Existing context graph (for restored sessions)."""
+
+    terminal_executor: "TerminalExecutor | None" = None
+    """Shell command executor (defaults to subprocess)."""
+
+    permissions: "PermissionBundle | None" = None
+    """Permission managers and requesters bundle."""
+
+    scratchpad_manager: "ScratchpadManager | None" = None
+    """Work coordination scratchpad."""
+
+    llm_provider: Any | None = None
+    """LLM provider for summarization."""
 
 
 # Plugin management errors
@@ -1006,11 +1057,12 @@ class Timeline:
         default_expansion: Expansion = Expansion.ALL,
         mode: str = "paused",
         parent: ContextNode | str | None = None,
-    ) -> NodeView:
+    ) -> ContextNode:
         """Create a TextNode for viewing file content."""
-        return self._make_text_node(
+        view = self._make_text_node(
             path, pos=pos, default_expansion=default_expansion, mode=mode, parent=parent
         )
+        return view.node
 
     @exposed
     def group(
@@ -1019,11 +1071,12 @@ class Timeline:
         default_expansion: Expansion = Expansion.CONTENT,
         mode: str = "paused",
         parent: ContextNode | NodeView | str | None = None,
-    ) -> NodeView:
+    ) -> ContextNode:
         """Create a GroupNode that summarizes its members."""
-        return self._make_group_node(
+        view = self._make_group_node(
             *members, default_expansion=default_expansion, mode=mode, parent=parent
         )
+        return view.node
 
     @exposed
     def topic(
@@ -1032,9 +1085,10 @@ class Timeline:
         *,
         status: str = "active",
         parent: ContextNode | NodeView | str | None = None,
-    ) -> NodeView:
+    ) -> ContextNode:
         """Create a TopicNode for conversation segments."""
-        return self._make_topic_node(title, status=status, parent=parent)
+        view = self._make_topic_node(title, status=status, parent=parent)
+        return view.node
 
     @exposed
     def artifact(
@@ -1044,11 +1098,12 @@ class Timeline:
         content: str = "",
         language: str | None = None,
         parent: ContextNode | NodeView | str | None = None,
-    ) -> NodeView:
+    ) -> ContextNode:
         """Create an ArtifactNode for code snippets and outputs."""
-        return self._make_artifact_node(
+        view = self._make_artifact_node(
             artifact_type, content=content, language=language, parent=parent
         )
+        return view.node
 
     @exposed
     def markdown(
@@ -1058,11 +1113,12 @@ class Timeline:
         content: str | None = None,
         default_expansion: Expansion = Expansion.ALL,
         parent: ContextNode | NodeView | str | None = None,
-    ) -> NodeView:
+    ) -> ContextNode:
         """Create a MarkdownNode from a file or content."""
-        return self._make_markdown_node(
+        view = self._make_markdown_node(
             path, content=content, default_expansion=default_expansion, parent=parent
         )
+        return view.node
 
     @exposed
     def choice(
@@ -1130,9 +1186,10 @@ class Timeline:
         *,
         default_expansion: Expansion = Expansion.ALL,
         **kwargs: Any,
-    ) -> NodeView:
+    ) -> ContextNode:
         """Create a view based on media type (text or markdown)."""
-        return self._make_view(media_type, path, default_expansion=default_expansion, **kwargs)
+        view = self._make_view(media_type, path, default_expansion=default_expansion, **kwargs)
+        return view.node
 
     # --- DAG Manipulation ---
 
@@ -1507,6 +1564,245 @@ class Timeline:
 
     # -------------------------------------------------------------------------
     # End of DSL Functions
+    # -------------------------------------------------------------------------
+
+    # -------------------------------------------------------------------------
+    # Programmatic Node API (for Session use - not exposed to DSL)
+    # -------------------------------------------------------------------------
+
+    def add_structural_node(
+        self,
+        node: ContextNode,
+        *,
+        parent: str | None = None,
+    ) -> ContextNode:
+        """Add a structural node to the graph.
+
+        Use this for nodes created by Session that shouldn't go through DSL,
+        like system_prompt, context_guide, user_messages, alerts, etc.
+
+        Args:
+            node: The node to add.
+            parent: Optional parent node ID to link to. Defaults to "context".
+
+        Returns:
+            The added node.
+        """
+        self._context_graph.add_node(node)
+        parent_id = parent or "context"
+        if parent_id in self._context_graph:
+            self._context_graph.link(node.node_id, parent_id)
+        return node
+
+    def add_message_node(
+        self,
+        role: str,
+        content: str,
+        *,
+        parent: str | None = None,
+        originator: str | None = None,
+    ) -> ContextNode:
+        """Add a message node to the graph.
+
+        Creates a MessageNode for conversation history tracking.
+
+        Args:
+            role: Message role ("user", "assistant", "tool_call", "tool_result").
+            content: Message content.
+            parent: Optional parent node ID.
+            originator: Who produced this message ("user", "agent", etc.).
+
+        Returns:
+            The created MessageNode.
+        """
+        from activecontext.context.nodes import MessageNode
+        from activecontext.context.nodes.enums import MessageRole
+
+        # Map string role to enum
+        role_map = {
+            "user": MessageRole.USER,
+            "assistant": MessageRole.ASSISTANT,
+            "tool_call": MessageRole.TOOL_CALL,
+            "tool_result": MessageRole.TOOL_RESULT,
+        }
+        message_role = role_map.get(role.lower(), MessageRole.USER)
+
+        node = MessageNode(
+            role=message_role,
+            content=content,
+            default_expansion=Expansion.CONTENT,
+            originator=originator or ("user" if message_role == MessageRole.USER else "agent"),
+        )
+        return self.add_structural_node(node, parent=parent)
+
+    def add_segment_node(
+        self,
+        segment: "Segment",
+        *,
+        parent: str | None = None,
+    ) -> MessageSegmentNode:
+        """Add a message segment node to the graph.
+
+        Used for ingesting parsed LLM output segments.
+
+        Args:
+            segment: Parsed segment from LLM output.
+            parent: Optional parent node ID.
+
+        Returns:
+            The created MessageSegmentNode.
+        """
+        node = MessageSegmentNode(
+            kind=segment.kind,
+            language=segment.language,
+            content=segment.content,
+            default_expansion=Expansion.CONTENT,
+        )
+        self._context_graph.add_node(node)
+        if parent:
+            self._context_graph.link(node.node_id, parent)
+        return node
+
+    def add_tool_call_node(
+        self,
+        name: str,
+        arguments: dict[str, Any],
+        *,
+        parent: str | None = None,
+    ) -> ContextNode:
+        """Add a tool call node to the graph.
+
+        Args:
+            name: Tool name.
+            arguments: Tool call arguments.
+            parent: Optional parent node ID.
+
+        Returns:
+            The created node.
+        """
+        from activecontext.context.nodes import MessageNode
+        from activecontext.context.nodes.enums import MessageRole
+
+        node = MessageNode(
+            role=MessageRole.TOOL_CALL,
+            content=f"Tool call: {name}",
+            tool_name=name,
+            tool_args=arguments,
+            default_expansion=Expansion.CONTENT,
+            originator=f"tool:{name}",
+        )
+        return self.add_structural_node(node, parent=parent)
+
+    def add_tool_result_node(
+        self,
+        tool_call_id: str,
+        result: str,
+        *,
+        is_error: bool = False,
+        parent: str | None = None,
+    ) -> ContextNode:
+        """Add a tool result node to the graph.
+
+        Args:
+            tool_call_id: ID of the tool call this is responding to.
+            result: Tool execution result.
+            is_error: Whether the result is an error.
+            parent: Optional parent node ID.
+
+        Returns:
+            The created node.
+        """
+        from activecontext.context.nodes import MessageNode
+        from activecontext.context.nodes.enums import MessageRole
+
+        node = MessageNode(
+            role=MessageRole.TOOL_RESULT,
+            content=result,
+            default_expansion=Expansion.CONTENT,
+            originator=f"tool:{tool_call_id}",
+        )
+        return self.add_structural_node(node, parent=parent)
+
+    def get_node(self, node_id: str) -> ContextNode | None:
+        """Get a node by ID.
+
+        Read-only access to nodes in the graph.
+
+        Args:
+            node_id: The node ID to look up.
+
+        Returns:
+            The node if found, None otherwise.
+        """
+        return self._context_graph.get_node(node_id)
+
+    def iter_nodes(
+        self,
+        node_type: type[ContextNode] | None = None,
+    ) -> list[ContextNode]:
+        """Iterate over nodes in the graph, optionally filtered by type.
+
+        Args:
+            node_type: Optional node type to filter by.
+
+        Returns:
+            List of matching nodes.
+        """
+        if node_type is None:
+            return list(self._context_graph)
+        return [n for n in self._context_graph if isinstance(n, node_type)]
+
+    def link_nodes(
+        self,
+        child_id: str,
+        parent_id: str,
+    ) -> bool:
+        """Link a child node to a parent node.
+
+        Args:
+            child_id: Child node ID.
+            parent_id: Parent node ID.
+
+        Returns:
+            True if link was created.
+        """
+        return self._context_graph.link(child_id, parent_id)
+
+    def unlink_nodes(
+        self,
+        child_id: str,
+        parent_id: str,
+    ) -> bool:
+        """Remove link between child and parent nodes.
+
+        Args:
+            child_id: Child node ID.
+            parent_id: Parent node ID.
+
+        Returns:
+            True if link was removed.
+        """
+        return self._context_graph.unlink(child_id, parent_id)
+
+    def remove_node(
+        self,
+        node_id: str,
+        *,
+        recursive: bool = False,
+    ) -> ContextNode | None:
+        """Remove a node from the graph.
+
+        Args:
+            node_id: ID of node to remove.
+            recursive: If True, also remove child nodes.
+
+        Returns:
+            The removed node, or None if not found.
+        """
+        return self._context_graph.remove_node(node_id, recursive=recursive)
+
+    # -------------------------------------------------------------------------
+    # End of Programmatic Node API
     # -------------------------------------------------------------------------
 
     def _setup_agent_namespace(self) -> None:

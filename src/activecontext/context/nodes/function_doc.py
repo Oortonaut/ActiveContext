@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import inspect
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -144,4 +146,55 @@ class FunctionDocNode(ContextNode):
             signature=data.get("signature", ""),
             docstring=data.get("docstring", ""),
             source_lines=data.get("source_lines", ""),
+        )
+
+    @classmethod
+    def from_method(
+        cls,
+        method: Callable[..., Any],
+        *,
+        default_expansion: Expansion = Expansion.HEADER,
+    ) -> FunctionDocNode:
+        """Create a FunctionDocNode from a method object.
+
+        Extracts the signature and docstring directly from the method
+        using introspection, without needing to read from a file.
+
+        Args:
+            method: The method or function to document.
+            default_expansion: Default expansion level for the node.
+
+        Returns:
+            FunctionDocNode with signature and docstring populated.
+        """
+        # Get function name
+        function_name = getattr(method, "__name__", str(method))
+
+        # Get signature
+        try:
+            sig = inspect.signature(method)
+            # Check if method is async
+            is_async = inspect.iscoroutinefunction(method)
+            async_prefix = "async " if is_async else ""
+            signature = f"{async_prefix}def {function_name}{sig}"
+        except (ValueError, TypeError):
+            signature = f"def {function_name}(...)"
+
+        # Get docstring
+        docstring = inspect.getdoc(method) or ""
+
+        # Get source file path if available
+        try:
+            file_path = inspect.getfile(method)
+        except (TypeError, OSError):
+            file_path = ""
+
+        return cls(
+            function_name=function_name,
+            signature=signature,
+            docstring=docstring,
+            file_path=file_path,
+            default_expansion=default_expansion,
+            title=function_name,
+            tracing=False,
         )

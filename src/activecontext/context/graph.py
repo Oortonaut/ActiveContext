@@ -208,8 +208,10 @@ class ContextGraph:
         default=None, repr=False
     )
 
-    def add_node(self, node: ContextNode) -> str:
-        """Add a node to the graph.
+    def _add_node(self, node: ContextNode) -> str:
+        """Add a node to the graph (internal).
+
+        Prefer using node.add_to(graph) for new code.
 
         Args:
             node: The node to add
@@ -249,8 +251,23 @@ class ContextGraph:
 
         return node.node_id
 
-    def remove_node(self, node_id: str, recursive: bool = False) -> None:
-        """Remove a node from the graph.
+    def add_node(self, node: ContextNode) -> str:
+        """Add a node to the graph.
+
+        Note: Prefer using node.add_to(graph) for new code.
+
+        Args:
+            node: The node to add
+
+        Returns:
+            The node's ID (display-friendly format like "text_1")
+        """
+        return self._add_node(node)
+
+    def _remove_node(self, node_id: str, recursive: bool = False) -> None:
+        """Remove a node from the graph (internal).
+
+        Prefer using node.remove() for new code.
 
         Args:
             node_id: ID of node to remove
@@ -263,7 +280,7 @@ class ContextGraph:
         if recursive:
             # Remove descendants first (depth-first)
             for child_id in list(node.child_order):
-                self.remove_node(child_id, recursive=True)
+                self._remove_node(child_id, recursive=True)
 
         # Unlink from parents
         for parent_id in list(node.parent_ids):
@@ -280,6 +297,17 @@ class ContextGraph:
 
         # Remove node
         del self._nodes[node_id]
+
+    def remove_node(self, node_id: str, recursive: bool = False) -> None:
+        """Remove a node from the graph.
+
+        Note: Prefer using node.remove() for new code.
+
+        Args:
+            node_id: ID of node to remove
+            recursive: If True, also remove all descendants
+        """
+        self._remove_node(node_id, recursive=recursive)
 
     @exposed
     def link(
@@ -502,10 +530,7 @@ class ContextGraph:
                         # Import locally to avoid circular import
                         from activecontext.context.nodes import TraceNode
 
-                        if (
-                            isinstance(child, TraceNode)
-                            and getattr(child, "node", None) == node_id
-                        ):
+                        if isinstance(child, TraceNode) and getattr(child, "node", None) == node_id:
                             traces.append(child)
 
         # Also check trace_sink if set

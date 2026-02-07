@@ -586,3 +586,210 @@ class TestHelpNodeMetadata:
             ),
         )
         assert node._count_methods() == 3
+
+
+# ---------------------------------------------------------------------------
+# Task #8: DSL methods return ContextNode
+# ---------------------------------------------------------------------------
+
+
+class TestDSLReturnTypes:
+    """Tests that DSL methods return ContextNode, not NodeView."""
+
+    @pytest.fixture
+    def graph(self) -> ContextGraph:
+        return ContextGraph()
+
+    def test_text_node_methods_on_returned_node(self, graph: ContextGraph) -> None:
+        """DSL text() returns ContextNode that can access node methods directly."""
+        import asyncio
+        import tempfile
+
+        from activecontext.session.timeline import Timeline
+
+        with tempfile.TemporaryDirectory() as tmp:
+            timeline = Timeline("test", context_graph=graph, cwd=tmp)
+            try:
+                # text() should return a ContextNode, not a NodeView
+                result = asyncio.get_event_loop().run_until_complete(
+                    timeline.execute_statement('v = text("test.py")')
+                )
+                assert result.status.value == "ok"
+
+                ns = timeline.get_namespace()
+                v = ns["v"]
+
+                # Should be a ContextNode (TextNode specifically)
+                from activecontext.context.nodes import TextNode
+                assert isinstance(v, TextNode), f"Expected TextNode, got {type(v)}"
+
+                # Should have node_id directly accessible
+                assert hasattr(v, "node_id")
+                assert v.node_id.startswith("text_")
+            finally:
+                asyncio.get_event_loop().run_until_complete(timeline.close())
+
+
+# ---------------------------------------------------------------------------
+# Task #9: Node forwarding methods
+# ---------------------------------------------------------------------------
+
+
+class TestNodeForwardingMethods:
+    """Tests for ContextNode.add_to(), remove(), link_child()."""
+
+    @pytest.fixture
+    def graph(self) -> ContextGraph:
+        return ContextGraph()
+
+    def test_add_to_graph(self, graph: ContextGraph) -> None:
+        """ContextNode.add_to() adds node to graph."""
+        node = TextNode(path="test.py")
+        node_id = node.add_to(graph)
+        assert node_id.startswith("text_")
+        assert graph.get_node(node_id) is node
+        assert node._graph is graph
+
+    def test_remove_from_graph(self, graph: ContextGraph) -> None:
+        """ContextNode.remove() removes node from graph."""
+        node = TextNode(path="test.py")
+        node.add_to(graph)
+        node_id = node.node_id
+
+        node.remove()
+        assert graph.get_node(node_id) is None
+
+    def test_remove_requires_graph(self) -> None:
+        """ContextNode.remove() raises if not in graph."""
+        node = TextNode(path="test.py")
+        with pytest.raises(RuntimeError, match="not in a graph"):
+            node.remove()
+
+    def test_link_child(self, graph: ContextGraph) -> None:
+        """ContextNode.link_child() links child to parent."""
+        from activecontext.context.nodes import GroupNode
+
+        parent = GroupNode()
+        child = TextNode(path="test.py")
+        parent.add_to(graph)
+        child.add_to(graph)
+
+        result = parent.link_child(child)
+        assert result is True
+        assert child.node_id in parent.child_order
+
+    def test_link_child_with_after(self, graph: ContextGraph) -> None:
+        """ContextNode.link_child() supports after parameter."""
+        from activecontext.context.nodes import GroupNode
+
+        parent = GroupNode()
+        child1 = TextNode(path="a.py", node_id="child1")
+        child2 = TextNode(path="b.py", node_id="child2")
+        parent.add_to(graph)
+        child1.add_to(graph)
+        child2.add_to(graph)
+
+        parent.link_child(child1)
+        parent.link_child(child2, after=child1.node_id)
+
+        children = list(parent.child_order)
+        assert children == ["child1", "child2"]
+
+
+# ---------------------------------------------------------------------------
+# Task #10: HelpNode with FunctionDocNode children
+# ---------------------------------------------------------------------------
+
+
+class TestHelpNodeWithFunctionDocs:
+    """Tests for HelpNode with FunctionDocNode children."""
+
+    @pytest.fixture
+    def graph(self) -> ContextGraph:
+        return ContextGraph()
+
+    def test_help_creates_functiondoc_children_for_exposed_methods(
+        self, graph: ContextGraph
+    ) -> None:
+        """help() creates FunctionDocNode children when node type has @exposed methods."""
+        from dataclasses import dataclass
+
+        from activecontext.context.exposed import exposed
+        from activecontext.context.nodes import ContextNode
+        from activecontext.context.nodes.function_doc import FunctionDocNode
+
+        # Create a custom node type with @exposed methods for testing
+        @dataclass(kw_only=True)
+        class TestNodeWithExposed(ContextNode):
+            """Test node with exposed methods."""
+
+            @exposed
+            def my_method(self) -> str:
+                """A documented method."""
+                return "hello"
+
+            @exposed
+            def another_method(self, arg: int) -> None:
+                """Another documented method."""
+                pass
+
+        node = TestNodeWithExposed()
+        node.add_to(graph)
+
+        help_node = node.help()
+
+        # Check that FunctionDocNode children were created
+        func_doc_count = 0
+        func_names = []
+        for child_id in help_node.child_order:
+            child = graph.get_node(child_id)
+            if isinstance(child, FunctionDocNode):
+                func_doc_count += 1
+                func_names.append(child.function_name)
+
+        # Should have FunctionDocNode children for the 2 @exposed methods
+        assert func_doc_count == 2
+        assert "my_method" in func_names
+        assert "another_method" in func_names
+
+    def test_functiondoc_from_method(self) -> None:
+        """FunctionDocNode.from_method() extracts signature and docstring."""
+        from activecontext.context.nodes.function_doc import FunctionDocNode
+
+        def sample_method(self, arg1: str, arg2: int = 5) -> bool:
+            """Sample method docstring."""
+            pass
+
+        func_doc = FunctionDocNode.from_method(sample_method)
+        assert func_doc.function_name == "sample_method"
+        assert "sample_method" in func_doc.signature
+        # Signature includes arg names and types (quotes may vary by Python version)
+        assert "arg1" in func_doc.signature
+        assert "str" in func_doc.signature
+        assert "arg2" in func_doc.signature
+        assert "Sample method docstring" in func_doc.docstring
+
+    def test_functiondoc_from_async_method(self) -> None:
+        """FunctionDocNode.from_method() handles async methods."""
+        from activecontext.context.nodes.function_doc import FunctionDocNode
+
+        async def async_method(self) -> None:
+            """Async method docstring."""
+            pass
+
+        func_doc = FunctionDocNode.from_method(async_method)
+        assert "async def" in func_doc.signature
+        assert "Async method docstring" in func_doc.docstring
+
+    def test_functiondoc_render_content(self) -> None:
+        """FunctionDocNode.render_content() renders signature and docstring."""
+        from activecontext.context.nodes.function_doc import FunctionDocNode
+
+        def my_func(x: int) -> str:
+            """Converts int to string."""
+            return str(x)
+
+        func_doc = FunctionDocNode.from_method(my_func)
+        content = func_doc.render_content()
+        assert "my_func" in content
+        assert "Converts int to string" in content

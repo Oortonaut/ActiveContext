@@ -313,7 +313,7 @@ class TestNotifyFunction:
 
             ns = timeline.get_namespace()
             v = ns["v"]
-            assert v.node.notification_level == NotificationLevel.WAKE
+            assert v.notification_level == NotificationLevel.WAKE
         finally:
             await timeline.close()
 
@@ -327,7 +327,7 @@ class TestNotifyFunction:
 
             ns = timeline.get_namespace()
             v = ns["v"]
-            assert v.node.notification_level == NotificationLevel.HOLD
+            assert v.notification_level == NotificationLevel.HOLD
         finally:
             await timeline.close()
 
@@ -801,7 +801,7 @@ class TestCurrentGroup:
             # Create a topic (should be auto-linked)
             await timeline.execute_statement('t = topic("Auto-linked")')
             ns = timeline.get_namespace()
-            topic_node = ns["t"].node
+            topic_node = ns["t"]
 
             # Verify parent relationship
             parents = timeline._context_graph.get_parents(topic_node.node_id)
@@ -1022,7 +1022,7 @@ class TestResolveNodeId:
         try:
             await timeline.execute_statement('t = topic("Test")')
             ns = timeline.get_namespace()
-            node = ns["t"].node
+            node = ns["t"]
 
             result = timeline._resolve_node_id(node)
             assert result == node.node_id
@@ -1402,7 +1402,7 @@ class TestGroupWithCurrentGroupParent:
             # Create topic with explicit parent g2
             await timeline.execute_statement(f't = topic("Test", parent="{g2_id}")')
             ns = timeline.get_namespace()
-            topic_node = ns["t"].node
+            topic_node = ns["t"]
 
             # Should be linked to g2, not g1
             parents = timeline._context_graph.get_parents(topic_node.node_id)
