@@ -8,12 +8,17 @@ package "ContextGraph (DAG)" as Graph {
   
   abstract class ContextNode {
     +node_id: str
-    +state: NodeState
-    +tokens: int
-    +child_order: list[str]
+    +node_type: str
+    +title: str
+    +default_expansion: Expansion
+    +default_hidden: bool
+    +mode: str
+    +tick_frequency: TickFrequency
+    +child_order: LinkedChildOrder
     --
-    +Render(cwd) -> str
-    +GetDigest() -> dict
+    +render_content() -> str
+    +render_digest() -> str
+    +get_token_breakdown() -> TokenInfo
     +Tick() -> bool
   }
   
@@ -82,7 +87,7 @@ package "ContextGraph (DAG)" as Graph {
     Structured markdown
     with heading hierarchy
   }
-  
+
   class WorkNode {
     +intent: str
     +files: list[FileAccess]
@@ -90,13 +95,47 @@ package "ContextGraph (DAG)" as Graph {
     --
     Multi-agent coordination
   }
-  
+
   class SessionNode {
     +stats: SessionStats
     --
     Session metadata
   }
-  
+
+  class PtyNode {
+    +command: str
+    +pty_status: PtyStatus
+    +exit_code: int?
+    --
+    Interactive PTY session
+  }
+
+  class LockNode {
+    +lockfile: str
+    +is_held: bool
+    --
+    File lock coordination
+  }
+
+  class PluginManagerNode {
+    +servers: dict
+    --
+    Plugin server tracking
+  }
+
+  class TraceNode {
+    +statement_id: str
+    +execution_id: str
+    --
+    Statement execution trace
+  }
+
+  class HelpNode {
+    +target: str?
+    --
+    Help documentation
+  }
+
   ContextNode <|-- TextNode
   ContextNode <|-- GroupNode
   ContextNode <|-- MessageNode
@@ -107,6 +146,11 @@ package "ContextGraph (DAG)" as Graph {
   ContextNode <|-- MarkdownNode
   ContextNode <|-- WorkNode
   ContextNode <|-- SessionNode
+  ContextNode <|-- PtyNode
+  ContextNode <|-- LockNode
+  ContextNode <|-- PluginManagerNode
+  ContextNode <|-- TraceNode
+  ContextNode <|-- HelpNode
 }
 
 package "Graph Operations" as Ops {

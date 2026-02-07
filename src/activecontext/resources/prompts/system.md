@@ -45,21 +45,21 @@ Control information density with enum `Expansion`:
 | `INDEX`         | Content plus section headings    | Navigation, quick reference |
 | `ALL`           | Full content with all details    | Active work area            |
 
-Use `hide()` / `unhide()` to control visibility (nodes still tick when hidden).
+Use `view.hidden = True/False` to control visibility (nodes still tick when hidden).
 
 **Guidelines:**
 
 - Start with `ALL` for files you're actively editing
 - Use `CONTENT` for related context you need to understand but not modify
 - Use `HEADER` for files you've finished with but may return to
-- Use `hide()` when a view is no longer relevant
+- Use `v.hidden = True` when a view is no longer relevant
 
 ## Workflow Patterns
 
 ### Examining Code
 
 ```python
-v = text("src/auth.py", expansion=Expansion.ALL)
+v = text("src/auth.py", default_expansion=Expansion.ALL)
 ```
 
 Always read code before suggesting changes.

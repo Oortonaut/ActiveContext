@@ -4,7 +4,7 @@ Connect to external MCP servers to access their tools and resources.
 
 ## Connecting to Servers
 
-### `mcp_connect(name, *, command=None, url=None, env=None, expansion=Expansion.ALL)`
+### `mcp_connect(name, *, command=None, url=None, env=None, default_expansion=Expansion.ALL)`
 Connect to an MCP server. Returns an MCPServerNode.
 
 ```python
@@ -101,7 +101,7 @@ all_tools = fs.tool_nodes             # Get all tool nodes
 
 # Access via namespace (prefixed names)
 filesystem_read_file.expansion = Expansion.ALL
-hide(filesystem_write_file)           # Hide from projection
+filesystem_write_file.hidden = True   # Hide from projection
 ```
 
 ### Tool Node Rendering States
@@ -112,15 +112,15 @@ Each MCPToolNode has independent state control:
 - **CONTENT**: Name + truncated description
 - **ALL**: Full JSON schema documentation
 
-Use `hide()` / `unhide()` to control whether a tool appears at all.
+Use `view.hidden = True/False` to control whether a tool appears at all.
 
 ```python
 # Show full documentation for one tool only
 fs.tool("read_file").expansion = Expansion.ALL
 
 # Hide tools you don't need
-hide(fs.tool("delete_file"))
-unhide(fs.tool("delete_file"))  # Restore later
+fs.tool("delete_file").hidden = True
+fs.tool("delete_file").hidden = False  # Restore later
 ```
 
 ### Reconnection Behavior

@@ -115,6 +115,34 @@ package "Core" as Core {
   end note
 }
 
+package "View Layer" as ViewPackage {
+  class NodeView {
+    +node: ContextNode
+    +hidden: bool
+    +expansion: Expansion
+    --
+    +render() -> str
+    +visible_tokens: int
+  }
+
+  class ChoiceView
+  class SequenceView
+  class LoopView
+  class StateView
+
+  NodeView <|-- ChoiceView
+  ChoiceView <|-- SequenceView
+  ChoiceView <|-- StateView
+  NodeView <|-- LoopView
+
+  note bottom of NodeView
+    **DSL returns NodeView**
+    View owns: hidden, expansion
+    Node owns: default_expansion, content
+    Attribute forwarding to node
+  end note
+}
+
 ' Ownership relationships
 Session *-- ContextGraph : owns >
 Session *-- Timeline : owns >
@@ -138,5 +166,9 @@ AgentSpawner --> ContextGraph : uses (injected) >
 
 ' Projection engine reads graph
 ProjectionEngine ..> ContextGraph : reads >
+
+' View layer wraps nodes
+NodeView o-- ContextGraph : wraps nodes from >
+ProjectionEngine ..> NodeView : renders via >
 
 @enduml

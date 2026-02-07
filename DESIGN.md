@@ -1,8 +1,16 @@
 # Agent Loop Design: Executable Context as a Python Statement Timeline
 
-Version: 0.2
+Version: 0.3 (Updated terminology)
 Scope: Agent loop architecture only. Persistence/serialization is pluggable and out of scope (JSON/YAML/SQLite/etc.).
-Primary goal: A Claude Code–style CLI agent where the LLM has first-class control over a structured, reversible working context. The context presented to the LLM is a timeline of executed Python statements operating over live “context objects” (views, groups, etc.). The agent can re-execute from any point.
+Primary goal: A Claude Code–style CLI agent where the LLM has first-class control over a structured, reversible working context. The context presented to the LLM is a timeline of executed Python statements operating over live "context objects" (views, groups, etc.). The agent can re-execute from any point.
+
+> **Note**: This document uses the current (v0.3) terminology. Key mappings from older versions:
+> - `lod` (level of detail) → `Expansion` enum (HEADER, CONTENT, INDEX, ALL)
+> - `ViewHandle` → `TextNode` wrapped by `NodeView`
+> - `GroupHandle` → `GroupNode` wrapped by `NodeView`
+> - `freq="Sync"` → `TickFrequency.turn()`
+> - `freq="Periodic"` → `TickFrequency.period(seconds)`
+> - `tokens=N` → `default_expansion` on nodes, projection budget handles sizing
 
 ---
 
@@ -11,14 +19,14 @@ Primary goal: A Claude Code–style CLI agent where the LLM has first-class cont
 The agent loop is built around:
 
 1. **A real Python execution environment** with a controlled namespace.
-2. **Stateful wrapper objects** created in that namespace (e.g., `view("~/Foo.cs", ...)`) whose methods mutate local Python state.
-3. **A statement log**: the canonical timeline is “what Python statements were executed.”
+2. **NodeView wrappers** created in that namespace (e.g., `text("~/Foo.cs", ...)`) that wrap ContextNodes and provide view-specific state.
+3. **A statement log**: the canonical timeline is "what Python statements were executed."
 4. **Groups are summaries**: grouping produces a summary node; a group can contain 1 node; group summaries update automatically.
 5. **Running/paused nodes** with a tick-driven update model:
 
-   * **Sync** tick: per turn
-   * **Periodic(seconds)**: reserved
-   * **Async**: reserved
+   * **Turn** tick: `TickFrequency.turn()` - per turn
+   * **Periodic**: `TickFrequency.period(seconds)` - at intervals
+   * **Async**: `TickFrequency.async_()` - background execution
      Async preparation can be performed in the background, but **mutations are applied only at tick boundaries**, and **async completions are applied before periodic ticks**.
 
 The projection to the LLM is not a transcript. It is a compact representation of:
@@ -40,54 +48,29 @@ The projection to the LLM is not a transcript. It is a compact representation of
 
 ### 1.2 Context objects
 
-The LLM works with actual Python objects using its own repl, not remote handles:
-         
-**First Turn**  
-```
---- agent message ---
-<script type="text/x-python">
-foo_cs_file = open("~/Foo.cs")
-foo_cs = view(foo_cs_file, pos=0, tokens=2000)
-</script>
---- framework message ---
-# functionally, view(...) outputs this message to the context when first executed and then reevaluated during context generation.
-# // This is foo.cs. It is a long, long c# file with a lot of code. 
-# // This comment itself goes on for over 15000 tokens.
-# // ... token 1999
----many turns of conversation and data ---
---- agent message ---
-<script type="text/x-python">
-foo_cs.SetLod(1).SetTokens(All) # When view is reevaluated next, it will render only the summary
-</script>
-```
-**Next Turn**  
-```
---- agent message ---
-<script type="text/x-python">
-foo_cs_file = open("~/Foo.cs")
-# foo_cs = view(foo_cs_file, pos=0, tokens=2000) # msg < 12
-foo_cs = view(foo_cs_file, pos=0, tokens=All, lod=1)
-</script>
---- framework message ---
-# functionally, view(...) outputs this message to the context when first executed and then reevaluated during context generation.
-# // This is foo.cs. It is a long, long c# file with a lot of code. 
-# // This comment itself goes on for over 15000 tokens.
-# // ... token 1999
----many turns of conversation and data ---
---- agent message ---
-<script type="text/x-python">
-foo_cs.SetLod(1).SetTokens(All) # When view is reevaluated next, it will render only the summary
-</script> 
+The LLM works with NodeView wrappers using its own REPL:
+
+**First Turn**
+```python/acrepl
+foo_cs = text("~/Foo.cs", pos="1:0", default_expansion=Expansion.ALL)
 ```
 
-These methods mutate the foo_cs object state; this mutation may touch related objects. But the primary effect is to adjust the mapping of the view onto the referenced object for the visible updates. 
+The `text()` function returns a `NodeView` wrapping a `TextNode`. The view appears in the projection on the next turn.
+
+**Later Turn - Adjusting Expansion**
+```python/acrepl
+foo_cs.expansion = Expansion.CONTENT  # Show only summary
+foo_cs.hidden = True                  # Hide from projection entirely
+```
+
+NodeView owns view-specific state (`expansion`, `hidden`, `notifications`). The underlying TextNode owns content state (`default_expansion`, `content`, `mode`). 
 
 ### 1.3 Groups are summaries
 
-* A **Group** is itself a summary node over its members.
+* A **GroupNode** is itself a summary node over its members.
 * Creating a group is equivalent to creating a summarized façade over its members.
-* Group summarization is automatic; the group always represents a current summary given its policy (LOD/budget).
-* Grouping one node is valid and useful (it creates a summarized façade with stable identity and policy knobs).
+* Group summarization is automatic; the group always represents a current summary given its expansion policy.
+* Grouping one node is valid and useful (it creates a summarized façade with stable identity and expansion controls).
 
 ### 1.4 Node states: paused vs running
 
@@ -121,9 +104,9 @@ Async work may run in the background only as “prepare” steps; applying prepa
 
 **Context objects (Python wrappers)**
 
-* `ViewHandle`: file/URI views with cursor, token budget, LOD, running mode.
-* `GroupHandle`: summary façade over member nodes (including 1 node).
-* (Optional) `ToolHandle`, `NoteHandle`, etc.
+* `TextNode` + `NodeView`: file views with position, expansion, running mode.
+* `GroupNode` + `NodeView`: summary façade over member nodes (including 1 node).
+* `ShellNode`, `PtyNode`, `MCPServerNode`, `LockNode`, etc.
 
 **Eventing**
 
@@ -226,115 +209,120 @@ Capture stdout/stderr per statement execution. Enforce:
 
 Expose these names by default:
 
-* `view(path, pos="line:col" | "line" | opaque, tokens=int, lod=int=0, mode="paused|running"=paused, freq="Sync|Periodic|Async"=paused)`
-* `group(*members, tokens=int?, lod=int?, mode?, freq?)`
+* `text(path, *, pos="1:0", default_expansion=Expansion.ALL, mode="paused", parent=None)` - file view
+* `group(*members, default_expansion=Expansion.CONTENT, summary=None, parent=None)` - summary group
+* `markdown(path, *, content=None, default_expansion=Expansion.ALL, parent=None)` - parsed markdown
+* `shell(command, args=None, *, timeout=30.0, default_expansion=Expansion.ALL)` - async command
 * `tick()` (internal; should not be used by model directly unless you want)
 * Optional helpers:
 
   * `ls()` list handles and brief digests
-  * `show(obj, lod=?, tokens=?)` force render for a handle
-  * `pin(obj, reason=...)` mark for projection priority
+  * `show(obj)` force render for a handle
+  * `get(name)` fuzzy lookup by name/ID/path
 
-The LLM mainly uses `view`, `group`, and object methods.
+The LLM mainly uses `text`, `group`, and NodeView properties/methods.
 
 ---
 
 ## 5. Wrapper objects (stateful, mutable)
 
-### 5.1 Common interface (NodeBase)
+### 5.1 Common interface (ContextNode)
 
 All node objects implement:
 
 * Identity:
 
-  * `obj_id: str` stable within the agent session
-  * `obj_type: str` (`view`, `group`, etc.)
+  * `node_id: str` stable within the agent session
+  * `node_type: str` (`text`, `group`, etc.)
+  * `title: str` display title
 
 * State:
 
-  * `mode: paused|running`
-  * `freq: Sync | Periodic(seconds) | Async`
-  * `min_turn_interval: int = 1` (throttle for Sync)
-  * `last_tick_turn: int`
-  * `dirty: bool`
-
-* Policy:
-
-  * `tokens: int` desired budget for projection
-  * `lod: int` representation level
+  * `mode: "paused" | "running"`
+  * `tick_frequency: TickFrequency` (turn, period, async_, never)
+  * `default_expansion: Expansion` (HEADER, CONTENT, INDEX, ALL)
+  * `default_hidden: bool`
+  * `child_order: LinkedChildOrder`
 
 * Methods:
 
-  * `GetDigest() -> dict` small structured digest for projection
-  * `Render(lod:int|None=None, tokens:int|None=None) -> RenderedView`
+  * `render_digest() -> str` small digest for headers
+  * `render_content() -> str` full content rendering
+  * `get_token_breakdown() -> TokenInfo` token counts at each level
   * `Pause()`
   * `Run(freq=...)`
-  * `Tick(now, turn_id, tick_kind) -> TickResult`
-  * `OnMemberChanged(...)` for groups (if needed)
+  * `Tick() -> bool`
+
+**NodeView** wraps ContextNode with view-specific state:
+  * `hidden: bool` - visibility in projection
+  * `expansion: Expansion` - current expansion level
+  * `notifications: list[Notification]` - pending alerts
 
 The base class also handles event emission around mutations.
 
-### 5.2 ViewHandle (file/URI view)
+### 5.2 TextNode (file view)
 
-Represents a controllable view onto an external document.
+Represents a controllable view onto a file. DSL returns `NodeView` wrapping `TextNode`.
 
-State:
+TextNode State:
 
 * `path: str`
-* `pos: str` (e.g., `"0:0"`)
-* `window_spec: {range_lines, range_tokens, anchors}` (simple at first)
-* `lod: int`
-* `tokens: int`
-* `rendered: RenderedView` cached
-* `source_fingerprint: hash?` (optional: last seen file hash)
-* `dirty_flags: {pos_changed, policy_changed, source_changed}`
+* `pos: str` (e.g., `"1:0"`)
+* `end_pos: str | None`
+* `content: str` (cached file content)
+* `default_expansion: Expansion`
 
-Methods:
+NodeView State:
 
-* `SetPos(pos)`
-* `Scroll(delta_lines|delta_tokens)`
-* `SetTokens(n)`
-* `SetLod(k)`
-* `Refresh()` (explicit fetch/recompute; sets rendered)
-* `Run(freq="Sync"|("Periodic", seconds)|"Async")`
-* `Pause()`
+* `expansion: Expansion` - current rendering level
+* `hidden: bool` - visibility in projection
 
-LOD ladder (recommended):
+Methods (on NodeView):
 
-* `lod=0`: raw excerpt around `pos`
-* `lod=1`: structured excerpt (headers/symbols + nearby lines)
-* `lod=2`: semantic summary of region (bullets: responsibilities/invariants)
-* `lod=3`: diff-only view vs last rendered revision
+* `SetPos(pos)` - jump to line
+* `Run(freq)` - enable tick updates with TickFrequency
+* `Pause()` - disable tick updates
+* `view.expansion = Expansion.CONTENT` - change expansion
+* `view.hidden = True` - hide from projection
 
-Tick behavior (Sync):
+Expansion ladder:
 
-* If `dirty` or `source_changed`, refresh according to policy:
+* `HEADER`: title + metadata only (~50 tokens)
+* `CONTENT`: file content at current position
+* `INDEX`: content + section headings
+* `ALL`: full content with all details
 
-  * default: produce `lod=3` diff summary unless forced
-  * full refresh only if requested or if needed to satisfy pinned constraints
-* Emit delta event summarizing changes and update `rendered`.
+Tick behavior (turn):
 
-### 5.3 GroupHandle (group == summary)
+* If file changed, refresh content
+* Emit notification if notification_level != IGNORE
+* Parent groups notified of changes
 
-Group contains members and maintains an automatically updated summary.
+### 5.3 GroupNode (group == summary)
 
-State:
+Group contains members and maintains an automatically updated summary. DSL returns `NodeView` wrapping `GroupNode`.
 
-* `members: list[NodeBase]`
-* `summary_rendered: RenderedView`
-* `summary_policy: {tokens, lod, salience_rules}`
-* `dirty: bool` set when any member changes
+GroupNode State:
 
-Methods:
+* `members: list[str]` - child node IDs
+* `summary: str` - cached summary
+* `default_expansion: Expansion.CONTENT`
+* `child_order: LinkedChildOrder`
 
-* `Add(member)` / `Remove(member)` (optional; could be static groups only)
-* `SetTokens(n)` / `SetLod(k)`
-* `Refresh()` recompute summary (explicit)
+NodeView State:
+
+* `expansion: Expansion` - current rendering level
+* `hidden: bool` - visibility in projection
+
+Methods (on NodeView):
+
+* `link(child, group)` / `unlink(child, group)` - modify membership
+* `view.expansion = Expansion.ALL` - show all children
 * Tick recomputes summary if dirty or scheduled
 
 Semantics:
 
-* Group is the default projection surface; members are rarely projected directly unless requested or pinned.
+* Group is the default projection surface; members are rendered based on group's expansion level.
 
 ---
 
@@ -493,46 +481,45 @@ A simple policy is sufficient initially:
 
 ## 9. DSL contract for the LLM
 
-The LLM writes Python that manipulates live context objects.
+The LLM writes Python that manipulates live context objects via NodeView wrappers.
 
 ### 9.1 Core constructors
 
-```python
-foo_cs = view("~/Foo.cs", pos="0:0", tokens=2000)           # paused by default
-foo_cs.Run(freq="Sync")                                     # running, per turn
-foo_sum = group(foo_cs, tokens=500, lod=2).Run(freq="Sync") # group summary node
+```python/acrepl
+foo_cs = text("~/Foo.cs", pos="1:0", default_expansion=Expansion.ALL)  # paused by default
+foo_cs.Run(TickFrequency.turn())                                        # running, per turn
+foo_sum = group(foo_cs, default_expansion=Expansion.CONTENT)            # group summary
+foo_sum.Run(TickFrequency.turn())
 ```
 
 ### 9.2 View controls
 
-```python
-foo_cs.SetLod(1)
-foo_cs.SetTokens(10000)
-foo_cs.SetPos("120:0")
-foo_cs.Scroll(50)
-foo_cs.Refresh()             # explicit refresh
-foo_cs.Pause()
+```python/acrepl
+foo_cs.expansion = Expansion.CONTENT   # reduce detail level
+foo_cs.hidden = True                   # hide from projection
+foo_cs.SetPos("120:0")                 # jump to line
+foo_cs.Pause()                         # stop auto-updates
 ```
 
-### 9.3 “Group == summary” usage
+### 9.3 "Group == summary" usage
 
-To “expand,” you typically create a new group with higher budget/LOD:
+To "expand," set expansion to ALL:
 
-```python
-foo_detail = group(foo_cs, tokens=4000, lod=0)  # a more detailed façade
+```python/acrepl
+foo_sum.expansion = Expansion.ALL  # show all children
 ```
 
-To “compress,” lower budget/LOD:
+To "compress," set to CONTENT or HEADER:
 
-```python
-foo_sum.SetTokens(300)
-foo_sum.SetLod(3)  # diff-only façade if supported
+```python/acrepl
+foo_sum.expansion = Expansion.HEADER  # minimal view
 ```
 
 ### 9.4 Running updates
 
-* Sync nodes update once per turn (throttled by `min_turn_interval`).
-* Async/Periodic are reserved but the API accepts them.
+* `TickFrequency.turn()` nodes update once per turn.
+* `TickFrequency.period(seconds)` nodes update at intervals.
+* `TickFrequency.async_()` for background execution.
 
 ---
 

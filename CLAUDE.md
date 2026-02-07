@@ -96,9 +96,28 @@ src/activecontext/
 │   └── xml_parser.py     # XML tag parsing for LLM output
 ├── context/              # Context graph and node types
 │   ├── graph.py          # ContextGraph DAG with checkpointing
-│   ├── nodes.py          # All node types (View, Group, Shell, MCP, etc.)
+│   ├── view.py           # NodeView layer (hidden, expansion, notifications)
 │   ├── checkpoint.py     # Checkpoint/GroupState for DAG snapshots
-│   └── state.py          # NodeState enum
+│   ├── state.py          # Expansion, TickFrequency, NotificationLevel enums
+│   └── nodes/            # Node type package
+│       ├── base.py       # ContextNode base class
+│       ├── text.py       # TextNode
+│       ├── group.py      # GroupNode
+│       ├── shell.py      # ShellNode
+│       ├── pty.py        # PtyNode (interactive terminal)
+│       ├── lock.py       # LockNode (file locking)
+│       ├── mcp.py        # MCPServerNode, MCPToolNode
+│       ├── markdown.py   # MarkdownNode
+│       ├── topic.py      # TopicNode
+│       ├── artifact.py   # ArtifactNode
+│       ├── session.py    # SessionNode
+│       ├── message.py    # MessageNode
+│       ├── work.py       # WorkNode
+│       ├── trace.py      # TraceNode
+│       ├── statement.py  # StatementNode
+│       ├── help.py       # HelpNode
+│       ├── plugin_manager.py  # PluginManagerNode
+│       └── ...
 ├── coordination/         # Multi-agent work coordination
 │   ├── schema.py         # WorkEntry, FileAccess, Conflict dataclasses
 │   └── scratchpad.py     # ScratchpadManager for file-based coordination
@@ -164,7 +183,7 @@ async with ActiveContext() as ctx:
     session = await ctx.create_session(cwd=".")
 
     # Execute Python directly
-    await session.execute('v = text("main.py", expansion=Expansion.ALL)')
+    await session.execute('v = text("main.py", default_expansion=Expansion.ALL)')
 
     # Or stream updates from a prompt
     async for update in session.prompt("v.expansion = Expansion.CONTENT"):
@@ -422,13 +441,14 @@ See `src/activecontext/prompts/dsl_reference.md` for complete documentation.
 ```python
 from activecontext import Expansion, TickFrequency
 
-# File views
-v = text("main.py", pos="1:0", expansion=Expansion.ALL)
-v.expansion = Expansion.CONTENT
+# File views - DSL returns NodeView, not ContextNode
+v = text("main.py", pos="1:0", default_expansion=Expansion.ALL)
+v.expansion = Expansion.CONTENT  # Set on view
+v.hidden = True                  # Hide from projection
 v.Run(TickFrequency.turn())
 
 # Groups
-g = group(v1, v2, expansion=Expansion.CONTENT)
+g = group(v1, v2, default_expansion=Expansion.CONTENT)
 g = group("node_id_1", "node_id_2", summary="Auth module overview")
 
 # Topics and artifacts
@@ -490,7 +510,11 @@ wait_any(s1, s2, s3)               # Wait for first
    - CONTENT: Main content/summary (default for groups)
    - INDEX: Content plus section headings
    - ALL: Full view with all details (default for views)
-   - Use `hide()`/`unhide()` to toggle visibility in projection
+   - Use `view.hidden = True/False` to toggle visibility in projection
+6. **Node/View separation**: DSL functions return NodeView wrappers, not raw ContextNodes
+   - NodeView owns: `hidden`, `expansion`, `notifications`
+   - ContextNode owns: `default_expansion`, `content`, `mode`, `tick_frequency`
+   - Attribute forwarding: `view.foo` accesses `view.node.foo` if not a view field
 6. **Permission boundaries**: File, shell, import, and web access require explicit grants
 
 ## Claude Code Permission Matching

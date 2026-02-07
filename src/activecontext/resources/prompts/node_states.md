@@ -14,19 +14,23 @@ Controls how a node renders in the projection.
 ```python
 from activecontext import Expansion
 
-v = text("src/main.py", expansion=Expansion.ALL)
-v.expansion = Expansion.CONTENT  # Reduce detail
+v = text("src/main.py", default_expansion=Expansion.ALL)
+v.expansion = Expansion.CONTENT  # Reduce detail (on the view)
 v.expansion = Expansion.HEADER   # Show minimal info
 ```
 
-## Visibility (hide/unhide)
+## Visibility (NodeView.hidden)
 
 Controls whether a node appears in the projection at all.
 
 ```python
-hide(text_1)              # Remove from projection (node still ticks)
-unhide(text_1)            # Restore to previous expansion
-unhide(text_1, expand=Expansion.CONTENT)  # Restore with specific expansion
+v = text("main.py")      # Returns NodeView
+v.hidden = True          # Hide from projection (node still ticks)
+v.hidden = False         # Restore to projection
+
+# Check visibility
+if not v.hidden:
+    print("Node is visible")
 ```
 
 Hidden nodes:
@@ -41,16 +45,15 @@ Controls when a running node recomputes.
 | Frequency | Description |
 |-----------|-------------|
 | `TickFrequency.turn()` | Recompute every turn (default) |
-| `TickFrequency.seconds(n)` | Recompute every n seconds |
+| `TickFrequency.period(n)` | Recompute every n seconds |
 | `TickFrequency.async_()` | Async execution |
 | `TickFrequency.never()` | No automatic updates |
-| `TickFrequency.idle()` | Only recompute when explicitly triggered |
 
 ```python
 from activecontext import TickFrequency
 
 v.Run(TickFrequency.turn())       # Update every turn
-v.Run(TickFrequency.seconds(30))  # Update every 30 seconds
+v.Run(TickFrequency.period(30))   # Update every 30 seconds
 v.Run(TickFrequency.async_())     # Async execution
 v.Run()                           # Default: turn()
 ```

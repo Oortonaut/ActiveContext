@@ -40,7 +40,7 @@ text_1.expansion = ...    # Or use display ID directly
 
 ### Expansion
 
-Controls rendering detail level for context nodes. Used with node constructors via the `expansion` parameter.
+Controls rendering detail level for context nodes. Used with node constructors via the `default_expansion` parameter.
 
 ```python
 from activecontext import Expansion
@@ -53,16 +53,24 @@ Expansion.ALL      # Full view with all details (default for views)
 
 See `node_states.md` for detailed documentation on each expansion level.
 
-### Visibility (hide/unhide)
+### Visibility (NodeView.hidden)
 
-Control whether a node appears in the projection.
+Control whether a node appears in the projection via the view's hidden property:
 
 ```python
-hide(text_1)                           # Hide from projection (but still ticked)
-hide(text_1, text_2, group_1)          # Hide multiple nodes
-unhide(text_1)                         # Restore to previous expansion
-unhide(text_1, expand=Expansion.CONTENT)  # Restore with specific expansion
+v = text("main.py")      # Returns NodeView
+v.hidden = True          # Hide from projection (node still ticks)
+v.hidden = False         # Restore to projection
+
+# Check visibility
+if not v.hidden:
+    print("Node is visible")
 ```
+
+Hidden nodes:
+- Do not appear in the projection
+- Continue to tick if mode="running"
+- Retain all state for restoration
 
 ### TickFrequency
 
@@ -79,17 +87,17 @@ TickFrequency.never()       # No automatic updates
 
 ## Context Node Constructors
 
-### `text(path, *, pos="1:0", expansion=Expansion.ALL, mode="paused", parent=None)`
+### `text(path, *, pos="1:0", default_expansion=Expansion.ALL, mode="paused", parent=None)`
 Create a text view of a file or file region.
 
 ```python
 v = text("src/main.py")                          # Entire file
 v = text("src/main.py", pos="50:0")               # Start at line 50
-v = text("src/main.py", expansion=Expansion.CONTENT)
+v = text("src/main.py", default_expansion=Expansion.CONTENT)
 v = text("src/main.py", parent=group_node)       # Link to parent at creation
 ```
 
-### `markdown(path, *, content=None, expansion=Expansion.ALL, parent=None)`
+### `markdown(path, *, content=None, default_expansion=Expansion.ALL, parent=None)`
 Parse a markdown file into a tree of TextNodes, where each heading section is a separate node.
 
 ```python
@@ -100,7 +108,7 @@ m = markdown("docs/guide.md", parent=docs_group) # Link to parent
 
 Returns the root TextNode. Child sections are accessible via `child_order`.
 
-### `view(media_type, path, expansion=Expansion.ALL, **kwargs)`
+### `view(media_type, path, default_expansion=Expansion.ALL, **kwargs)`
 Dispatcher that routes to `text()` or `markdown()` based on media type.
 
 ```python
@@ -108,7 +116,7 @@ v = view("text", "src/main.py")                  # Same as text()
 m = view("markdown", "docs/README.md")           # Same as markdown()
 ```
 
-### `group(*members, expansion=Expansion.CONTENT, summary=None, parent=None)`
+### `group(*members, default_expansion=Expansion.CONTENT, summary=None, parent=None)`
 Create a summary group over multiple nodes.
 
 ```python
@@ -117,7 +125,7 @@ g = group("node_id_1", "node_id_2")      # Group from node IDs
 g = group(v1, v2, summary="Auth module overview")
 ```
 
-### `choice(*children, selected=None, expansion=Expansion.ALL, parent=None)`
+### `choice(*children, selected=None, default_expansion=Expansion.ALL, parent=None)`
 Create a dropdown-like selection view. Only the selected child is visible.
 
 ```python
@@ -131,7 +139,7 @@ c.get_options()                                 # Get list of option titles
 
 Progression views provide structured iteration patterns for agent workflows.
 
-### `sequence(*children, expansion=Expansion.ALL, parent=None)`
+### `sequence(*children, default_expansion=Expansion.ALL, parent=None)`
 Create a sequential workflow. Agent works through steps in order.
 
 ```python
@@ -155,7 +163,7 @@ seq.completed_steps     # Set of completed step indices
 seq.render_progress()   # Markdown progress list
 ```
 
-### `loop_view(child, max_iterations=None, expansion=Expansion.ALL, parent=None)`
+### `loop_view(child, max_iterations=None, default_expansion=Expansion.ALL, parent=None)`
 Create an iterative refinement loop. Agent iterates on a single prompt.
 
 ```python
@@ -183,7 +191,7 @@ loop.render_header()    # "## Review Loop [iteration 2/5]"
 loop.render_state()     # Formatted state display
 ```
 
-### `state_machine(states, transitions, initial=None, expansion=Expansion.ALL, parent=None)`
+### `state_machine(states, transitions, initial=None, default_expansion=Expansion.ALL, parent=None)`
 Create a state machine for branching workflows.
 
 ```python
@@ -316,27 +324,23 @@ unlink(view_node, group_node)
 
 ## Visibility Control
 
-### `hide(*nodes)`
-Hide nodes from projection rendering. Nodes continue to tick but don't appear in the projection.
+Control whether nodes appear in the projection via `NodeView.hidden`:
 
 ```python
-hide(text_1)              # Hide single node
-hide(text_1, text_2)      # Hide multiple nodes
-hide("text_1", group_2)   # Mix of IDs and objects
+v = text("main.py")      # Returns NodeView
+v.hidden = True          # Hide from projection
+v.hidden = False         # Show in projection
+
+# Works with any node type
+g = group(v1, v2)
+g.hidden = True          # Hide entire group
 ```
 
-Returns the count of nodes hidden. The previous expansion state is saved for later restoration via `unhide()`.
-
-### `unhide(*nodes, expand=None)`
-Restore hidden nodes to projection rendering.
-
-```python
-unhide(text_1)                         # Restore to previous expand state
-unhide(text_1, text_2)                 # Restore multiple
-unhide(text_1, expand=Expansion.CONTENT)  # Force specific expansion
-```
-
-Returns the count of nodes restored. If `expand` is not specified, restores to the state before `hide()` was called. If the node was never hidden, defaults to `Expansion.ALL`.
+Hidden nodes:
+- Do not appear in the projection
+- Continue to tick if mode="running"
+- Retain all state for restoration
+- Children of hidden groups are also hidden from projection
 
 ## Checkpointing
 
@@ -370,7 +374,7 @@ branch("refactor_attempt_2")  # Same as checkpoint("refactor_attempt_2")
 
 ## Shell Execution
 
-### `shell(command, args=None, cwd=None, env=None, timeout=30.0, *, expansion=Expansion.ALL)`
+### `shell(command, args=None, cwd=None, env=None, timeout=30.0, *, default_expansion=Expansion.ALL)`
 Execute a shell command asynchronously. Returns a ShellNode.
 
 ```python
@@ -389,7 +393,7 @@ s.full_command   # Command with args as string
 
 ## Interactive PTY Sessions
 
-### `pty(command, args=None, cwd=None, env=None, columns=80, rows=24, *, expansion=Expansion.CONTENT)`
+### `pty(command, args=None, cwd=None, env=None, columns=80, rows=24, *, default_expansion=Expansion.CONTENT)`
 Spawn an interactive PTY (pseudo-terminal) session. Returns a PtyNode.
 
 Use this for interactive CLI programs that need a real terminal: debuggers, REPLs,
@@ -479,7 +483,7 @@ response = await fetch("https://api.example.com/data")
 
 ## File Locking
 
-### `lock_file(lockfile, timeout=30.0, *, expansion=Expansion.HEADER)`
+### `lock_file(lockfile, timeout=30.0, *, default_expansion=Expansion.HEADER)`
 Acquire an exclusive file lock asynchronously for coordination. Returns a LockNode.
 
 The lock uses OS-level file locking (fcntl on Unix, msvcrt on Windows).
@@ -564,7 +568,7 @@ entries = work_list()
 
 ## MCP (Model Context Protocol)
 
-### `mcp_connect(name, *, command=None, url=None, env=None, expansion=Expansion.ALL)`
+### `mcp_connect(name, *, command=None, url=None, env=None, default_expansion=Expansion.ALL)`
 Connect to an MCP server. Returns an MCPServerNode.
 
 ```python

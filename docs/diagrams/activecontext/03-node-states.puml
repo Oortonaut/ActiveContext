@@ -1,93 +1,102 @@
-@startuml Node_States
+@startuml Expansion_Visibility
 !theme plain
 skinparam backgroundColor #FEFEFE
 
-title ActiveContext - NodeState Visibility Model
+title ActiveContext - Expansion and Visibility Model
 
-state "NodeState" as NS {
-  
-  state "HIDDEN" as H : Not in projection
-  state "COLLAPSED" as C : Metadata only\n~50 tokens
-  state "SUMMARY" as S : Agent summary\nVariable tokens
-  state "DETAILS" as D : Full content\nRespects budget
-  state "ALL" as A : Summary + Details\nMax visibility
+state "Expansion (on NodeView)" as Exp {
 
-  [*] --> D : default
-  
-  H --> C : SetState(COLLAPSED)
-  H --> S : SetState(SUMMARY)
-  H --> D : SetState(DETAILS)
-  H --> A : SetState(ALL)
-  
-  C --> H : SetState(HIDDEN)
-  C --> S : SetState(SUMMARY)
-  C --> D : SetState(DETAILS)
-  C --> A : SetState(ALL)
-  
-  S --> H : SetState(HIDDEN)
-  S --> C : SetState(COLLAPSED)
-  S --> D : SetState(DETAILS)
-  S --> A : SetState(ALL)
-  
-  D --> H : SetState(HIDDEN)
-  D --> C : SetState(COLLAPSED)
-  D --> S : SetState(SUMMARY)
-  D --> A : SetState(ALL)
-  
-  A --> H : SetState(HIDDEN)
-  A --> C : SetState(COLLAPSED)
-  A --> S : SetState(SUMMARY)
-  A --> D : SetState(DETAILS)
+  state "HEADER" as H : Metadata only\n~50 tokens
+  state "CONTENT" as C : Main content/summary\nDefault for groups
+  state "INDEX" as I : Content + section headings
+  state "ALL" as A : Full content + children\nDefault for text views
+
+  [*] --> A : default (text)
+  [*] --> C : default (group)
+
+  H --> C : view.expansion = CONTENT
+  H --> I : view.expansion = INDEX
+  H --> A : view.expansion = ALL
+
+  C --> H : view.expansion = HEADER
+  C --> I : view.expansion = INDEX
+  C --> A : view.expansion = ALL
+
+  I --> H : view.expansion = HEADER
+  I --> C : view.expansion = CONTENT
+  I --> A : view.expansion = ALL
+
+  A --> H : view.expansion = HEADER
+  A --> C : view.expansion = CONTENT
+  A --> I : view.expansion = INDEX
 }
 
 note right of H
-  **HIDDEN**
-  - Node exists in graph
-  - Still ticked (async ops continue)
-  - Not rendered to projection
-  - Children also hidden
+  **HEADER**
+  - Title + node type
+  - Token counts
+  - Basic metadata
+  - Children NOT rendered
 end note
 
 note right of C
-  **COLLAPSED**
-  - Minimal footprint
-  - Type + ID + basic metadata
-  - Token info shown
+  **CONTENT**
+  - Main node content
+  - Summary if available
   - Children NOT rendered
+  - Good for groups
 end note
 
-note right of S
-  **SUMMARY**
-  - Agent-generated summary
-  - Truncated to token budget
-  - Children NOT rendered
-  - "[no summary]" if unavailable
-end note
-
-note right of D
-  **DETAILS**
-  - Full content rendered
-  - Respects token budget
-  - Children ARE rendered
-  - Uses child_order
+note right of I
+  **INDEX**
+  - Content + child headers
+  - Navigation outline
+  - Children partially rendered
 end note
 
 note right of A
   **ALL**
-  - Summary + Details combined
+  - Full content
+  - Children fully rendered
   - Maximum information
-  - Children ARE rendered
-  - Includes traces/metadata
+end note
+
+state "Visibility (on NodeView)" as Vis {
+
+  state "Visible" as V : view.hidden = False\nAppears in projection
+  state "Hidden" as HID : view.hidden = True\nNot in projection
+
+  [*] --> V : default
+
+  V --> HID : view.hidden = True
+  HID --> V : view.hidden = False
+}
+
+note right of HID
+  **Hidden nodes:**
+  - Not rendered to projection
+  - Still ticked if running
+  - State preserved
+  - Children also hidden
 end note
 
 legend right
+  **Key Concepts**
+
+  | Concept | Owner | Controls |
+  | default_expansion | ContextNode | Initial expansion |
+  | expansion | NodeView | Current expansion |
+  | hidden | NodeView | Visibility |
+
   **Rendering Rules**
-  | State | Self | Children |
-  | HIDDEN | No | No |
-  | COLLAPSED | Yes | No |
-  | SUMMARY | Yes | No |
-  | DETAILS | Yes | Yes |
-  | ALL | Yes | Yes |
+  | Expansion | Self | Children |
+  | HEADER | Yes | No |
+  | CONTENT | Yes | No |
+  | INDEX | Yes | Headers only |
+  | ALL | Yes | Full |
+
+  Hidden nodes: Never rendered
+  (regardless of expansion)
 endlegend
 
 @enduml

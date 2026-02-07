@@ -6,12 +6,12 @@ Configures reference documentation and mode scripts.
 ## Reference Documentation
 
 ```python/acrepl
-markdown("@prompts/context_guide.md", expansion=Expansion.ALL)
-# markdown("@prompts/dsl_reference.md", expansion=Expansion.ALL)
-markdown("@prompts/node_states.md", expansion=Expansion.ALL)
-markdown("@prompts/context_graph.md", expansion=Expansion.ALL)
-markdown("@prompts/work_coordination.md", expansion=Expansion.ALL)
-markdown("@prompts/mcp.md", expansion=Expansion.ALL)
+markdown("@prompts/context_guide.md", default_expansion=Expansion.ALL)
+# markdown("@prompts/dsl_reference.md", default_expansion=Expansion.ALL)
+markdown("@prompts/node_states.md", default_expansion=Expansion.ALL)
+markdown("@prompts/context_graph.md", default_expansion=Expansion.ALL)
+markdown("@prompts/work_coordination.md", default_expansion=Expansion.ALL)
+markdown("@prompts/mcp.md", default_expansion=Expansion.ALL)
 ```
 
 ## Mode Scripts

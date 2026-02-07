@@ -8,7 +8,9 @@ PlantUML diagrams documenting the internal architecture of ActiveContext - the c
 |------|-------------|
 | `01-projection-engine.puml` | How ProjectionEngine builds projections from the context graph |
 | `02-context-graph.puml` | ContextGraph DAG structure and node types |
-| `03-node-states.puml` | NodeState visibility model and rendering rules |
+| `03-node-states.puml` | Expansion and visibility model |
+| `04-ownership-structure.puml` | Session/Timeline/Manager ownership structure |
+| `05-node-view-architecture.puml` | NodeView layer and progression views |
 
 ## Key Concepts
 
@@ -17,31 +19,51 @@ PlantUML diagrams documenting the internal architecture of ActiveContext - the c
 The `ProjectionEngine` transforms the context graph into a `Projection` that gets sent to the LLM:
 
 1. **Collect Render Path** - Traverse graph respecting visibility rules
-2. **Render Path** - Convert nodes to `ProjectionSection` strings
+2. **Render Path** - Convert nodes to `ProjectionSection` strings via NodeView
 3. **Assemble Projection** - Bundle sections with handles for incremental updates
 
 ### Context Graph
 
-A directed acyclic graph (DAG) of `ContextNode` objects:
+A directed acyclic graph (DAG) of `ContextNode` objects in `context/nodes/`:
 
 - **TextNode** - File views with position tracking
 - **GroupNode** - Summary facades over children
 - **MessageNode** - Conversation messages
 - **ShellNode** - Async shell commands
+- **PtyNode** - Interactive PTY sessions
 - **MCPServerNode** - MCP tool connections
+- **LockNode** - File lock coordination
+- **PluginManagerNode** - Plugin server tracking
+- **TraceNode** - Statement execution traces
 - **TopicNode**, **ArtifactNode**, **WorkNode**, etc.
 
-### NodeState Visibility
+### NodeView Layer
 
-Controls how nodes appear in projections:
+DSL functions return `NodeView` wrappers, not raw `ContextNode`:
 
-| State | Renders Self | Renders Children |
-|-------|--------------|------------------|
-| HIDDEN | No | No |
-| COLLAPSED | Yes (~50 tokens) | No |
-| SUMMARY | Yes (summary) | No |
-| DETAILS | Yes (full) | Yes |
-| ALL | Yes (summary + full) | Yes |
+- **NodeView owns**: `hidden`, `expansion`, `notifications`
+- **ContextNode owns**: `default_expansion`, `content`, `mode`, `tick_frequency`
+
+Progression views provide structured workflow patterns:
+- **ChoiceView** - Dropdown-like selection
+- **SequenceView** - Ordered steps
+- **LoopView** - Iterative refinement
+- **StateView** - State machine navigation
+
+### Expansion and Visibility
+
+**Expansion** (on NodeView) controls rendering detail:
+
+| Expansion | Renders Self | Renders Children |
+|-----------|--------------|------------------|
+| HEADER | Yes (~50 tokens) | No |
+| CONTENT | Yes (content) | No |
+| INDEX | Yes (content) | Headers only |
+| ALL | Yes (full) | Yes |
+
+**Visibility** (on NodeView) controls projection inclusion:
+- `view.hidden = True` - Node excluded from projection (still ticks)
+- `view.hidden = False` - Node included in projection
 
 ## Rendering
 
@@ -58,7 +80,7 @@ Quick start:
 
 - `src/activecontext/core/projection_engine.py` - ProjectionEngine
 - `src/activecontext/context/graph.py` - ContextGraph
-- `src/activecontext/context/nodes.py` - All node types
-- `src/activecontext/context/state.py` - NodeState enum
-- `src/activecontext/context/view.py` - AgentView rendering
+- `src/activecontext/context/nodes/` - Node type package
+- `src/activecontext/context/state.py` - Expansion, TickFrequency enums
+- `src/activecontext/context/view.py` - NodeView and progression views
 - `src/activecontext/session/protocols.py` - Projection dataclass

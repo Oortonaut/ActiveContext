@@ -50,20 +50,25 @@ Nodes with no parents are "root nodes". The projection engine starts rendering f
 
 ## Node Types
 
-| Type | Purpose | Typical State |
-|------|---------|---------------|
-| `TextNode` | File content | DETAILS |
-| `GroupNode` | Summary of children | SUMMARY |
-| `TopicNode` | Conversation segment | DETAILS |
-| `ArtifactNode` | Code/output/error | DETAILS |
-| `ShellNode` | Command execution | DETAILS |
-| `SessionNode` | Session metadata | COLLAPSED |
-| `WorkNode` | Work coordination | DETAILS |
-| `MessageNode` | Conversation message | DETAILS |
-| `LockNode` | File lock for coordination | COLLAPSED |
-| `MCPServerNode` | MCP server connection | DETAILS |
-| `MCPToolNode` | MCP tool definition | COLLAPSED |
-| `MarkdownNode` | Parsed markdown structure | DETAILS |
+| Type | Purpose | Default Expansion |
+|------|---------|-------------------|
+| `TextNode` | File content | ALL |
+| `GroupNode` | Summary of children | CONTENT |
+| `TopicNode` | Conversation segment | ALL |
+| `ArtifactNode` | Code/output/error | ALL |
+| `ShellNode` | Command execution | ALL |
+| `PtyNode` | Interactive PTY session | CONTENT |
+| `SessionNode` | Session metadata | HEADER |
+| `WorkNode` | Work coordination | ALL |
+| `MessageNode` | Conversation message | ALL |
+| `LockNode` | File lock for coordination | HEADER |
+| `MCPServerNode` | MCP server connection | ALL |
+| `MCPToolNode` | MCP tool definition | HEADER |
+| `MarkdownNode` | Parsed markdown structure | ALL |
+| `PluginManagerNode` | Plugin server tracking | HEADER |
+| `TraceNode` | Statement execution trace | CONTENT |
+| `StatementNode` | Executed statement | CONTENT |
+| `HelpNode` | Help documentation | CONTENT |
 
 ## Manipulation
 
@@ -75,9 +80,11 @@ g = group(v)                  # Creates group with v as child
 
 ### Linking/Unlinking
 ```python
-link(parent, child)           # Add edge
-unlink(parent, child)         # Remove edge
+link(child, parent)           # Add edge (child first, parent second)
+unlink(child, parent)         # Remove edge
 ```
+
+Note: Argument order is `(child, parent)` - the child comes first.
 
 ### Checkpointing
 Save and restore DAG structure (edges), not content:
@@ -108,6 +115,8 @@ The projection engine walks the graph from roots:
 3. Render each node according to its state
 4. Concatenate into final context
 
-Groups render differently based on state:
-- `SUMMARY`: Show cached summary (or children if stale)
-- `DETAILS`: Render all children
+Groups render differently based on expansion:
+- `HEADER`: Metadata only
+- `CONTENT`: Show cached summary (or children if stale)
+- `INDEX`: Summary plus child headers
+- `ALL`: Render all children recursively

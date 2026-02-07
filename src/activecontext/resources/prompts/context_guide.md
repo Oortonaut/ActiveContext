@@ -35,7 +35,7 @@ A **text view** is a window into a file. The view appears in your context on the
 | `path`    | required   | File path (relative to session cwd)              |
 | `pos`     | `"1:0"`    | Start position as `"line:col"`                   |
 | `end_pos` | `None`     | End position as `"line:col"` (limits view range) |
-| `expansion` | `ALL` | Rendering expansion (HEADER, CONTENT, INDEX, ALL) |
+| `default_expansion` | `ALL` | Rendering expansion (HEADER, CONTENT, INDEX, ALL) |
 | `mode`    | `"paused"` | `"paused"` or `"running"`                        |
 
 ### Text Methods
@@ -69,7 +69,7 @@ Each heading section becomes a separate TextNode with its line range.
 A **group** summarizes multiple views:
 
 ```python/acrepl
-g = group(v1, v2, v3, expansion=Expansion.CONTENT)
+g = group(v1, v2, v3, default_expansion=Expansion.CONTENT)
 ```
 
 Groups are useful for maintaining awareness of related files without consuming too many tokens.
@@ -106,7 +106,7 @@ utils = text("src/utils.py")
 config = text("config.yaml")
 
 # Group them for a summary
-overview = group(main, utils, config, expansion=Expansion.CONTENT)
+overview = group(main, utils, config, default_expansion=Expansion.CONTENT)
 ```
 
 ## How Context Works

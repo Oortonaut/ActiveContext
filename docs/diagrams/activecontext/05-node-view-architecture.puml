@@ -1,0 +1,172 @@
+@startuml Node_View_Architecture
+!theme plain
+skinparam backgroundColor #FEFEFE
+
+title ActiveContext - Node/View Architecture
+
+package "View Layer" as ViewLayer {
+
+  class NodeView {
+    +node: ContextNode
+    +hidden: bool
+    +expansion: Expansion
+    +notify_prompt: str?
+    +_notifications: list[Notification]
+    --
+    +render() -> str
+    +render_header() -> str
+    +visible_tokens: int
+    +Run(freq) -> NodeView
+    +Pause() -> NodeView
+    +queue_notification(n)
+    +pop_notifications()
+    +has_wake_notification()
+  }
+
+  class ChoiceView {
+    +_selected_id: str?
+    --
+    +select(child_id) -> ChoiceView
+    +get_options() -> list[str]
+    +apply_selection(views)
+    +render_index() -> str
+    +render_digest() -> str
+  }
+
+  class SequenceView {
+    +_current_index: int
+    +_completed_steps: set[int]
+    --
+    +advance() -> SequenceView
+    +back() -> SequenceView
+    +mark_complete()
+    +skip()
+    +goto(index)
+    +progress: str
+    +is_complete: bool
+    +render_progress() -> str
+  }
+
+  class LoopView {
+    +_iteration: int
+    +_state: dict
+    +_done: bool
+    +_max_iterations: int?
+    --
+    +iterate(**updates) -> LoopView
+    +update_state(**updates)
+    +done() -> LoopView
+    +reset() -> LoopView
+    +is_done: bool
+    +iterations_remaining: int?
+    +render_header() -> str
+    +render_state() -> str
+  }
+
+  class StateView {
+    +_states: dict[str, str]
+    +_transitions: dict[str, list[str]]
+    +_current_state: str
+    +_state_history: list[str]
+    --
+    +transition(to_state) -> StateView
+    +force_transition(to_state)
+    +reset() -> StateView
+    +can_transition(to_state): bool
+    +valid_transitions: list[str]
+    +render_header() -> str
+  }
+
+  NodeView <|-- ChoiceView
+  ChoiceView <|-- SequenceView
+  ChoiceView <|-- StateView
+  NodeView <|-- LoopView
+}
+
+package "Node Layer" as NodeLayer {
+
+  abstract class ContextNode {
+    +node_id: str
+    +node_type: str
+    +title: str
+    +default_expansion: Expansion
+    +default_hidden: bool
+    +mode: str
+    +tick_frequency: TickFrequency
+    +child_order: LinkedChildOrder
+    --
+    +render_content() -> str
+    +render_digest() -> str
+    +get_token_breakdown() -> TokenInfo
+    +Tick() -> bool
+    +Run(freq)
+    +Pause()
+  }
+
+  class TextNode {
+    +path: str
+    +pos: str
+    +content: str
+  }
+
+  class GroupNode {
+    +summary: str
+    +members: list[str]
+  }
+
+  class ShellNode {
+    +command: str
+    +output: str
+    +exit_code: int?
+    +is_complete: bool
+  }
+
+  ContextNode <|-- TextNode
+  ContextNode <|-- GroupNode
+  ContextNode <|-- ShellNode
+}
+
+' Key relationship: View wraps Node
+NodeView o-- ContextNode : wraps >
+
+note right of NodeView
+  **View owns:**
+  - hidden (visibility)
+  - expansion (render level)
+  - notifications
+
+  **Node owns:**
+  - default_expansion
+  - content/data
+  - mode (running/paused)
+  - tick_frequency
+
+  **Forwarding:**
+  view.foo -> view.node.foo
+  (if foo not a view field)
+end note
+
+note bottom of SequenceView
+  **Progression Views**
+  Structured workflow patterns:
+  - SequenceView: ordered steps
+  - LoopView: iterative refinement
+  - StateView: state machine
+  - ChoiceView: dropdown selection
+end note
+
+package "Registry" as Registry {
+  class _VIEW_TYPES <<singleton>> {
+    +"NodeView": NodeView
+    +"ChoiceView": ChoiceView
+    +"SequenceView": SequenceView
+    +"LoopView": LoopView
+    +"StateView": StateView
+  }
+
+  class view_from_dict <<function>> {
+    (data, node) -> NodeView
+  }
+}
+
+@enduml
